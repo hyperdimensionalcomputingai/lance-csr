@@ -1,2 +1,4 @@
 [toolchain]
 channel = "1.96.0"
+# Installed with the toolchain, so CI's clippy and fmt checks work on the pinned version.
+components = ["clippy", "rustfmt"]
