@@ -60,9 +60,10 @@ jobs:
           # protoc is needed by Lance's build scripts, not by wheel users.
           sudo apt-get update
           sudo apt-get install -y protobuf-compiler
-          # maturin finds zig through `python3 -m ziglang`: put a Python that has it first on PATH.
+          # The ziglang package ships a zig binary: put its directory on PATH, where maturin
+          # looks first. (Not the tool's python3, which has no pip for maturin-action to use.)
           uv tool install ziglang
-          echo "$(uv tool dir)/ziglang/bin" >> "$GITHUB_PATH"
+          "$(uv tool dir)/ziglang/bin/python" -c "import os, ziglang; print(os.path.dirname(ziglang.__file__))" >> "$GITHUB_PATH"
 
       - name: Build manylinux_2_28 x86-64 wheel
         uses: PyO3/maturin-action@04ac600d27cdf7a9a280dadf7147097c42b757ad # v1
