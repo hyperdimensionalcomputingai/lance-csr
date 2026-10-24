@@ -1,0 +1,119 @@
+[project]
+site_name = "lance-csr"
+site_description = "A fast, embedded Cypher graph query engine over Lance datasets, with a CSR adjacency index"
+site_author = "The lance-csr Authors"
+copyright = "Copyright &copy; The lance-csr Authors. Apache 2.0 licensed."
+repo_url = "https://github.com/hyperdimensionalcomputingai/lance-csr"
+repo_name = "hyperdimensionalcomputingai/lance-csr"
+edit_uri = "edit/main/docs/"
+docs_dir = "docs"
+site_dir = "site"
+# Tooling and brand sources that sit next to the pages but are not pages.
+exclude_docs = """
+AGENTS.md
+check_snippets.py
+pyproject.toml
+uv.lock
+overrides/
+assets/brand/README.md
+assets/brand/preview.*
+"""
+extra_css = ["stylesheets/extra.css"]
+
+nav = [
+  { "Home" = "index.md" },
+  { "Getting started" = "getting-started.md" },
+  { "Guide" = [
+    { "Graph schema" = "graph-schema.md" },
+    { "Querying with Cypher" = "cypher.md" },
+    { "The CSR index" = "csr.md" },
+    { "Lance datasets" = "lance.md" },
+    { "Vector search" = "vector-search.md" },
+    { "SQL queries" = "sql.md" },
+  ] },
+  { "How it works" = "execution.md" },
+  { "API reference" = "api-reference.md" },
+  { "Benchmarks" = "benchmarks.md" },
+  { "Contributing" = [
+    { "Contributing" = "contributing.md" },
+    { "Project structure" = "project_structure.md" },
+  ] },
+]
+
+[project.theme]
+custom_dir = "docs/overrides"
+language = "en"
+favicon = "assets/brand/favicon.svg"
+features = [
+  "content.action.edit",
+  "content.code.annotate",
+  "content.code.copy",
+  "content.tabs.link",
+  "content.tooltips",
+  "navigation.footer",
+  "navigation.indexes",
+  "navigation.instant",
+  "navigation.path",
+  "navigation.sections",
+  "navigation.top",
+  "navigation.tracking",
+  "search.highlight",
+  "toc.follow",
+]
+
+[project.theme.font]
+text = "Inter"
+code = "JetBrains Mono"
+
+# Two-way toggle between light and dark. Until a reader toggles, the media queries
+# pick the scheme that matches their system setting.
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+primary = "custom"
+accent = "custom"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+primary = "custom"
+accent = "custom"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to light mode"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/github"
+link = "https://github.com/hyperdimensionalcomputingai/lance-csr"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/python"
+link = "https://pypi.org/project/lance-csr/"
+
+[project.markdown_extensions]
+abbr = {}
+admonition = {}
+attr_list = {}
+def_list = {}
+footnotes = {}
+md_in_html = {}
+tables = {}
+toc.permalink = true
+pymdownx.betterem = {}
+pymdownx.details = {}
+pymdownx.emoji.emoji_generator = "zensical.extensions.emoji.to_svg"
+pymdownx.emoji.emoji_index = "zensical.extensions.emoji.twemoji"
+pymdownx.highlight.anchor_linenums = true
+pymdownx.highlight.line_spans = "__span"
+pymdownx.highlight.pygments_lang_class = true
+pymdownx.inlinehilite = {}
+pymdownx.keys = {}
+pymdownx.mark = {}
+pymdownx.smartsymbols = {}
+pymdownx.superfences.custom_fences = [
+  { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
+]
+pymdownx.tabbed.alternate_style = true
+pymdownx.tabbed.combine_header_slug = true
+pymdownx.tasklist.custom_checkbox = true

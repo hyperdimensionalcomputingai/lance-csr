@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+
+{#- favicon.svg follows the OS colour scheme; the ICO covers browsers without SVG favicons. -#}
+{% block extrahead %}
+  <link rel="icon" href="{{ 'assets/brand/favicon.ico' | url }}" sizes="any">
+{% endblock %}
