@@ -1,28 +1,34 @@
 UV ?= uv
 PYTHON ?= 3.12
-PYTEST_ARGS ?= -vv -s
+VENV ?= .venv
+PYTEST_ARGS ?= -q
+BIN := $(VENV)/bin
 
-export PATH := $(HOME)/.local/bin:$(PATH)
+.PHONY: venv install test lint format wheel clean
 
-.PHONY: venv install test lint clean publish
-
+# A virtual environment for development.
 venv:
-	$(UV) venv --python $(PYTHON) .venv
+	$(UV) venv --python $(PYTHON) $(VENV)
 
+# Debug build of the extension, installed with the test and lint tools.
 install:
-	$(UV) pip install --project . --editable . --extra tests
+	$(UV) pip install --python $(BIN)/python 'maturin[patchelf]'
+	VIRTUAL_ENV=$(abspath $(VENV)) $(BIN)/maturin develop --extras tests,dev
 
 test:
-	$(UV) run --project . --with tests pytest $(PYTEST_ARGS) python/python/tests/test_graph.py
+	$(BIN)/pytest $(PYTEST_ARGS) python/tests
 
 lint:
-	$(UV) run --project . --with dev ruff check python
-	$(UV) run --project . --with dev ruff format --check python
-	$(UV) run --project . --with dev pyright
+	$(BIN)/ruff check python
+	$(BIN)/ruff format --check python
+	$(BIN)/pyright
+
+format:
+	$(BIN)/ruff format python
+
+# Release wheel and sdist for this platform, in dist/ (CI builds the published ones).
+wheel:
+	VIRTUAL_ENV=$(abspath $(VENV)) $(BIN)/maturin build --release --out dist --sdist
 
 clean:
-	rm -rf .venv
-	rm -rf ../target
-
-publish:
-	maturin build --release --out dist --sdist
+	rm -rf $(VENV) dist ../crates/lance-graph-python/target

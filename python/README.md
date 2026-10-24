@@ -187,40 +187,17 @@ r2 = engine.execute(
 
 ## Contributing
 
-### Quick start
+Building from source needs Rust (through rustup), `protoc` and uv; see [DEVELOPMENT.md](./DEVELOPMENT.md).
 
 ```bash
 cd python
-uv venv --python 3.12 .venv
-source .venv/bin/activate
-uv pip install maturin[patchelf]
-uv pip install -e '.[tests]'
-maturin develop
-pytest python/tests/ -v
+make venv       # uv venv --python 3.12 .venv
+make install    # maturin develop --extras tests,dev
+make test       # pytest python/tests
+make lint       # ruff and pyright
 ```
 
-### Development workflow
-
-For linting and type checks:
-
-```bash
-# Install dev dependencies
-uv pip install -e '.[dev]'
-
-# Run linters and type checker
-ruff format python/              # format code
-ruff check python/               # lint code
-pyright                          # type check
-
-# Run specific tests
-pytest python/tests/test_graph.py::test_basic_node_selection -v
-
-# Rebuild extension after Rust changes
-maturin develop
-```
-
-> If another virtual environment is already active, run `deactivate` (or
-> `unset VIRTUAL_ENV`) before invoking `uv run` so uv binds to `.venv`.
+Re-run `make install` (or `maturin develop`) after changing Rust code; Python changes apply immediately.
 
 ## Repository layout
 

@@ -9,15 +9,14 @@
 - `examples/` demonstrates Cypher usage; update or add examples when introducing new public APIs.
 
 ## Build, Test, and Development Commands
-- `cargo check` / `cargo test --all` (run inside `crates/lance-graph`) validate Rust code paths.
+- `cargo test --workspace` (from the repository root) runs the Rust tests; building needs `protoc`.
 - `cargo bench --bench graph_execution -p lance-graph-benches` measures performance-critical changes; include shortened runs with `--warm-up-time 1`.
-- `uv venv --python 3.12 .venv` and `uv pip install -e '.[tests]'` bootstrap the Python workspace.
-- `maturin develop` rebuilds the extension after Rust edits; `pytest python/python/tests/ -v` exercises Python bindings.
-- `make lint` (in `python/`) runs `ruff`, formatting checks, and `pyright`.
+- In `python/`: `make venv` and `make install` (`maturin develop --extras tests,dev`) bootstrap the Python environment with a debug build; re-run `make install` after Rust edits.
+- `make test` runs the Python tests; `make lint` runs `ruff`, formatting checks, and `pyright`.
 
 ## Coding Style & Naming Conventions
 - Format Rust with `cargo fmt --all`; keep modules and functions snake_case, types PascalCase, and reuse `snafu` error patterns.
-- Run `cargo clippy --all-targets --all-features` to catch lint regressions.
+- Run `cargo clippy --workspace --all-targets -- -D warnings` to catch lint regressions, as CI does.
 - Use 4-space indentation in Python; maintain snake_case modules, CamelCase classes, and type-annotated public APIs.
 - Apply `ruff format python/` before committing; `ruff check` and `pyright` enforce import hygiene and typing.
 

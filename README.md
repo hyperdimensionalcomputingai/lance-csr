@@ -59,20 +59,6 @@ DataFusion as extension operators, falling back to a join for any hop the CSR ca
 
 See [`docs/project_structure.md`](docs/project_structure.md) for the full workspace layout.
 
-## Prerequisites
-
-- Rust toolchain (`rust-toolchain.toml` pins the version; rustup installs it automatically)
-- Python 3.12 or newer
-- [`uv`](https://docs.astral.sh/uv/) available on your `PATH`
-
-## Rust crate quick start
-
-```bash
-cd crates/lance-graph
-cargo check
-cargo test
-```
-
 ## Install
 
 ```bash
@@ -82,20 +68,39 @@ pip install lance-csr
 Prebuilt wheels cover Linux x86-64 and native Apple Silicon (CPython 3.12+); no Rust toolchain is needed.
 See [`python/README.md`](python/README.md) for details and usage.
 
-## Python package quick start (from source)
+## Build from source
+
+You need:
+
+- Rust, through [rustup](https://rustup.rs): `rust-toolchain.toml` pins the version, and rustup installs it on the
+  first build.
+- `protoc`, which Lance's build needs: `brew install protobuf` on macOS, or
+  `sudo apt-get install -y protobuf-compiler` on Debian and Ubuntu.
+- Python 3.12 or newer, and [`uv`](https://docs.astral.sh/uv/).
+
+Rust crates, from the repository root:
+
+```bash
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --all --check
+```
+
+Python package, from `python/`:
 
 ```bash
 cd python
-uv venv --python 3.12 .venv      # create the local virtualenv
-source .venv/bin/activate         # activate the virtual environment
-uv pip install 'maturin[patchelf]' # install build tool
-uv pip install -e '.[tests]'     # editable install with test extras
-maturin develop                   # build and install the Rust extension
-pytest python/tests/ -v          # run the test suite
+uv venv --python 3.12 .venv
+source .venv/bin/activate
+uv pip install 'maturin[patchelf]'
+maturin develop --extras tests,dev   # builds the extension, installs lance-csr with test and lint tools
+pytest python/tests                  # run the tests
+make lint                            # ruff and pyright
 ```
 
-> If another virtual environment is already active, run `deactivate` (or
-> `unset VIRTUAL_ENV`) before the `uv run` command so uv binds to `.venv`.
+`maturin develop` makes a debug build, which compiles quickly; re-run it after changing Rust code. For timing
+queries, build with `maturin develop --release` instead: release builds use thin LTO and take several minutes.
+See [`python/DEVELOPMENT.md`](python/DEVELOPMENT.md) for more.
 
 ## Python example: Cypher query
 
