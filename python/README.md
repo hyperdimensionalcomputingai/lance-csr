@@ -11,7 +11,7 @@ pip install lance-csr
 ```
 
 Prebuilt wheels are published for Linux x86-64 (glibc 2.28 or newer: RHEL 8, Ubuntu 20.04 and later)
-and native Apple Silicon (macOS 11 or newer), for CPython 3.11 and later. Installing from a wheel needs
+and native Apple Silicon (macOS 11 or newer), for CPython 3.12 and later. Installing from a wheel needs
 no Rust toolchain; to make sure pip never falls back to compiling from source, use:
 
 ```bash
@@ -182,7 +182,7 @@ r2 = engine.execute(
 
 ## Requirements
 
-- Python 3.11 or 3.12 (tested); macOS arm64 or Linux x86-64
+- Python 3.12 or newer (3.12, 3.13 and 3.14 tested); macOS arm64 or Linux x86-64
 - `pylance` 13.x for writing Lance datasets
 
 ## Contributing
@@ -191,7 +191,7 @@ r2 = engine.execute(
 
 ```bash
 cd python
-uv venv --python 3.11 .venv
+uv venv --python 3.12 .venv
 source .venv/bin/activate
 uv pip install maturin[patchelf]
 uv pip install -e '.[tests]'

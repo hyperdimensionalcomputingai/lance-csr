@@ -11,7 +11,7 @@
 ## Build, Test, and Development Commands
 - `cargo check` / `cargo test --all` (run inside `crates/lance-graph`) validate Rust code paths.
 - `cargo bench --bench graph_execution -p lance-graph-benches` measures performance-critical changes; include shortened runs with `--warm-up-time 1`.
-- `uv venv --python 3.11 .venv` and `uv pip install -e '.[tests]'` bootstrap the Python workspace.
+- `uv venv --python 3.12 .venv` and `uv pip install -e '.[tests]'` bootstrap the Python workspace.
 - `maturin develop` rebuilds the extension after Rust edits; `pytest python/python/tests/ -v` exercises Python bindings.
 - `make lint` (in `python/`) runs `ruff`, formatting checks, and `pyright`.
 

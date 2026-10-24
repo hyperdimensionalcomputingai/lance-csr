@@ -9,7 +9,7 @@ description = "Cypher graph queries over Lance datasets, built on DataFusion wit
 authors = [{ name = "Lance Devs", email = "dev@lancedb.com" }]
 license = { file = "LICENSE" }
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 keywords = ["graph", "cypher", "lance", "arrow"]
 categories = ["database", "science"]
 classifiers = [
@@ -21,8 +21,9 @@ classifiers = [
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Programming Language :: Rust",
     "Topic :: Scientific/Engineering",
 ]

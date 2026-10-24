@@ -17,7 +17,7 @@ issue #92.
 ## Prerequisites
 
 - Rust toolchain (1.82 or newer recommended)
-- Python 3.11
+- Python 3.12 or newer
 - [`uv`](https://docs.astral.sh/uv/) available on your `PATH`
 
 ## Rust crate quick start
@@ -34,14 +34,14 @@ cargo test
 pip install lance-csr
 ```
 
-Prebuilt wheels cover Linux x86-64 and native Apple Silicon (CPython 3.11+); no Rust toolchain is needed.
+Prebuilt wheels cover Linux x86-64 and native Apple Silicon (CPython 3.12+); no Rust toolchain is needed.
 See [`python/README.md`](python/README.md) for details and usage.
 
 ## Python package quick start (from source)
 
 ```bash
 cd python
-uv venv --python 3.11 .venv      # create the local virtualenv
+uv venv --python 3.12 .venv      # create the local virtualenv
 source .venv/bin/activate         # activate the virtual environment
 uv pip install 'maturin[patchelf]' # install build tool
 uv pip install -e '.[tests]'     # editable install with test extras
