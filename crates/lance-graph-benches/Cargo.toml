@@ -1,12 +1,12 @@
 [package]
 name = "lance-graph-benches"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 publish = false
 description = "Benchmarks for lance-graph (not published)"
 
 [dependencies]
-lance-graph = { path = "../lance-graph", version = "0.1.0" }
+lance-graph = { path = "../lance-graph", version = "0.2.0" }
 lance = "13.0.0"
 arrow-array = "58"
 arrow-schema = "58"
