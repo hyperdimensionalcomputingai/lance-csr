@@ -34,7 +34,7 @@ DataFusion as extension operators, falling back to a join for any hop the CSR ca
 
 lance-csr exists thanks to the maintainers and contributors of lance-graph, who built the foundation it stands on:
 the Cypher parser, semantic analysis, the DataFusion planner, the graph configuration and the Python bindings.
-See [`NOTICE`](NOTICE) for the fork point. lance-csr is not affiliated with or endorsed by the lance-graph
+See [`NOTICE`](NOTICE) for the fork point.
 maintainers.
 
 This repository contains:
