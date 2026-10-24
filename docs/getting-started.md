@@ -124,11 +124,11 @@ patterns then become array lookups instead of joins:
 ```python
 engine = CypherEngine(config, datasets, use_csr=True)
 
-fof = engine.execute("""
+friends_of_friends = engine.execute("""
     MATCH (a:Person {name: 'Alice'})-[:KNOWS]->()-[:KNOWS]->(c:Person)
     RETURN DISTINCT c.name AS friend_of_friend
 """)
-print(fof.to_pylist())  # [{'friend_of_friend': 'David'}]
+print(friends_of_friends.to_pylist())  # [{'friend_of_friend': 'David'}]
 ```
 
 !!! tip "When should I turn the CSR on?"

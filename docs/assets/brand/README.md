@@ -10,7 +10,7 @@ Option A: a sparse matrix extends into a compact lance. Light and dark variants 
 | Mobile emblem | `mobile-light.svg` | `mobile-dark.svg` | 128 × 96, 256 × 192 |
 | Favicon | `favicon-light.svg` | `favicon-dark.svg` | 16, 32, 48 px square |
 
-All SVGs and asset PNGs have transparent backgrounds. PNG filenames include their width. ICO files contain 16, 32 and 48 px versions; `favicon.ico` is the light-background fallback. `favicon.svg` follows the operating system's preferred colour scheme automatically. For a manually selected site theme, choose the matching explicit variant instead.
+All SVG and PNG assets have transparent backgrounds. PNG filenames include their width. ICO files contain 16, 32 and 48 px versions; `favicon.ico` is the light-background fallback. `favicon.svg` follows the operating system's preferred colour scheme automatically. For a manually selected site theme, choose the matching explicit variant instead.
 
 Use the desktop logo around 254–300 px wide, and the mobile emblem around 64 px wide. Preserve the aspect ratio and built-in clear space. The favicon reduces the matrix to three columns and four rows to preserve separation at tiny sizes; it is not a diagram of a specific dataset.
 
@@ -25,7 +25,7 @@ Use the desktop logo around 254–300 px wide, and the mobile emblem around 64 p
 
 ## Usage
 
-Use SVG for headers; PNGs are fallbacks for tools that do not accept SVG. Give linked header images `alt="lance-csr home"` and decorative duplicates `alt=""`.
+Use SVG for headers; PNG files are fallbacks for tools that do not accept SVG. Give linked header images `alt="lance-csr home"` and decorative duplicates `alt=""`.
 
 ```html
 <link rel="icon" href="/assets/brand/favicon.ico" sizes="any">
