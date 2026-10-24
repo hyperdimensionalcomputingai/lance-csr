@@ -16,10 +16,15 @@ process.
 The tables are generated from the repositories' committed results by `docs/sync_benchmarks.py`, which pins each
 repository to a commit.
 
-## LDBC SNB Interactive complex queries
+The Graph Data Council (GDC), formerly known as the Linked Data Benchmark Council (LDBC), maintains the
+Social Network Benchmark (SNB) used by both workloads below.
 
-[graph-benchmark-ldbc-complex](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc-complex) runs the
-14 complex read queries (IC1–IC14) of the LDBC Social Network Benchmark Interactive v1 workload over the SF1
+<a id="ldbc-snb-interactive-complex-queries"></a>
+
+## GDC SNB Interactive complex queries
+
+[GDC Interactive benchmark repository](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc-complex) runs the
+14 complex read queries (IC1–IC14) of the GDC Social Network Benchmark Interactive v1 workload over the SF1
 dataset, with one fixed parameter set per query and every result checked against a golden answer. lance-csr's
 [runner](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc-complex/tree/main/lance_csr) runs
 Neo4j's Cypher text for IC1–IC13 unchanged; IC14 replaces `reduce()`, which openCypher leaves out, with pattern
@@ -27,7 +32,7 @@ comprehensions.
 
 !!! warning "Independent, unaudited measurements"
 
-    These are not official LDBC Benchmark Results. They were measured on one machine; your hardware, data and
+    These are not official GDC Benchmark Results. They were measured on one machine; your hardware, data and
     queries will differ. Use the benchmark repository to reproduce them.
 
 Over the 14 queries, lance-csr's speed relative to each engine:
@@ -72,17 +77,19 @@ Over the 14 queries, lance-csr's speed relative to each engine:
 
 <!-- /bench:ic:notes -->
 
-## LDBC SNB SF1, 30-query workload
+<a id="ldbc-snb-sf1-30-query-workload"></a>
 
-[graph-benchmark-ldbc](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc) runs 30 custom Cypher
-queries over the LDBC Social Network Benchmark SF1 dataset (3.18M nodes, 17.3M relationships), with every result
+## GDC SNB SF1, 30-query workload
+
+[GDC SF1 benchmark repository](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc) runs 30 custom Cypher
+queries over the GDC Social Network Benchmark SF1 dataset (3.18M nodes, 17.3M relationships), with every result
 checked against an expected answer. lance-csr's
 [runner](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc/tree/main/lance_csr) runs the same
 query text and Lance datasets as the lance-graph runner.
 
 !!! warning "Independent, unaudited measurements"
 
-    These are not official LDBC Benchmark Results. They were measured on one machine; your hardware, data and
+    These are not official GDC Benchmark Results. They were measured on one machine; your hardware, data and
     queries will differ. Use the benchmark repository to reproduce them.
 
 Over the 30 queries, lance-csr's speed relative to each engine:

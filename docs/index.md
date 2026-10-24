@@ -93,7 +93,8 @@ print(result.to_pylist())  # [{'friend': 'Bob'}, {'friend': 'Carol'}]
     around them.
 
 ### openCypher coverage
-:   Supports enough Cypher to run the official [LDBC](https://ldbcouncil.org/) Interactive complex queries:
+:   The Graph Data Council (GDC), formerly known as the Linked Data Benchmark Council (LDBC), maintains the
+    [GDC Interactive complex queries](https://ldbcouncil.org/). lance-csr supports enough Cypher to run them:
     `OPTIONAL MATCH`, `EXISTS`, chained `WITH`, `UNWIND`, list and pattern comprehensions,
     relationship alternation, variable-length paths, `shortestPath` and `$parameters`.
 

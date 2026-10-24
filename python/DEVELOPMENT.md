@@ -76,8 +76,9 @@ Rust Criterion benchmarks live in the `lance-graph-benches` crate:
 cargo bench -p lance-graph-benches --bench graph_execution -- --warm-up-time 1
 ```
 
-For comparisons with other graph engines on LDBC SNB SF1, see
-[graph-benchmark-ldbc](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc).
+The Graph Data Council (GDC), formerly known as the Linked Data Benchmark Council (LDBC), maintains the
+Social Network Benchmark (SNB). For comparisons with other graph engines on GDC SNB SF1, see
+[GDC SF1 benchmark repository](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc).
 
 ## Building wheels
 
