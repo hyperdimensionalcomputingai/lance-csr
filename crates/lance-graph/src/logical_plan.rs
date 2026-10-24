@@ -218,6 +218,10 @@ pub struct LogicalPlanner<'a> {
     comprehensions: usize,
     /// The node label of each path variable's nodes, for `nodes(path)`.
     path_labels: HashMap<String, String>,
+    /// The rows a projection or WHERE started from, while its EXISTS marks and
+    /// comprehensions are being added: each is seeded from these, not from the rows with
+    /// the previous ones joined on, so planned copies grow linearly, not exponentially.
+    seed_source: Option<LogicalOperator>,
 }
 
 impl<'a> LogicalPlanner<'a> {
@@ -230,6 +234,7 @@ impl<'a> LogicalPlanner<'a> {
             node_lists: HashMap::new(),
             comprehensions: 0,
             path_labels: HashMap::new(),
+            seed_source: None,
         }
     }
 
@@ -405,7 +410,7 @@ impl<'a> LogicalPlanner<'a> {
     ) -> Result<LogicalOperator> {
         match clause {
             ReadingClause::Match(match_clause) if match_clause.optional => {
-                self.plan_optional_match(base, match_clause)
+                self.plan_optional_match(base, match_clause, None)
             }
             ReadingClause::Match(match_clause) => {
                 let plan = self.plan_match_clause_with_base(base, match_clause, filter)?;
@@ -644,7 +649,10 @@ impl<'a> LogicalPlanner<'a> {
         predicate: &BooleanExpression,
     ) -> Result<LogicalOperator> {
         let mut predicate = predicate.clone();
-        let input = self.rewrite_exists(input, &mut predicate)?;
+        let saved = self.seed_source.replace(input.clone());
+        let input = self.rewrite_exists(input, &mut predicate);
+        self.seed_source = saved;
+        let input = input?;
         self.resolve_boolean(&mut predicate);
         Ok(LogicalOperator::Filter {
             input: Box::new(input),
@@ -687,7 +695,8 @@ impl<'a> LogicalPlanner<'a> {
                 };
                 // The pattern's own new variables are local to the subquery.
                 let before = self.variables.clone();
-                let planned = self.plan_optional_match(Some(input), &inner);
+                let seed = self.seed_source.clone();
+                let planned = self.plan_optional_match(Some(input), &inner, seed);
                 self.variables = before;
                 let LogicalOperator::OptionalMatch {
                     input,
@@ -783,7 +792,8 @@ impl<'a> LogicalPlanner<'a> {
                 };
                 let before = self.variables.clone();
                 let planned = (|| -> Result<(LogicalOperator, ValueExpression)> {
-                    let planned = self.plan_optional_match(Some(input), &inner)?;
+                    let seed = self.seed_source.clone();
+                    let planned = self.plan_optional_match(Some(input), &inner, seed)?;
                     let mut value = (**map).clone();
                     let LogicalOperator::OptionalMatch {
                         input,
@@ -793,7 +803,10 @@ impl<'a> LogicalPlanner<'a> {
                     else {
                         unreachable!("plan_optional_match returns an OptionalMatch")
                     };
-                    let optional = self.rewrite_exists_in_value(*optional, &mut value)?;
+                    let saved = self.seed_source.replace((*optional).clone());
+                    let optional = self.rewrite_exists_in_value(*optional, &mut value);
+                    self.seed_source = saved;
+                    let optional = optional?;
                     self.resolve_value(&mut value);
                     let mut projections: Vec<ProjectionItem> = keys
                         .iter()
@@ -863,10 +876,12 @@ impl<'a> LogicalPlanner<'a> {
                 let output = format!("__list_{}", self.comprehensions);
                 // The variable is local: an element of the list, a node when it has a label.
                 let before = self.variables.clone();
+                let saved_seed = self.seed_source.clone();
                 let kind = label.clone().unwrap_or_else(|| "Unwound".to_string());
                 self.variables.insert(variable.clone(), kind);
                 let lowered = (|| -> Result<LogicalOperator> {
                     let mut element = LogicalOperator::ComprehensionElement;
+                    self.seed_source = Some(LogicalOperator::ComprehensionElement);
                     let mut keep = filter.as_deref().cloned();
                     if let Some(k) = &mut keep {
                         element = self.rewrite_exists(element, k)?;
@@ -890,6 +905,7 @@ impl<'a> LogicalPlanner<'a> {
                     })
                 })();
                 self.variables = before;
+                self.seed_source = saved_seed;
                 *expr = ValueExpression::Variable(output);
                 lowered
             }
@@ -971,6 +987,7 @@ impl<'a> LogicalPlanner<'a> {
         &mut self,
         base: Option<LogicalOperator>,
         clause: &MatchClause,
+        seed_source: Option<LogicalOperator>,
     ) -> Result<LogicalOperator> {
         let unsupported = |what: &str| GraphError::UnsupportedFeature {
             feature: format!("OPTIONAL MATCH {what}"),
@@ -1018,7 +1035,7 @@ impl<'a> LogicalPlanner<'a> {
         }
         let seed = LogicalOperator::Distinct {
             input: Box::new(LogicalOperator::Project {
-                input: Box::new(base.clone()),
+                input: Box::new(seed_source.unwrap_or_else(|| base.clone())),
                 projections: carried
                     .iter()
                     .map(|var| ProjectionItem {
@@ -1300,9 +1317,18 @@ impl<'a> LogicalPlanner<'a> {
         let mut projections: Vec<ProjectionItem> = Vec::new();
         let mut items = return_clause.items.clone();
         let mut input = input;
+        let saved = self.seed_source.replace(input.clone());
         for item in &mut items {
-            input = self.rewrite_exists_in_value(input, &mut item.expression)?;
+            let rewritten = self.rewrite_exists_in_value(input, &mut item.expression);
+            input = match rewritten {
+                Ok(input) => input,
+                Err(e) => {
+                    self.seed_source = saved;
+                    return Err(e);
+                }
+            };
         }
+        self.seed_source = saved;
 
         for item in &items {
             let alias = &item.alias;
@@ -1384,9 +1410,18 @@ impl<'a> LogicalPlanner<'a> {
         let mut projections = Vec::with_capacity(with_clause.items.len());
         let mut items = with_clause.items.clone();
         let mut input = input;
+        let saved = self.seed_source.replace(input.clone());
         for item in &mut items {
-            input = self.rewrite_exists_in_value(input, &mut item.expression)?;
+            let rewritten = self.rewrite_exists_in_value(input, &mut item.expression);
+            input = match rewritten {
+                Ok(input) => input,
+                Err(e) => {
+                    self.seed_source = saved;
+                    return Err(e);
+                }
+            };
         }
+        self.seed_source = saved;
         for item in &items {
             let alias = match (&item.alias, &item.expression) {
                 (Some(alias), ValueExpression::Variable(var)) => {
