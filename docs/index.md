@@ -132,9 +132,18 @@ The primary purpose of lance-csr is to serve as a fast, lightweight query engine
 
 ## Project status
 
-lance-csr is a fork of [lance-graph](https://github.com/lance-format/lance-graph) and is in **alpha**. The
-CSR (`use_csr=True`) is marked experimental: results are identical with and without it, but the API around
-it may change. Prebuilt wheels cover Linux x86-64 and Apple Silicon for CPython 3.12 and newer.
+lance-csr is a fork of the [lance-graph](https://github.com/lance-format/lance-graph) project, and
+[HDC Labs](https://hyperdimensionalcomputing.ai/) is continuing to build it out in open source. 😎 It was created
+as a research test bed for fast multi-hop graph queries over the Lance format, using Cypher and Apache
+DataFusion.
+
+If your use case involves distributed graph query processing or graph algorithms, that is exactly the kind of
+engine we're building at HDC Labs. [Reach out to us](https://hyperdimensionalcomputing.ai/contact/) to learn
+more about that work.
+
+lance-csr is in **alpha**. The CSR (`use_csr=True`) is marked experimental: results are identical with and
+without it, but the API around it may change. Prebuilt wheels cover Linux x86-64 and Apple Silicon for CPython
+3.12 and newer.
 
 [:fontawesome-brands-github: GitHub](https://github.com/hyperdimensionalcomputingai/lance-csr){ .md-button }
 [:fontawesome-brands-python: PyPI](https://pypi.org/project/lance-csr/){ .md-button }

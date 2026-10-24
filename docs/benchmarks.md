@@ -1,5 +1,12 @@
 # Benchmarks
 
+!!! note "What these numbers are for"
+
+    These numbers aren't meant to show that one engine is better or worse than another. They compare lance-csr
+    with well-known graph systems on the same workloads, and they keep changing as every engine ships its own
+    updates. We publish them with the code and evaluation harness that produced them so that anyone can
+    reproduce them.
+
 ## LDBC SNB Interactive complex queries
 
 lance-csr is benchmarked with
