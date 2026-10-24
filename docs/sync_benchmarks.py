@@ -32,7 +32,7 @@ TARGETS = [ROOT / "README.md", ROOT / "docs" / "benchmarks.md"]
 BENCHMARKS = {
     "ic": {
         "repo": "hyperdimensionalcomputingai/graph-benchmark-ldbc-complex",
-        "ref": "f53a51db214c88671baff0ab339edb359e148036",
+        "ref": "c185123edd58b37b417bc4deb2fec643fdbd5e61",
         "label": "IC{n}",
         "engines": [
             ("lance-csr-0.2.0-memory", "lance-csr 0.2.0, in memory"),
@@ -44,7 +44,7 @@ BENCHMARKS = {
     },
     "q30": {
         "repo": "hyperdimensionalcomputingai/graph-benchmark-ldbc",
-        "ref": "99fe3ee77f898e30d4b5bb751f25be906247e0fe",
+        "ref": "6260689aa1fba4eeb4e99958430386b2fcd13f71",
         "label": "Q{n}",
         "engines": [
             ("lance-csr-0.2.0-memory", "lance-csr 0.2.0, in memory"),

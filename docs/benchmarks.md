@@ -66,7 +66,7 @@ Over the 14 queries, lance-csr's speed relative to each engine:
 
 <!-- bench:ic:notes -->
 
-- Measured on 2026-10-24 on Apple M5, 24 GB, macOS 26.6.2, from the benchmark repository at commit [`f53a51d`](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc-complex/tree/f53a51db214c88671baff0ab339edb359e148036). Every engine ran one after another with the repository's `run_benchmarks.sh` settings; see its README to reproduce the runs.
+- Measured on 2026-10-24 on Apple M5, 24 GB, macOS 26.6.2, from the benchmark repository at commit [`c185123`](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc-complex/tree/c185123edd58b37b417bc4deb2fec643fdbd5e61). Every engine ran one after another with the repository's `run_benchmarks.sh` settings; see its README to reproduce the runs.
 - Ratios are geometric means of the per-query ratios, over the queries both engines answered correctly.
 - Ladybug 0.21.2: IC1 returned a wrong answer; IC14 failed (RuntimeError), so they are not timed.
 
@@ -137,7 +137,7 @@ Over the 30 queries, lance-csr's speed relative to each engine:
 
 <!-- bench:q30:notes -->
 
-- Measured on 2026-10-24 on Apple M5, 24 GB, macOS 26.6.2, from the benchmark repository at commit [`99fe3ee`](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc/tree/99fe3ee77f898e30d4b5bb751f25be906247e0fe). Every engine ran one after another with the repository's `run_benchmarks.sh` settings; see its README to reproduce the runs.
+- Measured on 2026-10-24 on Apple M5, 24 GB, macOS 26.6.2, from the benchmark repository at commit [`6260689`](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc/tree/6260689aa1fba4eeb4e99958430386b2fcd13f71). Every engine ran one after another with the repository's `run_benchmarks.sh` settings; see its README to reproduce the runs.
 - Ratios are geometric means of the per-query ratios, over the queries both engines answered correctly.
 
 <!-- /bench:q30:notes -->
