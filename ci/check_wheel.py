@@ -32,8 +32,10 @@ def main():
     assert sys.prefix != sys.base_prefix, "Use a clean virtual environment"
     assert shutil.which("cargo") is None, "Remove Cargo from the smoke-test PATH"
     assert shutil.which("rustc") is None, "Remove rustc from the smoke-test PATH"
+    # An installed wheel, not the source tree (uv's environments may layer site-packages
+    # outside sys.prefix, so check for site-packages itself).
     extension = Path(_internal.__file__).resolve()
-    assert extension.is_relative_to(Path(sys.prefix).resolve()), extension
+    assert "site-packages" in extension.parts, extension
 
     config = (
         GraphConfig.builder()

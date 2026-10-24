@@ -1,61 +1,24 @@
-# Examples for lance-graph
+# Examples for lance-csr
 
-## How to Run Examples
+## How to run the examples
 
-Pick one of the two approaches:
-
-### 1) Local build (editable) with maturin
+With the released package, from the repository root (uv creates a temporary environment with lance-csr and its
+dependencies):
 
 ```bash
-# From the repo root; installs the Python extension in editable mode
-pip install pyarrow  # or: uv pip install pyarrow
-maturin develop -m crates/lance-graph-python/Cargo.toml
-
-# Run examples
-python examples/basic_cypher.py
-python examples/kg_traversal.py
+uv run --with lance-csr python examples/basic_cypher.py
+uv run --with lance-csr python examples/kg_traversal.py
+uv run --with lance-csr python examples/lance_snapshot_refresh.py
 ```
 
-With `uv` (persistent venv recommended):
+With a local build, so the examples use your changes, set up `python/.venv` as in
+[`python/DEVELOPMENT.md`](../python/DEVELOPMENT.md) and run them from it:
 
 ```bash
-# Create and activate a reusable environment
-uv venv .venv && . .venv/bin/activate
-
-# Install dependencies and build editable extension
-uv pip install pyarrow
-uvx --from maturin maturin develop -m crates/lance-graph-python/Cargo.toml
-
-# Run examples using the venv's Python
-python examples/basic_cypher.py
-python examples/kg_traversal.py
-```
-
-### 2) Install the package, then run
-
-- From PyPI (when published):
-
-```bash
-pip install lance-graph pyarrow
-python examples/basic_cypher.py
-python examples/kg_traversal.py
-```
-
-- From git (editable):
-
-```bash
-pip install -e python
-python examples/basic_cypher.py
-python examples/kg_traversal.py
-```
-
-### 3) Single-shot with uv (no install, run from source)
-
-uv creates a fresh isolated environment per run. If you prefer a one-liner without installing the package, point `PYTHONPATH` to the source package and let uv provide `pyarrow`:
-
-```bash
-PYTHONPATH=python/python uv run --with pyarrow python examples/basic_cypher.py
-PYTHONPATH=python/python uv run --with pyarrow python examples/kg_traversal.py
+cd python
+uv sync --locked --no-install-project
+uv run --no-sync maturin develop
+uv run --no-sync python ../examples/basic_cypher.py
 ```
 
 ## Examples
@@ -63,11 +26,17 @@ PYTHONPATH=python/python uv run --with pyarrow python examples/kg_traversal.py
 - `basic_cypher.py`: simple node filter and projection.
 
 ```bash
-python examples/basic_cypher.py
+uv run --with lance-csr python examples/basic_cypher.py
 ```
 
 - `kg_traversal.py`: multi-hop traversal on a small synthetic knowledge graph.
 
 ```bash
-python examples/kg_traversal.py
+uv run --with lance-csr python examples/kg_traversal.py
+```
+
+- `lance_snapshot_refresh.py`: lazy Lance datasets, snapshots and `refresh()`.
+
+```bash
+uv run --with lance-csr python examples/lance_snapshot_refresh.py
 ```

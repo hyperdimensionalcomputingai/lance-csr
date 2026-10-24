@@ -6,7 +6,7 @@ dependencies = [
     "pylance>=13.0.0,<14",
 ]
 description = "Cypher graph queries over Lance datasets, built on DataFusion with a CSR adjacency index (a fork of lance-graph)"
-authors = [{ name = "Lance Devs", email = "dev@lancedb.com" }]
+authors = [{ name = "The lance-csr Authors" }]
 license = { file = "LICENSE" }
 readme = "README.md"
 requires-python = ">=3.12"
@@ -38,9 +38,9 @@ manifest-path = "../crates/lance-graph-python/Cargo.toml"
 requires = ["maturin>=1.4"]
 build-backend = "maturin"
 
-[project.optional-dependencies]
-tests = ["pytest", "pandas", "ruff"]
-dev = ["ruff", "pyright"]
+# Development tools, installed by `uv sync` (the `dev` group is uv's default).
+[dependency-groups]
+dev = ["maturin[patchelf]>=1.9,<2", "pytest", "pandas", "ruff", "pyright"]
 
 [tool.ruff]
 lint.select = ["F", "E", "W", "I", "G", "TCH", "PERF", "B019"]

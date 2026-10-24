@@ -1,347 +1,104 @@
 # Development
 
-## Building the project
+## Requirements
 
-This project is built with [maturin](https://github.com/PyO3/maturin) and uses
-[uv](https://docs.astral.sh/uv/) to manage a local virtual environment. The Rust
-extension crate now lives at `crates/lance-graph-python/`; `pyproject.toml`
-already points maturin at that manifest, so `maturin develop` from `python/`
-continues to work.
+- Rust, through [rustup](https://rustup.rs). `rust-toolchain.toml` at the repository root pins the version, with
+  `clippy` and `rustfmt`; rustup installs it on the first build.
+- `protoc` for Lance's build: `brew install protobuf` on macOS, `sudo apt-get install -y protobuf-compiler` on
+  Debian and Ubuntu.
+- Python 3.12 or newer, and [uv](https://docs.astral.sh/uv/).
 
-Recommended uv workflow:
+## Building the extension
 
-```shell
-cd python
-uv venv --python 3.12 .venv
-source .venv/bin/activate
-uv pip install maturin[patchelf]
-uv pip install -e '.[tests]'
-maturin develop
-```
-
-Notes:
-- If another virtual environment is active, run `deactivate` first so uv binds to `.venv`.
-- After changing Rust code, re-run `maturin develop`. Pure-Python changes do not require rebuilds.
-
-## Running tests
-
-You can run tests either via the Makefile (uses uv under the hood) or directly with uv.
-
-Using Makefile (recommended):
+Dependencies are managed with uv and pinned in `uv.lock`. The package is built with
+[maturin](https://github.com/PyO3/maturin): `pyproject.toml` points it at the bindings crate in
+`crates/lance-graph-python/`, so run these commands from this `python/` directory.
 
 ```shell
 cd python
-make test
+uv sync --locked --no-install-project   # locked dependencies and the dev group into .venv
+uv run --no-sync maturin develop        # debug build of the extension, installed in editable mode
 ```
 
-Directly with uv:
+`make install` runs both. The `dev` dependency group in `pyproject.toml` holds maturin, pytest, pandas, ruff and
+pyright, and `uv sync` installs it by default.
+
+- `--no-install-project` leaves the package to `maturin develop`. Without it, uv builds the package through
+  maturin's build backend, in release mode.
+- `--no-sync` on `uv run` uses `.venv` as it is. A plain `uv run` or `uv sync` re-syncs exactly to the lockfile and
+  uninstalls the `maturin develop` build, which the lockfile doesn't list. To re-sync and keep the build, add
+  `--inexact` (as `make sync` does).
+- To change dependencies, use `uv add` and `uv remove` (`uv add --group dev <tool>` for development tools), and
+  commit the updated `uv.lock`.
+
+`maturin develop` installs the package in editable mode: changes to `python/lance_csr/` take effect immediately,
+while Rust changes need another `maturin develop`.
+
+Debug builds compile quickly but run queries much more slowly. To time queries, build optimized code with
+`uv run --no-sync maturin develop --release`. Release builds use thin LTO and one codegen unit
+(`.cargo/config.toml`), so they take several minutes. Alternating `maturin develop` and `maturin build` invalidates
+each other's build cache, so pick one per environment.
+
+## Tests
 
 ```shell
-cd python
-uv run pytest -v python/python/tests
+make test                                                            # every Python test
+uv run --no-sync pytest python/tests/test_engine_csr.py -k undirected   # a subset
 ```
 
-To check the documentation examples, use
+The Rust tests run from the repository root:
 
 ```shell
-make doctest
+cargo test --workspace
 ```
 
 ## Formatting and linting
 
-To run formatters, run:
-
 ```shell
-make format
+make format    # ruff format
+make lint      # ruff check, ruff format --check, pyright
 ```
 
-(To run for just Python or just Rust, use `make format-python` or `cargo fmt`.)
-
-To run format checker and linters, run:
+For Rust, from the repository root (CI runs the same checks):
 
 ```shell
-make lint
-```
-
-(To run for just Python or just Rust, use `make lint-python` or `make lint-rust`.)
-
-### Format and lint on commit
-
-If you would like to run the formatters and linters when you commit your code
-then you can use the pre-commit tool. The project includes a pre-commit config
-file already. First, install the pre-commit tool:
-
-```shell
-pip install pre-commit
-```
-
-Then install the hooks:
-
-```shell
-pre-commit install
-```
-
-From now any, any attempt to commit, will first run the linters against the
-modified files:
-
-```shell
-$ git commit -m "Changed some python files"
-black....................................................................Passed
-isort (python)...........................................................Passed
-ruff.....................................................................Passed
-[main daf91ed] Changed some python files
- 1 file changed, 1 insertion(+), 1 deletion(-)
-```
-
-## Cleaning build artifacts
-To clean up build artifacts, run:
-```shell
-make clean
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
 ```
 
 ## Benchmarks
 
-The benchmarks in `python/benchmarks` can be used to identify and diagnose
-performance issues. They are run with [pytest-benchmark](https://pytest-benchmark.readthedocs.io/en/latest/).
-These benchmarks aren't mean to showcase performance on full-scale real world
-datasets; rather they are meant to be useful for developers to iterate on
-performance improvements and to catch performance regressions. Therefore, any
-benchmarks added there should run in less than 5 seconds.
-
-Before running benchmarks, you should build pylance in release mode:
+`python/benchmarks/` holds scripts for the engine's own costs: catalog reuse, bounded-memory streaming, CSR expansion
+and incremental CSR maintenance. Build with `uv run --no-sync maturin develop --release` before running them. The
+Rust Criterion benchmarks live in the `lance-graph-benches` crate:
 
 ```shell
-maturin develop --profile release-with-debug --extras benchmarks --features datagen
+cargo bench -p lance-graph-benches --bench graph_execution -- --warm-up-time 1
 ```
 
-(You can also use `--release` or `--profile release`, but `--profile release-with-debug`
-will provide debug symbols for profiling.)
+For comparisons with other graph engines on LDBC SNB SF1, see
+[graph-benchmark-ldbc](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc).
 
-Then you can run the benchmarks with
+## Building wheels
+
+The published wheels are built by `.github/workflows/python-publish.yml`: Linux x86-64 for glibc 2.28
+(manylinux_2_28) and native Apple Silicon, plus an sdist. Each wheel is tested in a clean environment without Rust,
+by `ci/check_wheel.py` and the full test suite.
+
+To build a wheel for your own machine:
 
 ```shell
-pytest python/benchmarks -m "not slow"
+make wheel     # uv run --no-sync maturin build --release --out dist --sdist
 ```
 
-Note: the first time you run the benchmarks, they may take a while, since they
-will write out test datasets and build vector indices. Once these are built,
-they are re-used between benchmark runs.
-
-Some benchmarks are especially slow, so they are skipped `-m "not slow"`. To run
-the slow benchmarks, use:
-
-```shell
-pytest python/benchmarks
-```
-
-### Run a particular benchmark
-
-To filter benchmarks by name, use the usual pytest `-k` flag (this can be a
-substring match, so you don't need to type the full name):
-
-```shell
-pytest python/benchmarks -k test_ivf_pq_index_search
-```
-
-### Profile a benchmark
-
-If you have [cargo-flamegraph](https://github.com/flamegraph-rs/flamegraph)
-installed, you can create a flamegraph of a benchmark by running:
-
-```shell
-flamegraph -F 100 --no-inline -- $(which python) \
-    -m pytest python/benchmarks \
-    --benchmark-min-time=2 \
-    -k test_ivf_pq_index_search
-```
-
-Note the parameter `--benchmark-min-time`: this controls how many seconds to run
-the benchmark in each round (default 5 rounds). The default is very low but you
-can increase this so that the profile gets more samples.
-
-You can drop the `--no-inline` to have the program try to identify which functions
-were inlined to get more detail, though this will make the processing take
-considerably longer.
-
-This will only work on Linux.
-
-Note that you'll want to run the benchmarks once prior to profiling, so that
-the setup is complete and not captured as part of profiling.
-
-### Compare benchmarks against previous version
-
-You can easily compare the performance of the current version against `main`.
-Checkout `main` branch, run the benchmarks, and save
-the output using `--benchmark-save`. Then install the current version and run
-the benchmarks again with `--benchmark-compare`.
-
-```shell
-CURRENT_BRANCH=$(git branch --show-current)
-git checkout main
-maturin develop --profile release-with-debug  --features datagen
-pytest --benchmark-save=baseline python/benchmarks -m "not slow"
-COMPARE_ID=$(ls .benchmarks/*/ | tail -1 | cut -c1-4)
-git checkout $CURRENT_BRANCH
-maturin develop --profile release-with-debug  --features datagen
-pytest --benchmark-compare=$COMPARE_ID python/benchmarks -m "not slow"
-```
-
-## Tracing
-
-Rust has great integration with tools like criterion and pprof which make it easy
-to profile and debug CPU intensive tasks. However, these tools are not as effective
-at profiling I/O intensive work or providing a high level trace of an operation.
-
-To fill this gap the lance code utlizies the Rust tracing crate to provide tracing
-information for lance operations. User applications can receive these events and
-forward them on for logging purposes. Developers can also use this information to
-get a sense of the I/O that happens during an operation.
-
-### Instrumenting code
-
-When instrumenting code you can use the `#[instrument]` macro from the Rust tracing
-crate. See the crate docs for more information on the various parameters that can
-be set. As a general guideline we should aim to instrument the following methods:
-
-- Top-level methods that will often be called by external libraries and could be slow
-- Compute intensive methods that will perform a significant amount of CPU compute
-- Any point where we are waiting on external resources (e.g. disk)
-
-To begin with, instrument methods as close to the user as possible and refine downwards
-as you need. For example, start by instrumenting the entire dataset write operation
-and then instrument any individual parts of the operation that you would like to see
-details for.
-
-### Tracing a unit test
-
-If you would like tracing information for a rust unit test then you will need to
-decorate your test with the lance_test_macros::test attribute. This will wrap any
-existing test attributes that you are using:
-
-```rust
-#[lance_test_macros::test(tokio::test)]
-async fn test() {
-    ...
-}
-```
-
-Then, when running your test, you will need to set the environment variable
-LANCE_TRACING to the your desired verbosity level (trace, debug, info, warn, error):
-
-```bash
-LANCE_TESTING=debug cargo test dataset::tests::test_create_dataset
-```
-
-This will create a .json file (named with a timestamp) in your working directory. This
-.json file can be loaded by chrome or by <https://ui.perfetto.dev>
-
-### Tracing a python script
-
-If you would like to trace a python script (application, benchmark, test) then you can easily
-do so using the lance.tracing module. Simply call:
-
-```python
-from lance.tracing import trace_to_chrome
-
-trace_to_chrome(level="debug")
-
-# rest of script
-```
-
-A single .json trace file will be generated after python has exited.
-
-You can use the `trace_to_chrome` function within the benchmarks, but for
-sensible results you'll want to force the benchmark to just run only once.
-To do this, rewrite the benchmark using the pedantic API:
-
-```python
-def run():
-    "Put code to benchmark here"
-    ...
-benchmark.pedantic(run, iterations=1, rounds=1)
-```
-
-### Trace visualization limitations
-
-The current tracing implementation is slightly flawed when it comes to async
-operations that run in parallel. The rust tracing-chrome library emits
-trace events into the chrome trace events JSON format. This format is not
-sophisticated enough to represent asynchronous parallel work.
-
-As a result, a single instrumented async method may appear as many different
-spans in the UI.
-
-## Running S3 Integration tests
-
-The integration tests run against local minio and local dynamodb. To start the
-services, run
-
-```shell
-docker compose up
-```
-
-Then you can run the tests with
-
-```shell
-pytest --run-integration python/tests/test_s3_ddb.py
-```
-
-## Building wheels locally
-
-### Linux
-
-On Mac or Linux, you can build manylinux wheels locally for Linux. The easiest
-way to do this is to use `zig` with `maturin build`. Before you do this, you'll
-need to make you (1) [install zig](https://github.com/ziglang/zig/wiki/Install-Zig-from-a-Package-Manager)
-and (2) install the toolchains:
+To build the Linux x86-64 wheel the way CI does, on macOS or Linux, add the target and run maturin with its `zig`
+extra, which brings the zig linker. Use `uv run --with` rather than `uvx`: maturin finds zig through `python3` on
+`PATH`, which `uv run` sets up and `uvx` does not.
 
 ```shell
 rustup target add x86_64-unknown-linux-gnu
-rustup target add aarch64-unknown-linux-gnu
-```
-
-For x86 Linux:
-
-```shell
-maturin build --release --zig \
+uv run --no-project --with 'maturin[zig]>=1.9,<2' maturin build --release --locked --strip --zig \
     --target x86_64-unknown-linux-gnu \
-    --compatibility manylinux2014 \
-    --out wheels
+    --compatibility manylinux_2_28 \
+    --out dist
 ```
-
-For ARM / aarch64 Linux:
-
-```shell
-maturin build --release --zig \
-    --target aarch_64-unknown-linux-gnu \
-    --compatibility manylinux2014 \
-    --out wheels
-```
-
-### MacOS
-
-On a Mac, you can build wheels locally for MacOS:
-
-```shell
-maturin build --release \
-    --target aarch64-apple-darwin \
-    --out wheels
-```
-
-```shell
-maturin build --release \
-    --target x86_64-apple-darwin \
-    --out wheels
-```
-
-## Picking a thread pool
-
-When an operation should run in parallel you typically need to specify how many threads
-to use. For example, as input to `StreamExt::buffered`. There are two numbers you can
-use. You can use `ObjectStore::io_parallelism` or `get_num_compute_intensive_cpus`.
-
-Often, operations will do a little of both compute and I/O, and you will need to make
-a judgement call. If you are unsure, and you are doing any I/O, then picking the
-`io_parallelism` is a good fallback behavior. The worst case is just that we over-parallelize
-and there is more CPU contention then there needs to be. If this becomes a problem we
-can always split the operation into two parts and use the two different thread pools.

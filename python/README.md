@@ -6,16 +6,24 @@ endorsed by the lance-graph maintainers.
 
 ## Installation
 
+Add it to a [uv](https://docs.astral.sh/uv/) project:
+
 ```bash
-pip install lance-csr
+uv add lance-csr
+```
+
+Or run a script with it, without a project:
+
+```bash
+uv run --with lance-csr python your_script.py
 ```
 
 Prebuilt wheels are published for Linux x86-64 (glibc 2.28 or newer: RHEL 8, Ubuntu 20.04 and later)
 and native Apple Silicon (macOS 11 or newer), for CPython 3.12 and later. Installing from a wheel needs
-no Rust toolchain; to make sure pip never falls back to compiling from source, use:
+no Rust toolchain; to make sure uv never falls back to compiling from source, use:
 
 ```bash
-pip install --only-binary=:all: lance-csr
+uv add lance-csr --no-build-package lance-csr
 ```
 
 Other platforms install from the source distribution, which needs Rust and `protoc`.
@@ -197,40 +205,16 @@ r2 = engine.execute(
 
 ## Contributing
 
-### Quick start
+Building from source needs Rust (through rustup), `protoc` and uv; see [DEVELOPMENT.md](./DEVELOPMENT.md).
 
 ```bash
 cd python
-uv venv --python 3.12 .venv
-source .venv/bin/activate
-uv pip install maturin[patchelf]
-uv pip install -e '.[tests]'
-maturin develop
-pytest python/tests/ -v
+make install    # uv sync --locked --no-install-project, then a debug build with maturin develop
+make test       # pytest python/tests
+make lint       # ruff and pyright
 ```
 
-### Development workflow
-
-For linting and type checks:
-
-```bash
-# Install dev dependencies
-uv pip install -e '.[dev]'
-
-# Run linters and type checker
-ruff format python/              # format code
-ruff check python/               # lint code
-pyright                          # type check
-
-# Run specific tests
-pytest python/tests/test_graph.py::test_basic_node_selection -v
-
-# Rebuild extension after Rust changes
-maturin develop
-```
-
-> If another virtual environment is already active, run `deactivate` (or
-> `unset VIRTUAL_ENV`) before invoking `uv run` so uv binds to `.venv`.
+Re-run `make install` after changing Rust code; Python changes apply immediately.
 
 ## Repository layout
 
