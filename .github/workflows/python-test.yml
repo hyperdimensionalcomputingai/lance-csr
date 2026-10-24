@@ -69,8 +69,8 @@ jobs:
         working-directory: python
         run: |
           source .venv/bin/activate
-          if [ -f python/lance_graph/__init__.py ]; then
-            python -m doctest python/lance_graph/__init__.py || echo "No doctests found"
+          if [ -f python/lance_csr/__init__.py ]; then
+            python -m doctest python/lance_csr/__init__.py || echo "No doctests found"
           fi
 
   lint:

@@ -28,7 +28,16 @@ cargo check
 cargo test
 ```
 
-## Python package quick start
+## Install
+
+```bash
+pip install lance-csr
+```
+
+Prebuilt wheels cover Linux x86-64 and native Apple Silicon (CPython 3.11+); no Rust toolchain is needed.
+See [`python/README.md`](python/README.md) for details and usage.
+
+## Python package quick start (from source)
 
 ```bash
 cd python

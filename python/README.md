@@ -6,11 +6,19 @@ endorsed by the lance-graph maintainers.
 
 ## Installation
 
-Not published. Install a locally built wheel (no Rust toolchain needed):
+```bash
+pip install lance-csr
+```
+
+Prebuilt wheels are published for Linux x86-64 (glibc 2.28 or newer: RHEL 8, Ubuntu 20.04 and later)
+and native Apple Silicon (macOS 11 or newer), for CPython 3.11 and later. Installing from a wheel needs
+no Rust toolchain; to make sure pip never falls back to compiling from source, use:
 
 ```bash
-uv pip install --only-binary=:all: /path/to/lance_csr-<version>-<tags>.whl
+pip install --only-binary=:all: lance-csr
 ```
+
+Other platforms install from the source distribution, which needs Rust and `protoc`.
 
 ## Quick Start
 

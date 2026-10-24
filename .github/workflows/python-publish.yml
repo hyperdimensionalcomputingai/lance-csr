@@ -1,0 +1,205 @@
+# Build, test and publish lance-csr wheels: Linux x86-64 (manylinux_2_28) and native
+# Apple Silicon (macOS arm64), plus an sdist for every other platform.
+#
+# Pull requests that touch packaging build and test the wheels without publishing.
+# A published GitHub release (tag vX.Y.Z) publishes to PyPI after every build and test
+# passes, through PyPI trusted publishing and the protected `pypi` environment; so does
+# a manual run with mode=release. mode=dry_run builds and tests only.
+name: Python Publish
+
+on:
+  release:
+    types:
+      - published
+  pull_request:
+    paths:
+      - .github/workflows/python-publish.yml
+      - ci/check_wheel.py
+      - python/pyproject.toml
+      - python/.cargo/**
+      - crates/lance-graph-python/Cargo.toml
+      - crates/lance-graph-python/Cargo.lock
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "dry_run: build and test only; release: build, test and publish to PyPI"
+        required: true
+        default: dry_run
+        type: choice
+        options:
+          - dry_run
+          - release
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  build-linux:
+    # Built on the host with zig as the linker, targeting glibc 2.28 (RHEL 8, Ubuntu 20.04
+    # and newer); the same command produced the alpha's tested Linux wheels.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build dependencies
+        run: |
+          # protoc is needed by Lance's build scripts, not by wheel users.
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+          pip install ziglang
+
+      - name: Build manylinux_2_28 x86-64 wheel
+        uses: PyO3/maturin-action@04ac600d27cdf7a9a280dadf7147097c42b757ad # v1
+        with:
+          command: build
+          working-directory: python
+          target: x86_64-unknown-linux-gnu
+          container: "off"
+          sccache: "true"
+          args: --release --locked --strip --zig --compatibility manylinux_2_28 --out dist
+
+      - name: Build sdist
+        uses: PyO3/maturin-action@04ac600d27cdf7a9a280dadf7147097c42b757ad # v1
+        with:
+          command: sdist
+          working-directory: python
+          args: --out dist
+
+      - name: Inspect distributions
+        working-directory: python
+        run: |
+          pip install twine
+          twine check dist/*
+          sha256sum dist/*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-dist-linux
+          path: python/dist/*
+          if-no-files-found: error
+
+  build-macos:
+    # GitHub's macos-14 runners are Apple Silicon, so this builds natively.
+    runs-on: macos-14
+    timeout-minutes: 90
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build dependencies
+        run: brew install protobuf
+
+      - name: Build Apple Silicon wheel
+        uses: PyO3/maturin-action@04ac600d27cdf7a9a280dadf7147097c42b757ad # v1
+        with:
+          command: build
+          working-directory: python
+          target: aarch64-apple-darwin
+          sccache: "true"
+          args: --release --locked --strip --out dist
+
+      - name: Inspect wheel
+        working-directory: python
+        run: |
+          pip install twine
+          twine check dist/*.whl
+          shasum -a 256 dist/*.whl
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-dist-macos-arm64
+          path: python/dist/*.whl
+          if-no-files-found: error
+
+  test:
+    # The wheels are abi3 (CPython 3.11+), so each platform's single wheel is tested on
+    # every supported Python, in a clean environment with Rust removed from PATH: a wheel
+    # that silently needed compiling would fail here.
+    needs: [build-linux, build-macos]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+        python: ["3.11", "3.12", "3.13"]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            ci
+            python/python/tests
+
+      - uses: astral-sh/setup-uv@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: python-dist-*
+          merge-multiple: true
+          path: dist
+
+      - name: Install the wheel and run the test suite outside the source tree
+        shell: bash
+        run: |
+          export PATH=$(echo "$PATH" | tr ':' '\n' | grep -v -e cargo -e rustup | paste -sd: -)
+          ! command -v cargo && ! command -v rustc
+          uv venv --python ${{ matrix.python }} "$RUNNER_TEMP/venv"
+          py="$RUNNER_TEMP/venv/bin/python"
+          uv pip install --python "$py" --only-binary=:all: --find-links dist lance-csr pytest pandas
+          "$py" -I ci/check_wheel.py
+          cp -r python/python/tests "$RUNNER_TEMP/tests"
+          cd "$RUNNER_TEMP"
+          "$py" -I -m pytest "$RUNNER_TEMP/tests" -q -p no:cacheprovider
+
+  publish:
+    needs: [build-linux, build-macos, test]
+    if: >
+      github.event_name == 'release' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'release')
+    runs-on: ubuntu-24.04
+    environment:
+      name: pypi
+      url: https://pypi.org/project/lance-csr/
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: python/pyproject.toml
+
+      - name: Check the release tag matches the package version
+        if: github.event_name == 'release'
+        run: |
+          version=$(grep -m1 '^version = ' python/pyproject.toml | cut -d'"' -f2)
+          test "${{ github.event.release.tag_name }}" = "v$version" || {
+            echo "Release tag ${{ github.event.release.tag_name }} does not match version $version"; exit 1; }
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: python-dist-*
+          merge-multiple: true
+          path: dist
+
+      - uses: astral-sh/setup-uv@v4
+
+      - name: Publish to PyPI
+        run: uv publish --trusted-publishing always dist/*
