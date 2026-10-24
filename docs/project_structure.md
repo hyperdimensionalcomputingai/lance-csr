@@ -1,59 +1,32 @@
-Project Structure Proposal (Issue #92)
-======================================
+# Project structure
 
-This document captures a pragmatic "proper" structure for lance-graph based on
-issue #92. It focuses on clearer separation of concerns, a Cargo workspace, and
-first-class Python bindings.
-
-Goals
------
-- Keep lightweight crates usable without pulling in heavy dependencies.
-- Allow custom graph-native operators without forcing everything through SQL.
-- Make Python bindings and examples first-class citizens.
-
-Current Layout (after refactor)
--------------------------------
-- `crates/lance-graph/` hosts the Rust engine crate.
-- `python/` contains PyO3 bindings plus the `lance_csr` Python package.
-- `examples/` holds simple Cypher usage examples.
-
-Proposed Layout (Workspace)
----------------------------
-The issue recommends moving to a Cargo workspace to split functionality and
-avoid pulling DataFusion/Tokio into every consumer:
+lance-csr is a Cargo workspace with Python bindings. The Rust crates keep the `lance-graph*` names of the project
+it was forked from.
 
 ```
-lance-graph/
-├── Cargo.toml              # Workspace definition
-├── README.md               # Unified docs
-├── docs/                   # ADRs + design notes
+.
+├── Cargo.toml                    # Workspace: lance-graph, lance-graph-catalog, lance-graph-benches
 ├── crates/
-│   ├── lance-graph/         # Facade crate (re-exports)
-│   ├── lance-graph-core/    # AST + schema types (no heavy deps)
-│   └── lance-graph-planner/ # Cypher -> LogicalPlan
-├── python/                  # PyO3 + Python packages
-└── examples/                # End-to-end examples
+│   ├── lance-graph/              # The engine: Cypher parser, semantic analysis, logical planner,
+│   │                             # DataFusion planner, CSR index and traversal operators
+│   ├── lance-graph-catalog/      # Graph source catalog and DirNamespace
+│   ├── lance-graph-python/       # PyO3 bindings (built by maturin; outside the workspace)
+│   └── lance-graph-benches/      # Criterion benchmarks (not published)
+├── python/
+│   ├── pyproject.toml            # The lance-csr package, built with maturin
+│   ├── python/lance_csr/         # Python package that wraps the bindings
+│   ├── python/tests/             # Python tests
+│   └── benchmarks/               # Engine benchmarks (catalog reuse, bounded memory, CSR)
+├── examples/                     # Runnable Python examples
+├── ci/check_wheel.py             # Checks a built wheel in a clean environment, without Rust
+└── docs/                         # Documentation
 ```
 
-Why this helps
---------------
-- `lance-graph-core` can be reused by tooling and schema validators without
-  DataFusion or Tokio.
-- `lance-graph-planner` keeps translation logic isolated for easier evolution.
-- A future `lance-graph-physical` crate can be introduced once we have
-  substantial graph-native kernels (traversal, vector search).
-- The facade crate offers a stable public API while allowing internal churn.
+A query goes through four stages, all in `crates/lance-graph/src/`:
 
-Suggested Migration Steps
--------------------------
-1. Add a top-level `Cargo.toml` workspace and move the existing Rust crate into
-   `crates/lance-graph/` without changing its internal module layout.
-2. Extract AST + schema types into `crates/lance-graph-core/` and update
-   references.
-3. Split the planner (`Cypher -> LogicalPlan`) into `lance-graph-planner`.
-4. Refactor the Simple executor so it lives in the workspace cleanly (either
-   inside the facade crate or as a `lance-graph-simple` crate).
-5. Update `crates/lance-graph-python/Cargo.toml` to depend on the workspace crates.
-6. Add ADRs for each step under `docs/` to document tradeoffs.
-7. Update GitHub workflows to match the new workspace paths (build, test,
-   release/publish), otherwise releases will fail.
+1. **Parse** (`parser.rs`) the Cypher text into an AST (`ast.rs`).
+2. **Analyze** (`semantic.rs`) variables and scopes, and substitute parameters.
+3. **Plan** (`logical_plan.rs`) graph operators: scans, expansions, variable-length paths, OPTIONAL MATCH,
+   comprehensions and shortest paths.
+4. **Build** (`datafusion_planner/`) a DataFusion plan from them, with CSR expansions (`csr_expand.rs`) and the
+   shortest-path search (`shortest_path.rs`) as DataFusion extension operators.

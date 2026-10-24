@@ -1,9 +1,9 @@
 """
-Basic Cypher graph query using the lance-graph Python bindings.
+Basic Cypher graph query using the lance-csr Python bindings.
 
 Requirements:
 - Build/install the Python extension first (from repo root):
-  maturin develop -m crates/lance-graph-python/Cargo.toml
+  cd python && maturin develop
 - Python deps: pyarrow
 
 Run:

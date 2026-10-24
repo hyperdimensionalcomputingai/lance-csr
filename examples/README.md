@@ -1,4 +1,4 @@
-# Examples for lance-graph
+# Examples for lance-csr
 
 ## How to Run Examples
 
@@ -9,7 +9,7 @@ Pick one of the two approaches:
 ```bash
 # From the repo root; installs the Python extension in editable mode
 pip install pyarrow  # or: uv pip install pyarrow
-maturin develop -m crates/lance-graph-python/Cargo.toml
+(cd python && maturin develop)
 
 # Run examples
 python examples/basic_cypher.py
@@ -24,7 +24,7 @@ uv venv .venv && . .venv/bin/activate
 
 # Install dependencies and build editable extension
 uv pip install pyarrow
-uvx --from maturin maturin develop -m crates/lance-graph-python/Cargo.toml
+(cd python && uvx --from maturin maturin develop)
 
 # Run examples using the venv's Python
 python examples/basic_cypher.py
@@ -33,10 +33,10 @@ python examples/kg_traversal.py
 
 ### 2) Install the package, then run
 
-- From PyPI (when published):
+- From PyPI:
 
 ```bash
-pip install lance-graph pyarrow
+pip install lance-csr pyarrow
 python examples/basic_cypher.py
 python examples/kg_traversal.py
 ```
@@ -70,4 +70,10 @@ python examples/basic_cypher.py
 
 ```bash
 python examples/kg_traversal.py
+```
+
+- `lance_snapshot_refresh.py`: lazy Lance datasets, snapshots and `refresh()`.
+
+```bash
+python examples/lance_snapshot_refresh.py
 ```

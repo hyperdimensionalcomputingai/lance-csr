@@ -1,9 +1,9 @@
 """
-Simple knowledge-graph multi-hop traversal with lance-graph Python bindings.
+Simple knowledge-graph multi-hop traversal with lance-csr Python bindings.
 
 Requirements:
 - Build/install the Python extension first (from repo root):
-  maturin develop -m crates/lance-graph-python/Cargo.toml
+  cd python && maturin develop
 - Python deps: pyarrow
 
 Run:
