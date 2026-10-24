@@ -148,6 +148,7 @@ fn score_conjunct(
         } => Selectivity::Weak,
         BooleanExpression::Comparison { .. }
         | BooleanExpression::In { .. }
+        | BooleanExpression::Member { .. }
         | BooleanExpression::Like { .. }
         | BooleanExpression::ILike { .. }
         | BooleanExpression::Contains { .. }
@@ -169,7 +170,7 @@ fn is_constant(expr: &ValueExpression) -> bool {
     )
 }
 
-fn boolean_variables<'a>(expr: &'a BooleanExpression, out: &mut HashSet<&'a str>) {
+pub(crate) fn boolean_variables<'a>(expr: &'a BooleanExpression, out: &mut HashSet<&'a str>) {
     match expr {
         // A subquery says nothing about how selective one variable is.
         BooleanExpression::PatternExists { .. } => {}
@@ -188,6 +189,10 @@ fn boolean_variables<'a>(expr: &'a BooleanExpression, out: &mut HashSet<&'a str>
         BooleanExpression::In { expression, list } => {
             value_variables(expression, out);
             list.iter().for_each(|v| value_variables(v, out));
+        }
+        BooleanExpression::Member { expression, list } => {
+            value_variables(expression, out);
+            value_variables(list, out);
         }
         BooleanExpression::Like { expression, .. }
         | BooleanExpression::ILike { expression, .. }
@@ -230,6 +235,24 @@ fn value_variables<'a>(expr: &'a ValueExpression, out: &mut HashSet<&'a str>) {
         | ValueExpression::Parameter(_)
         | ValueExpression::VectorLiteral(_) => {}
     }
+}
+
+/// The node and relationship variables written in `patterns`.
+pub(crate) fn pattern_variables(patterns: &[GraphPattern]) -> HashSet<&str> {
+    let mut out = HashSet::new();
+    for pattern in patterns {
+        match pattern {
+            GraphPattern::Node(n) => out.extend(n.variable.as_deref()),
+            GraphPattern::Path(p) => {
+                out.extend(p.start_node.variable.as_deref());
+                for s in &p.segments {
+                    out.extend(s.relationship.variable.as_deref());
+                    out.extend(s.end_node.variable.as_deref());
+                }
+            }
+        }
+    }
+    out
 }
 
 /// A MATCH clause's patterns as nodes (in first-mention order) and edges.

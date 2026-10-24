@@ -454,8 +454,16 @@ impl DataFusionPlanner {
 
         // Derive expected column names from source and target node schemas
         // This ensures we only project columns that actually belong to source/target nodes
-        let expected_columns =
+        let mut expected_columns =
             self.get_expected_varlength_columns(ctx, source_variable, target_variable)?;
+        // Everything the input carries (other nodes, scalars from a WITH) passes through.
+        expected_columns.extend(
+            input_plan
+                .schema()
+                .fields()
+                .iter()
+                .map(|f| f.name().clone()),
+        );
 
         // Generate a plan for each hop count and UNION them
         let mut plans = Vec::new();

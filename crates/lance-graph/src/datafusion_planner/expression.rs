@@ -64,6 +64,10 @@ pub(crate) fn to_df_boolean_expr(expr: &BooleanExpression) -> Expr {
             let list_exprs = list.iter().map(to_df_value_expr).collect::<Vec<_>>();
             Expr::InList(DFInList::new(Box::new(expr), list_exprs, false))
         }
+        BE::Member { expression, list } => datafusion::functions_nested::expr_fn::array_has(
+            to_df_value_expr(list),
+            to_df_value_expr(expression),
+        ),
         BE::And(l, r) => Expr::BinaryExpr(BinaryExpr {
             left: Box::new(to_df_boolean_expr(l)),
             op: Operator::And,
@@ -125,6 +129,7 @@ pub(crate) fn to_df_value_expr(expr: &ValueExpression) -> Expr {
         VE::Literal(PV::Null) => {
             datafusion::logical_expr::Expr::Literal(datafusion::scalar::ScalarValue::Null, None)
         }
+        VE::Literal(PV::Variable(v)) => col(v.to_lowercase()),
         VE::Literal(PV::Parameter(name)) => {
             panic!(
                 "Parameter ${} should have been substituted during semantic analysis",
@@ -158,9 +163,7 @@ pub(crate) fn to_df_value_expr(expr: &ValueExpression) -> Expr {
                 "coalesce" => datafusion::functions::core::expr_fn::coalesce(
                     args.iter().map(to_df_value_expr).collect(),
                 ),
-                "__list" => datafusion::functions_nested::expr_fn::make_array(
-                    args.iter().map(to_df_value_expr).collect(),
-                ),
+                "__list" => super::cypher_udf::list(args.iter().map(to_df_value_expr).collect()),
                 "tostring" => Expr::Cast(datafusion::logical_expr::Cast::new(
                     Box::new(to_df_value_expr(&args[0])),
                     arrow_schema::DataType::Utf8,
@@ -436,7 +439,7 @@ pub(crate) fn to_cypher_column_name(expr: &ValueExpression) -> String {
             // Convert to Cypher dot notation: variable.property
             format!("{}.{}", prop.variable, prop.property)
         }
-        VE::Variable(v) => v.clone(),
+        VE::Variable(v) => v.to_lowercase(),
         VE::Literal(PropertyValue::Property(prop)) => {
             // Handle nested property references
             format!("{}.{}", prop.variable, prop.property)

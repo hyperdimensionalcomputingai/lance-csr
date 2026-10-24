@@ -101,7 +101,8 @@ impl DataFusionPlanner {
                 input,
                 expression,
                 alias,
-            } => self.build_unwind(ctx, input, expression, alias),
+                label,
+            } => self.build_unwind(ctx, input, expression, alias, label.as_deref()),
             LogicalOperator::Union { inputs } => self.build_union(ctx, inputs),
             LogicalOperator::OptionalMatch {
                 input,

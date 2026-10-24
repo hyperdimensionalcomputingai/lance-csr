@@ -209,6 +209,10 @@ fn substitute_in_boolean_expression(
                 substitute_in_value_expression(item, parameters)?;
             }
         }
+        BooleanExpression::Member { expression, list } => {
+            substitute_in_value_expression(expression, parameters)?;
+            substitute_in_value_expression(list, parameters)?;
+        }
         BooleanExpression::Like { expression, .. }
         | BooleanExpression::ILike { expression, .. }
         | BooleanExpression::Contains { expression, .. }

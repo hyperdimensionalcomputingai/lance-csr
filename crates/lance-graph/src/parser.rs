@@ -35,7 +35,73 @@ pub fn parse_cypher_query(input: &str) -> Result<CypherQuery> {
         });
     }
 
+    let mut query = query;
+    let stages = query
+        .further_with_stages
+        .iter_mut()
+        .flat_map(|s| &mut s.reading_clauses);
+    let mut anonymous = 0;
+    for clause in query
+        .reading_clauses
+        .iter_mut()
+        .chain(&mut query.post_with_reading_clauses)
+        .chain(stages)
+    {
+        if let ReadingClause::Match(m) = clause {
+            move_variable_properties_to_where(m, &mut anonymous);
+        }
+    }
     Ok(query)
+}
+
+/// Inline node properties whose value is a variable or property from an earlier clause
+/// (`(t:Tag {id: tagId})`) become `t.id = tagId` in the clause's own WHERE, since scans
+/// filter only on constants. An unnamed node gets a name for the condition.
+fn move_variable_properties_to_where(clause: &mut MatchClause, anonymous: &mut usize) {
+    let mut conditions = Vec::new();
+    for pattern in &mut clause.patterns {
+        let nodes: Vec<&mut NodePattern> = match pattern {
+            GraphPattern::Node(n) => vec![n],
+            GraphPattern::Path(p) => std::iter::once(&mut p.start_node)
+                .chain(p.segments.iter_mut().map(|s| &mut s.end_node))
+                .collect(),
+        };
+        for node in nodes {
+            let keys: Vec<String> = node
+                .properties
+                .iter()
+                .filter(|(_, v)| {
+                    matches!(v, PropertyValue::Variable(_) | PropertyValue::Property(_))
+                })
+                .map(|(k, _)| k.clone())
+                .collect();
+            for key in keys {
+                let value = match node.properties.remove(&key) {
+                    Some(PropertyValue::Variable(v)) => ValueExpression::Variable(v),
+                    Some(PropertyValue::Property(p)) => ValueExpression::Property(p),
+                    _ => unreachable!("filtered above"),
+                };
+                let variable = node.variable.get_or_insert_with(|| {
+                    *anonymous += 1;
+                    format!("__inline_{anonymous}")
+                });
+                conditions.push(BooleanExpression::Comparison {
+                    left: ValueExpression::Property(PropertyRef {
+                        variable: variable.clone(),
+                        property: key,
+                    }),
+                    operator: ComparisonOperator::Equal,
+                    right: value,
+                });
+            }
+        }
+    }
+    let existing = clause.where_clause.take().map(|w| w.expression);
+    clause.where_clause = conditions
+        .into_iter()
+        .chain(existing)
+        .reduce(|a, b| BooleanExpression::And(Box::new(a), Box::new(b)))
+        .map(|expression| WhereClause { expression });
 }
 
 // Top-level parser for a complete Cypher query
@@ -327,7 +393,11 @@ fn property_pair(input: &str) -> IResult<&str, (String, PropertyValue)> {
     let (input, _) = multispace0(input)?;
     let (input, _) = char(':')(input)?;
     let (input, _) = multispace0(input)?;
-    let (input, value) = property_value(input)?;
+    let (input, value) = alt((
+        property_value,
+        map(property_reference, PropertyValue::Property),
+        map(identifier, |v| PropertyValue::Variable(v.to_string())),
+    ))(input)?;
 
     Ok((input, (key.to_string(), value)))
 }
@@ -458,6 +528,17 @@ fn comparison_expression(input: &str) -> IResult<&str, BooleanExpression> {
             },
         ));
     }
+    if let Ok((input_after_in, (_, _, list))) =
+        tuple((tag_no_case("IN"), multispace1, value_expression))(input)
+    {
+        return Ok((
+            input_after_in,
+            BooleanExpression::Member {
+                expression: left,
+                list,
+            },
+        ));
+    }
     // Match LIKE pattern
     if let Ok((input_after_like, (_, _, pattern))) =
         tuple((tag_no_case("LIKE"), multispace0, string_literal))(input)
@@ -539,16 +620,32 @@ fn comparison_expression(input: &str) -> IResult<&str, BooleanExpression> {
 
     let (input, operator) = comparison_operator(input)?;
     let (input, _) = multispace0(input)?;
-    let (input, right) = value_expression(input)?;
-
-    Ok((
-        input,
-        BooleanExpression::Comparison {
-            left: left_clone,
-            operator,
-            right,
-        },
-    ))
+    let (mut input, mut right) = value_expression(input)?;
+    let mut expr = BooleanExpression::Comparison {
+        left: left_clone,
+        operator,
+        right: right.clone(),
+    };
+    // A chain `a < b <= c` means `a < b AND b <= c`.
+    while let Ok((rest, (_, operator, _, next))) = tuple((
+        multispace0,
+        comparison_operator,
+        multispace0,
+        value_expression,
+    ))(input)
+    {
+        expr = BooleanExpression::And(
+            Box::new(expr),
+            Box::new(BooleanExpression::Comparison {
+                left: right,
+                operator,
+                right: next.clone(),
+            }),
+        );
+        right = next;
+        input = rest;
+    }
+    Ok((input, expr))
 }
 
 // Parse a comparison operator

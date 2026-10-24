@@ -256,6 +256,7 @@ impl DataFusionPlanner {
         input: &Option<Box<LogicalOperator>>,
         expression: &crate::ast::ValueExpression,
         alias: &str,
+        label: Option<&str>,
     ) -> Result<LogicalPlan> {
         let input_plan = if let Some(input_op) = input {
             self.build_operator(ctx, input_op)?
@@ -268,6 +269,13 @@ impl DataFusionPlanner {
 
         // Convert expression to DataFusion Expr
         let df_expr = super::super::expression::to_df_value_expr(expression);
+        // A list of node ids: unnest under a temporary name, then join each id back to the
+        // node table so the alias carries the node's columns like any matched node.
+        let unnested = match label {
+            Some(_) => format!("__unwind_{}", alias.to_lowercase()),
+            None => alias.to_string(),
+        };
+        let alias = unnested.as_str();
 
         // We project the list expression first (aliased as the target alias temporarily)
         // DataFusion unnest takes a column name.
@@ -284,7 +292,40 @@ impl DataFusionPlanner {
             .unnest_column(alias)
             .map_err(|e| self.plan_error("Failed to build unnest", e))?;
 
-        builder
+        let Some(label) = label else {
+            return builder
+                .build()
+                .map_err(|e| self.plan_error("Failed to build unwind plan", e));
+        };
+        let variable = &alias["__unwind_".len()..];
+        let mapping = self.config.get_node_mapping(label).ok_or_else(|| {
+            crate::error::GraphError::PlanError {
+                message: format!("No node mapping for '{label}'"),
+                location: snafu::Location::new(file!(), line!(), column!()),
+            }
+        })?;
+        let nodes = self.build_scan(ctx, variable, label, &Default::default())?;
+        let id = crate::case_insensitive::qualify_column(variable, &mapping.id_field);
+        let joined = builder
+            .join(
+                nodes,
+                datafusion::logical_expr::JoinType::Inner,
+                (vec![alias.to_string()], vec![id]),
+                None,
+            )
+            .map_err(|e| self.plan_error("Failed to join unwound ids to nodes", e))?
+            .build()
+            .map_err(|e| self.plan_error("Failed to build unwind plan", e))?;
+        let kept: Vec<datafusion::logical_expr::Expr> = joined
+            .schema()
+            .columns()
+            .into_iter()
+            .filter(|c| c.name != alias)
+            .map(datafusion::logical_expr::Expr::Column)
+            .collect();
+        LogicalPlanBuilder::from(joined)
+            .project(kept)
+            .map_err(|e| self.plan_error("Failed to project unwound nodes", e))?
             .build()
             .map_err(|e| self.plan_error("Failed to build unwind plan", e))
     }

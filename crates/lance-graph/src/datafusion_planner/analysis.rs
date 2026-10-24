@@ -206,9 +206,18 @@ fn analyze_operator(
             analyze_operator(left, analysis, rel_counter)?;
             analyze_operator(right, analysis, rel_counter)?;
         }
-        LogicalOperator::Unwind { input, .. } => {
+        LogicalOperator::Unwind {
+            input,
+            alias,
+            label,
+            ..
+        } => {
             if let Some(op) = input {
                 analyze_operator(op, analysis, rel_counter)?;
+            }
+            if let Some(label) = label {
+                analysis.var_to_label.insert(alias.clone(), label.clone());
+                analysis.required_datasets.insert(label.clone());
             }
         }
         LogicalOperator::ShortestPath { input, .. } => {

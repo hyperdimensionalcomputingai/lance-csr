@@ -18,6 +18,8 @@ use std::collections::{HashMap, HashSet};
 pub struct SemanticAnalyzer {
     config: GraphConfig,
     variables: HashMap<String, VariableInfo>,
+    /// Variables whose scope a WITH ended; still type-checked at the end.
+    retired: Vec<VariableInfo>,
     current_scope: ScopeType,
 }
 
@@ -66,6 +68,7 @@ impl SemanticAnalyzer {
         Self {
             config,
             variables: HashMap::new(),
+            retired: Vec::new(),
             current_scope: ScopeType::Match,
         }
     }
@@ -277,6 +280,10 @@ impl SemanticAnalyzer {
             // Normalize to lowercase for case-insensitive behavior
             let var_name_lower = var_name.to_lowercase();
             if let Some(existing) = self.variables.get_mut(&var_name_lower) {
+                // An UNWIND alias over a list of nodes is matched as a node.
+                if existing.variable_type == VariableType::Property {
+                    existing.variable_type = VariableType::Node;
+                }
                 if existing.variable_type != VariableType::Node {
                     return Err(GraphError::PlanError {
                         message: format!("Variable '{}' redefined with different type", var_name),
@@ -379,6 +386,10 @@ impl SemanticAnalyzer {
                 for item in list {
                     self.analyze_value_expression(item)?;
                 }
+            }
+            BooleanExpression::Member { expression, list } => {
+                self.analyze_value_expression(expression)?;
+                self.analyze_value_expression(list)?;
             }
             BooleanExpression::Like { expression, .. } => {
                 self.analyze_value_expression(expression)?;
@@ -711,10 +722,38 @@ impl SemanticAnalyzer {
         // Validate WITH item expressions (similar to RETURN)
         for item in &with_clause.items {
             self.analyze_value_expression(&item.expression)?;
-            if let Some(alias) = &item.alias {
-                self.register_projection_alias(alias);
-            }
         }
+        // WITH ends the scope of everything it does not carry; `WITH b AS x` renames b.
+        let mut kept = HashMap::new();
+        for item in &with_clause.items {
+            let carried = match &item.expression {
+                ValueExpression::Variable(v) => self.variables.get(&v.to_lowercase()).cloned(),
+                _ => None,
+            };
+            let name = match (&item.alias, &item.expression) {
+                (Some(alias), _) => alias.clone(),
+                (None, ValueExpression::Variable(v)) => v.clone(),
+                // An unaliased `WITH b.name` stays addressable as `b.name`.
+                (None, ValueExpression::Property(p)) => {
+                    if let Some(info) = self.variables.get(&p.variable.to_lowercase()) {
+                        kept.insert(p.variable.to_lowercase(), info.clone());
+                    }
+                    continue;
+                }
+                (None, _) => continue,
+            };
+            let info = carried.unwrap_or_else(|| VariableInfo {
+                name: name.clone(),
+                variable_type: VariableType::Property,
+                labels: vec![],
+                properties: HashSet::new(),
+                defined_in: self.current_scope.clone(),
+            });
+            kept.insert(name.to_lowercase(), info);
+        }
+        self.retired
+            .extend(std::mem::take(&mut self.variables).into_values());
+        self.variables = kept;
         // Validate ORDER BY within WITH if present
         if let Some(order_by) = &with_clause.order_by {
             for item in &order_by.items {
@@ -769,7 +808,7 @@ impl SemanticAnalyzer {
         // - Check that arithmetic operations are valid
 
         // Check that properties referenced in patterns exist in schema when property fields are defined
-        for var_info in self.variables.values() {
+        for var_info in self.variables.values().chain(&self.retired) {
             match var_info.variable_type {
                 VariableType::Node => {
                     // Collect property_fields from all known label mappings that specify properties

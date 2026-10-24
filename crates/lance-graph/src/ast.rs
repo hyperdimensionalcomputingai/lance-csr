@@ -238,6 +238,9 @@ pub enum PropertyValue {
     Parameter(String),
     /// Property reference (e.g., node.property)
     Property(PropertyRef),
+    /// A variable from an earlier clause, as an inline property value (`{id: tagId}`).
+    /// Like `Property` values, it is moved into the clause's WHERE before planning.
+    Variable(String),
 }
 
 /// Reference to a property of a node or relationship
@@ -283,6 +286,12 @@ pub enum BooleanExpression {
     In {
         expression: ValueExpression,
         list: Vec<ValueExpression>,
+    },
+    /// `x IN list` where the list is any expression, such as a collected alias
+    /// (`friend IN friends`) rather than a literal `[...]`.
+    Member {
+        expression: ValueExpression,
+        list: ValueExpression,
     },
     /// LIKE pattern matching (case-sensitive)
     Like {
