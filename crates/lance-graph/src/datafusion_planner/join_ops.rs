@@ -8,7 +8,6 @@
 //! join-key construction, filter push-downs, and aliasing conventions so that
 //! higher-level planner code can remain focused on traversal semantics.
 
-use super::analysis::{PlanningContext, RelationshipInstance};
 use super::DataFusionPlanner;
 use crate::ast::{PropertyValue, RelationshipDirection};
 use crate::case_insensitive::qualify_column;
@@ -33,6 +32,8 @@ pub(crate) struct SourceJoinParams<'a> {
 /// Parameters for joining relationship to target node
 pub(crate) struct TargetJoinParams<'a> {
     pub target_variable: &'a str,
+    /// Resolved by the caller: path temporaries (`_temp_*`) have no entry in the analysis.
+    pub target_label: &'a str,
     pub rel_qualifier: &'a str,
     pub node_map: &'a NodeMapping,
     pub rel_map: &'a RelationshipMapping,
@@ -164,20 +165,9 @@ impl DataFusionPlanner {
         &self,
         mut builder: LogicalPlanBuilder,
         cat: &Arc<dyn GraphSourceCatalog>,
-        ctx: &PlanningContext,
         params: &TargetJoinParams,
     ) -> Result<LogicalPlan> {
-        // Get the target label from the analysis (which now has the correct label from Expand)
-        let Some(target_label) = ctx
-            .analysis
-            .var_to_label
-            .get(params.target_variable)
-            .cloned()
-        else {
-            return builder
-                .build()
-                .map_err(|e| self.plan_error("Failed to build plan (no target label)", e));
-        };
+        let target_label = params.target_label.to_string();
 
         let Some(target_source) = cat.node_source(&target_label) else {
             return builder
@@ -260,64 +250,6 @@ impl DataFusionPlanner {
             RelationshipDirection::Incoming => &rel_map.source_id_field,
             RelationshipDirection::Undirected => &rel_map.target_id_field,
         }
-    }
-
-    /// Join input plan with relationship scan
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn join_relationship_to_input(
-        &self,
-        input_plan: LogicalPlan,
-        rel_scan: LogicalPlan,
-        source_variable: &str,
-        rel_instance: &RelationshipInstance,
-        rel_map: &RelationshipMapping,
-        node_map: &NodeMapping,
-        direction: &RelationshipDirection,
-    ) -> Result<LogicalPlanBuilder> {
-        let source_key = Self::get_source_join_key(direction, rel_map);
-        let qualified_source_key = qualify_column(source_variable, &node_map.id_field);
-        let qualified_rel_source_key = qualify_column(&rel_instance.alias, source_key);
-
-        LogicalPlanBuilder::from(input_plan)
-            .join(
-                rel_scan,
-                JoinType::Inner,
-                (vec![qualified_source_key], vec![qualified_rel_source_key]),
-                None,
-            )
-            .map_err(|e| crate::error::GraphError::PlanError {
-                message: format!("Failed to join with relationship: {}", e),
-                location: snafu::Location::new(file!(), line!(), column!()),
-            })
-    }
-
-    /// Join builder with target node scan
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn join_target_to_builder(
-        &self,
-        builder: LogicalPlanBuilder,
-        target_scan: LogicalPlan,
-        target_variable: &str,
-        rel_instance: &RelationshipInstance,
-        rel_map: &RelationshipMapping,
-        node_map: &NodeMapping,
-        direction: &RelationshipDirection,
-    ) -> Result<LogicalPlanBuilder> {
-        let target_key = Self::get_target_join_key(direction, rel_map);
-        let qualified_rel_target_key = qualify_column(&rel_instance.alias, target_key);
-        let qualified_target_key = qualify_column(target_variable, &node_map.id_field);
-
-        builder
-            .join(
-                target_scan,
-                JoinType::Inner,
-                (vec![qualified_rel_target_key], vec![qualified_target_key]),
-                None,
-            )
-            .map_err(|e| crate::error::GraphError::PlanError {
-                message: format!("Failed to join with target node: {}", e),
-                location: snafu::Location::new(file!(), line!(), column!()),
-            })
     }
 }
 

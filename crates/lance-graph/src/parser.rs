@@ -11,10 +11,10 @@ use crate::error::{GraphError, Result};
 use nom::{
     branch::alt,
     bytes::complete::{tag, tag_no_case, take_while1},
-    character::complete::{char, digit0, digit1, multispace0, multispace1, one_of},
-    combinator::{map, map_res, opt, peek, recognize},
-    multi::{many0, separated_list0, separated_list1},
-    sequence::{delimited, pair, preceded, tuple},
+    character::complete::{char, digit0, digit1, multispace0, multispace1, one_of, satisfy},
+    combinator::{map, map_res, not, opt, peek, recognize},
+    multi::{many0, many1, separated_list0, separated_list1},
+    sequence::{delimited, pair, preceded, terminated, tuple},
     IResult,
 };
 use std::collections::HashMap;
@@ -55,6 +55,10 @@ fn cypher_query(input: &str) -> IResult<&str, CypherQuery> {
         }
         None => (input, vec![], None),
     };
+    let (input, further_with_stages) = match with_result {
+        Some(_) => many0(with_stage)(input)?,
+        None => (input, vec![]),
+    };
 
     let (input, return_clause) = return_clause(input)?;
     let (input, order_by) = opt(order_by_clause)(input)?;
@@ -69,6 +73,7 @@ fn cypher_query(input: &str) -> IResult<&str, CypherQuery> {
             with_clause: with_result,
             post_with_reading_clauses,
             post_with_where_clause: post_with_where,
+            further_with_stages,
             return_clause,
             limit,
             order_by,
@@ -88,11 +93,25 @@ fn reading_clause(input: &str) -> IResult<&str, ReadingClause> {
 // Parse a MATCH clause
 fn match_clause(input: &str) -> IResult<&str, MatchClause> {
     let (input, _) = multispace0(input)?;
+    let (input, optional) = opt(terminated(tag_no_case("OPTIONAL"), multispace1))(input)?;
     let (input, _) = tag_no_case("MATCH")(input)?;
     let (input, _) = multispace1(input)?;
     let (input, patterns) = separated_list0(comma_ws, graph_pattern)(input)?;
+    // See `MatchClause::where_clause` for which WHERE belongs to the clause.
+    let (input, where_clause) = if optional.is_some() {
+        opt(where_clause)(input)?
+    } else {
+        opt(terminated(where_clause, peek(reading_clause)))(input)?
+    };
 
-    Ok((input, MatchClause { patterns }))
+    Ok((
+        input,
+        MatchClause {
+            patterns,
+            optional: optional.is_some(),
+            where_clause,
+        },
+    ))
 }
 
 // Parse an UNWIND clause
@@ -118,9 +137,33 @@ fn unwind_clause(input: &str) -> IResult<&str, UnwindClause> {
 // Parse a graph pattern (node or path)
 fn graph_pattern(input: &str) -> IResult<&str, GraphPattern> {
     alt((
+        map(shortest_path_pattern, GraphPattern::Path),
         map(path_pattern, GraphPattern::Path),
         map(node_pattern, GraphPattern::Node),
     ))(input)
+}
+
+// [p =] shortestPath((a)-[:R*min..max]-(b)) or allShortestPaths(...)
+fn shortest_path_pattern(input: &str) -> IResult<&str, PathPattern> {
+    let (input, _) = multispace0(input)?;
+    let (input, variable) = opt(terminated(
+        identifier,
+        tuple((multispace0, char('='), multispace0)),
+    ))(input)?;
+    let (input, all) = alt((
+        map(tag_no_case("allShortestPaths"), |_| true),
+        map(tag_no_case("shortestPath"), |_| false),
+    ))(input)?;
+    let (input, mut path) = delimited(
+        tuple((multispace0, char('('), multispace0)),
+        path_pattern,
+        tuple((multispace0, char(')'))),
+    )(input)?;
+    path.shortest = Some(ShortestPathSpec {
+        all,
+        variable: variable.map(str::to_string),
+    });
+    Ok((input, path))
 }
 
 // Parse a path pattern (only if there are segments)
@@ -141,6 +184,7 @@ fn path_pattern(input: &str) -> IResult<&str, PathPattern> {
         PathPattern {
             start_node,
             segments,
+            shortest: None,
         },
     ))
 }
@@ -242,7 +286,19 @@ type RelationshipContentResult<'a> = (
 fn relationship_content(input: &str) -> IResult<&str, RelationshipContentResult<'_>> {
     let (input, _) = multispace0(input)?;
     let (input, variable) = opt(identifier)(input)?;
-    let (input, types) = many0(preceded(char(':'), identifier))(input)?;
+    // `:A`, alternation `:A|B` or `:A|:B`, and upstream's `:A:B` (also read as A or B).
+    let (input, first) = opt(preceded(char(':'), identifier))(input)?;
+    let (input, rest) = many0(preceded(
+        alt((
+            map(
+                tuple((multispace0, char('|'), multispace0, opt(char(':')))),
+                |_| (),
+            ),
+            map(char(':'), |_| ()),
+        )),
+        identifier,
+    ))(input)?;
+    let types: Vec<&str> = first.into_iter().chain(rest).collect();
     let (input, _) = multispace0(input)?;
     let (input, length) = opt(length_range)(input)?;
     let (input, _) = multispace0(input)?;
@@ -283,7 +339,14 @@ fn property_value(input: &str) -> IResult<&str, PropertyValue> {
         map(float_literal, PropertyValue::Float), // Try float BEFORE integer (more specific)
         map(integer_literal, PropertyValue::Integer),
         map(boolean_literal, PropertyValue::Boolean),
-        map(tag("null"), |_| PropertyValue::Null),
+        // NULL in any case, as a whole word (not the start of a name like `nullCount`).
+        map(
+            terminated(
+                tag_no_case("null"),
+                not(peek(satisfy(|c: char| c.is_alphanumeric() || c == '_'))),
+            ),
+            |_| PropertyValue::Null,
+        ),
         map(parameter, PropertyValue::Parameter),
     ))(input)
 }
@@ -352,8 +415,30 @@ fn boolean_primary_expression(input: &str) -> IResult<&str, BooleanExpression> {
             ),
             |expr| expr,
         ),
+        exists_subquery,
+        // A path used as a predicate: `(a)-[:R]-(b)` (one relationship at least).
+        map(path_pattern, |path| BooleanExpression::PatternExists {
+            patterns: vec![GraphPattern::Path(path)],
+            where_clause: None,
+        }),
         comparison_expression,
     ))(input)
+}
+
+// EXISTS { [MATCH] pattern, ... [WHERE ...] }
+fn exists_subquery(input: &str) -> IResult<&str, BooleanExpression> {
+    let (input, _) = tuple((tag_no_case("EXISTS"), multispace0, char('{'), multispace0))(input)?;
+    let (input, _) = opt(tuple((tag_no_case("MATCH"), multispace1)))(input)?;
+    let (input, patterns) = separated_list1(comma_ws, graph_pattern)(input)?;
+    let (input, where_clause) = opt(where_clause)(input)?;
+    let (input, _) = tuple((multispace0, char('}')))(input)?;
+    Ok((
+        input,
+        BooleanExpression::PatternExists {
+            patterns,
+            where_clause: where_clause.map(|w| Box::new(w.expression)),
+        },
+    ))
 }
 
 fn comparison_expression(input: &str) -> IResult<&str, BooleanExpression> {
@@ -483,6 +568,7 @@ fn comparison_operator(input: &str) -> IResult<&str, ComparisonOperator> {
 fn basic_value_expression(input: &str) -> IResult<&str, ValueExpression> {
     alt((
         parse_vector_literal, // Try vector literal first [0.1, 0.2]
+        list_literal,         // Then a list of any expressions [a.x, 'y'] (or [])
         parse_parameter,      // Try $parameter
         function_call,        // Regular function calls
         map(property_value, ValueExpression::Literal), // Try literals BEFORE property references
@@ -491,9 +577,131 @@ fn basic_value_expression(input: &str) -> IResult<&str, ValueExpression> {
     ))(input)
 }
 
-// Parse a value expression
-// Optimization: Use peek to avoid expensive backtracking for non-vector queries
+// Parse a value expression: arithmetic over primaries, `*` `/` `%` binding tighter than
+// `+` `-`, all left-associative.
 fn value_expression(input: &str) -> IResult<&str, ValueExpression> {
+    arithmetic_level(
+        input,
+        &[
+            ('+', ArithmeticOperator::Add),
+            ('-', ArithmeticOperator::Subtract),
+        ],
+    )
+}
+
+fn arithmetic_level<'a>(
+    input: &'a str,
+    operators: &[(char, ArithmeticOperator)],
+) -> IResult<&'a str, ValueExpression> {
+    let tighter = |i: &'a str| {
+        if operators[0].0 == '+' {
+            arithmetic_level(
+                i,
+                &[
+                    ('*', ArithmeticOperator::Multiply),
+                    ('/', ArithmeticOperator::Divide),
+                    ('%', ArithmeticOperator::Modulo),
+                ],
+            )
+        } else {
+            primary_value_expression(i)
+        }
+    };
+    let (mut input, mut left) = tighter(input)?;
+    loop {
+        let Ok((after_op, (_, op, _))) = tuple((
+            multispace0,
+            one_of::<_, _, nom::error::Error<&str>>("+-*/%"),
+            multispace0,
+        ))(input) else {
+            break;
+        };
+        let Some((_, operator)) = operators.iter().find(|(c, _)| *c == op) else {
+            break;
+        };
+        // A right side that doesn't parse (e.g. `-[` of a pattern) ends the expression.
+        let Ok((rest, right)) = tighter(after_op) else {
+            break;
+        };
+        left = ValueExpression::Arithmetic {
+            left: Box::new(left),
+            operator: operator.clone(),
+            right: Box::new(right),
+        };
+        input = rest;
+    }
+    Ok((input, left))
+}
+
+// `( expr )`, `CASE ... END`, or a basic value, then any `[index]` suffixes
+fn primary_value_expression(input: &str) -> IResult<&str, ValueExpression> {
+    let (mut input, mut value) = alt((
+        delimited(
+            tuple((char('('), multispace0)),
+            value_expression,
+            tuple((multispace0, char(')'))),
+        ),
+        case_expression,
+        single_value_expression,
+    ))(input)?;
+    // `list[i]`, with the `[` right after the value (so `x IN [1, 2]` is not an index).
+    while let Ok((rest, index)) = delimited(
+        tuple((char('['), multispace0)),
+        value_expression,
+        tuple((multispace0, char(']'))),
+    )(input)
+    {
+        value = ValueExpression::ScalarFunction {
+            name: "__index".to_string(),
+            args: vec![value, index],
+        };
+        input = rest;
+    }
+    Ok((input, value))
+}
+
+// CASE [operand] WHEN ... THEN ... [ELSE ...] END
+fn case_expression(input: &str) -> IResult<&str, ValueExpression> {
+    let keyword = |k: &'static str| tuple((multispace0, tag_no_case(k), multispace1));
+    let (input, _) = tuple((tag_no_case("CASE"), multispace1))(input)?;
+    let (input, operand) = opt(terminated(value_expression, peek(keyword("WHEN"))))(input)?;
+    let (input, whens) = match &operand {
+        None => many1(tuple((
+            preceded(keyword("WHEN"), boolean_expression),
+            preceded(keyword("THEN"), value_expression),
+        )))(input)?,
+        Some(operand) => {
+            let (input, pairs) = many1(tuple((
+                preceded(keyword("WHEN"), value_expression),
+                preceded(keyword("THEN"), value_expression),
+            )))(input)?;
+            let whens = pairs
+                .into_iter()
+                .map(|(value, then)| {
+                    let condition = BooleanExpression::Comparison {
+                        left: operand.clone(),
+                        operator: ComparisonOperator::Equal,
+                        right: value,
+                    };
+                    (condition, then)
+                })
+                .collect();
+            (input, whens)
+        }
+    };
+    let (input, otherwise) = opt(preceded(keyword("ELSE"), value_expression))(input)?;
+    let (input, _) = tuple((multispace0, tag_no_case("END")))(input)?;
+    Ok((
+        input,
+        ValueExpression::Case {
+            whens,
+            otherwise: otherwise.map(Box::new),
+        },
+    ))
+}
+
+// Optimization: Use peek to avoid expensive backtracking for non-vector queries
+fn single_value_expression(input: &str) -> IResult<&str, ValueExpression> {
     // Peek at first identifier to dispatch to correct parser
     // This eliminates failed parser attempts for every non-vector expression
     if let Ok((_, first_ident)) = peek(identifier)(input) {
@@ -733,6 +941,25 @@ fn parse_vector_literal(input: &str) -> IResult<&str, ValueExpression> {
     Ok((input, ValueExpression::VectorLiteral(values)))
 }
 
+// `[expr, ...]` or `[]`: a list of any values (all-float lists parse as vectors first)
+fn list_literal(input: &str) -> IResult<&str, ValueExpression> {
+    let (input, items) = delimited(
+        tuple((char('['), multispace0)),
+        separated_list0(
+            tuple((multispace0, char(','), multispace0)),
+            value_expression,
+        ),
+        tuple((multispace0, char(']'))),
+    )(input)?;
+    Ok((
+        input,
+        ValueExpression::ScalarFunction {
+            name: "__list".to_string(),
+            args: items,
+        },
+    ))
+}
+
 // Parse a property reference: variable.property
 fn property_reference(input: &str) -> IResult<&str, PropertyRef> {
     let (input, variable) = identifier(input)?;
@@ -753,16 +980,35 @@ fn with_clause(input: &str) -> IResult<&str, WithClause> {
     let (input, _) = multispace0(input)?;
     let (input, _) = tag_no_case("WITH")(input)?;
     let (input, _) = multispace1(input)?;
+    let (input, distinct) = opt(terminated(tag_no_case("DISTINCT"), multispace1))(input)?;
     let (input, items) = separated_list0(comma_ws, return_item)(input)?;
     let (input, order_by) = opt(order_by_clause)(input)?;
     let (input, limit) = opt(limit_clause)(input)?;
+    let (input, where_clause) = opt(where_clause)(input)?;
 
     Ok((
         input,
         WithClause {
+            distinct: distinct.is_some(),
             items,
             order_by,
             limit,
+            where_clause,
+        },
+    ))
+}
+
+// A WITH after the first, with its own reading clauses and WHERE
+fn with_stage(input: &str) -> IResult<&str, WithStage> {
+    let (input, with_clause) = with_clause(input)?;
+    let (input, reading_clauses) = many0(reading_clause)(input)?;
+    let (input, where_clause) = opt(where_clause)(input)?;
+    Ok((
+        input,
+        WithStage {
+            with_clause,
+            reading_clauses,
+            where_clause,
         },
     ))
 }
@@ -867,8 +1113,11 @@ fn limit_clause(input: &str) -> IResult<&str, u64> {
     let (input, _) = tag_no_case("LIMIT")(input)?;
     let (input, _) = multispace1(input)?;
     let (input, limit) = integer_literal(input)?;
-
-    Ok((input, limit as u64))
+    // Negative counts are an error, not a wrap-around to a huge u64.
+    let limit = u64::try_from(limit).map_err(|_| {
+        nom::Err::Failure(nom::error::Error::new(input, nom::error::ErrorKind::Verify))
+    })?;
+    Ok((input, limit))
 }
 
 // Parse a SKIP clause
@@ -877,8 +1126,10 @@ fn skip_clause(input: &str) -> IResult<&str, u64> {
     let (input, _) = tag_no_case("SKIP")(input)?;
     let (input, _) = multispace1(input)?;
     let (input, skip) = integer_literal(input)?;
-
-    Ok((input, skip as u64))
+    let skip = u64::try_from(skip).map_err(|_| {
+        nom::Err::Failure(nom::error::Error::new(input, nom::error::ErrorKind::Verify))
+    })?;
+    Ok((input, skip))
 }
 
 // Parse pagination clauses (SKIP and LIMIT)
@@ -947,7 +1198,11 @@ fn integer_literal(input: &str) -> IResult<&str, i64> {
         take_while1(|c: char| c.is_ascii_digit()),
     ))(input)?;
 
-    Ok((input, digits.parse().unwrap()))
+    // Out-of-range literals fail to parse instead of panicking.
+    let value = digits.parse().map_err(|_| {
+        nom::Err::Failure(nom::error::Error::new(input, nom::error::ErrorKind::Digit))
+    })?;
+    Ok((input, value))
 }
 
 // Parse a float literal
@@ -959,7 +1214,16 @@ fn float_literal(input: &str) -> IResult<&str, f64> {
         take_while1(|c: char| c.is_ascii_digit()),
     )))(input)?;
 
-    Ok((input, number.parse().unwrap()))
+    let value: f64 = number.parse().map_err(|_| {
+        nom::Err::Failure(nom::error::Error::new(input, nom::error::ErrorKind::Float))
+    })?;
+    if !value.is_finite() {
+        return Err(nom::Err::Failure(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::Float,
+        )));
+    }
+    Ok((input, value))
 }
 
 // Parse a boolean literal
@@ -1927,5 +2191,98 @@ mod tests {
         let query = "MATCH (n) UNWIND n.list AS item RETURN item";
         let ast = parse_cypher_query(query);
         assert!(ast.is_ok(), "Failed to parse UNWIND after MATCH");
+    }
+
+    #[test]
+    fn out_of_range_numbers_are_parse_errors_not_panics() {
+        for q in [
+            "MATCH (n:Person) RETURN n LIMIT 99999999999999999999",
+            "MATCH (n:Person) RETURN n LIMIT -1",
+            "MATCH (n:Person) RETURN n SKIP -1",
+            "MATCH (n:Person) WHERE n.age > 99999999999999999999 RETURN n",
+        ] {
+            assert!(parse_cypher_query(q).is_err(), "{q}");
+        }
+        let huge = format!(
+            "MATCH (n:Person) WHERE n.x > {}.0 RETURN n",
+            "9".repeat(400)
+        );
+        assert!(parse_cypher_query(&huge).is_err());
+    }
+
+    #[test]
+    fn relationship_type_alternation() {
+        for q in [
+            "MATCH (a)-[:A|B]->(b) RETURN b",
+            "MATCH (a)-[:A|:B]->(b) RETURN b",
+            "MATCH (a)-[r:A | B *1..2]->(b) RETURN b",
+            "MATCH (a)-[:A:B]->(b) RETURN b",
+        ] {
+            let query = parse_cypher_query(q).unwrap_or_else(|e| panic!("{q}: {e}"));
+            let ReadingClause::Match(m) = &query.reading_clauses[0] else {
+                panic!("{q}: not a MATCH");
+            };
+            let GraphPattern::Path(path) = &m.patterns[0] else {
+                panic!("{q}: not a path");
+            };
+            assert_eq!(path.segments[0].relationship.types, vec!["A", "B"], "{q}");
+        }
+    }
+
+    #[test]
+    fn chained_with_stages_and_with_distinct() {
+        let q = "MATCH (a)-[:R]->(b) WITH DISTINCT b WHERE b.x > 1 \
+                 MATCH (b)-[:R]->(c) WITH c, count(*) AS n WITH c WHERE n > 2 RETURN c";
+        let query = parse_cypher_query(q).unwrap();
+        let first = query.with_clause.as_ref().unwrap();
+        assert!(first.distinct && first.where_clause.is_some());
+        assert_eq!(query.post_with_reading_clauses.len(), 1);
+        assert_eq!(query.further_with_stages.len(), 2);
+        let [second, third] = &query.further_with_stages[..] else {
+            unreachable!()
+        };
+        assert!(!second.with_clause.distinct && second.reading_clauses.is_empty());
+        assert!(third.with_clause.where_clause.is_some());
+    }
+
+    #[test]
+    fn optional_match_owns_its_where_and_inner_where_attaches_to_match() {
+        let q = "MATCH (a) WHERE a.x > 1 OPTIONAL MATCH (a)-[:R]->(b) WHERE b.y = 2 \
+                 MATCH (a)-[:S]->(c) WHERE c.z = 3 RETURN a";
+        let query = parse_cypher_query(q).unwrap();
+        let clauses: Vec<&MatchClause> = query
+            .reading_clauses
+            .iter()
+            .map(|c| match c {
+                ReadingClause::Match(m) => m,
+                ReadingClause::Unwind(_) => unreachable!(),
+            })
+            .collect();
+        assert_eq!(clauses.len(), 3);
+        assert!(!clauses[0].optional && clauses[0].where_clause.is_some());
+        assert!(clauses[1].optional && clauses[1].where_clause.is_some());
+        // The last plain MATCH's WHERE stays in the query's slot (re-rooting reads it).
+        assert!(clauses[2].where_clause.is_none() && query.where_clause.is_some());
+    }
+
+    #[test]
+    fn null_literal_any_case_but_not_a_name_prefix() {
+        for q in [
+            "MATCH (n) RETURN NULL AS x",
+            "MATCH (n) RETURN null AS x",
+            "MATCH (n) RETURN Null AS x",
+        ] {
+            let query = parse_cypher_query(q).unwrap();
+            assert_eq!(
+                query.return_clause.items[0].expression,
+                ValueExpression::Literal(PropertyValue::Null),
+                "{q}"
+            );
+        }
+        let query = parse_cypher_query("MATCH (n) WITH 1 AS nullCount RETURN nullCount").unwrap();
+        assert_eq!(
+            query.return_clause.items[0].expression,
+            ValueExpression::Variable("nullCount".into())
+        );
     }
 }

@@ -211,6 +211,22 @@ fn analyze_operator(
                 analyze_operator(op, analysis, rel_counter)?;
             }
         }
+        LogicalOperator::ShortestPath { input, .. } => {
+            analyze_operator(input, analysis, rel_counter)?;
+        }
+        // Same order as `build_optional_match` builds them: input, then the optional side.
+        LogicalOperator::OptionalMatch {
+            input, optional, ..
+        } => {
+            analyze_operator(input, analysis, rel_counter)?;
+            analyze_operator(optional, analysis, rel_counter)?;
+        }
+        // Branch labels may differ; `build_union` re-derives them per branch.
+        LogicalOperator::Union { inputs } => {
+            for input in inputs {
+                analyze_operator(input, analysis, rel_counter)?;
+            }
+        }
     }
     Ok(())
 }

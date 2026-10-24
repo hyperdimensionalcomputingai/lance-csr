@@ -1,18 +1,15 @@
-# Lance Graph
+# lance-csr
 
-**A high-performance Cypher-capable graph query engine with Python bindings for building scalable, serverless knowledge graphs.**
-
-Lance Graph combines a Rust-powered Cypher query engine with Python APIs for:
-- Fast graph queries using Cypher query language
-- AI-powered knowledge extraction from text (via LLM)
-- Lance-backed storage for efficient graph data management
-- Natural language Q&A over your knowledge graphs
-- FastAPI web service for graph queries
+A fork of [lance-graph](https://github.com/lance-format/lance-graph): a Rust Cypher query engine over
+Lance datasets and Arrow tables, built on Apache DataFusion, with Python bindings. Not affiliated with or
+endorsed by the lance-graph maintainers.
 
 ## Installation
 
+Not published. Install a locally built wheel (no Rust toolchain needed):
+
 ```bash
-pip install lance-graph
+uv pip install --only-binary=:all: /path/to/lance_csr-<version>-<tags>.whl
 ```
 
 ## Quick Start
@@ -21,7 +18,7 @@ pip install lance-graph
 
 ```python
 import pyarrow as pa
-from lance_graph import CypherQuery, GraphConfig
+from lance_csr import CypherQuery, GraphConfig
 
 cfg = (
     GraphConfig.builder()
@@ -54,7 +51,7 @@ For executing multiple queries against the same datasets, use `CypherEngine` to 
 
 ```python
 import pyarrow as pa
-from lance_graph import CypherEngine, GraphConfig
+from lance_csr import CypherEngine, GraphConfig
 
 cfg = (
     GraphConfig.builder()
@@ -82,13 +79,72 @@ print(result1.to_pylist())
 # [{'p.name': 'Alice'}]
 ```
 
-### 3. Direct SQL Queries
+### 3. Lance datasets: snapshots, refresh and streaming
+
+`CypherEngine` reads Lance datasets lazily from storage (projections and filters are pushed into the
+scan). Each dataset is pinned to the version you pass in; later writes are visible only after
+`refresh()`. Use `execute_batches()` to stream large results instead of materializing a table.
+
+```python
+import lance
+from lance_csr import CypherEngine, GraphConfig
+
+config = GraphConfig.builder().with_node_label("Person", "id").build()
+engine = CypherEngine(config, {"Person": lance.dataset("people.lance")})
+
+engine.execute("MATCH (p:Person) RETURN count(*)")   # sees the pinned version
+engine.refresh()                                       # move to the latest version
+for batch in engine.execute_batches("MATCH (p:Person) RETURN p.id"):
+    ...                                                # pyarrow.RecordBatch, one at a time
+```
+
+Experimental: `CypherEngine(config, datasets, use_csr=True)` answers single-hop patterns over integer ids
+with an in-memory CSR adjacency, and fetches target rows by position instead of joining. The CSR is
+rebuilt on `refresh()` when the relationship table changes, and the per-label id index when its node
+table changes. Results are identical; peak memory grows by about 70 bytes per edge (both directions).
+
+Write Lance data with `pylance` 13.x: the engine is built against Lance 13 and older or newer
+majors may write files it cannot read.
+
+### 4. Tables created with LanceDB
+
+LanceDB tables are Lance datasets on disk. Pass the dataset behind each table with
+`table.to_lance()`. Passing the LanceDB `Table` object itself raises a `TypeError`.
+
+```python
+import lancedb
+from lance_csr import CypherEngine, GraphConfig
+
+db = lancedb.connect("./mydb")
+people, knows = db.open_table("Person"), db.open_table("KNOWS")
+
+config = (
+    GraphConfig.builder()
+    .with_node_label("Person", "id")
+    .with_relationship("KNOWS", "src", "dst")
+    .build()
+)
+engine = CypherEngine(config, {"Person": people.to_lance(), "KNOWS": knows.to_lance()})
+
+knows.add(new_edges)   # keep writing with the LanceDB API
+engine.refresh()       # the engine sees the new version
+```
+
+- Reads are lazy and pinned to the version you pass in, exactly as with `lance.dataset(...)`.
+- `table.to_arrow()` also works, but loads the whole table into memory and never refreshes.
+- Tested with LanceDB 0.40.0 on local tables, which write Lance file format 2.2. A LanceDB release that
+  bundles a newer Lance major may write files this engine cannot read.
+- Not supported: LanceDB Cloud (remote tables have no `to_lance()`), and tables opened through a
+  namespace connection, which are rejected rather than reopened without their credentials.
+  Object-store tables (S3 and similar) have not been tested.
+
+### 5. Direct SQL Queries
 
 For data analytics workflows where you prefer standard SQL over Cypher, use `SqlQuery` or `SqlEngine`. No `GraphConfig` is needed — write explicit JOINs against your tables directly:
 
 ```python
 import pyarrow as pa
-from lance_graph import SqlQuery, SqlEngine
+from lance_csr import SqlQuery, SqlEngine
 
 person = pa.table({
     "id": [1, 2, 3],
@@ -116,145 +172,12 @@ r2 = engine.execute(
 )
 ```
 
-### 4. Unity Catalog Integration
-
-Connect to [Unity Catalog](https://github.com/unitycatalog/unitycatalog) (OSS) to discover and query Delta Lake or Parquet tables without manually loading data:
-
-```python
-from lance_graph import UnityCatalog
-
-# Connect to Unity Catalog
-uc = UnityCatalog("http://localhost:8080/api/2.1/unity-catalog")
-
-# Browse catalog hierarchy
-catalogs = uc.list_catalogs()
-schemas = uc.list_schemas("unity")
-tables = uc.list_tables("unity", "default")
-
-# Inspect table metadata
-table = uc.get_table("unity", "default", "marksheet")
-print(table.data_source_format)  # "Delta"
-print(table.columns())           # [{"name": "id", "type_name": "INT", ...}, ...]
-
-# Auto-register all tables and query via SQL
-engine = uc.create_sql_engine("unity", "default")
-result = engine.execute("SELECT * FROM marksheet WHERE mark > 80")
-print(result.to_pandas())
-```
-
-For tables on cloud storage (S3, Azure, GCS):
-
-```python
-uc = UnityCatalog(
-    "http://localhost:8080/api/2.1/unity-catalog",
-    storage_options={
-        "azure_storage_account_name": "myaccount",
-        "azure_storage_account_key": "...",
-    }
-)
-engine = uc.create_sql_engine("unity", "default")
-```
-
-### 5. Build a Knowledge Graph from Text
-
-```python
-from pathlib import Path
-from knowledge_graph import (
-    KnowledgeGraphConfig,
-    LanceKnowledgeGraph,
-    LanceGraphStore,
-    get_extractor,
-)
-from knowledge_graph.cli.ingest import extract_and_add
-
-# Initialize knowledge graph
-config = KnowledgeGraphConfig.from_root(Path("./my_graph"))
-config.ensure_directories()
-
-# Create schema
-schema_path = config.resolved_schema_path()
-if not schema_path.exists():
-    schema_content = """
-nodes:
-  Entity:
-    id_field: entity_id
-
-relationships:
-  RELATIONSHIP:
-    source: source_entity_id
-    target: target_entity_id
-"""
-    schema_path.write_text(schema_content, encoding="utf-8")
-
-store = LanceGraphStore(config)
-store.ensure_layout()
-
-graph_config = config.load_graph_config()
-kg = LanceKnowledgeGraph(graph_config, storage=store)
-kg.ensure_initialized()
-
-# Extract and add entities/relationships from text
-# Using heuristic extractor for testing without API key
-extractor = get_extractor("heuristic")
-# or using LLM extractor (requires API key)
-# extractor = get_extractor("llm", llm_model="gpt-4o-mini")
-text = """
-Albert Einstein developed the theory of relativity at Princeton.
-Marie Curie discovered radioactivity in Paris.
-"""
-
-extract_and_add(text, kg, extractor, embedding_generator=None)
-
-# Query the graph
-result = kg.query("""
-    MATCH (e:Entity)
-    RETURN e.name, e.entity_type
-    LIMIT 10
-""")
-print(result.to_pylist())
-```
-
-### 6. Natural Language Q&A
-
-```python
-from knowledge_graph.llm.qa import ask_question
-
-# Ask questions in natural language
-answer = ask_question(
-    "Who discovered radioactivity?",
-    kg,
-    llm_model="gpt-4o-mini"
-)
-print(answer)
-# Output: Marie Curie discovered radioactivity.
-```
-
-## Command-Line Interface
-
-Lance Graph includes a CLI for building and querying knowledge graphs:
-
-```bash
-# Initialize and extract
-knowledge_graph --root ./my_graph --init
-knowledge_graph --root ./my_graph --extract-and-add notes.txt
-
-# Query with Cypher
-knowledge_graph --root ./my_graph "MATCH (e:Entity) RETURN e.name LIMIT 10"
-
-# Natural language Q&A
-knowledge_graph --root ./my_graph --ask "Who discovered DNA?"
-```
-
-For complete CLI documentation and examples, see the [main README](../README.md#cli-usage).
-
 ## Requirements
 
-- Python 3.11+
-- Optional: OpenAI API key for LLM extraction
+- Python 3.11 or 3.12 (tested); macOS arm64 or Linux x86-64
+- `pylance` 13.x for writing Lance datasets
 
 ## Contributing
-
-Lance Graph is open source! Contributions are welcome.
 
 ### Quick start
 
@@ -294,8 +217,8 @@ maturin develop
 ## Repository layout
 
 - `crates/lance-graph-python/src/` – PyO3 bridge that exposes graph APIs to Python
-- `python/python/lance_graph/` – pure-Python wrapper and `__init__`
-- `python/python/knowledge_graph/` – CLI, FastAPI, and extractor utilities built on Lance
+- `python/python/lance_csr/` – pure-Python wrapper and `__init__`
+- `python/benchmarks/` – catalog-reuse and bounded-memory benchmarks
 - `python/python/tests/` – graph-centric functional tests
 
 For more information on development setup, building from source, running tests, and code quality guidelines, see [DEVELOPMENT.md](./DEVELOPMENT.md).
@@ -306,7 +229,4 @@ Apache 2.0
 
 ## Links
 
-- [GitHub](https://github.com/lancedb/lance-graph)
-- [Documentation](https://deepwiki.com/lancedb/lance-graph)
-- [PyPI](https://pypi.org/project/lance-graph/)
-- [LanceDB](https://lancedb.com/)
+- Upstream: [lance-format/lance-graph](https://github.com/lance-format/lance-graph)

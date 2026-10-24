@@ -22,6 +22,9 @@ __pycache__/
 /dist/
 python/python/lance_graph/*.so
 python/python/lance_graph/*.pyd
+python/python/lance_csr/*.so
+python/python/lance_csr/*.pyd
+python/dist/
 python/target/
 python/.pytest_cache/
 python/.ruff_cache/
@@ -34,8 +37,6 @@ venv/
 env/
 python/.venv/
 .python-version
-llm_config.yaml
-python/knowledge_graph_data/
 
 # IDE & tooling
 .vscode/
@@ -52,6 +53,3 @@ python/knowledge_graph_data/
 *.swo
 .DS_Store
 Thumbs.db
-
-# Generated data
-knowledge_graph_data/

@@ -6,11 +6,11 @@
 //! Helpers for constructing table scans with qualified columns
 
 use super::analysis::{PlanningContext, RelationshipInstance};
-use crate::ast::PropertyValue;
+use crate::ast::{PropertyValue, RelationshipDirection};
 use crate::case_insensitive::qualify_column;
+use crate::config::RelationshipMapping;
 use crate::error::Result;
 use datafusion::logical_expr::{col, BinaryExpr, Expr, LogicalPlan, LogicalPlanBuilder, Operator};
-use lance_graph_catalog::GraphSourceCatalog;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -125,6 +125,8 @@ impl DataFusionPlanner {
         rel_instance: &RelationshipInstance,
         rel_source: Arc<dyn datafusion::logical_expr::TableSource>,
         relationship_properties: &HashMap<String, PropertyValue>,
+        rel_map: &RelationshipMapping,
+        direction: &RelationshipDirection,
     ) -> Result<LogicalPlan> {
         let rel_schema = rel_source.schema();
         let normalized_rel_type = rel_instance.rel_type.to_lowercase();
@@ -154,6 +156,8 @@ impl DataFusionPlanner {
             })?;
         }
 
+        rel_builder = self.with_reversed_edges(rel_builder, &rel_schema, rel_map, direction)?;
+
         // Use unique alias from rel_instance to avoid column conflicts
         let rel_qualified_exprs: Vec<Expr> = rel_schema
             .fields()
@@ -169,6 +173,57 @@ impl DataFusionPlanner {
             .map_err(|e| self.plan_error("Failed to project relationship columns", e))?
             .build()
             .map_err(|e| self.plan_error("Failed to build relationship scan", e))
+    }
+
+    /// For an undirected pattern, append a reversed copy of every edge (source and
+    /// target swapped) to the relationship scan. The joins then treat an undirected
+    /// pattern exactly like an outgoing one, and each edge matches from both ends,
+    /// as Cypher requires. Self-loops are left out of the copy so they match once.
+    /// Upstream joined undirected patterns on the outgoing keys only, which silently
+    /// dropped every match that needed an incoming edge.
+    fn with_reversed_edges(
+        &self,
+        builder: LogicalPlanBuilder,
+        rel_schema: &arrow_schema::SchemaRef,
+        rel_map: &RelationshipMapping,
+        direction: &RelationshipDirection,
+    ) -> Result<LogicalPlanBuilder> {
+        if *direction != RelationshipDirection::Undirected {
+            return Ok(builder);
+        }
+        let field = |name: &str| {
+            rel_schema
+                .fields()
+                .iter()
+                .find(|f| f.name().eq_ignore_ascii_case(name))
+                .map(|f| f.name().clone())
+                .ok_or_else(|| crate::error::GraphError::PlanError {
+                    message: format!("Relationship column '{}' not found", name),
+                    location: snafu::Location::new(file!(), line!(), column!()),
+                })
+        };
+        let (src, dst) = (
+            field(&rel_map.source_id_field)?,
+            field(&rel_map.target_id_field)?,
+        );
+        let swapped: Vec<Expr> = rel_schema
+            .fields()
+            .iter()
+            .map(|f| match f.name() {
+                n if *n == src => col(&dst).alias(&src),
+                n if *n == dst => col(&src).alias(&dst),
+                n => col(n),
+            })
+            .collect();
+        let reversed = builder
+            .clone()
+            .filter(col(&src).not_eq(col(&dst)))
+            .and_then(|b| b.project(swapped))
+            .and_then(|b| b.build())
+            .map_err(|e| self.plan_error("Failed to reverse undirected edges", e))?;
+        builder
+            .union(reversed)
+            .map_err(|e| self.plan_error("Failed to union undirected edges", e))
     }
 
     /// Get the expected qualified column names for variable-length path results
@@ -207,119 +262,6 @@ impl DataFusionPlanner {
         }
 
         Ok(expected)
-    }
-
-    /// Build a qualified relationship scan for expansion
-    pub(crate) fn build_qualified_relationship_scan(
-        &self,
-        catalog: &Arc<dyn GraphSourceCatalog>,
-        rel_instance: &RelationshipInstance,
-    ) -> Result<LogicalPlan> {
-        let rel_source = catalog
-            .relationship_source(&rel_instance.rel_type)
-            .ok_or_else(|| crate::error::GraphError::ConfigError {
-                message: format!(
-                    "No table source found for relationship: {}",
-                    rel_instance.rel_type
-                ),
-                location: snafu::Location::new(file!(), line!(), column!()),
-            })?;
-
-        let rel_schema = rel_source.schema();
-        let normalized_rel_type = rel_instance.rel_type.to_lowercase();
-        let rel_builder = LogicalPlanBuilder::scan(&normalized_rel_type, rel_source, None)
-            .map_err(|e| crate::error::GraphError::PlanError {
-                message: format!("Failed to scan relationship: {}", e),
-                location: snafu::Location::new(file!(), line!(), column!()),
-            })?;
-
-        let rel_alias_lower = rel_instance.alias.to_lowercase();
-        let rel_qualified_exprs: Vec<Expr> = rel_schema
-            .fields()
-            .iter()
-            .map(|field| {
-                let qualified_name = qualify_column(&rel_alias_lower, field.name());
-                col(field.name()).alias(&qualified_name)
-            })
-            .collect();
-
-        rel_builder
-            .project(rel_qualified_exprs)
-            .map_err(|e| crate::error::GraphError::PlanError {
-                message: format!("Failed to project relationship: {}", e),
-                location: snafu::Location::new(file!(), line!(), column!()),
-            })?
-            .build()
-            .map_err(|e| crate::error::GraphError::PlanError {
-                message: format!("Failed to build relationship scan: {}", e),
-                location: snafu::Location::new(file!(), line!(), column!()),
-            })
-    }
-
-    /// Build a qualified target node scan with property filters
-    pub(crate) fn build_qualified_target_scan(
-        &self,
-        catalog: &Arc<dyn GraphSourceCatalog>,
-        target_label: &str,
-        target_variable: &str,
-        target_properties: &HashMap<String, PropertyValue>,
-    ) -> Result<LogicalPlan> {
-        let target_source = catalog.node_source(target_label).ok_or_else(|| {
-            crate::error::GraphError::ConfigError {
-                message: format!("No table source found for node label: {}", target_label),
-                location: snafu::Location::new(file!(), line!(), column!()),
-            }
-        })?;
-
-        let target_schema = target_source.schema();
-        let normalized_target_label = target_label.to_lowercase();
-        let mut target_builder =
-            LogicalPlanBuilder::scan(&normalized_target_label, target_source, None).map_err(
-                |e| crate::error::GraphError::PlanError {
-                    message: format!("Failed to scan target node: {}", e),
-                    location: snafu::Location::new(file!(), line!(), column!()),
-                },
-            )?;
-
-        // Apply target property filters
-        for (k, v) in target_properties.iter() {
-            let lit_expr = super::expression::to_df_value_expr(
-                &crate::ast::ValueExpression::Literal(v.clone()),
-            );
-            let filter_expr = Expr::BinaryExpr(BinaryExpr {
-                left: Box::new(col(k)),
-                op: Operator::Eq,
-                right: Box::new(lit_expr),
-            });
-            target_builder = target_builder.filter(filter_expr).map_err(|e| {
-                crate::error::GraphError::PlanError {
-                    message: format!("Failed to apply target property filter: {}", e),
-                    location: snafu::Location::new(file!(), line!(), column!()),
-                }
-            })?;
-        }
-
-        let target_var_lower = target_variable.to_lowercase();
-        let target_qualified_exprs: Vec<Expr> = target_schema
-            .fields()
-            .iter()
-            .map(|field| {
-                let qualified_name = qualify_column(&target_var_lower, field.name());
-                col(field.name()).alias(&qualified_name)
-            })
-            .collect();
-
-        target_builder
-            .project(target_qualified_exprs)
-            .map_err(|e| crate::error::GraphError::PlanError {
-                message: format!("Failed to project target node: {}", e),
-                location: snafu::Location::new(file!(), line!(), column!()),
-            })?
-            .build()
-            .map_err(|e| crate::error::GraphError::PlanError {
-                message: format!("Failed to build target scan: {}", e),
-                location: snafu::Location::new(file!(), line!(), column!()),
-            })
     }
 }
 

@@ -23,6 +23,10 @@ pub struct CypherQuery {
     pub post_with_reading_clauses: Vec<ReadingClause>,
     /// WHERE clause after WITH (optional) - filters the WITH results
     pub post_with_where_clause: Option<WhereClause>,
+    /// Second and later `WITH ... [MATCH ...] [WHERE ...]` stages, in order. The fields
+    /// above hold the first stage, as upstream's single-WITH AST did.
+    #[serde(default)]
+    pub further_with_stages: Vec<WithStage>,
     /// RETURN clause
     pub return_clause: ReturnClause,
     /// LIMIT clause (optional)
@@ -112,6 +116,14 @@ pub enum ReadingClause {
 pub struct MatchClause {
     /// Graph patterns to match
     pub patterns: Vec<GraphPattern>,
+    /// `OPTIONAL MATCH`: rows with no match are kept, with nulls for the new variables
+    #[serde(default)]
+    pub optional: bool,
+    /// A WHERE belonging to this clause: always the one right after an OPTIONAL MATCH
+    /// (it filters inside the optional part), and for a plain MATCH one followed by
+    /// another reading clause. A plain MATCH's last WHERE stays in the query's slot.
+    #[serde(default)]
+    pub where_clause: Option<WhereClause>,
 }
 
 /// An UNWIND clause
@@ -150,6 +162,19 @@ pub struct PathPattern {
     pub start_node: NodePattern,
     /// Relationships and intermediate nodes
     pub segments: Vec<PathSegment>,
+    /// `p = shortestPath(...)` / `allShortestPaths(...)`: one variable-length segment,
+    /// matched only by its shortest paths.
+    #[serde(default)]
+    pub shortest: Option<ShortestPathSpec>,
+}
+
+/// How a shortest-path pattern matches, and the path variable it binds.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ShortestPathSpec {
+    /// `allShortestPaths`: every path of the minimum length, not just one.
+    pub all: bool,
+    /// The path variable (`p` in `p = shortestPath(...)`), used with `length(p)` and `nodes(p)`.
+    pub variable: Option<String>,
 }
 
 /// A segment of a path (relationship + end node)
@@ -248,6 +273,12 @@ pub enum BooleanExpression {
     Not(Box<BooleanExpression>),
     /// Property existence check
     Exists(PropertyRef),
+    /// `EXISTS { [MATCH] pattern [WHERE ...] }`, or a bare pattern used as a predicate
+    /// (`NOT (a)-[:R]-(b)`): true when the pattern matches from this row's variables.
+    PatternExists {
+        patterns: Vec<GraphPattern>,
+        where_clause: Option<Box<BooleanExpression>>,
+    },
     /// IN clause
     In {
         expression: ValueExpression,
@@ -316,6 +347,12 @@ pub enum ValueExpression {
     Property(PropertyRef),
     /// Literal value
     Literal(PropertyValue),
+    /// `CASE WHEN cond THEN value ... [ELSE value] END`. The simple form
+    /// `CASE x WHEN v THEN ...` is parsed into this one, with `x = v` conditions.
+    Case {
+        whens: Vec<(BooleanExpression, ValueExpression)>,
+        otherwise: Option<Box<ValueExpression>>,
+    },
     /// Scalar function call (toLower, upper, etc.)
     /// These are row-level functions that operate on individual values
     ScalarFunction {
@@ -372,7 +409,10 @@ pub enum FunctionType {
 pub fn classify_function(name: &str) -> FunctionType {
     match name.to_lowercase().as_str() {
         "count" | "sum" | "avg" | "min" | "max" | "collect" => FunctionType::Aggregate,
-        "tolower" | "lower" | "toupper" | "upper" => FunctionType::Scalar,
+        "tolower" | "lower" | "toupper" | "upper" | "coalesce" | "date_part" | "to_epoch_ms"
+        | "length" | "nodes" | "size" | "range" | "__index" | "__list" | "tostring" => {
+            FunctionType::Scalar
+        }
         // Vector functions are handled separately as special variants
         _ => FunctionType::Unknown,
     }
@@ -394,12 +434,27 @@ pub enum ArithmeticOperator {
 /// the input for subsequent clauses.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WithClause {
+    /// Whether DISTINCT was specified
+    #[serde(default)]
+    pub distinct: bool,
     /// Items to project (similar to RETURN)
     pub items: Vec<ReturnItem>,
     /// Optional ORDER BY within WITH
     pub order_by: Option<OrderByClause>,
     /// Optional LIMIT within WITH
     pub limit: Option<u64>,
+    /// `WITH ... WHERE`: filters the WITH output, before any following MATCH
+    #[serde(default)]
+    pub where_clause: Option<WhereClause>,
+}
+
+/// One `WITH` with the reading clauses and `WHERE` that follow it, before the next `WITH`
+/// or the `RETURN`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WithStage {
+    pub with_clause: WithClause,
+    pub reading_clauses: Vec<ReadingClause>,
+    pub where_clause: Option<WhereClause>,
 }
 
 /// RETURN clause specifying what to return

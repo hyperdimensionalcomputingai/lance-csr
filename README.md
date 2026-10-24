@@ -1,13 +1,15 @@
-# Lance Graph
+# lance-csr
 
-Lance Graph is a Cypher-capable graph query engine built in Rust with Python bindings for building high-performance, scalable, and serverless multimodal knowledge graphs.
+A fork of [lance-graph](https://github.com/lance-format/lance-graph): a Cypher graph query engine over Lance
+datasets, built in Rust on Apache DataFusion, with Python bindings. It adds a CSR adjacency index for fast
+traversal, a lazy and refreshable engine over Lance snapshots, and much wider Cypher support. Not affiliated with
+or endorsed by the lance-graph maintainers.
 
 This repository contains:
 
 - `crates/lance-graph` – the Cypher-capable query engine implemented in Rust
 - `python/` – PyO3 bindings and Python packages:
-  - `lance_graph` – thin wrapper around the Rust query engine
-  - `knowledge_graph` – Lance-backed knowledge graph CLI, API, and utilities
+  - `lance_csr` – thin wrapper around the Rust query engine
 
 See `docs/project_structure.md` for the proposed workspace-based structure from
 issue #92.
@@ -45,7 +47,7 @@ pytest python/tests/ -v          # run the test suite
 
 ```python
 import pyarrow as pa
-from lance_graph import CypherQuery, GraphConfig
+from lance_csr import CypherQuery, GraphConfig
 
 people = pa.table({
     "person_id": [1, 2, 3, 4],
@@ -73,7 +75,7 @@ For data analytics workflows where you prefer standard SQL, use `SqlQuery` or `S
 
 ```python
 import pyarrow as pa
-from lance_graph import SqlQuery, SqlEngine
+from lance_csr import SqlQuery, SqlEngine
 
 person = pa.table({
     "id": [1, 2, 3],
@@ -92,116 +94,6 @@ engine = SqlEngine({"person": person})
 r1 = engine.execute("SELECT COUNT(*) AS cnt FROM person")
 r2 = engine.execute("SELECT name FROM person ORDER BY age DESC LIMIT 2")
 ```
-
-## Python example: Unity Catalog integration
-
-Connect to [Unity Catalog](https://github.com/unitycatalog/unitycatalog) (OSS) to discover and query Delta Lake or Parquet tables directly:
-
-```python
-from lance_graph import UnityCatalog
-
-# Connect to Unity Catalog
-uc = UnityCatalog("http://localhost:8080/api/2.1/unity-catalog")
-
-# Browse catalog metadata
-catalogs = uc.list_catalogs()
-schemas = uc.list_schemas("unity")
-tables = uc.list_tables("unity", "default")
-table = uc.get_table("unity", "default", "marksheet")
-print(table.columns())  # [{"name": "id", "type_name": "INT", ...}, ...]
-
-# Auto-register tables (Delta + Parquet) and query via SQL
-engine = uc.create_sql_engine("unity", "default")
-result = engine.execute("SELECT * FROM marksheet WHERE mark > 80")
-print(result.to_pandas())
-
-# For cloud storage (S3, Azure, GCS), pass storage options:
-uc = UnityCatalog(
-    "http://localhost:8080/api/2.1/unity-catalog",
-    storage_options={
-        "aws_access_key_id": "...",
-        "aws_secret_access_key": "...",
-        "aws_region": "us-east-1",
-    }
-)
-```
-
-## Knowledge Graph CLI & API
-
-The `knowledge_graph` package layers a simple Lance-backed knowledge graph
-service on top of the `lance_graph` engine. It provides:
-
-- A CLI (`knowledge_graph.main`) for initializing storage, running Cypher
-  queries, and bootstrapping data via heuristic text extraction.
-- A reusable FastAPI component, plus a standalone web service
-  (`knowledge_graph.webservice`) that exposes query and dataset endpoints.
-- Storage helpers that persist node and relationship tables as Lance datasets.
-
-### CLI usage
-
-```bash
-uv run knowledge_graph --init                    # initialize storage and schema stub
-uv run knowledge_graph --list-datasets           # list Lance datasets on disk
-uv run knowledge_graph --extract-preview notes.txt
-uv run knowledge_graph --extract-preview "Alice joined the graph team"
-uv run knowledge_graph --extract-and-add notes.txt
-uv run knowledge_graph "MATCH (n) RETURN n LIMIT 5"
-uv run knowledge_graph --log-level DEBUG --extract-preview "Inline text"
-uv run knowledge_graph --ask "Who is working on the Presto project?"
-
-
-# Configure LLM extraction (default)
-uv sync --extra llm  # install optional LLM dependencies
-uv sync --extra lance-storage  # install Lance dataset support
-export OPENAI_API_KEY=sk-...
-uv run knowledge_graph --llm-model gpt-4o-mini --extract-preview notes.txt
-
-# Supply additional OpenAI client options via YAML (base_url, headers, etc.)
-uv run knowledge_graph --llm-config llm_config.yaml --extract-and-add notes.txt
-
-# Fall back to the heuristic extractor when LLM access is unavailable
-uv run knowledge_graph --extractor heuristic --extract-preview notes.txt
-
-```
-
-The default extractor uses OpenAI. Configure credentials via environment
-variables supported by the SDK (for example `OPENAI_API_BASE` or
-`OPENAI_API_KEY`), or place them in a YAML file passed through `--llm-config`.
-Override the model and temperature with `--llm-model` and `--llm-temperature`.
-```
-
-By default the CLI writes datasets under `./knowledge_graph_data`. Provide
-`--root` and `--schema` to point at alternate storage locations and schema YAML.
-
-### FastAPI service
-
-Run the web service after installing the `knowledge_graph` package (and
-dependencies such as FastAPI):
-
-```bash
-uv run --package knowledge_graph knowledge_graph-webservice
-```
-
-The service exposes endpoints under `/graph`, including `/graph/health`,
-`/graph/query`, `/graph/datasets`, and `/graph/schema`.
-
-### Development workflow
-
-For linting and type checks:
-
-```bash
-# Install dev dependencies and run linters
-uv pip install -e '.[dev]'
-ruff format python/              # format code
-ruff check python/               # lint code
-pyright                          # type check
-
-# Or run individual tests
-pytest python/tests/test_graph.py::test_basic_node_selection -v
-```
-
-The Python README (`python/README.md`) contains additional details if you are
-working solely on the bindings.
 
 ## Benchmarks
 

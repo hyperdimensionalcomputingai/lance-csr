@@ -3,7 +3,7 @@
 
 import pyarrow as pa
 import pytest
-from lance_graph import CypherQuery, GraphConfig
+from lance_csr import CypherQuery, GraphConfig
 
 
 def test_unimplemented_scalar_function_errors() -> None:

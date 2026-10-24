@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pyarrow as pa
 
-from lance_graph import GraphConfigBuilder, CypherQuery
+from lance_csr import GraphConfigBuilder, CypherQuery
 
 
 def make_people_batch() -> pa.RecordBatch:
@@ -29,15 +29,10 @@ def make_people_batch() -> pa.RecordBatch:
 
 
 def main() -> None:
-    config = (
-        GraphConfigBuilder()
-        .with_node_label("Person", "person_id")
-        .build()
-    )
+    config = GraphConfigBuilder().with_node_label("Person", "person_id").build()
 
-    query = (
-        CypherQuery("MATCH (n:Person) WHERE n.age > 30 RETURN n.name")
-        .with_config(config)
+    query = CypherQuery("MATCH (n:Person) WHERE n.age > 30 RETURN n.name").with_config(
+        config
     )
 
     datasets = {"Person": make_people_batch()}

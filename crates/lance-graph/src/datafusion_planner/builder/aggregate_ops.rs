@@ -20,13 +20,24 @@ impl DataFusionPlanner {
         // Store computed aliases for aggregates to reuse in final projection
         let mut agg_aliases = Vec::new();
 
+        let schema = input_plan.schema().clone();
         for p in projections {
+            // Grouping by a node groups by all its columns (`WITH b, count(*) AS n`).
+            if let Some(columns) = Self::entity_columns(&schema, &p.expression, None) {
+                group_exprs.extend(columns.into_iter().map(|c| match c {
+                    datafusion::logical_expr::Expr::Alias(a) => *a.expr,
+                    other => other,
+                }));
+                continue;
+            }
             let expr = super::super::expression::to_df_value_expr(&p.expression);
 
             if super::super::expression::contains_aggregate(&p.expression) {
-                // Aggregate expressions get aliased
+                // Aggregate expressions get aliased. Lowercase, like plain projections: the
+                // final projection refers to it with `col`, which normalizes identifiers, so a
+                // camelCase alias (`count(*) AS postCount`) failed to plan.
                 let alias = if let Some(alias) = &p.alias {
-                    alias.clone()
+                    alias.to_lowercase()
                 } else {
                     super::super::expression::to_cypher_column_name(&p.expression)
                 };
@@ -42,11 +53,23 @@ impl DataFusionPlanner {
         let mut final_projection = Vec::new();
         let mut agg_idx = 0;
         for p in projections {
-            if !super::super::expression::contains_aggregate(&p.expression) {
+            if let Some(columns) = Self::entity_columns(&schema, &p.expression, p.alias.as_deref())
+            {
+                // After grouping, the node's columns are plain group columns of the same names.
+                final_projection.extend(columns.into_iter().map(|c| match c {
+                    datafusion::logical_expr::Expr::Alias(a) => {
+                        let datafusion::logical_expr::Expr::Column(column) = *a.expr else {
+                            unreachable!("entity_columns returns aliased columns")
+                        };
+                        col(datafusion::common::Column::new_unqualified(column.name)).alias(a.name)
+                    }
+                    other => other,
+                }));
+            } else if !super::super::expression::contains_aggregate(&p.expression) {
                 // Re-create the expression and apply alias
                 let expr = super::super::expression::to_df_value_expr(&p.expression);
                 let aliased = if let Some(alias) = &p.alias {
-                    expr.alias(alias)
+                    expr.alias(alias.to_lowercase())
                 } else {
                     let cypher_name =
                         super::super::expression::to_cypher_column_name(&p.expression);

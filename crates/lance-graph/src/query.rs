@@ -125,6 +125,10 @@ pub struct CypherQuery {
     config: Option<GraphConfig>,
     /// Query parameters
     parameters: HashMap<String, serde_json::Value>,
+    /// Optional CSR adjacencies; when set, supported single-hop expansions use them
+    adjacency: Option<crate::csr_expand::AdjacencyCatalog>,
+    /// Optional mean fan-out per relationship type and direction; see [`FanOut`]
+    fan_out: Option<crate::logical_plan::FanOut>,
 }
 impl CypherQuery {
     /// Create a new Cypher query from a query string
@@ -136,12 +140,31 @@ impl CypherQuery {
             ast,
             config: None,
             parameters: HashMap::new(),
+            adjacency: None,
+            fan_out: None,
         })
     }
 
     /// Set the graph configuration for this query
     pub fn with_config(mut self, config: GraphConfig) -> Self {
         self.config = Some(config);
+        self
+    }
+
+    /// Plan supported single-hop expansions with CSR lookups instead of joins.
+    ///
+    /// The `SessionContext` used for execution must install
+    /// [`crate::csr_expand::CsrQueryPlanner`]. Each adjacency must be built from the
+    /// same relationship data the context serves, or results will be wrong.
+    pub fn with_adjacency(mut self, adjacency: crate::csr_expand::AdjacencyCatalog) -> Self {
+        self.adjacency = Some(adjacency);
+        self
+    }
+
+    /// Mean fan-out per relationship type and direction, so a pattern that continues
+    /// earlier rows can start from its cheaper bound end (see [`crate::logical_plan::FanOut`]).
+    pub fn with_fan_out(mut self, fan_out: crate::logical_plan::FanOut) -> Self {
+        self.fan_out = Some(fan_out);
         self
     }
 
@@ -538,17 +561,9 @@ impl CypherQuery {
     ) -> Result<arrow::record_batch::RecordBatch> {
         use arrow::compute::concat_batches;
 
-        // Create logical plans (phases 1-3)
-        let (_logical_plan, df_logical_plan) = self.create_logical_plans(catalog)?;
-
-        // Execute the DataFusion plan (phase 4)
-        let df = ctx
-            .execute_logical_plan(df_logical_plan)
-            .await
-            .map_err(|e| GraphError::ExecutionError {
-                message: format!("Failed to execute DataFusion plan: {}", e),
-                location: snafu::Location::new(file!(), line!(), column!()),
-            })?;
+        let df = self
+            .dataframe_with_catalog_and_context(catalog, ctx)
+            .await?;
 
         // Get schema before collecting (in case result is empty)
         let result_schema = df.schema().inner().clone();
@@ -571,6 +586,51 @@ impl CypherQuery {
             message: format!("Failed to concatenate result batches: {}", e),
             location: snafu::Location::new(file!(), line!(), column!()),
         })
+    }
+
+    /// Execute query with an explicit catalog and session context, returning a stream.
+    ///
+    /// Unlike [`Self::execute_with_catalog_and_context`], results are not collected:
+    /// batches are produced as the consumer polls, so memory is bounded by the plan's
+    /// operators (scans and filters stream; joins, sorts and aggregates may buffer).
+    pub async fn execute_stream_with_catalog_and_context(
+        &self,
+        catalog: std::sync::Arc<dyn lance_graph_catalog::GraphSourceCatalog>,
+        ctx: datafusion::execution::context::SessionContext,
+    ) -> Result<datafusion::physical_plan::SendableRecordBatchStream> {
+        let df = self
+            .dataframe_with_catalog_and_context(catalog, ctx)
+            .await?;
+        df.execute_stream()
+            .await
+            .map_err(|e| GraphError::ExecutionError {
+                message: format!("Failed to start query stream: {}", e),
+                location: snafu::Location::new(file!(), line!(), column!()),
+            })
+    }
+
+    /// Explain the plan with an explicit catalog and session context.
+    pub async fn explain_with_catalog_and_context(
+        &self,
+        catalog: std::sync::Arc<dyn lance_graph_catalog::GraphSourceCatalog>,
+        ctx: datafusion::execution::context::SessionContext,
+    ) -> Result<String> {
+        self.explain_internal(catalog, ctx).await
+    }
+
+    /// Plan the query (phases 1-3) and hand it to DataFusion (phase 4) without executing.
+    async fn dataframe_with_catalog_and_context(
+        &self,
+        catalog: std::sync::Arc<dyn lance_graph_catalog::GraphSourceCatalog>,
+        ctx: datafusion::execution::context::SessionContext,
+    ) -> Result<datafusion::dataframe::DataFrame> {
+        let (_logical_plan, df_logical_plan) = self.create_logical_plans(catalog)?;
+        ctx.execute_logical_plan(df_logical_plan)
+            .await
+            .map_err(|e| GraphError::ExecutionError {
+                message: format!("Failed to execute DataFusion plan: {}", e),
+                location: snafu::Location::new(file!(), line!(), column!()),
+            })
     }
 
     /// Execute using the DataFusion planner with in-memory datasets
@@ -830,12 +890,13 @@ impl CypherQuery {
         }
 
         // Phase 2: Graph Logical Plan
-        let mut logical_planner = LogicalPlanner::new(config);
+        let mut logical_planner = LogicalPlanner::new(config).with_fan_out(self.fan_out.as_ref());
         // Use the transformed AST (with parameters substituted)
         let logical_plan = logical_planner.plan(&semantic.ast)?;
 
         // Phase 3: DataFusion Logical Plan
-        let df_planner = DataFusionPlanner::with_catalog(config.clone(), catalog);
+        let mut df_planner = DataFusionPlanner::with_catalog(config.clone(), catalog);
+        df_planner.adjacency = self.adjacency.clone();
         let df_logical_plan = df_planner.plan(&logical_plan)?;
 
         Ok((logical_plan, df_logical_plan))
@@ -1163,6 +1224,8 @@ impl CypherQueryBuilder {
 
         let match_clause = crate::ast::MatchClause {
             patterns: vec![crate::ast::GraphPattern::Node(node)],
+            optional: false,
+            where_clause: None,
         };
 
         self.match_clauses.push(match_clause);
@@ -1233,6 +1296,7 @@ impl CypherQueryBuilder {
             with_clause: None, // WITH not supported via builder yet
             post_with_reading_clauses: vec![],
             post_with_where_clause: None,
+            further_with_stages: vec![],
             return_clause: crate::ast::ReturnClause {
                 distinct: self.distinct,
                 items: self.return_items,
@@ -1256,6 +1320,8 @@ impl CypherQueryBuilder {
             ast,
             config: self.config,
             parameters: self.parameters,
+            adjacency: None,
+            fan_out: None,
         };
 
         Ok(query)

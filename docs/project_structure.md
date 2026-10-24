@@ -14,8 +14,7 @@ Goals
 Current Layout (after refactor)
 -------------------------------
 - `crates/lance-graph/` hosts the Rust engine crate.
-- `python/` contains PyO3 bindings plus the `lance_graph` and
-  `knowledge_graph` Python packages.
+- `python/` contains PyO3 bindings plus the `lance_csr` Python package.
 - `examples/` holds simple Cypher usage examples.
 
 Proposed Layout (Workspace)

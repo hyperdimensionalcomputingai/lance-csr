@@ -15,20 +15,29 @@
 //! Graph query functionality for Lance datasets
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use arrow::compute::concat_batches;
 use arrow::ffi_stream::ArrowArrayStreamReader;
 use arrow_array::{RecordBatch, RecordBatchReader};
 use arrow_schema::Schema;
-use datafusion::datasource::{DefaultTableSource, MemTable};
+use datafusion::datasource::{DefaultTableSource, MemTable, TableProvider};
 use datafusion::execution::context::SessionContext;
+use datafusion::execution::session_state::SessionStateBuilder;
+use futures::StreamExt;
+use lance::datafusion::LanceTableProvider;
+use lance::dataset::builder::DatasetBuilder;
+use lance::dataset::Dataset;
+use lance_graph::csr_expand::{
+    edge_changes, is_supported_id_type, Adjacency, AdjacencyCatalog, CsrQueryPlanner, NodeRows,
+    PruneCsrTargetColumns, PushCsrTargetFilters,
+};
+use lance_graph::key_statistics::KeyStatisticsProvider;
 use lance_graph::{
     ast::{DistanceMetric as RustDistanceMetric, GraphPattern, ReadingClause},
     CypherQuery as RustCypherQuery, ExecutionStrategy as RustExecutionStrategy,
     GraphConfig as RustGraphConfig, GraphError as RustGraphError, InMemoryCatalog,
-    SqlDialect as RustSqlDialect, SqlQuery as RustSqlQuery,
-    VectorSearch as RustVectorSearch,
+    SqlDialect as RustSqlDialect, SqlQuery as RustSqlQuery, VectorSearch as RustVectorSearch,
 };
 use pyo3::{
     exceptions::{PyNotImplementedError, PyRuntimeError, PyValueError},
@@ -42,7 +51,7 @@ use crate::namespace::PyDirNamespace;
 use crate::RT;
 
 /// Execution strategy for Cypher queries
-#[pyclass(name = "ExecutionStrategy", module = "lance.graph")]
+#[pyclass(name = "ExecutionStrategy", module = "lance_csr.graph", from_py_object)]
 #[derive(Clone, Copy)]
 pub enum ExecutionStrategy {
     /// Use DataFusion query planner (default, full feature support)
@@ -61,7 +70,7 @@ impl From<ExecutionStrategy> for RustExecutionStrategy {
 }
 
 /// SQL dialect for generating SQL from Cypher queries
-#[pyclass(name = "SqlDialect", module = "lance.graph")]
+#[pyclass(name = "SqlDialect", module = "lance_csr.graph", from_py_object)]
 #[derive(Clone, Copy)]
 pub enum SqlDialect {
     /// Generic SQL (DataFusion default dialect)
@@ -89,7 +98,7 @@ impl From<SqlDialect> for RustSqlDialect {
 }
 
 /// Distance metric for vector similarity search
-#[pyclass(name = "DistanceMetric", module = "lance.graph")]
+#[pyclass(name = "DistanceMetric", module = "lance_csr.graph", from_py_object)]
 #[derive(Clone, Copy)]
 pub enum DistanceMetric {
     /// L2 (Euclidean) distance - smaller is more similar
@@ -121,7 +130,7 @@ impl From<DistanceMetric> for RustDistanceMetric {
 ///
 /// Examples
 /// --------
-/// >>> from lance_graph import VectorSearch, DistanceMetric
+/// >>> from lance_csr import VectorSearch, DistanceMetric
 /// >>>
 /// >>> # Basic vector search on a PyArrow table
 /// >>> results = VectorSearch("embedding") \
@@ -129,7 +138,7 @@ impl From<DistanceMetric> for RustDistanceMetric {
 /// ...     .metric(DistanceMetric.Cosine) \
 /// ...     .top_k(10) \
 /// ...     .search(table)
-#[pyclass(name = "VectorSearch", module = "lance.graph")]
+#[pyclass(name = "VectorSearch", module = "lance_csr.graph", from_py_object)]
 #[derive(Clone)]
 pub struct VectorSearch {
     inner: RustVectorSearch,
@@ -290,7 +299,7 @@ impl VectorSearch {
     ///     If query vector is not set or column not found
     /// RuntimeError
     ///     If search execution fails
-    fn search(&self, py: Python, table: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+    fn search(&self, py: Python, table: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
         let batch = python_any_to_record_batch(table)?;
         let batch = normalize_record_batch(batch)?;
 
@@ -322,7 +331,7 @@ pub(crate) fn graph_error_to_pyerr(err: RustGraphError) -> PyErr {
 }
 
 /// Graph configuration for interpreting Lance datasets as property graphs
-#[pyclass(name = "GraphConfig", module = "lance.graph")]
+#[pyclass(name = "GraphConfig", module = "lance_csr.graph", from_py_object)]
 #[derive(Clone)]
 pub struct GraphConfig {
     inner: RustGraphConfig,
@@ -358,7 +367,11 @@ impl GraphConfig {
 }
 
 /// Builder for GraphConfig
-#[pyclass(name = "GraphConfigBuilder", module = "lance.graph")]
+#[pyclass(
+    name = "GraphConfigBuilder",
+    module = "lance_csr.graph",
+    from_py_object
+)]
 #[derive(Clone)]
 pub struct GraphConfigBuilder {
     inner: lance_graph::config::GraphConfigBuilder,
@@ -402,18 +415,38 @@ impl GraphConfigBuilder {
     ///     The field containing source node IDs
     /// target_field : str
     ///     The field containing target node IDs
+    /// source_label, target_label : str, optional
+    ///     Node labels at each end (like ``FROM Post TO Person``). Needed only for
+    ///     relationship-type alternation (``[:A|B]``) next to nodes whose label
+    ///     depends on the type, and for multi-label nodes. Give both or neither.
     ///
     /// Returns
     /// -------
     /// GraphConfigBuilder
     ///     A new builder with the relationship mapping applied
-    fn with_relationship(&self, rel_type: &str, source_field: &str, target_field: &str) -> Self {
-        Self {
-            inner: self
-                .inner
-                .clone()
-                .with_relationship(rel_type, source_field, target_field),
-        }
+    #[pyo3(signature = (rel_type, source_field, target_field, source_label=None, target_label=None))]
+    fn with_relationship(
+        &self,
+        rel_type: &str,
+        source_field: &str,
+        target_field: &str,
+        source_label: Option<&str>,
+        target_label: Option<&str>,
+    ) -> PyResult<Self> {
+        let inner = self
+            .inner
+            .clone()
+            .with_relationship(rel_type, source_field, target_field);
+        let inner = match (source_label, target_label) {
+            (Some(src), Some(dst)) => inner.with_relationship_endpoints(rel_type, src, dst),
+            (None, None) => inner,
+            _ => {
+                return Err(PyValueError::new_err(
+                    "source_label and target_label must be given together",
+                ))
+            }
+        };
+        Ok(Self { inner })
     }
 
     /// Build the GraphConfig
@@ -434,7 +467,7 @@ impl GraphConfigBuilder {
 }
 
 /// Cypher query interface for Lance datasets
-#[pyclass(name = "CypherQuery", module = "lance.graph")]
+#[pyclass(name = "CypherQuery", module = "lance_csr.graph", from_py_object)]
 #[derive(Clone)]
 pub struct CypherQuery {
     inner: RustCypherQuery,
@@ -591,7 +624,7 @@ impl CypherQuery {
         py: Python,
         datasets: &Bound<'_, PyDict>,
         strategy: Option<ExecutionStrategy>,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         // Convert datasets to Arrow batches while holding the GIL
         let arrow_datasets = python_datasets_to_batches(datasets)?;
 
@@ -633,7 +666,7 @@ impl CypherQuery {
         py: Python,
         namespace: &Bound<'_, PyDirNamespace>,
         strategy: Option<ExecutionStrategy>,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         let rust_strategy = strategy.map(|s| s.into());
         let inner_query = self.inner.clone();
         let namespace_arc = namespace.borrow().inner.clone();
@@ -726,7 +759,7 @@ impl CypherQuery {
     ///
     /// Examples
     /// --------
-    /// >>> from lance_graph import CypherQuery, VectorSearch, DistanceMetric, GraphConfig
+    /// >>> from lance_csr import CypherQuery, VectorSearch, DistanceMetric, GraphConfig
     /// >>>
     /// >>> config = GraphConfig.builder().with_node_label("Document", "id").build()
     /// >>> query = CypherQuery("MATCH (d:Document) WHERE d.category = 'tech' RETURN d.id, d.name, d.embedding")
@@ -744,7 +777,7 @@ impl CypherQuery {
         py: Python,
         datasets: &Bound<'_, PyDict>,
         vector_search: &VectorSearch,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         if vector_search.use_lance_index {
             if let Some(result) =
                 try_execute_with_lance_index(py, &self.inner, datasets, vector_search)?
@@ -796,7 +829,7 @@ fn python_to_json(value: &Bound<'_, PyAny>) -> PyResult<JsonValue> {
     }
 }
 
-fn json_to_python(py: Python, value: &JsonValue) -> PyResult<PyObject> {
+fn json_to_python(py: Python, value: &JsonValue) -> PyResult<Py<PyAny>> {
     match value {
         JsonValue::Null => Ok(py.None()),
         JsonValue::Bool(b) => {
@@ -824,9 +857,9 @@ fn json_to_python(py: Python, value: &JsonValue) -> PyResult<PyObject> {
 
 /// Convert a single Python dataset value to a RecordBatch
 fn python_dataset_to_batch(value: &Bound<'_, PyAny>) -> PyResult<RecordBatch> {
-    let batch = if is_lance_dataset(value)? {
-        lance_dataset_to_record_batch(value)?
-    } else if value.hasattr("to_table")? {
+    // Lance datasets land here too: the one-shot `CypherQuery` paths materialize
+    // their inputs, unlike `CypherEngine`.
+    let batch = if value.hasattr("to_table")? {
         let table = value.call_method0("to_table")?;
         python_any_to_record_batch(&table)?
     } else {
@@ -973,6 +1006,11 @@ fn alias_map_from_query(query: &RustCypherQuery) -> HashMap<String, String> {
         .reading_clauses
         .iter()
         .chain(ast.post_with_reading_clauses.iter())
+        .chain(
+            ast.further_with_stages
+                .iter()
+                .flat_map(|stage| stage.reading_clauses.iter()),
+        )
     {
         if let ReadingClause::Match(match_clause) = clause {
             for pattern in &match_clause.patterns {
@@ -1029,52 +1067,13 @@ fn normalize_record_batch(batch: RecordBatch) -> PyResult<RecordBatch> {
     })
 }
 
-// Check if a Python object is a Lance dataset
+/// True for `lance.LanceDataset` and its subclasses.
 fn is_lance_dataset(value: &Bound<'_, PyAny>) -> PyResult<bool> {
-    // Check the type name directly
-    if let Ok(type_name) = value.get_type().repr() {
-        let type_str = type_name.to_string();
-        let is_lance = type_str.contains("lance.dataset.LanceDataset");
-        return Ok(is_lance);
+    // pylance is a hard dependency, so a failed import only happens in a broken install.
+    match value.py().import("lance") {
+        Ok(lance) => value.is_instance(&lance.getattr("LanceDataset")?),
+        Err(_) => Ok(false),
     }
-
-    // Fallback: check for uri (which we know Lance datasets have)
-    value.hasattr("uri")
-}
-
-// Convert Lance dataset to RecordBatch using alternative methods that avoid GIL issues
-fn lance_dataset_to_record_batch(dataset: &Bound<'_, PyAny>) -> PyResult<RecordBatch> {
-    // Try the scanner() approach that's used elsewhere in the Lance codebase
-    if let Ok(scanner) = dataset.call_method0("scanner") {
-        if let Ok(py_reader) = scanner.call_method0("to_pyarrow") {
-            return python_any_to_record_batch(&py_reader);
-        }
-    }
-
-    // Method 2: Use the count_rows + take approach to get data without to_table()
-    if dataset.hasattr("count_rows")? && dataset.hasattr("take")? {
-        let count = dataset.call_method0("count_rows")?;
-        let count_int: usize = count.extract()?;
-        if count_int > 0 {
-            // Take a range of rows (limit to 10000 for performance)
-            let take_count = std::cmp::min(count_int, 10000);
-
-            // Create a Python list of indices
-            let py = dataset.py();
-            let range_list = pyo3::types::PyList::empty(py);
-            for i in 0..take_count {
-                range_list.append(i)?;
-            }
-
-            if let Ok(table) = dataset.call_method1("take", (range_list,)) {
-                return python_any_to_record_batch(&table);
-            }
-        }
-    }
-
-    // Fallback: Use to_table() (this might still cause GIL issues but is last resort)
-    let table = dataset.call_method0("to_table")?;
-    python_any_to_record_batch(&table)
 }
 
 fn python_any_to_record_batch(value: &Bound<'_, PyAny>) -> PyResult<RecordBatch> {
@@ -1096,7 +1095,7 @@ fn python_any_to_record_batch(value: &Bound<'_, PyAny>) -> PyResult<RecordBatch>
     }
 
     if batches.is_empty() {
-        return Err(PyRuntimeError::new_err("Table has no data"));
+        return Ok(RecordBatch::new_empty(schema));
     }
 
     concat_batches(&schema, &batches)
@@ -1106,7 +1105,7 @@ fn python_any_to_record_batch(value: &Bound<'_, PyAny>) -> PyResult<RecordBatch>
 fn record_batch_to_python_table(
     py: Python,
     batch: &arrow_array::RecordBatch,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     use arrow::pyarrow::ToPyArrow;
     use pyo3::types::PyList;
 
@@ -1121,26 +1120,727 @@ fn record_batch_to_python_table(
     Ok(table.unbind())
 }
 
+/// One input dataset as registered with a [`CypherEngine`].
+#[derive(Clone)]
+enum EngineSource {
+    /// On-disk Lance dataset, read lazily through `LanceTableProvider`.
+    ///
+    /// `dataset` is pinned to one version; only `refresh()` replaces it. `uri` and
+    /// `storage_options` are kept so refresh can reopen the same location with the
+    /// same credentials.
+    Lance {
+        uri: String,
+        storage_options: HashMap<String, String>,
+        dataset: Arc<Dataset>,
+    },
+    /// In-memory Arrow data supplied by the caller. Treated as immutable: replacing
+    /// it requires a new engine.
+    Arrow(RecordBatch),
+}
+
+/// Everything a query needs, built once and shared read-only by concurrent queries.
+///
+/// `refresh()` builds a complete replacement and swaps it in; queries already running
+/// keep the `Arc` they started with, so they finish on their original snapshot.
+struct EngineState {
+    sources: HashMap<String, EngineSource>,
+    catalog: Arc<dyn lance_graph::GraphSourceCatalog>,
+    context: SessionContext,
+    /// CSR adjacencies by relationship type; empty unless the engine uses CSR.
+    csr: HashMap<String, CsrEntry>,
+    /// Node id -> row indexes by node label, for the fused target lookup; same lifecycle.
+    node_index: HashMap<String, NodeIndexEntry>,
+    /// Join-key distinct counts by dataset name, reported to DataFusion's join planner.
+    key_stats: HashMap<String, KeyStatsEntry>,
+}
+
+/// Distinct counts for one dataset's node-id and edge-endpoint columns.
+#[derive(Clone)]
+struct KeyStatsEntry {
+    /// Dataset the counts describe; reused while it is the same snapshot.
+    source: EngineSource,
+    /// Actual column name -> distinct non-null values.
+    distinct: HashMap<String, usize>,
+    /// For a relationship dataset: mean fan-out by direction (outgoing, incoming).
+    fan_out: Option<(String, f64, f64)>,
+}
+
+/// Id -> row index for one node table, plus the source it came from.
+#[derive(Clone)]
+struct NodeIndexEntry {
+    source: EngineSource,
+    rows: Arc<NodeRows>,
+    build_ms: f64,
+}
+
+/// Both-direction adjacencies for one relationship type, plus the source they came from.
+#[derive(Clone)]
+struct CsrEntry {
+    /// Dataset the adjacencies reflect; reused while it is the same snapshot.
+    source: EngineSource,
+    outgoing: Arc<Adjacency>,
+    incoming: Arc<Adjacency>,
+    /// Wall time of the last build or delta application.
+    build_ms: f64,
+    /// How the last refresh produced this entry: build, rebuild, delta or reused.
+    update: &'static str,
+}
+
+/// Rebuild instead of applying a delta once pending changes (appended edges +
+/// tombstones, accumulated since the last full build) would exceed this fraction
+/// of the base. Lookups pay for the delta on every query, and a rebuild folds it in.
+///
+/// This threshold also bounds refresh cost: each delta refresh copies the whole
+/// accumulated delta (see the design note on `lance_graph::csr_expand::Adjacency`).
+/// Raising it makes refreshes slower as well as lookups.
+// shortcut: fixed threshold, chosen from python/benchmarks/csr_delta_accumulated.py; tune per workload if deltas grow large.
+const CSR_REBUILD_FRACTION: f64 = 0.25;
+
+/// Apply the edge changes between `old`'s snapshot and `source` as a delta.
+///
+/// `Ok(None)` means rebuild: not both Lance snapshots, the diff is not meaningful
+/// or failed (e.g. old files already cleaned up), or the delta would be too large.
+fn try_apply_csr_delta(
+    py: Python,
+    old: &CsrEntry,
+    source: &EngineSource,
+    src: &str,
+    dst: &str,
+) -> PyResult<Option<CsrEntry>> {
+    let (
+        EngineSource::Lance {
+            dataset: old_ds, ..
+        },
+        EngineSource::Lance {
+            dataset: new_ds, ..
+        },
+    ) = (&old.source, source)
+    else {
+        return Ok(None);
+    };
+    let started = std::time::Instant::now();
+    let Ok(Some(changes)) = RT.block_on(Some(py), edge_changes(old_ds, new_ds, src, dst))? else {
+        return Ok(None);
+    };
+    let elapsed = || started.elapsed().as_secs_f64() * 1e3;
+    if changes.is_empty() {
+        return Ok(Some(CsrEntry {
+            source: source.clone(),
+            build_ms: elapsed(),
+            update: "reused",
+            ..old.clone()
+        }));
+    }
+    let base = old.outgoing.base_edges() as f64;
+    let pending = old.outgoing.delta_edges() + old.outgoing.tombstones() + changes.len() as u64;
+    if pending as f64 > CSR_REBUILD_FRACTION * base {
+        return Ok(None);
+    }
+    let flip = |edges: &[(i64, i64)]| edges.iter().map(|&(a, b)| (b, a)).collect::<Vec<_>>();
+    let outgoing = old.outgoing.with_changes(&changes.added, &changes.removed);
+    let incoming = old
+        .incoming
+        .with_changes(&flip(&changes.added), &flip(&changes.removed));
+    Ok(Some(CsrEntry {
+        source: source.clone(),
+        outgoing: Arc::new(outgoing),
+        incoming: Arc::new(incoming),
+        build_ms: elapsed(),
+        update: "delta",
+    }))
+}
+
+impl EngineSource {
+    /// Pinned Lance version, or `None` for PyArrow input.
+    fn lance_version(&self) -> Option<u64> {
+        match self {
+            Self::Lance { dataset, .. } => Some(dataset.manifest().version),
+            Self::Arrow(_) => None,
+        }
+    }
+
+    /// True when both refer to the same immutable data (same pinned Lance handle or
+    /// same Arrow batch), so anything derived from one is valid for the other.
+    fn same_data(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Lance { dataset: a, .. }, Self::Lance { dataset: b, .. }) => Arc::ptr_eq(a, b),
+            (Self::Arrow(a), Self::Arrow(b)) => {
+                a.num_columns() == b.num_columns()
+                    && a.columns()
+                        .iter()
+                        .zip(b.columns())
+                        .all(|(x, y)| x.to_data().ptr_eq(&y.to_data()))
+            }
+            _ => false,
+        }
+    }
+}
+
+impl EngineState {
+    /// Mean fan-out of every relationship type with key statistics, both directions.
+    fn fan_out(&self) -> lance_graph::logical_plan::FanOut {
+        self.key_stats
+            .values()
+            .filter_map(|entry| entry.fan_out.as_ref())
+            .flat_map(|(rel_type, outgoing, incoming)| {
+                [
+                    ((rel_type.clone(), true), *outgoing),
+                    ((rel_type.clone(), false), *incoming),
+                ]
+            })
+            .collect()
+    }
+
+    fn adjacency_catalog(&self) -> AdjacencyCatalog {
+        let mut catalog = AdjacencyCatalog::default();
+        for (rel_type, entry) in &self.csr {
+            catalog.insert(rel_type, true, entry.outgoing.clone());
+            catalog.insert(rel_type, false, entry.incoming.clone());
+        }
+        for (label, entry) in &self.node_index {
+            catalog.insert_nodes(label, entry.rows.clone());
+        }
+        catalog
+    }
+}
+
+/// Open a Lance dataset in Rust. `version = None` means the latest version.
+fn open_lance_dataset(
+    py: Python,
+    uri: &str,
+    version: Option<u64>,
+    storage_options: &HashMap<String, String>,
+) -> PyResult<Dataset> {
+    let mut builder = DatasetBuilder::from_uri(uri).with_storage_options(storage_options.clone());
+    if let Some(version) = version {
+        builder = builder.with_version(version);
+    }
+    RT.block_on(Some(py), builder.load())?.map_err(|e| {
+        PyRuntimeError::new_err(format!("Failed to open Lance dataset {}: {}", uri, e))
+    })
+}
+
+/// Same version number and manifest commit time means the same snapshot.
+///
+/// The timestamp distinguishes a table deleted and recreated at the same location,
+/// which restarts version numbering at 1.
+fn same_lance_snapshot(a: &Dataset, b: &Dataset) -> bool {
+    a.manifest().version == b.manifest().version
+        && a.manifest().timestamp_nanos == b.manifest().timestamp_nanos
+}
+
+/// Convert one Python input value into an engine source without reading its rows.
+fn python_value_to_source(
+    py: Python,
+    name: &str,
+    value: &Bound<'_, PyAny>,
+) -> PyResult<EngineSource> {
+    if !is_lance_dataset(value)? {
+        return Ok(EngineSource::Arrow(python_dataset_to_batch(value)?));
+    }
+    // Datasets opened through a namespace client get credentials vended at runtime;
+    // reopening by URI would lose them, so refuse rather than read with the wrong identity.
+    for attr in ["_namespace_client", "_base_store_params"] {
+        if value.getattr(attr).map(|v| !v.is_none()).unwrap_or(false) {
+            return Err(PyValueError::new_err(format!(
+                "Dataset '{}' was opened with {}; CypherEngine can only reopen Lance datasets by URI \
+                 and storage options",
+                name, attr
+            )));
+        }
+    }
+    let uri: String = value.getattr("uri")?.extract()?;
+    let version: u64 = value.getattr("version")?.extract()?;
+    let storage_options: HashMap<String, String> = value
+        .getattr("initial_storage_options")?
+        .extract::<Option<HashMap<String, String>>>()?
+        .unwrap_or_default();
+    // Open the exact version the caller passed so the engine never silently jumps to latest.
+    let dataset = open_lance_dataset(py, &uri, Some(version), &storage_options)?;
+    Ok(EngineSource::Lance {
+        uri,
+        storage_options,
+        dataset: Arc::new(dataset),
+    })
+}
+
+/// Check that every configured id/endpoint column exists in its dataset.
+///
+/// Labels and columns compare case-insensitively, matching the planner. Mappings
+/// without a dataset are left for query time, as before, so unused labels stay legal.
+fn validate_sources(
+    config: &RustGraphConfig,
+    schemas: &HashMap<String, arrow_schema::SchemaRef>,
+) -> PyResult<()> {
+    let schema_for = |label: &str| {
+        schemas
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case(label))
+            .map(|(_, schema)| schema)
+    };
+    let check = |label: &str, column: &str| -> PyResult<()> {
+        if let Some(schema) = schema_for(label) {
+            if !schema
+                .fields()
+                .iter()
+                .any(|f| f.name().eq_ignore_ascii_case(column))
+            {
+                return Err(PyValueError::new_err(format!(
+                    "Dataset for '{}' has no column '{}' required by the graph configuration",
+                    label, column
+                )));
+            }
+        }
+        Ok(())
+    };
+    for mapping in config.node_mappings.values() {
+        check(&mapping.label, &mapping.id_field)?;
+    }
+    for mapping in config.relationship_mappings.values() {
+        check(&mapping.relationship_type, &mapping.source_id_field)?;
+        check(&mapping.relationship_type, &mapping.target_id_field)?;
+    }
+    Ok(())
+}
+
+/// Validate sources and register them in a fresh catalog and session context.
+fn build_engine_state(
+    py: Python,
+    config: &RustGraphConfig,
+    sources: HashMap<String, EngineSource>,
+    use_csr: bool,
+    previous: Option<&EngineState>,
+) -> PyResult<EngineState> {
+    // The CSR planner only changes plans that contain CSR nodes, so install it always.
+    let ctx = SessionContext::new_with_state(
+        SessionStateBuilder::new()
+            .with_default_features()
+            .with_query_planner(Arc::new(CsrQueryPlanner))
+            // Move target-only filters into CSR nodes first, so pruning can then drop
+            // the filter columns from the take.
+            .with_optimizer_rule(Arc::new(PushCsrTargetFilters))
+            .with_optimizer_rule(Arc::new(PruneCsrTargetColumns))
+            .build(),
+    );
+    let mut schemas = HashMap::new();
+    let mut providers: HashMap<String, Arc<dyn TableProvider>> = HashMap::new();
+
+    for (name, source) in &sources {
+        let provider: Arc<dyn TableProvider> = match source {
+            // No _rowid/_rowaddr columns, so Lance and Arrow inputs expose the same schema.
+            EngineSource::Lance { dataset, .. } => {
+                Arc::new(LanceTableProvider::new(dataset.clone(), false, false))
+            }
+            EngineSource::Arrow(batch) => Arc::new(
+                MemTable::try_new(batch.schema(), memtable_partitions(batch)).map_err(|e| {
+                    PyRuntimeError::new_err(format!(
+                        "Failed to create MemTable for {}: {}",
+                        name, e
+                    ))
+                })?,
+            ),
+        };
+        schemas.insert(name.clone(), provider.schema());
+        // Registered unwrapped first: the CSR and key-statistics builds below scan it.
+        ctx.register_table(name.to_lowercase(), provider.clone())
+            .map_err(|e| {
+                PyRuntimeError::new_err(format!("Failed to register table {}: {}", name, e))
+            })?;
+        providers.insert(name.clone(), provider);
+    }
+
+    validate_sources(config, &schemas)?;
+    let (csr, node_index) = if use_csr {
+        (
+            build_csr_entries(py, config, &sources, &schemas, &ctx, previous)?,
+            build_node_index(py, config, &sources, previous)?,
+        )
+    } else {
+        (HashMap::new(), HashMap::new())
+    };
+    let key_stats = build_key_statistics(py, config, &sources, &schemas, &ctx, &csr, previous)?;
+
+    let mut catalog = InMemoryCatalog::new();
+    for (name, provider) in providers {
+        // Re-register with join-key statistics, so plans see them; see `key_statistics`.
+        let provider: Arc<dyn TableProvider> = match key_stats.get(&name) {
+            Some(entry) => Arc::new(KeyStatisticsProvider::new(provider, entry.distinct.clone())),
+            None => provider,
+        };
+        let table = name.to_lowercase();
+        ctx.deregister_table(table.as_str())
+            .and_then(|_| ctx.register_table(table.as_str(), provider.clone()))
+            .map_err(|e| {
+                PyRuntimeError::new_err(format!("Failed to register table {}: {}", name, e))
+            })?;
+
+        // Every dataset is registered as both a node and a relationship source; the
+        // GraphConfig and query pattern decide which interpretation the planner uses.
+        let table_source = Arc::new(DefaultTableSource::new(provider));
+        catalog = catalog
+            .with_node_source(&name, table_source.clone())
+            .with_relationship_source(&name, table_source);
+    }
+    Ok(EngineState {
+        sources,
+        catalog: Arc::new(catalog),
+        context: ctx,
+        csr,
+        node_index,
+        key_stats,
+    })
+}
+
+/// Build (or reuse) an id -> row index for every node label with unique integer ids.
+///
+/// Reused while the node dataset is the same snapshot; edge changes never touch it.
+/// Labels whose ids are not integers or not unique get no entry, so their targets
+/// keep the hash join.
+fn build_node_index(
+    py: Python,
+    config: &RustGraphConfig,
+    sources: &HashMap<String, EngineSource>,
+    previous: Option<&EngineState>,
+) -> PyResult<HashMap<String, NodeIndexEntry>> {
+    let mut entries = HashMap::new();
+    for mapping in config.node_mappings.values() {
+        let label = &mapping.label;
+        let Some(source) = sources
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case(label))
+            .map(|(_, source)| source)
+        else {
+            continue;
+        };
+        if let Some(old) = previous.and_then(|p| p.node_index.get(label)) {
+            if old.source.same_data(source) {
+                entries.insert(label.clone(), old.clone());
+                continue;
+            }
+        }
+        let started = std::time::Instant::now();
+        let rows = match source {
+            EngineSource::Lance { dataset, .. } => RT.block_on(
+                Some(py),
+                NodeRows::from_lance(dataset.clone(), &mapping.id_field),
+            )?,
+            EngineSource::Arrow(batch) => NodeRows::from_batch(batch.clone(), &mapping.id_field),
+        }
+        .map_err(graph_error_to_pyerr)?;
+        if let Some(rows) = rows {
+            entries.insert(
+                label.clone(),
+                NodeIndexEntry {
+                    source: source.clone(),
+                    rows: Arc::new(rows),
+                    build_ms: started.elapsed().as_secs_f64() * 1e3,
+                },
+            );
+        }
+    }
+    Ok(entries)
+}
+
+/// Rows per in-memory batch, DataFusion's default `batch_size`.
+const MEMTABLE_BATCH_ROWS: usize = 8192;
+
+/// Split one in-memory table into zero-copy slices spread over one partition per core.
+///
+/// A `MemTable` holding a single large batch is one partition with one batch, and
+/// `RoundRobinBatch` repartitioning moves whole batches, so every operator that does
+/// not hash-repartition (such as `CsrExpandExec`) would run on one thread over all of
+/// it. Slicing shares the input's buffers; nothing is copied.
+fn memtable_partitions(batch: &RecordBatch) -> Vec<Vec<RecordBatch>> {
+    let partitions = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
+    let mut out = vec![Vec::new(); partitions];
+    let rows = batch.num_rows();
+    if rows == 0 {
+        return vec![vec![batch.clone()]];
+    }
+    for (i, offset) in (0..rows).step_by(MEMTABLE_BATCH_ROWS).enumerate() {
+        let len = MEMTABLE_BATCH_ROWS.min(rows - offset);
+        out[i % partitions].push(batch.slice(offset, len));
+    }
+    out.retain(|p| !p.is_empty());
+    out
+}
+
+/// Distinct counts for every dataset's node-id and edge-endpoint columns.
+///
+/// DataFusion 54 sizes hash joins from these (see `lance_graph::key_statistics`).
+/// Node ids count as unique (the row count). Edge endpoints use the CSR's distinct
+/// source and target counts when the CSR is built, and otherwise one scan of the two
+/// endpoint columns; only integer endpoints are counted. Reused while a dataset is
+/// the same snapshot, so an unchanged `refresh()` costs nothing.
+// shortcut: the fallback scan reads every edge endpoint at construction and on each changed refresh (about one CSR build's scan); switch to an approximate counter (HyperLogLog) or Lance column statistics if that shows up in startup time.
+fn build_key_statistics(
+    py: Python,
+    config: &RustGraphConfig,
+    sources: &HashMap<String, EngineSource>,
+    schemas: &HashMap<String, arrow_schema::SchemaRef>,
+    ctx: &SessionContext,
+    csr: &HashMap<String, CsrEntry>,
+    previous: Option<&EngineState>,
+) -> PyResult<HashMap<String, KeyStatsEntry>> {
+    let mut entries = HashMap::new();
+    for (name, source) in sources {
+        if let Some(old) = previous.and_then(|p| p.key_stats.get(name)) {
+            if old.source.same_data(source) {
+                entries.insert(name.clone(), old.clone());
+                continue;
+            }
+        }
+        let column = |wanted: &str| {
+            schemas[name]
+                .fields()
+                .iter()
+                .find(|f| f.name().eq_ignore_ascii_case(wanted))
+                .cloned()
+        };
+        let rows = || -> PyResult<usize> {
+            Ok(match source {
+                EngineSource::Arrow(batch) => batch.num_rows(),
+                EngineSource::Lance { dataset, .. } => RT
+                    .block_on(Some(py), dataset.count_rows(None))?
+                    .map_err(|e| {
+                        PyRuntimeError::new_err(format!("Failed to count rows of {}: {}", name, e))
+                    })?,
+            })
+        };
+        let mut distinct = HashMap::new();
+        let mut to_count = Vec::new();
+        // Relationship type and endpoint columns, for the fan-out once counts are known.
+        let mut endpoints = None;
+        for mapping in config.node_mappings.values() {
+            if !mapping.label.eq_ignore_ascii_case(name) {
+                continue;
+            }
+            if let Some(id) = column(&mapping.id_field) {
+                distinct.insert(id.name().clone(), rows()?);
+            }
+        }
+        for mapping in config.relationship_mappings.values() {
+            if !mapping.relationship_type.eq_ignore_ascii_case(name) {
+                continue;
+            }
+            let (Some(src), Some(dst)) = (
+                column(&mapping.source_id_field),
+                column(&mapping.target_id_field),
+            ) else {
+                continue;
+            };
+            endpoints = Some((
+                mapping.relationship_type.to_lowercase(),
+                src.name().clone(),
+                dst.name().clone(),
+            ));
+            match csr.get(&mapping.relationship_type) {
+                // Built from this same snapshot in this refresh, so its counts are current.
+                Some(entry) => {
+                    distinct.insert(src.name().clone(), entry.outgoing.num_sources());
+                    distinct.insert(dst.name().clone(), entry.incoming.num_sources());
+                }
+                None => to_count.extend(
+                    [src, dst]
+                        .into_iter()
+                        .filter(|f| is_supported_id_type(f.data_type()))
+                        .map(|f| f.name().clone()),
+                ),
+            }
+        }
+        to_count.retain(|c| !distinct.contains_key(c));
+        if !to_count.is_empty() {
+            let table = name.to_lowercase();
+            let counts = RT
+                .block_on(Some(py), async {
+                    let df = ctx.table(table.as_str()).await?;
+                    let names: Vec<&str> = to_count.iter().map(String::as_str).collect();
+                    let mut stream = df.select_columns(&names)?.execute_stream().await?;
+                    let mut seen: Vec<std::collections::HashSet<i64>> =
+                        vec![Default::default(); names.len()];
+                    while let Some(batch) = stream.next().await {
+                        let batch = batch?;
+                        for (i, values) in seen.iter_mut().enumerate() {
+                            let column = arrow::compute::cast(
+                                batch.column(i),
+                                &arrow_schema::DataType::Int64,
+                            )?;
+                            let column = column
+                                .as_any()
+                                .downcast_ref::<arrow_array::Int64Array>()
+                                .expect("cast to Int64");
+                            values.extend(column.iter().flatten());
+                        }
+                    }
+                    Ok::<_, datafusion::error::DataFusionError>(
+                        seen.into_iter().map(|s| s.len()).collect::<Vec<_>>(),
+                    )
+                })?
+                .map_err(|e| {
+                    PyRuntimeError::new_err(format!("Failed to count join keys of {}: {}", name, e))
+                })?;
+            distinct.extend(to_count.into_iter().zip(counts));
+        }
+        let fan_out = match endpoints {
+            Some((rel_type, src, dst)) if distinct.contains_key(&src) => {
+                let edges = rows()? as f64;
+                let per = |c: &str| edges / distinct.get(c).copied().unwrap_or(1).max(1) as f64;
+                Some((rel_type, per(&src), per(&dst)))
+            }
+            _ => None,
+        };
+        if !distinct.is_empty() {
+            entries.insert(
+                name.clone(),
+                KeyStatsEntry {
+                    source: source.clone(),
+                    distinct,
+                    fan_out,
+                },
+            );
+        }
+    }
+    Ok(entries)
+}
+
+/// Build (or reuse) CSR adjacencies for every relationship type with integer endpoints.
+///
+/// An entry from `previous` is reused when its relationship dataset is the same
+/// snapshot; node-table changes never invalidate it, since the CSR stores raw
+/// target ids. Relationship types with non-integer endpoints get no entry and
+/// queries over them use the join path.
+fn build_csr_entries(
+    py: Python,
+    config: &RustGraphConfig,
+    sources: &HashMap<String, EngineSource>,
+    schemas: &HashMap<String, arrow_schema::SchemaRef>,
+    ctx: &SessionContext,
+    previous: Option<&EngineState>,
+) -> PyResult<HashMap<String, CsrEntry>> {
+    let mut entries = HashMap::new();
+    for mapping in config.relationship_mappings.values() {
+        let rel_type = &mapping.relationship_type;
+        let Some((name, source)) = sources
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case(rel_type))
+        else {
+            continue;
+        };
+        if let Some(old) = previous.and_then(|p| p.csr.get(rel_type)) {
+            if old.source.same_data(source) {
+                entries.insert(rel_type.clone(), old.clone());
+                continue;
+            }
+        }
+        let field = |column: &str| {
+            schemas[name]
+                .fields()
+                .iter()
+                .find(|f| f.name().eq_ignore_ascii_case(column))
+                .cloned()
+        };
+        let (Some(src), Some(dst)) = (
+            field(&mapping.source_id_field),
+            field(&mapping.target_id_field),
+        ) else {
+            continue;
+        };
+        if !is_supported_id_type(src.data_type()) || !is_supported_id_type(dst.data_type()) {
+            continue;
+        }
+
+        let previous_entry = previous.and_then(|p| p.csr.get(rel_type));
+        if let Some(old) = previous_entry {
+            if let Some(entry) = try_apply_csr_delta(py, old, source, src.name(), dst.name())? {
+                entries.insert(rel_type.clone(), entry);
+                continue;
+            }
+        }
+
+        let started = std::time::Instant::now();
+        let table = name.to_lowercase();
+        let (outgoing, incoming) = RT.block_on(Some(py), async {
+            // Two projected scans of the endpoint columns, one per direction.
+            let scan = || async {
+                ctx.table(table.as_str())
+                    .await?
+                    .select_columns(&[src.name().as_str(), dst.name().as_str()])?
+                    .execute_stream()
+                    .await
+            };
+            let scan_err = |e: datafusion::error::DataFusionError| {
+                PyRuntimeError::new_err(format!("Failed to scan edges for CSR: {}", e))
+            };
+            let outgoing =
+                Adjacency::build(scan().await.map_err(scan_err)?, src.name(), dst.name())
+                    .await
+                    .map_err(graph_error_to_pyerr)?;
+            let incoming =
+                Adjacency::build(scan().await.map_err(scan_err)?, dst.name(), src.name())
+                    .await
+                    .map_err(graph_error_to_pyerr)?;
+            Ok::<_, PyErr>((outgoing, incoming))
+        })??;
+        entries.insert(
+            rel_type.clone(),
+            CsrEntry {
+                source: source.clone(),
+                outgoing: Arc::new(outgoing),
+                incoming: Arc::new(incoming),
+                build_ms: started.elapsed().as_secs_f64() * 1e3,
+                update: if previous_entry.is_some() {
+                    "rebuild"
+                } else {
+                    "build"
+                },
+            },
+        );
+    }
+    Ok(entries)
+}
+
+/// Blocking adapter from a DataFusion stream to Arrow's `RecordBatchReader`.
+///
+/// PyArrow calls `next()` from its C stream interface with the GIL released, so
+/// blocking on the runtime here does not stall other Python threads. Ctrl-C is not
+/// checked between batches; dropping the reader cancels the remaining work.
+struct BlockingBatchReader {
+    schema: arrow_schema::SchemaRef,
+    stream: datafusion::physical_plan::SendableRecordBatchStream,
+}
+
+impl Iterator for BlockingBatchReader {
+    type Item = Result<RecordBatch, arrow_schema::ArrowError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        RT.runtime
+            .block_on(self.stream.next())
+            .map(|r| r.map_err(|e| arrow_schema::ArrowError::ExternalError(Box::new(e))))
+    }
+}
+
+impl RecordBatchReader for BlockingBatchReader {
+    fn schema(&self) -> arrow_schema::SchemaRef {
+        self.schema.clone()
+    }
+}
+
 /// Cypher query engine with cached catalog for efficient multi-query execution
 ///
-/// This class provides a high-performance query execution interface by building
-/// the catalog and DataFusion context once, then reusing them across multiple queries.
-/// This avoids the cold-start penalty of rebuilding metadata structures on every query.
+/// The engine registers each dataset once and reuses the catalog and DataFusion
+/// context across queries.
 ///
-/// Use this class when you need to execute multiple queries against the same datasets.
-/// For single queries, the simpler `CypherQuery.execute()` API may be more convenient.
-///
-/// Implementation Details
-/// ----------------------
-/// - Each dataset is registered as both a node and relationship source in the catalog.
-///   The GraphConfig and query planner determine at runtime which interpretation to use
-///   based on the Cypher query pattern (e.g., (p:Person) vs -[:KNOWS]->).
-/// - SessionContext is internally Arc-wrapped, so cloning for each query is cheap
-///   (just incrementing refcounts, not copying state).
+/// Lance datasets are read lazily from storage, pinned to the version passed in:
+/// writes made later (by this or another process) are not visible until
+/// ``refresh()``. Each dataset is pinned separately; versions across tables are not
+/// a transactional multi-table snapshot. PyArrow tables are held in memory and
+/// never change; supply a new engine to replace them.
 ///
 /// Examples
 /// --------
-/// >>> from lance_graph import CypherEngine, GraphConfig
+/// >>> from lance_csr import CypherEngine, GraphConfig
 /// >>> import pyarrow as pa
 /// >>>
 /// >>> # Setup
@@ -1161,106 +1861,83 @@ fn record_batch_to_python_table(
 /// >>> result1 = engine.execute("MATCH (p:Person) WHERE p.age > 30 RETURN p.name")
 /// >>> result2 = engine.execute("MATCH (p:Person)-[:KNOWS]->(f) RETURN p.name, f.name")
 /// >>> result3 = engine.execute("MATCH (p:Person) RETURN count(*)")
-#[pyclass(name = "CypherEngine", module = "lance.graph")]
+#[pyclass(name = "CypherEngine", module = "lance_csr.graph")]
 pub struct CypherEngine {
     config: RustGraphConfig,
-    catalog: Arc<dyn lance_graph::GraphSourceCatalog>,
-    context: Arc<datafusion::execution::context::SessionContext>,
+    state: RwLock<Arc<EngineState>>,
+    use_csr: bool,
+}
+
+impl CypherEngine {
+    /// The current snapshot. Cloning the `Arc` lets a query outlive a concurrent refresh.
+    fn snapshot(&self) -> Arc<EngineState> {
+        self.state
+            .read()
+            .expect("engine state lock poisoned")
+            .clone()
+    }
+
+    fn parse(&self, query: &str, state: &EngineState) -> PyResult<RustCypherQuery> {
+        let query = RustCypherQuery::new(query)
+            .map_err(graph_error_to_pyerr)?
+            .with_config(self.config.clone())
+            .with_fan_out(state.fan_out());
+        Ok(if self.use_csr {
+            query.with_adjacency(state.adjacency_catalog())
+        } else {
+            query
+        })
+    }
 }
 
 #[pymethods]
 impl CypherEngine {
     /// Create a new CypherEngine with cached catalog
     ///
-    /// This builds the catalog and DataFusion context once during initialization.
-    /// Subsequent queries will reuse these structures for better performance.
-    ///
     /// Parameters
     /// ----------
     /// config : GraphConfig
     ///     The graph configuration defining node labels and relationships
     /// datasets : dict
-    ///     Dictionary mapping table names to Lance datasets or PyArrow tables
-    ///
-    /// Returns
-    /// -------
-    /// CypherEngine
-    ///     A new engine instance ready to execute queries
+    ///     Dictionary mapping table names to Lance datasets or PyArrow tables.
+    ///     Lance datasets are not read here; PyArrow inputs are held in memory.
     ///
     /// Raises
     /// ------
     /// ValueError
-    ///     If the configuration or datasets are invalid
+    ///     If no datasets are given, a configured id/endpoint column is missing, or a
+    ///     Lance dataset cannot be reopened by URI (for example, namespace-vended
+    ///     credentials)
     /// RuntimeError
-    ///     If catalog building fails
+    ///     If a dataset cannot be opened or registered
     #[new]
-    fn new(config: &GraphConfig, datasets: &Bound<'_, PyDict>) -> PyResult<Self> {
-        // Convert datasets to Arrow batches
-        let arrow_datasets = python_datasets_to_batches(datasets)?;
-
-        if arrow_datasets.is_empty() {
+    #[pyo3(signature = (config, datasets, use_csr = false))]
+    fn new(
+        py: Python,
+        config: &GraphConfig,
+        datasets: &Bound<'_, PyDict>,
+        use_csr: bool,
+    ) -> PyResult<Self> {
+        if datasets.is_empty() {
             return Err(PyValueError::new_err("No input datasets provided"));
         }
-
-        // Create session context and catalog
-        let ctx = SessionContext::new();
-        let mut catalog = InMemoryCatalog::new();
-
-        // Register all datasets as tables
-        for (name, batch) in &arrow_datasets {
-            let mem_table = Arc::new(
-                MemTable::try_new(batch.schema(), vec![vec![batch.clone()]]).map_err(|e| {
-                    PyRuntimeError::new_err(format!(
-                        "Failed to create MemTable for {}: {}",
-                        name, e
-                    ))
-                })?,
-            );
-
-            // Register in session context for execution
-            let normalized_name = name.to_lowercase();
-            ctx.register_table(&normalized_name, mem_table.clone())
-                .map_err(|e| {
-                    PyRuntimeError::new_err(format!("Failed to register table {}: {}", name, e))
-                })?;
-
-            let table_source = Arc::new(DefaultTableSource::new(mem_table));
-
-            // Register as both node and relationship source with original name.
-            //
-            // This is intentional: lance-graph uses GraphConfig to determine at query-planning
-            // time whether a dataset should be treated as a node table or relationship table
-            // based on the Cypher query pattern (e.g., MATCH (p:Person) vs -[:KNOWS]->).
-            //
-            // By registering all datasets in both catalogs, we allow the planner to look up
-            // the correct source based on query context. This pattern matches the Rust
-            // implementation in query.rs:build_catalog_and_context_from_datasets.
-            catalog = catalog
-                .with_node_source(name, table_source.clone())
-                .with_relationship_source(name, table_source);
+        let mut sources = HashMap::new();
+        for (key, value) in datasets.iter() {
+            let name: String = key.extract()?;
+            let source = python_value_to_source(py, &name, &value)?;
+            sources.insert(name, source);
         }
-
+        let state = build_engine_state(py, &config.inner, sources, use_csr, None)?;
         Ok(Self {
             config: config.inner.clone(),
-            catalog: Arc::new(catalog),
-            context: Arc::new(ctx),
+            state: RwLock::new(Arc::new(state)),
+            use_csr,
         })
     }
 
-    /// Execute a Cypher query using the cached catalog
+    /// Execute a Cypher query and return the full result as a ``pyarrow.Table``.
     ///
-    /// This method reuses the catalog and context built during initialization,
-    /// avoiding the overhead of rebuilding metadata structures.
-    ///
-    /// Parameters
-    /// ----------
-    /// query : str
-    ///     The Cypher query string to execute
-    ///
-    /// Returns
-    /// -------
-    /// pyarrow.Table
-    ///     Query results as Arrow table
+    /// The whole result is held in memory; use ``execute_batches`` for large outputs.
     ///
     /// Raises
     /// ------
@@ -1268,33 +1945,140 @@ impl CypherEngine {
     ///     If the query is invalid
     /// RuntimeError
     ///     If query execution fails
-    ///
-    /// Examples
-    /// --------
-    /// >>> result = engine.execute("MATCH (p:Person) WHERE p.age > 30 RETURN p.name")
-    /// >>> print(result.to_pandas())
-    fn execute(&self, py: Python, query: &str) -> PyResult<PyObject> {
-        // Parse the query
-        let cypher_query = RustCypherQuery::new(query)
-            .map_err(graph_error_to_pyerr)?
-            .with_config(self.config.clone());
-
-        // Execute using the cached catalog and context
-        // Note: SessionContext is internally Arc-wrapped, so clone() is cheap.
-        // We clone the SessionContext (not the Arc) because execute_with_catalog_and_context
-        // takes ownership. DataFusion's SessionContext::clone() just increments Arc refcounts
-        // for internal state (RuntimeEnv, SessionState), so this is a shallow clone.
-        let catalog = self.catalog.clone();
-        let context = self.context.as_ref().clone();
-
+    fn execute(&self, py: Python, query: &str) -> PyResult<Py<PyAny>> {
+        let state = self.snapshot();
+        let cypher_query = self.parse(query, &state)?;
         let result_batch = RT
             .block_on(
                 Some(py),
-                cypher_query.execute_with_catalog_and_context(catalog, context),
+                cypher_query
+                    .execute_with_catalog_and_context(state.catalog.clone(), state.context.clone()),
             )?
             .map_err(graph_error_to_pyerr)?;
 
         record_batch_to_python_table(py, &result_batch)
+    }
+
+    /// Execute a Cypher query and stream results as a ``pyarrow.RecordBatchReader``.
+    ///
+    /// Batches are computed as the reader is consumed. Scans, filters and projections
+    /// stream with bounded memory; joins, sorts and aggregations may still buffer.
+    /// The reader keeps its snapshot alive, so a concurrent ``refresh()`` does not
+    /// affect it. Planning errors raise immediately; execution errors raise while reading.
+    fn execute_batches(&self, py: Python, query: &str) -> PyResult<Py<PyAny>> {
+        use arrow::pyarrow::IntoPyArrow;
+
+        let state = self.snapshot();
+        let cypher_query = self.parse(query, &state)?;
+        let stream = RT
+            .block_on(
+                Some(py),
+                cypher_query.execute_stream_with_catalog_and_context(
+                    state.catalog.clone(),
+                    state.context.clone(),
+                ),
+            )?
+            .map_err(graph_error_to_pyerr)?;
+        let reader: Box<dyn RecordBatchReader + Send> = Box::new(BlockingBatchReader {
+            schema: stream.schema(),
+            stream,
+        });
+        Ok(reader.into_pyarrow(py)?.unbind())
+    }
+
+    /// Return the query plan, including the physical plan with pushed-down scans.
+    fn explain(&self, py: Python, query: &str) -> PyResult<String> {
+        let state = self.snapshot();
+        let cypher_query = self.parse(query, &state)?;
+        RT.block_on(
+            Some(py),
+            cypher_query
+                .explain_with_catalog_and_context(state.catalog.clone(), state.context.clone()),
+        )?
+        .map_err(graph_error_to_pyerr)
+    }
+
+    /// Move every Lance dataset to its latest version.
+    ///
+    /// Datasets whose version and commit time are unchanged keep their open handle.
+    /// The replacement is validated in full before it is swapped in; on error nothing
+    /// changes and the previous snapshot stays usable. Queries already running finish
+    /// on the snapshot they started with. PyArrow inputs are unchanged.
+    fn refresh(&self, py: Python) -> PyResult<()> {
+        let current = self.snapshot();
+        let mut sources = current.sources.clone();
+        for source in sources.values_mut() {
+            if let EngineSource::Lance {
+                uri,
+                storage_options,
+                dataset,
+            } = source
+            {
+                let latest = open_lance_dataset(py, uri, None, storage_options)?;
+                if !same_lance_snapshot(&latest, dataset) {
+                    *dataset = Arc::new(latest);
+                }
+            }
+        }
+        let state = build_engine_state(py, &self.config, sources, self.use_csr, Some(&current))?;
+        *self.state.write().expect("engine state lock poisoned") = Arc::new(state);
+        Ok(())
+    }
+
+    /// Node id -> row index statistics per node label (experimental, ``use_csr=True``).
+    ///
+    /// Same fields as ``csr_stats`` with ``rows`` instead of ``edges``. A label is
+    /// missing when its ids are not unique integers; its targets then use a join.
+    fn node_index_stats(&self, py: Python) -> PyResult<Py<PyAny>> {
+        let stats = PyDict::new(py);
+        for (label, entry) in &self.snapshot().node_index {
+            let item = PyDict::new(py);
+            item.set_item("rows", entry.rows.num_rows())?;
+            item.set_item("version", entry.source.lance_version())?;
+            item.set_item("build_ms", entry.build_ms)?;
+            stats.set_item(label, item)?;
+        }
+        Ok(stats.into_any().unbind())
+    }
+
+    /// CSR adjacency statistics per relationship type (experimental, ``use_csr=True``).
+    ///
+    /// - ``edges``: live indexed edges (null endpoints are skipped).
+    /// - ``delta_edges`` / ``tombstones``: appended and removed edges held outside
+    ///   the base CSR since its last full build.
+    /// - ``update``: how the last refresh produced it: ``build`` (first),
+    ///   ``rebuild`` (full), ``delta`` (changes applied) or ``reused`` (no edge change).
+    /// - ``version``: relationship dataset version it reflects (``None`` for PyArrow).
+    /// - ``build_ms``: wall time of that build or delta, both directions.
+    ///
+    /// An identical dict after ``refresh()`` means the snapshot itself was unchanged.
+    fn csr_stats(&self, py: Python) -> PyResult<Py<PyAny>> {
+        let stats = PyDict::new(py);
+        for (rel_type, entry) in &self.snapshot().csr {
+            let item = PyDict::new(py);
+            item.set_item("edges", entry.outgoing.num_edges())?;
+            item.set_item("delta_edges", entry.outgoing.delta_edges())?;
+            item.set_item("tombstones", entry.outgoing.tombstones())?;
+            item.set_item("update", entry.update)?;
+            item.set_item("version", entry.source.lance_version())?;
+            item.set_item("build_ms", entry.build_ms)?;
+            stats.set_item(rel_type, item)?;
+        }
+        Ok(stats.into_any().unbind())
+    }
+
+    /// Pinned version of each Lance dataset, keyed by dataset name.
+    fn dataset_versions(&self) -> HashMap<String, u64> {
+        self.snapshot()
+            .sources
+            .iter()
+            .filter_map(|(name, source)| match source {
+                EngineSource::Lance { dataset, .. } => {
+                    Some((name.clone(), dataset.manifest().version))
+                }
+                EngineSource::Arrow(_) => None,
+            })
+            .collect()
     }
 
     /// Get the graph configuration
@@ -1325,21 +2109,16 @@ impl CypherEngine {
         py: Python,
         query: &str,
         vector_search: &VectorSearch,
-    ) -> PyResult<PyObject> {
-        // Parse query and execute with cached catalog/context
-        let cypher_query = RustCypherQuery::new(query)
-            .map_err(graph_error_to_pyerr)?
-            .with_config(self.config.clone());
-
-        let catalog = self.catalog.clone();
-        let context = self.context.as_ref().clone();
+    ) -> PyResult<Py<PyAny>> {
+        let state = self.snapshot();
+        let cypher_query = self.parse(query, &state)?;
         let vs = vector_search.inner.clone();
 
         // Execute query to get candidates, then apply vector reranking
         let result_batch = RT
             .block_on(Some(py), async move {
                 let candidates = cypher_query
-                    .execute_with_catalog_and_context(catalog, context)
+                    .execute_with_catalog_and_context(state.catalog.clone(), state.context.clone())
                     .await?;
                 vs.search(&candidates).await
             })?
@@ -1366,13 +2145,13 @@ impl CypherEngine {
 /// Examples
 /// --------
 /// >>> import pyarrow as pa
-/// >>> from lance_graph import SqlQuery
+/// >>> from lance_csr import SqlQuery
 /// >>>
 /// >>> person = pa.table({"id": [1, 2], "name": ["Alice", "Bob"], "age": [28, 34]})
 /// >>> query = SqlQuery("SELECT name, age FROM person WHERE age > 30")
 /// >>> result = query.execute({"person": person})
 /// >>> print(result.to_pandas())
-#[pyclass(name = "SqlQuery", module = "lance.graph")]
+#[pyclass(name = "SqlQuery", module = "lance_csr.graph")]
 pub struct SqlQuery {
     inner: RustSqlQuery,
 }
@@ -1418,7 +2197,7 @@ impl SqlQuery {
     /// ------
     /// RuntimeError
     ///     If query execution fails
-    fn execute(&self, py: Python, datasets: &Bound<'_, PyDict>) -> PyResult<PyObject> {
+    fn execute(&self, py: Python, datasets: &Bound<'_, PyDict>) -> PyResult<Py<PyAny>> {
         let arrow_datasets = python_datasets_to_batches(datasets)?;
         let inner = self.inner.clone();
 
@@ -1468,7 +2247,7 @@ impl SqlQuery {
 ///
 /// Examples
 /// --------
-/// >>> from lance_graph import SqlEngine
+/// >>> from lance_csr import SqlEngine
 /// >>> import pyarrow as pa
 /// >>>
 /// >>> datasets = {
@@ -1479,7 +2258,7 @@ impl SqlQuery {
 /// >>> engine = SqlEngine(datasets)
 /// >>> result1 = engine.execute("SELECT * FROM person WHERE age > 30")
 /// >>> result2 = engine.execute("SELECT p.name FROM person p JOIN knows k ON p.id = k.src")
-#[pyclass(name = "SqlEngine", module = "lance.graph")]
+#[pyclass(name = "SqlEngine", module = "lance_csr.graph")]
 pub struct SqlEngine {
     context: Arc<SessionContext>,
 }
@@ -1553,7 +2332,7 @@ impl SqlEngine {
     /// ------
     /// RuntimeError
     ///     If query execution fails
-    fn execute(&self, py: Python, sql: &str) -> PyResult<PyObject> {
+    fn execute(&self, py: Python, sql: &str) -> PyResult<Py<PyAny>> {
         let query = RustSqlQuery::new(sql);
         let context = self.context.as_ref().clone();
 
@@ -1566,16 +2345,6 @@ impl SqlEngine {
 
     fn __repr__(&self) -> String {
         "SqlEngine(...)".to_string()
-    }
-}
-
-impl SqlEngine {
-    /// Create SqlEngine from a pre-built SessionContext.
-    /// Used internally by catalog integration (UnityCatalog.create_sql_engine).
-    pub(crate) fn from_context(ctx: SessionContext) -> Self {
-        Self {
-            context: Arc::new(ctx),
-        }
     }
 }
 
@@ -1594,8 +2363,6 @@ pub fn register_graph_module(py: Python, parent_module: &Bound<'_, PyModule>) ->
     graph_module.add_class::<SqlEngine>()?;
     graph_module.add_class::<VectorSearch>()?;
     graph_module.add_class::<PyDirNamespace>()?;
-
-    crate::catalog::register_catalog_module(py, &graph_module)?;
 
     parent_module.add_submodule(&graph_module)?;
     Ok(())

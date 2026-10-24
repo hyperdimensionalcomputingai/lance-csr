@@ -10,7 +10,7 @@ This tests the explicit two-step vector search workflow:
 
 import pyarrow as pa
 import pytest
-from lance_graph import CypherQuery, DistanceMetric, GraphConfig, VectorSearch
+from lance_csr import CypherQuery, DistanceMetric, GraphConfig, VectorSearch
 
 
 @pytest.fixture
@@ -684,7 +684,7 @@ def test_vector_search_different_query_vectors(vector_env):
 
 def test_cypher_engine_execute_with_vector_rerank(vector_env):
     """Test CypherEngine.execute_with_vector_rerank basic functionality."""
-    from lance_graph import CypherEngine
+    from lance_csr import CypherEngine
 
     config, datasets, _ = vector_env
     engine = CypherEngine(config, datasets)
@@ -704,7 +704,7 @@ def test_cypher_engine_execute_with_vector_rerank(vector_env):
 
 def test_cypher_engine_vs_cypher_query_vector_rerank_equivalence(vector_env):
     """Test that CypherEngine produces same results as CypherQuery for vector rerank."""
-    from lance_graph import CypherEngine
+    from lance_csr import CypherEngine
 
     config, datasets, _ = vector_env
 
@@ -732,7 +732,7 @@ def test_cypher_engine_vs_cypher_query_vector_rerank_equivalence(vector_env):
 
 def test_cypher_engine_vector_rerank_multiple_queries(vector_env):
     """Test that CypherEngine efficiently handles multiple vector rerank queries."""
-    from lance_graph import CypherEngine
+    from lance_csr import CypherEngine
 
     config, datasets, _ = vector_env
     engine = CypherEngine(config, datasets)

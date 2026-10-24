@@ -56,9 +56,9 @@ impl DataFusionPlanner {
                 target_label,
                 relationship_types,
                 direction,
+                relationship_variable,
                 properties,
                 target_properties,
-                ..
             } => self.build_expand(
                 ctx,
                 input,
@@ -67,6 +67,7 @@ impl DataFusionPlanner {
                 target_label,
                 relationship_types,
                 direction,
+                relationship_variable.as_deref(),
                 properties,
                 target_properties,
             ),
@@ -101,6 +102,32 @@ impl DataFusionPlanner {
                 expression,
                 alias,
             } => self.build_unwind(ctx, input, expression, alias),
+            LogicalOperator::Union { inputs } => self.build_union(ctx, inputs),
+            LogicalOperator::OptionalMatch {
+                input,
+                optional,
+                keys,
+            } => self.build_optional_match(ctx, input, optional, keys),
+            LogicalOperator::ShortestPath {
+                input,
+                source_variable,
+                target_variable,
+                relationship_type,
+                direction,
+                min_hops,
+                max_hops,
+                all,
+                path_variable,
+            } => self.build_shortest_path(
+                ctx,
+                input,
+                [source_variable.as_str(), target_variable.as_str()],
+                relationship_type,
+                direction,
+                (*min_hops, *max_hops),
+                *all,
+                path_variable,
+            ),
         }
     }
 }

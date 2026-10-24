@@ -84,6 +84,13 @@ pub struct RelationshipMapping {
     pub property_fields: Vec<String>,
     /// Optional filter conditions for this relationship type
     pub filter_conditions: Option<String>,
+    /// Node labels at the source and target end, like `FROM Post TO Person` in a Kuzu
+    /// REL table. Only needed to plan relationship-type alternation (`[:A|B]`) or
+    /// multi-label nodes, where they decide which label goes with which type.
+    #[serde(default)]
+    pub source_label: Option<String>,
+    #[serde(default)]
+    pub target_label: Option<String>,
 }
 
 impl Default for GraphConfig {
@@ -171,6 +178,21 @@ impl GraphConfig {
                     location: snafu::Location::new(file!(), line!(), column!()),
                 });
             }
+
+            for label in [&mapping.source_label, &mapping.target_label]
+                .into_iter()
+                .flatten()
+            {
+                if self.get_node_mapping(label).is_none() {
+                    return Err(GraphError::ConfigError {
+                        message: format!(
+                            "Relationship '{}' names endpoint label '{}', which has no node mapping",
+                            rel_type, label
+                        ),
+                        location: snafu::Location::new(file!(), line!(), column!()),
+                    });
+                }
+            }
         }
 
         Ok(())
@@ -236,8 +258,25 @@ impl GraphConfigBuilder {
                 type_field: None,
                 property_fields: Vec::new(),
                 filter_conditions: None,
+                source_label: None,
+                target_label: None,
             },
         );
+        self
+    }
+
+    /// Record the node labels a configured relationship type connects (see
+    /// [`RelationshipMapping::source_label`]). No-op for an unknown type.
+    pub fn with_relationship_endpoints<S: Into<String>>(
+        mut self,
+        rel_type: &str,
+        source_label: S,
+        target_label: S,
+    ) -> Self {
+        if let Some(mapping) = self.relationship_mappings.get_mut(&rel_type.to_lowercase()) {
+            mapping.source_label = Some(source_label.into());
+            mapping.target_label = Some(target_label.into());
+        }
         self
     }
 
@@ -312,7 +351,16 @@ impl RelationshipMapping {
             type_field: None,
             property_fields: Vec::new(),
             filter_conditions: None,
+            source_label: None,
+            target_label: None,
         }
+    }
+
+    /// Set the node labels this relationship type connects
+    pub fn with_endpoints<S: Into<String>>(mut self, source_label: S, target_label: S) -> Self {
+        self.source_label = Some(source_label.into());
+        self.target_label = Some(target_label.into());
+        self
     }
 
     /// Set the type field for this relationship

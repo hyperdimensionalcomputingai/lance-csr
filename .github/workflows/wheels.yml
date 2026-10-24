@@ -1,0 +1,79 @@
+# Build and verify lance-csr wheels for the two supported targets.
+#
+# There is no publish job yet: releases to PyPI are a separate, deliberate step.
+name: Wheels
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          # Native arm64 runner; MACOSX_DEPLOYMENT_TARGET sets the wheel's minimum macOS.
+          - { os: macos-14, target: aarch64-apple-darwin, manylinux: "off" }
+          # maturin-action runs this inside the pinned manylinux_2_28 image.
+          - { os: ubuntu-24.04, target: x86_64-unknown-linux-gnu, manylinux: "2_28" }
+    runs-on: ${{ matrix.os }}
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: PyO3/maturin-action@v1
+        with:
+          working-directory: python
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux }}
+          # protoc is needed by Lance's build scripts, not by wheel users.
+          before-script-linux: dnf install -y protobuf-compiler || yum install -y protobuf-compiler
+          args: --release --locked --out dist
+      - name: Inspect wheel
+        working-directory: python
+        run: |
+          pip install twine
+          twine check dist/*.whl
+          python -m zipfile -l dist/*.whl
+          sha256sum dist/*.whl || shasum -a 256 dist/*.whl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.target }}
+          path: python/dist/*.whl
+
+  install-check:
+    needs: build
+    strategy:
+      matrix:
+        os: [macos-14, ubuntu-24.04]
+        python: ["3.11", "3.12"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: python/python/tests
+      - uses: astral-sh/setup-uv@v3
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-*
+          merge-multiple: true
+          path: dist
+      - name: Install wheel without Rust and run tests outside the source tree
+        run: |
+          # Runner images ship Rust; remove it from PATH so a source build cannot happen.
+          export PATH=$(echo "$PATH" | tr ':' '\n' | grep -v -e cargo -e rustup | paste -sd: -)
+          ! command -v cargo && ! command -v rustc
+          uv venv --python ${{ matrix.python }} /tmp/venv
+          uv pip install --python /tmp/venv/bin/python --only-binary=:all: --find-links dist lance-csr pytest pandas
+          cp -r python/python/tests /tmp/tests && cd /tmp
+          /tmp/venv/bin/python -I -m pytest /tmp/tests -q -p no:cacheprovider
+
+  # Single required check: a release may only use artifacts from a run where every
+  # target built and installed cleanly.
+  complete:
+    needs: [build, install-check]
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "all wheel targets built and verified"

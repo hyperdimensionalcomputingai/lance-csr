@@ -143,6 +143,32 @@ impl SemanticAnalyzer {
             }
         }
 
+        // Later WITH stages: the same three checks as the first stage, in order.
+        for stage in &analyzed_query.further_with_stages {
+            self.current_scope = ScopeType::With;
+            if let Err(e) = self.analyze_with_clause(&stage.with_clause) {
+                errors.push(format!("WITH clause error: {}", e));
+            }
+            self.current_scope = ScopeType::Match;
+            for clause in &stage.reading_clauses {
+                let result = match clause {
+                    ReadingClause::Match(match_clause) => self.analyze_match_clause(match_clause),
+                    ReadingClause::Unwind(unwind_clause) => {
+                        self.analyze_unwind_clause(unwind_clause)
+                    }
+                };
+                if let Err(e) = result {
+                    errors.push(format!("Post-WITH reading clause error: {}", e));
+                }
+            }
+            if let Some(where_clause) = &stage.where_clause {
+                self.current_scope = ScopeType::PostWithWhere;
+                if let Err(e) = self.analyze_where_clause(where_clause) {
+                    errors.push(format!("Post-WITH WHERE clause error: {}", e));
+                }
+            }
+        }
+
         // Phase 5: Validate RETURN clause
         self.current_scope = ScopeType::Return;
         if let Err(e) = self.analyze_return_clause(&analyzed_query.return_clause) {
@@ -175,6 +201,9 @@ impl SemanticAnalyzer {
     fn analyze_match_clause(&mut self, match_clause: &MatchClause) -> Result<()> {
         for pattern in &match_clause.patterns {
             self.analyze_graph_pattern(pattern)?;
+        }
+        if let Some(where_clause) = &match_clause.where_clause {
+            self.analyze_where_clause(where_clause)?;
         }
         Ok(())
     }
@@ -230,6 +259,12 @@ impl SemanticAnalyzer {
 
                     // Register end node
                     self.register_node_variable(&segment.end_node)?;
+                }
+                if let Some(path_var) = path.shortest.as_ref().and_then(|s| s.variable.as_ref()) {
+                    self.register_projection_alias(path_var);
+                    if let Some(info) = self.variables.get_mut(&path_var.to_lowercase()) {
+                        info.variable_type = VariableType::Path;
+                    }
                 }
             }
         }
@@ -328,6 +363,17 @@ impl SemanticAnalyzer {
             BooleanExpression::Exists(prop_ref) => {
                 self.validate_property_reference(prop_ref)?;
             }
+            BooleanExpression::PatternExists {
+                patterns,
+                where_clause,
+            } => {
+                for pattern in patterns {
+                    self.analyze_graph_pattern(pattern)?;
+                }
+                if let Some(w) = where_clause {
+                    self.analyze_boolean_expression(w)?;
+                }
+            }
             BooleanExpression::In { expression, list } => {
                 self.analyze_value_expression(expression)?;
                 for item in list {
@@ -393,11 +439,46 @@ impl SemanticAnalyzer {
                             });
                         }
                     }
+                    "date_part" | "to_epoch_ms" | "length" | "nodes" | "size" | "range"
+                    | "__index" => {
+                        let want = match function_name.as_str() {
+                            "date_part" | "range" | "__index" => 2,
+                            _ => 1,
+                        };
+                        if args.len() != want {
+                            return Err(GraphError::PlanError {
+                                message: format!(
+                                    "{} requires exactly {} argument(s), got {}",
+                                    name.to_uppercase(),
+                                    want,
+                                    args.len()
+                                ),
+                                location: snafu::Location::new(file!(), line!(), column!()),
+                            });
+                        }
+                    }
+                    "__list" => {}
+                    "tostring" => {
+                        if args.len() != 1 {
+                            return Err(GraphError::PlanError {
+                                message: "TOSTRING requires exactly 1 argument".to_string(),
+                                location: snafu::Location::new(file!(), line!(), column!()),
+                            });
+                        }
+                    }
+                    "coalesce" => {
+                        if args.is_empty() {
+                            return Err(GraphError::PlanError {
+                                message: "COALESCE requires at least 1 argument".to_string(),
+                                location: snafu::Location::new(file!(), line!(), column!()),
+                            });
+                        }
+                    }
                     _ => {
                         // Unknown scalar function - reject early with helpful error
                         return Err(GraphError::UnsupportedFeature {
                             feature: format!(
-                                "Cypher function '{}' is not implemented. Supported scalar functions: toLower, lower, toUpper, upper. Supported aggregate functions: COUNT, SUM, AVG, MIN, MAX, COLLECT.",
+                                "Cypher function '{}' is not implemented. Supported scalar functions: toLower, lower, toUpper, upper, toString, coalesce, date_part, to_epoch_ms, length, nodes, size, range. Supported aggregate functions: COUNT, SUM, AVG, MIN, MAX, COLLECT.",
                                 name
                             ),
                             location: snafu::Location::new(file!(), line!(), column!()),
@@ -419,12 +500,12 @@ impl SemanticAnalyzer {
                 // Validate known aggregate functions
                 match function_name.as_str() {
                     "count" | "sum" | "avg" | "min" | "max" | "collect" => {
-                        // DISTINCT is only supported for COUNT
+                        // DISTINCT is only supported for COUNT and COLLECT
                         // Other aggregates silently ignore it in execution, so reject early
-                        if *distinct && function_name != "count" {
+                        if *distinct && !matches!(function_name.as_str(), "count" | "collect") {
                             return Err(GraphError::UnsupportedFeature {
                                 feature: format!(
-                                    "DISTINCT is only supported with COUNT, not {}",
+                                    "DISTINCT is only supported with COUNT and COLLECT, not {}",
                                     function_name.to_uppercase()
                                 ),
                                 location: snafu::Location::new(file!(), line!(), column!()),
@@ -461,7 +542,17 @@ impl SemanticAnalyzer {
                         // Additional validation for SUM, AVG, MIN, MAX: they require properties, not bare variables
                         // Only COUNT and COLLECT allow bare variables (COUNT(*), COUNT(p), COLLECT(p))
                         if matches!(function_name.as_str(), "sum" | "avg" | "min" | "max") {
-                            if let Some(ValueExpression::Variable(v)) = args.first() {
+                            // A scalar alias from an earlier WITH (`sum(messageX)`) is fine.
+                            let entity = |v: &str| {
+                                !matches!(
+                                    self.variables.get_ci(v).map(|i| &i.variable_type),
+                                    Some(VariableType::Property)
+                                )
+                            };
+                            if let Some(ValueExpression::Variable(v)) = args
+                                .first()
+                                .filter(|a| matches!(a, ValueExpression::Variable(v) if entity(v)))
+                            {
                                 return Err(GraphError::PlanError {
                                     message: format!(
                                         "{}({}) is invalid - {} requires a property like {}({}.property). You cannot {} a node/entity.",
@@ -493,6 +584,15 @@ impl SemanticAnalyzer {
                         continue;
                     }
                     self.analyze_value_expression(arg)?;
+                }
+            }
+            ValueExpression::Case { whens, otherwise } => {
+                for (condition, then) in whens {
+                    self.analyze_boolean_expression(condition)?;
+                    self.analyze_value_expression(then)?;
+                }
+                if let Some(otherwise) = otherwise {
+                    self.analyze_value_expression(otherwise)?;
                 }
             }
             ValueExpression::Arithmetic { left, right, .. } => {
@@ -620,6 +720,9 @@ impl SemanticAnalyzer {
             for item in &order_by.items {
                 self.analyze_value_expression(&item.expression)?;
             }
+        }
+        if let Some(where_clause) = &with_clause.where_clause {
+            self.analyze_where_clause(where_clause)?;
         }
         Ok(())
     }
@@ -781,6 +884,7 @@ mod tests {
             with_clause: None,
             post_with_reading_clauses: vec![],
             post_with_where_clause: None,
+            further_with_stages: vec![],
             return_clause: ReturnClause {
                 distinct: false,
                 items: vec![ReturnItem {
@@ -806,11 +910,14 @@ mod tests {
         let query = CypherQuery {
             reading_clauses: vec![ReadingClause::Match(MatchClause {
                 patterns: vec![GraphPattern::Node(node)],
+                optional: false,
+                where_clause: None,
             })],
             where_clause: None,
             with_clause: None,
             post_with_reading_clauses: vec![],
             post_with_where_clause: None,
+            further_with_stages: vec![],
             return_clause: ReturnClause {
                 distinct: false,
                 items: vec![ReturnItem {
@@ -839,11 +946,14 @@ mod tests {
         let query = CypherQuery {
             reading_clauses: vec![ReadingClause::Match(MatchClause {
                 patterns: vec![GraphPattern::Node(node1), GraphPattern::Node(node2)],
+                optional: false,
+                where_clause: None,
             })],
             where_clause: None,
             with_clause: None,
             post_with_reading_clauses: vec![],
             post_with_where_clause: None,
+            further_with_stages: vec![],
             return_clause: ReturnClause {
                 distinct: false,
                 items: vec![],
@@ -883,16 +993,20 @@ mod tests {
                 relationship: rel,
                 end_node: end,
             }],
+            shortest: None,
         };
 
         let query = CypherQuery {
             reading_clauses: vec![ReadingClause::Match(MatchClause {
                 patterns: vec![GraphPattern::Path(path)],
+                optional: false,
+                where_clause: None,
             })],
             where_clause: None,
             with_clause: None,
             post_with_reading_clauses: vec![],
             post_with_where_clause: None,
+            further_with_stages: vec![],
             return_clause: ReturnClause {
                 distinct: false,
                 items: vec![],
@@ -920,11 +1034,14 @@ mod tests {
         let query = CypherQuery {
             reading_clauses: vec![ReadingClause::Match(MatchClause {
                 patterns: vec![GraphPattern::Node(node)],
+                optional: false,
+                where_clause: None,
             })],
             where_clause: Some(where_clause),
             with_clause: None,
             post_with_reading_clauses: vec![],
             post_with_where_clause: None,
+            further_with_stages: vec![],
             return_clause: ReturnClause {
                 distinct: false,
                 items: vec![],
@@ -957,16 +1074,20 @@ mod tests {
                 relationship: rel,
                 end_node: end,
             }],
+            shortest: None,
         };
 
         let query = CypherQuery {
             reading_clauses: vec![ReadingClause::Match(MatchClause {
                 patterns: vec![GraphPattern::Path(path)],
+                optional: false,
+                where_clause: None,
             })],
             where_clause: None,
             with_clause: None,
             post_with_reading_clauses: vec![],
             post_with_where_clause: None,
+            further_with_stages: vec![],
             return_clause: ReturnClause {
                 distinct: false,
                 items: vec![],
@@ -991,9 +1112,12 @@ mod tests {
         let query = CypherQuery {
             reading_clauses: vec![ReadingClause::Match(MatchClause {
                 patterns: vec![GraphPattern::Node(node)],
+                optional: false,
+                where_clause: None,
             })],
             post_with_reading_clauses: vec![],
             post_with_where_clause: None,
+            further_with_stages: vec![],
             where_clause: None,
             with_clause: None,
             return_clause: ReturnClause {
@@ -1031,9 +1155,12 @@ mod tests {
         let query = CypherQuery {
             reading_clauses: vec![ReadingClause::Match(MatchClause {
                 patterns: vec![GraphPattern::Node(node)],
+                optional: false,
+                where_clause: None,
             })],
             post_with_reading_clauses: vec![],
             post_with_where_clause: None,
+            further_with_stages: vec![],
             where_clause: None,
             with_clause: None,
             return_clause: ReturnClause {
@@ -1071,14 +1198,18 @@ mod tests {
                 relationship: rel,
                 end_node: end,
             }],
+            shortest: None,
         };
 
         let query = CypherQuery {
             reading_clauses: vec![ReadingClause::Match(MatchClause {
                 patterns: vec![GraphPattern::Path(path)],
+                optional: false,
+                where_clause: None,
             })],
             post_with_reading_clauses: vec![],
             post_with_where_clause: None,
+            further_with_stages: vec![],
             where_clause: None,
             with_clause: None,
             return_clause: ReturnClause {
@@ -1130,6 +1261,7 @@ mod tests {
                     end_node: end,
                 },
             ],
+            shortest: None,
         };
 
         // Custom config that knows both relationship types to avoid warnings muddying the assertion
@@ -1143,9 +1275,12 @@ mod tests {
         let query = CypherQuery {
             reading_clauses: vec![ReadingClause::Match(MatchClause {
                 patterns: vec![GraphPattern::Path(path)],
+                optional: false,
+                where_clause: None,
             })],
             post_with_reading_clauses: vec![],
             post_with_where_clause: None,
+            further_with_stages: vec![],
             where_clause: None,
             with_clause: None,
             return_clause: ReturnClause {
@@ -1182,11 +1317,14 @@ mod tests {
         let query = CypherQuery {
             reading_clauses: vec![ReadingClause::Match(MatchClause {
                 patterns: vec![GraphPattern::Node(node)],
+                optional: false,
+                where_clause: None,
             })],
             where_clause: Some(where_clause),
             with_clause: None,
             post_with_reading_clauses: vec![],
             post_with_where_clause: None,
+            further_with_stages: vec![],
             return_clause: ReturnClause {
                 distinct: false,
                 items: vec![ReturnItem {

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pyarrow as pa
 
-from lance_graph import GraphConfigBuilder, CypherQuery
+from lance_csr import GraphConfigBuilder, CypherQuery
 
 
 def make_people_batch(n: int = 6) -> pa.RecordBatch:
@@ -46,12 +46,9 @@ def main() -> None:
     )
 
     # Two-hop traversal from a person to friend-of-a-friend
-    query = (
-        CypherQuery(
-            "MATCH (a:Person)-[:FRIEND_OF]->(b:Person)-[:FRIEND_OF]->(c:Person) RETURN a.name, c.name"
-        )
-        .with_config(config)
-    )
+    query = CypherQuery(
+        "MATCH (a:Person)-[:FRIEND_OF]->(b:Person)-[:FRIEND_OF]->(c:Person) RETURN a.name, c.name"
+    ).with_config(config)
 
     datasets = {
         "Person": make_people_batch(),

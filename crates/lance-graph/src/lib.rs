@@ -38,40 +38,32 @@
 pub mod ast;
 pub mod case_insensitive;
 pub mod config;
+pub mod csr_expand;
 pub mod csr_index;
 pub mod datafusion_planner;
 pub mod error;
-pub mod lance_native_planner;
+pub mod key_statistics;
 pub mod lance_vector_search;
 pub mod logical_plan;
 pub mod parameter_substitution;
 pub mod parser;
+mod pattern_alternatives;
+mod pattern_order;
 pub mod query;
 pub mod semantic;
+pub mod shortest_path;
 pub mod spark_dialect;
-pub mod sql_catalog;
 pub mod sql_query;
-pub mod table_readers;
 
 /// Maximum allowed hops for variable-length relationship expansion (e.g., *1..N)
 pub const MAX_VARIABLE_LENGTH_HOPS: u32 = 20;
 
 pub use config::{GraphConfig, NodeMapping, RelationshipMapping};
-pub use csr_index::{build_bidirectional_index, CsrIndex, CsrIndexBuilder};
+pub use csr_index::{CsrIndex, CsrIndexBuilder};
 pub use error::{GraphError, Result};
 pub use lance_graph_catalog::{
     DirNamespace, GraphSourceCatalog, InMemoryCatalog, SimpleTableSource,
 };
-// Catalog provider re-exports
-pub use lance_graph_catalog::{
-    CatalogError, CatalogInfo, CatalogProvider, CatalogResult, ColumnInfo, Connector,
-    DataSourceFormat, SchemaInfo, TableInfo, TableReader, TableType,
-};
-#[cfg(feature = "unity-catalog")]
-pub use lance_graph_catalog::{UnityCatalogConfig, UnityCatalogProvider};
 pub use lance_vector_search::VectorSearch;
 pub use query::{CypherQuery, ExecutionStrategy, SqlDialect};
 pub use sql_query::SqlQuery;
-#[cfg(feature = "delta")]
-pub use table_readers::DeltaTableReader;
-pub use table_readers::{default_table_readers, ParquetTableReader};
