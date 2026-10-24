@@ -45,12 +45,12 @@ TABLES = {
 }
 CONFIG = (
     GraphConfig.builder()
-    .with_node_label("Person", "id")
-    .with_node_label("City", "id")
-    .with_node_label("Post", "id")
-    .with_relationship("KNOWS", "src", "dst", "Person", "Person")
-    .with_relationship("LIVES_IN", "src", "dst", "Person", "City")
-    .with_relationship("HAS_CREATOR", "src", "dst", "Post", "Person")
+    .node_table("Person", "id")
+    .node_table("City", "id")
+    .node_table("Post", "id")
+    .rel_table("KNOWS", "Person", "Person", "src", "dst")
+    .rel_table("LIVES_IN", "Person", "City", "src", "dst")
+    .rel_table("HAS_CREATOR", "Post", "Person", "src", "dst")
     .build()
 )
 

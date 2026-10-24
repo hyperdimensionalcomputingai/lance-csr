@@ -38,9 +38,9 @@ from lance_csr import CypherQuery, GraphConfig
 
 cfg = (
     GraphConfig.builder()
-    .with_node_label("Person", "id")
-    .with_node_label("City", "id")
-    .with_relationship("lives_in", "src", "dst")
+    .node_table("Person", "id")
+    .node_table("City", "id")
+    .rel_table("lives_in", "Person", "City", "src", "dst")
     .build()
 )
 
@@ -71,9 +71,9 @@ from lance_csr import CypherEngine, GraphConfig
 
 cfg = (
     GraphConfig.builder()
-    .with_node_label("Person", "id")
-    .with_node_label("City", "id")
-    .with_relationship("lives_in", "src", "dst")
+    .node_table("Person", "id")
+    .node_table("City", "id")
+    .rel_table("lives_in", "Person", "City", "src", "dst")
     .build()
 )
 
@@ -100,10 +100,15 @@ result4 = engine.execute(
 )
 ```
 
-Giving each relationship its endpoint labels, as in
-`.with_relationship("lives_in", "src", "dst", "Person", "City")`, lets queries leave
-nodes unlabeled where the relationship decides the label (`(p:Person)-[:lives_in]->(c)`),
-and is required for relationship-type alternation such as `[:likes_post|likes_comment]`.
+A node table maps a label to the dataset of the same name and its primary key. A
+relationship table maps a type to its dataset, the node tables at its two ends
+(`from_table` and `to_table`, like `FROM Person TO City` in Kuzu), and the columns that
+hold each end's key (`src` and `dst`). Knowing the ends lets queries leave nodes
+unlabeled where the relationship decides the label (`(p:Person)-[:lives_in]->(c)`), and
+lets relationship-type alternation (`[:likes_post|likes_comment]`) pick the right table.
+
+`with_node_label` and `with_relationship`, the names in lance-csr 0.1, still work but are
+deprecated and will be removed in a later release.
 
 ### 3. Lance datasets: snapshots, refresh and streaming
 
@@ -115,7 +120,7 @@ scan). Each dataset is pinned to the version you pass in; later writes are visib
 import lance
 from lance_csr import CypherEngine, GraphConfig
 
-config = GraphConfig.builder().with_node_label("Person", "id").build()
+config = GraphConfig.builder().node_table("Person", "id").build()
 engine = CypherEngine(config, {"Person": lance.dataset("people.lance")})
 
 engine.execute("MATCH (p:Person) RETURN count(*)")   # sees the pinned version
@@ -146,8 +151,8 @@ people, knows = db.open_table("Person"), db.open_table("KNOWS")
 
 config = (
     GraphConfig.builder()
-    .with_node_label("Person", "id")
-    .with_relationship("KNOWS", "src", "dst")
+    .node_table("Person", "id")
+    .rel_table("KNOWS", "Person", "Person", "src", "dst")
     .build()
 )
 engine = CypherEngine(config, {"Person": people.to_lance(), "KNOWS": knows.to_lance()})

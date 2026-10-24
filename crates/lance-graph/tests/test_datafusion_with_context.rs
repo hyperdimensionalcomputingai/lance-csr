@@ -32,8 +32,8 @@ async fn test_execute_with_context_csv_simple() {
 
     // Create graph configuration
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
-        .with_relationship("KNOWS", "src_id", "dst_id")
+        .node_table("Person", "id")
+        .rel_table("KNOWS", "Person", "Person", "src_id", "dst_id")
         .build()
         .unwrap();
 
@@ -180,9 +180,15 @@ async fn test_execute_with_context_complex_query() {
 
     // Create graph configuration
     let config = GraphConfig::builder()
-        .with_node_label("Employee", "emp_id")
-        .with_node_label("Department", "dept_id")
-        .with_relationship("WORKS_IN", "employee_id", "department_id")
+        .node_table("Employee", "emp_id")
+        .node_table("Department", "dept_id")
+        .rel_table(
+            "WORKS_IN",
+            "Employee",
+            "Department",
+            "employee_id",
+            "department_id",
+        )
         .build()
         .unwrap();
 
@@ -264,7 +270,7 @@ async fn test_execute_with_context_complex_query() {
 #[tokio::test]
 async fn test_execute_with_context_missing_table() {
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
+        .node_table("Person", "id")
         .build()
         .unwrap();
 
@@ -301,7 +307,7 @@ async fn test_execute_with_context_aliases() {
     .unwrap();
 
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
+        .node_table("Person", "id")
         .build()
         .unwrap();
 

@@ -970,10 +970,10 @@ mod tests {
 
     fn test_config() -> GraphConfig {
         GraphConfig::builder()
-            .with_node_label("Person", "id")
-            .with_node_label("Employee", "id")
-            .with_node_label("Company", "id")
-            .with_relationship("KNOWS", "src_id", "dst_id")
+            .node_table("Person", "id")
+            .node_table("Employee", "id")
+            .node_table("Company", "id")
+            .rel_table("KNOWS", "Person", "Person", "src_id", "dst_id")
             .build()
             .unwrap()
     }
@@ -1246,7 +1246,7 @@ mod tests {
             .with_node_mapping(
                 NodeMapping::new("Person", "id").with_properties(vec!["name".to_string()]),
             )
-            .with_relationship("KNOWS", "src_id", "dst_id")
+            .rel_table("KNOWS", "Person", "Person", "src_id", "dst_id")
             .build()
             .unwrap();
 
@@ -1368,9 +1368,9 @@ mod tests {
 
         // Custom config that knows both relationship types to avoid warnings muddying the assertion
         let custom_config = GraphConfig::builder()
-            .with_node_label("Person", "id")
-            .with_relationship("KNOWS", "src_id", "dst_id")
-            .with_relationship("FRIEND", "src_id", "dst_id")
+            .node_table("Person", "id")
+            .rel_table("KNOWS", "Person", "Person", "src_id", "dst_id")
+            .rel_table("FRIEND", "Person", "Person", "src_id", "dst_id")
             .build()
             .unwrap();
 

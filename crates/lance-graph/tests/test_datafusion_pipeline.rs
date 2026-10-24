@@ -109,8 +109,14 @@ fn create_knows_dataset() -> RecordBatch {
 /// Helper function to create graph config
 fn create_graph_config() -> GraphConfig {
     GraphConfig::builder()
-        .with_node_label("Person", "id")
-        .with_relationship("KNOWS", "src_person_id", "dst_person_id")
+        .node_table("Person", "id")
+        .rel_table(
+            "KNOWS",
+            "Person",
+            "Person",
+            "src_person_id",
+            "dst_person_id",
+        )
         .build()
         .unwrap()
 }
@@ -2589,7 +2595,7 @@ async fn test_datafusion_varlength_count() {
 async fn test_count_star_all_nodes() {
     let person_batch = create_person_dataset();
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
+        .node_table("Person", "id")
         .build()
         .unwrap();
 
@@ -2621,7 +2627,7 @@ async fn test_count_star_all_nodes() {
 async fn test_count_distinct_star_rejected() {
     let person_batch = create_person_dataset();
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
+        .node_table("Person", "id")
         .build()
         .unwrap();
 
@@ -2653,7 +2659,7 @@ async fn test_count_distinct_star_rejected() {
 async fn test_count_variable() {
     let person_batch = create_person_dataset();
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
+        .node_table("Person", "id")
         .build()
         .unwrap();
 
@@ -2684,7 +2690,7 @@ async fn test_count_variable() {
 async fn test_count_with_filter() {
     let person_batch = create_person_dataset();
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
+        .node_table("Person", "id")
         .build()
         .unwrap();
 
@@ -2716,7 +2722,7 @@ async fn test_count_with_filter() {
 async fn test_count_property() {
     let person_batch = create_person_dataset();
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
+        .node_table("Person", "id")
         .build()
         .unwrap();
 
@@ -2746,7 +2752,7 @@ async fn test_count_property() {
 async fn test_count_with_grouping() {
     let person_batch = create_person_dataset();
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
+        .node_table("Person", "id")
         .build()
         .unwrap();
 
@@ -2804,7 +2810,7 @@ async fn test_count_with_grouping() {
 async fn test_count_without_alias_has_descriptive_name() {
     let person_batch = create_person_dataset();
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
+        .node_table("Person", "id")
         .build()
         .unwrap();
 
@@ -2834,7 +2840,7 @@ async fn test_count_without_alias_has_descriptive_name() {
 async fn test_count_property_without_alias_has_descriptive_name() {
     let person_batch = create_person_dataset();
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
+        .node_table("Person", "id")
         .build()
         .unwrap();
 
@@ -2863,8 +2869,14 @@ async fn test_count_property_without_alias_has_descriptive_name() {
 #[tokio::test]
 async fn test_count_distinct_basic() {
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
-        .with_relationship("KNOWS", "src_person_id", "dst_person_id")
+        .node_table("Person", "id")
+        .rel_table(
+            "KNOWS",
+            "Person",
+            "Person",
+            "src_person_id",
+            "dst_person_id",
+        )
         .build()
         .unwrap();
 
@@ -2901,8 +2913,14 @@ async fn test_count_distinct_basic() {
 #[tokio::test]
 async fn test_count_vs_count_distinct() {
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
-        .with_relationship("KNOWS", "src_person_id", "dst_person_id")
+        .node_table("Person", "id")
+        .rel_table(
+            "KNOWS",
+            "Person",
+            "Person",
+            "src_person_id",
+            "dst_person_id",
+        )
         .build()
         .unwrap();
 
@@ -2965,8 +2983,14 @@ async fn test_count_vs_count_distinct() {
 #[tokio::test]
 async fn test_count_distinct_with_grouping() {
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
-        .with_relationship("KNOWS", "src_person_id", "dst_person_id")
+        .node_table("Person", "id")
+        .rel_table(
+            "KNOWS",
+            "Person",
+            "Person",
+            "src_person_id",
+            "dst_person_id",
+        )
         .build()
         .unwrap();
 
@@ -3027,7 +3051,7 @@ async fn test_count_distinct_with_grouping() {
 async fn test_sum_property() {
     let person_batch = create_person_dataset();
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
+        .node_table("Person", "id")
         .build()
         .unwrap();
 
@@ -3058,7 +3082,7 @@ async fn test_sum_property() {
 async fn test_sum_with_filter() {
     let person_batch = create_person_dataset();
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
+        .node_table("Person", "id")
         .build()
         .unwrap();
 
@@ -3090,7 +3114,7 @@ async fn test_sum_with_filter() {
 async fn test_sum_with_grouping() {
     let person_batch = create_person_dataset();
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
+        .node_table("Person", "id")
         .build()
         .unwrap();
 
@@ -3145,7 +3169,7 @@ async fn test_sum_with_grouping() {
 async fn test_sum_without_alias_has_descriptive_name() {
     let person_batch = create_person_dataset();
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
+        .node_table("Person", "id")
         .build()
         .unwrap();
 
@@ -3175,7 +3199,7 @@ async fn test_sum_without_alias_has_descriptive_name() {
 async fn test_avg_property() {
     let person_batch = create_person_dataset();
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
+        .node_table("Person", "id")
         .build()
         .unwrap();
 
@@ -3206,7 +3230,7 @@ async fn test_avg_property() {
 async fn test_avg_with_filter() {
     let person_batch = create_person_dataset();
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
+        .node_table("Person", "id")
         .build()
         .unwrap();
 
@@ -3238,7 +3262,7 @@ async fn test_avg_with_filter() {
 async fn test_avg_with_grouping() {
     let person_batch = create_person_dataset();
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
+        .node_table("Person", "id")
         .build()
         .unwrap();
 
@@ -3294,7 +3318,7 @@ async fn test_avg_with_grouping() {
 async fn test_avg_without_alias_has_descriptive_name() {
     let person_batch = create_person_dataset();
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
+        .node_table("Person", "id")
         .build()
         .unwrap();
 
@@ -3324,7 +3348,7 @@ async fn test_avg_without_alias_has_descriptive_name() {
 async fn test_min_property() {
     let person_batch = create_person_dataset();
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
+        .node_table("Person", "id")
         .build()
         .unwrap();
 
@@ -3357,7 +3381,7 @@ async fn test_min_property() {
 async fn test_max_property() {
     let person_batch = create_person_dataset();
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
+        .node_table("Person", "id")
         .build()
         .unwrap();
 
@@ -3390,7 +3414,7 @@ async fn test_max_property() {
 async fn test_min_max_with_grouping() {
     let person_batch = create_person_dataset();
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
+        .node_table("Person", "id")
         .build()
         .unwrap();
 
@@ -4447,7 +4471,7 @@ async fn test_collect_property() {
     // Test COLLECT aggregation - collects values into an array
     let person_batch = create_person_dataset();
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
+        .node_table("Person", "id")
         .build()
         .unwrap();
 
@@ -4474,7 +4498,7 @@ async fn test_collect_with_grouping() {
     // Test COLLECT with GROUP BY - collect names grouped by city
     let person_batch = create_person_dataset();
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
+        .node_table("Person", "id")
         .build()
         .unwrap();
 
@@ -4515,7 +4539,7 @@ async fn test_collect_with_null_values() {
     // David has NULL city, so collecting cities should include the null
     let person_batch = create_person_dataset();
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
+        .node_table("Person", "id")
         .build()
         .unwrap();
 
@@ -4550,7 +4574,7 @@ async fn test_with_simple_projection() {
     // Test WITH as a simple projection pass-through
     let person_batch = create_person_dataset();
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
+        .node_table("Person", "id")
         .build()
         .unwrap();
 
@@ -4591,7 +4615,7 @@ async fn test_with_aggregation() {
     // Test WITH for aggregation: count people by city
     let person_batch = create_person_dataset();
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
+        .node_table("Person", "id")
         .build()
         .unwrap();
 
@@ -4622,7 +4646,7 @@ async fn test_with_order_by_limit_and_where() {
     // Test WITH with ORDER BY, LIMIT, and post-WITH WHERE filter
     let person_batch = create_person_dataset();
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
+        .node_table("Person", "id")
         .build()
         .unwrap();
 
@@ -4673,8 +4697,14 @@ async fn test_with_post_match_chaining() {
     let person_batch = create_person_dataset();
     let knows_batch = create_knows_dataset();
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
-        .with_relationship("KNOWS", "src_person_id", "dst_person_id")
+        .node_table("Person", "id")
+        .rel_table(
+            "KNOWS",
+            "Person",
+            "Person",
+            "src_person_id",
+            "dst_person_id",
+        )
         .build()
         .unwrap();
 
@@ -4712,7 +4742,7 @@ async fn test_with_post_match_chaining() {
 async fn test_unimplemented_scalar_function_errors() {
     let person_batch = create_person_dataset();
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
+        .node_table("Person", "id")
         .build()
         .unwrap();
 

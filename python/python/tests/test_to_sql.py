@@ -62,10 +62,10 @@ def knowledge_graph_env():
 
     config = (
         GraphConfig.builder()
-        .with_node_label("Author", "author_id")
-        .with_node_label("Paper", "paper_id")
-        .with_relationship("AUTHORED", "author_id", "paper_id")
-        .with_relationship("CITES", "citing_paper_id", "cited_paper_id")
+        .node_table("Author", "author_id")
+        .node_table("Paper", "paper_id")
+        .rel_table("AUTHORED", "Author", "Paper", "author_id", "paper_id")
+        .rel_table("CITES", "Paper", "Paper", "citing_paper_id", "cited_paper_id")
         .build()
     )
 

@@ -447,8 +447,8 @@ impl CypherQuery {
     ///
     /// // Step 1: Create GraphConfig
     /// let config = GraphConfig::builder()
-    ///     .with_node_label("Person", "person_id")
-    ///     .with_relationship("KNOWS", "src_id", "dst_id")
+    ///     .node_table("Person", "person_id")
+    ///     .rel_table("KNOWS", "Person", "Person", "src_id", "dst_id")
     ///     .build()?;
     ///
     /// // Step 2: Register data sources in DataFusion
@@ -1360,7 +1360,7 @@ mod tests {
     #[test]
     fn test_query_builder() {
         let config = GraphConfig::builder()
-            .with_node_label("Person", "person_id")
+            .node_table("Person", "person_id")
             .build()
             .unwrap();
 
@@ -1407,7 +1407,7 @@ mod tests {
         .unwrap();
 
         let cfg = GraphConfig::builder()
-            .with_node_label("Person", "id")
+            .node_table("Person", "id")
             .build()
             .unwrap();
 
@@ -1472,8 +1472,14 @@ mod tests {
 
         // Config: Person(id) and KNOWS(src_person_id -> dst_person_id)
         let cfg = GraphConfig::builder()
-            .with_node_label("Person", "id")
-            .with_relationship("KNOWS", "src_person_id", "dst_person_id")
+            .node_table("Person", "id")
+            .rel_table(
+                "KNOWS",
+                "Person",
+                "Person",
+                "src_person_id",
+                "dst_person_id",
+            )
             .build()
             .unwrap();
 
@@ -1523,7 +1529,7 @@ mod tests {
         .unwrap();
 
         let cfg = GraphConfig::builder()
-            .with_node_label("Person", "id")
+            .node_table("Person", "id")
             .build()
             .unwrap();
 
@@ -1561,7 +1567,7 @@ mod tests {
         .unwrap();
 
         let cfg = GraphConfig::builder()
-            .with_node_label("Person", "id")
+            .node_table("Person", "id")
             .build()
             .unwrap();
 
@@ -1595,7 +1601,7 @@ mod tests {
         .unwrap();
 
         let cfg = GraphConfig::builder()
-            .with_node_label("Person", "id")
+            .node_table("Person", "id")
             .build()
             .unwrap();
 
@@ -1635,7 +1641,7 @@ mod tests {
         .unwrap();
 
         let cfg = GraphConfig::builder()
-            .with_node_label("Person", "id")
+            .node_table("Person", "id")
             .build()
             .unwrap();
 
@@ -1704,7 +1710,7 @@ mod tests {
 
         // Create query
         let cfg = GraphConfig::builder()
-            .with_node_label("Person", "id")
+            .node_table("Person", "id")
             .build()
             .unwrap();
 
@@ -1761,7 +1767,7 @@ mod tests {
 
         // Create query with filter
         let cfg = GraphConfig::builder()
-            .with_node_label("Person", "id")
+            .node_table("Person", "id")
             .build()
             .unwrap();
 
@@ -1847,8 +1853,8 @@ mod tests {
 
         // Create query
         let cfg = GraphConfig::builder()
-            .with_node_label("Person", "id")
-            .with_relationship("KNOWS", "src_id", "dst_id")
+            .node_table("Person", "id")
+            .rel_table("KNOWS", "Person", "Person", "src_id", "dst_id")
             .build()
             .unwrap();
 
@@ -1919,7 +1925,7 @@ mod tests {
 
         // Create query with ORDER BY and LIMIT
         let cfg = GraphConfig::builder()
-            .with_node_label("Student", "id")
+            .node_table("Student", "id")
             .build()
             .unwrap();
 
@@ -1973,7 +1979,7 @@ mod tests {
         datasets.insert("Person".to_string(), batch);
 
         let cfg = GraphConfig::builder()
-            .with_node_label("Person", "id")
+            .node_table("Person", "id")
             .build()
             .unwrap();
 
@@ -2057,8 +2063,8 @@ mod tests {
         .await;
 
         let config = GraphConfig::builder()
-            .with_node_label("Person", "person_id")
-            .with_relationship("FRIEND_OF", "person1_id", "person2_id")
+            .node_table("Person", "person_id")
+            .rel_table("FRIEND_OF", "Person", "Person", "person1_id", "person2_id")
             .build()
             .expect("valid graph config");
 
@@ -2100,7 +2106,7 @@ mod tests {
         datasets.insert("Person".to_string(), batch);
 
         let cfg = GraphConfig::builder()
-            .with_node_label("Person", "id")
+            .node_table("Person", "id")
             .build()
             .unwrap();
 

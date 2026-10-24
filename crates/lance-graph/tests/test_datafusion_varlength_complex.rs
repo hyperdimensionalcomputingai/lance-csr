@@ -136,8 +136,14 @@ fn create_complex_knows_dataset() -> RecordBatch {
 /// Helper function to create graph config
 fn create_complex_graph_config() -> GraphConfig {
     GraphConfig::builder()
-        .with_node_label("Person", "id")
-        .with_relationship("KNOWS", "src_person_id", "dst_person_id")
+        .node_table("Person", "id")
+        .rel_table(
+            "KNOWS",
+            "Person",
+            "Person",
+            "src_person_id",
+            "dst_person_id",
+        )
         .build()
         .unwrap()
 }

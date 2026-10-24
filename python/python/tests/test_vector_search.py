@@ -40,7 +40,7 @@ def vector_env():
         }
     )
 
-    config = GraphConfig.builder().with_node_label("Document", "id").build()
+    config = GraphConfig.builder().node_table("Document", "id").build()
 
     datasets = {"Document": documents_table}
 

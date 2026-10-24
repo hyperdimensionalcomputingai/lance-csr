@@ -96,7 +96,7 @@ impl DataFusionPlanner {
                 return Err(crate::error::GraphError::ConfigError {
                     message: format!(
                         "Node label '{}' not found in catalog. \
-                         Ensure the label is registered in your GraphConfig with .with_node_label()",
+                         Ensure the label is registered in your GraphConfig with .node_table()",
                         label
                     ),
                     location: snafu::Location::new(file!(), line!(), column!()),
@@ -316,7 +316,7 @@ mod tests {
         };
 
         let cfg = crate::config::GraphConfig::builder()
-            .with_node_label("Person", "id")
+            .node_table("Person", "id")
             .build()
             .unwrap();
         let planner = DataFusionPlanner::with_catalog(cfg, make_catalog());
@@ -335,8 +335,14 @@ mod tests {
     fn test_temp_variable_with_underscores_in_source() {
         // Test that temporary variables work correctly when source variable contains underscores
         let cfg = crate::config::GraphConfig::builder()
-            .with_node_label("Person", "id")
-            .with_relationship("KNOWS", "src_person_id", "dst_person_id")
+            .node_table("Person", "id")
+            .rel_table(
+                "KNOWS",
+                "Person",
+                "Person",
+                "src_person_id",
+                "dst_person_id",
+            )
             .build()
             .unwrap();
         let planner = DataFusionPlanner::with_catalog(cfg, make_catalog());
@@ -375,7 +381,7 @@ mod tests {
         // Test that when a catalog is attached, scanning a non-existent label fails fast
         // This catches typos and configuration issues at planning time
         let cfg = crate::config::GraphConfig::builder()
-            .with_node_label("Person", "id")
+            .node_table("Person", "id")
             .build()
             .unwrap();
         let planner = DataFusionPlanner::with_catalog(cfg, make_catalog());
@@ -413,7 +419,7 @@ mod tests {
         // Test that when no catalog is attached, scanning creates an empty source fallback
         // This allows DataFusionPlanner::new() to work without requiring a catalog
         let cfg = crate::config::GraphConfig::builder()
-            .with_node_label("Person", "id")
+            .node_table("Person", "id")
             .build()
             .unwrap();
         let planner = DataFusionPlanner::new(cfg); // No catalog attached
@@ -437,8 +443,8 @@ mod tests {
     fn test_expand_with_missing_relationship() {
         // Test that expanding with non-existent relationship type handles gracefully
         let cfg = crate::config::GraphConfig::builder()
-            .with_node_label("Person", "id")
-            .with_relationship("KNOWS", "src_id", "dst_id")
+            .node_table("Person", "id")
+            .rel_table("KNOWS", "Person", "Person", "src_id", "dst_id")
             .build()
             .unwrap();
         let planner = DataFusionPlanner::with_catalog(cfg, make_catalog());

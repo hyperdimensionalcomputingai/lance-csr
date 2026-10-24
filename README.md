@@ -119,7 +119,7 @@ people = pa.table({
 
 config = (
     GraphConfig.builder()
-    .with_node_label("Person", "person_id")
+    .node_table("Person", "person_id")
     .build()
 )
 

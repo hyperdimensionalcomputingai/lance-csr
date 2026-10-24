@@ -531,8 +531,14 @@ mod tests {
         // 2. Generates composite keys (src_id + dst_id) for relationship variables
         // 3. Generates single keys for node variables
         let cfg = crate::config::GraphConfig::builder()
-            .with_node_label("Person", "id")
-            .with_relationship("KNOWS", "src_person_id", "dst_person_id")
+            .node_table("Person", "id")
+            .rel_table(
+                "KNOWS",
+                "Person",
+                "Person",
+                "src_person_id",
+                "dst_person_id",
+            )
             .build()
             .unwrap();
         let planner = DataFusionPlanner::with_catalog(cfg, make_catalog());
@@ -624,8 +630,8 @@ mod tests {
     fn test_shared_relationship_variable_detected() {
         // Test that shared relationship variables are detected
         let cfg = crate::config::GraphConfig::builder()
-            .with_node_label("Person", "id")
-            .with_relationship("KNOWS", "src_id", "dst_id")
+            .node_table("Person", "id")
+            .rel_table("KNOWS", "Person", "Person", "src_id", "dst_id")
             .build()
             .unwrap();
         let planner = DataFusionPlanner::with_catalog(cfg, make_catalog());

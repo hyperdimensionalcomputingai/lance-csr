@@ -377,6 +377,12 @@ pub struct GraphConfigBuilder {
     inner: lance_graph::config::GraphConfigBuilder,
 }
 
+/// Raise a ``DeprecationWarning`` pointing at the caller's line.
+fn deprecated(py: Python, message: &std::ffi::CStr) -> PyResult<()> {
+    let category = py.get_type::<pyo3::exceptions::PyDeprecationWarning>();
+    PyErr::warn(py, &category, message, 1)
+}
+
 #[pymethods]
 impl GraphConfigBuilder {
     #[new]
@@ -386,57 +392,89 @@ impl GraphConfigBuilder {
         }
     }
 
-    /// Add a node label mapping
+    /// Add a node table: the nodes with ``label``, one per row of the dataset of the
+    /// same name, identified by its ``primary_key`` column.
     ///
     /// Parameters
     /// ----------
     /// label : str
-    ///     The node label (e.g., "Person")
-    /// id_field : str
-    ///     The field in the dataset that serves as the node ID
+    ///     The node label, and the name of its dataset (e.g., "Person")
+    /// primary_key : str
+    ///     The column that identifies each node
     ///
     /// Returns
     /// -------
     /// GraphConfigBuilder
-    ///     A new builder with the node mapping applied
-    fn with_node_label(&self, label: &str, id_field: &str) -> Self {
+    ///     A new builder with the node table added
+    fn node_table(&self, label: &str, primary_key: &str) -> Self {
         Self {
-            inner: self.inner.clone().with_node_label(label, id_field),
+            inner: self.inner.clone().node_table(label, primary_key),
         }
     }
 
-    /// Add a relationship mapping
+    /// Add a relationship table: edges of type ``rel_type`` from ``from_table`` nodes to
+    /// ``to_table`` nodes, one per row of the dataset of the same name.
     ///
     /// Parameters
     /// ----------
     /// rel_type : str
-    ///     The relationship type (e.g., "KNOWS")
-    /// source_field : str
-    ///     The field containing source node IDs
-    /// target_field : str
-    ///     The field containing target node IDs
-    /// source_label, target_label : str, optional
-    ///     Node labels at each end (like ``FROM Post TO Person``). Needed only for
-    ///     relationship-type alternation (``[:A|B]``) next to nodes whose label
-    ///     depends on the type, and for multi-label nodes. Give both or neither.
+    ///     The relationship type, and the name of its dataset (e.g., "KNOWS")
+    /// from_table : str
+    ///     The node table at the source end
+    /// to_table : str
+    ///     The node table at the target end
+    /// src : str
+    ///     The column holding the source node's key
+    /// dst : str
+    ///     The column holding the target node's key
     ///
     /// Returns
     /// -------
     /// GraphConfigBuilder
-    ///     A new builder with the relationship mapping applied
+    ///     A new builder with the relationship table added
+    fn rel_table(
+        &self,
+        rel_type: &str,
+        from_table: &str,
+        to_table: &str,
+        src: &str,
+        dst: &str,
+    ) -> Self {
+        Self {
+            inner: self
+                .inner
+                .clone()
+                .rel_table(rel_type, from_table, to_table, src, dst),
+        }
+    }
+
+    /// Deprecated: use ``node_table``.
+    fn with_node_label(&self, py: Python, label: &str, id_field: &str) -> PyResult<Self> {
+        deprecated(py, c"with_node_label() is deprecated; use node_table()")?;
+        Ok(self.node_table(label, id_field))
+    }
+
+    /// Deprecated: use ``rel_table``, which also takes the node tables at both ends.
     #[pyo3(signature = (rel_type, source_field, target_field, source_label=None, target_label=None))]
     fn with_relationship(
         &self,
+        py: Python,
         rel_type: &str,
         source_field: &str,
         target_field: &str,
         source_label: Option<&str>,
         target_label: Option<&str>,
     ) -> PyResult<Self> {
+        deprecated(
+            py,
+            c"with_relationship() is deprecated; use rel_table(), which also takes the node tables at both ends",
+        )?;
+        #[allow(deprecated)]
         let inner = self
             .inner
             .clone()
             .with_relationship(rel_type, source_field, target_field);
+        #[allow(deprecated)]
         let inner = match (source_label, target_label) {
             (Some(src), Some(dst)) => inner.with_relationship_endpoints(rel_type, src, dst),
             (None, None) => inner,
@@ -761,7 +799,7 @@ impl CypherQuery {
     /// --------
     /// >>> from lance_csr import CypherQuery, VectorSearch, DistanceMetric, GraphConfig
     /// >>>
-    /// >>> config = GraphConfig.builder().with_node_label("Document", "id").build()
+    /// >>> config = GraphConfig.builder().node_table("Document", "id").build()
     /// >>> query = CypherQuery("MATCH (d:Document) WHERE d.category = 'tech' RETURN d.id, d.name, d.embedding")
     /// >>> query = query.with_config(config)
     /// >>>
@@ -1851,8 +1889,8 @@ impl RecordBatchReader for BlockingBatchReader {
 /// >>>
 /// >>> # Setup
 /// >>> config = GraphConfig.builder() \\
-/// ...     .with_node_label("Person", "id") \\
-/// ...     .with_relationship("KNOWS", "src_id", "dst_id") \\
+/// ...     .node_table("Person", "id") \\
+/// ...     .rel_table("KNOWS", "Person", "Person", "src_id", "dst_id") \\
 /// ...     .build()
 /// >>>
 /// >>> datasets = {

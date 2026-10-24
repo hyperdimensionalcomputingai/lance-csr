@@ -36,8 +36,8 @@ def main() -> None:
 
     config = (
         GraphConfig.builder()
-        .with_node_label("Person", "id")
-        .with_relationship("KNOWS", "src", "dst")
+        .node_table("Person", "id")
+        .rel_table("KNOWS", "Person", "Person", "src", "dst")
         .build()
     )
     engine = CypherEngine(

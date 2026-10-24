@@ -27,7 +27,7 @@ def make_people_batch() -> pa.RecordBatch:
 
 
 def main() -> None:
-    config = GraphConfigBuilder().with_node_label("Person", "person_id").build()
+    config = GraphConfigBuilder().node_table("Person", "person_id").build()
 
     query = CypherQuery("MATCH (n:Person) WHERE n.age > 30 RETURN n.name").with_config(
         config

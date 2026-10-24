@@ -81,7 +81,7 @@ def test_date_part_and_epoch_millis():
             ),
         }
     )
-    config = GraphConfig.builder().with_node_label("Person", "id").build()
+    config = GraphConfig.builder().node_table("Person", "id").build()
     engine = CypherEngine(config, {"Person": people})
     got = engine.execute(
         "MATCH (p:Person) RETURN p.id, date_part('month', p.birthday) AS m, "

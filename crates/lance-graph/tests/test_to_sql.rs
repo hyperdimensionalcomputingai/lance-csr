@@ -86,7 +86,7 @@ fn create_works_for_table() -> RecordBatch {
 #[tokio::test]
 async fn test_to_sql_simple_node_scan() {
     let config = GraphConfig::builder()
-        .with_node_label("Person", "person_id")
+        .node_table("Person", "person_id")
         .build()
         .unwrap();
 
@@ -118,7 +118,7 @@ async fn test_to_sql_simple_node_scan() {
 #[tokio::test]
 async fn test_to_sql_with_filter() {
     let config = GraphConfig::builder()
-        .with_node_label("Person", "person_id")
+        .node_table("Person", "person_id")
         .build()
         .unwrap();
 
@@ -146,7 +146,7 @@ async fn test_to_sql_with_filter() {
 #[tokio::test]
 async fn test_to_sql_with_multiple_properties() {
     let config = GraphConfig::builder()
-        .with_node_label("Person", "person_id")
+        .node_table("Person", "person_id")
         .build()
         .unwrap();
 
@@ -170,9 +170,9 @@ async fn test_to_sql_with_multiple_properties() {
 #[tokio::test]
 async fn test_to_sql_with_relationship() {
     let config = GraphConfig::builder()
-        .with_node_label("Person", "person_id")
-        .with_node_label("Company", "company_id")
-        .with_relationship("WORKS_FOR", "person_id", "company_id")
+        .node_table("Person", "person_id")
+        .node_table("Company", "company_id")
+        .rel_table("WORKS_FOR", "Person", "Company", "person_id", "company_id")
         .build()
         .unwrap();
 
@@ -206,9 +206,9 @@ async fn test_to_sql_with_relationship() {
 #[tokio::test]
 async fn test_to_sql_with_relationship_filter() {
     let config = GraphConfig::builder()
-        .with_node_label("Person", "person_id")
-        .with_node_label("Company", "company_id")
-        .with_relationship("WORKS_FOR", "person_id", "company_id")
+        .node_table("Person", "person_id")
+        .node_table("Company", "company_id")
+        .rel_table("WORKS_FOR", "Person", "Company", "person_id", "company_id")
         .build()
         .unwrap();
 
@@ -235,7 +235,7 @@ async fn test_to_sql_with_relationship_filter() {
 #[tokio::test]
 async fn test_to_sql_with_order_by() {
     let config = GraphConfig::builder()
-        .with_node_label("Person", "person_id")
+        .node_table("Person", "person_id")
         .build()
         .unwrap();
 
@@ -261,7 +261,7 @@ async fn test_to_sql_with_order_by() {
 #[tokio::test]
 async fn test_to_sql_with_limit() {
     let config = GraphConfig::builder()
-        .with_node_label("Person", "person_id")
+        .node_table("Person", "person_id")
         .build()
         .unwrap();
 
@@ -287,7 +287,7 @@ async fn test_to_sql_with_limit() {
 #[tokio::test]
 async fn test_to_sql_with_distinct() {
     let config = GraphConfig::builder()
-        .with_node_label("Person", "person_id")
+        .node_table("Person", "person_id")
         .build()
         .unwrap();
 
@@ -311,7 +311,7 @@ async fn test_to_sql_with_distinct() {
 #[tokio::test]
 async fn test_to_sql_with_alias() {
     let config = GraphConfig::builder()
-        .with_node_label("Person", "person_id")
+        .node_table("Person", "person_id")
         .build()
         .unwrap();
 
@@ -337,9 +337,9 @@ async fn test_to_sql_with_alias() {
 #[tokio::test]
 async fn test_to_sql_complex_query() {
     let config = GraphConfig::builder()
-        .with_node_label("Person", "person_id")
-        .with_node_label("Company", "company_id")
-        .with_relationship("WORKS_FOR", "person_id", "company_id")
+        .node_table("Person", "person_id")
+        .node_table("Company", "company_id")
+        .rel_table("WORKS_FOR", "Person", "Company", "person_id", "company_id")
         .build()
         .unwrap();
 
@@ -403,7 +403,7 @@ async fn test_to_sql_missing_config() {
 #[tokio::test]
 async fn test_to_sql_empty_datasets() {
     let config = GraphConfig::builder()
-        .with_node_label("Person", "person_id")
+        .node_table("Person", "person_id")
         .build()
         .unwrap();
 

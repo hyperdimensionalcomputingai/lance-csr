@@ -16,7 +16,7 @@ def person_data():
         }
     )
 
-    config = GraphConfig.builder().with_node_label("Person", "person_id").build()
+    config = GraphConfig.builder().node_table("Person", "person_id").build()
 
     return config, people_table
 

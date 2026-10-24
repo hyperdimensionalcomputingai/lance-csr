@@ -23,8 +23,8 @@ use arrow_schema::{DataType, Field, Schema};
 use lance_graph::{CypherQuery, ExecutionStrategy, GraphConfig};
 
 let config = GraphConfig::builder()
-    .with_node_label("Person", "person_id")
-    .with_relationship("KNOWS", "src_person_id", "dst_person_id")
+    .node_table("Person", "person_id")
+    .rel_table("KNOWS", "Person", "Person", "src_person_id", "dst_person_id")
     .build()?;
 
 let schema = Arc::new(Schema::new(vec![
@@ -63,8 +63,8 @@ Graph mappings are declared with `GraphConfig::builder()`:
 use lance_graph::{GraphConfig, NodeMapping, RelationshipMapping};
 
 let config = GraphConfig::builder()
-    .with_node_label("Person", "person_id")
-    .with_relationship("KNOWS", "src_person_id", "dst_person_id")
+    .node_table("Person", "person_id")
+    .rel_table("KNOWS", "Person", "Person", "src_person_id", "dst_person_id")
     .build()?;
 ```
 

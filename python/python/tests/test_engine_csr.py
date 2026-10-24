@@ -14,8 +14,8 @@ from lance_csr import CypherEngine, GraphConfig
 
 CONFIG = (
     GraphConfig.builder()
-    .with_node_label("Person", "id")
-    .with_relationship("KNOWS", "src", "dst")
+    .node_table("Person", "id")
+    .rel_table("KNOWS", "Person", "Person", "src", "dst")
     .build()
 )
 
@@ -213,9 +213,9 @@ def test_target_lookup_replaces_target_join(datasets):
 def test_cross_label_target_lookup(tmp_path):
     config = (
         GraphConfig.builder()
-        .with_node_label("Person", "id")
-        .with_node_label("Company", "cid")
-        .with_relationship("WORKS_AT", "pid", "cid")
+        .node_table("Person", "id")
+        .node_table("Company", "cid")
+        .rel_table("WORKS_AT", "Person", "Company", "pid", "cid")
         .build()
     )
     company = pa.table({"cid": pa.array([10, 20], pa.int32()), "cname": ["x", "y"]})

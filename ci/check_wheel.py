@@ -39,8 +39,8 @@ def main():
 
     config = (
         GraphConfig.builder()
-        .with_node_label("Person", "id")
-        .with_relationship("KNOWS", "src", "dst")
+        .node_table("Person", "id")
+        .rel_table("KNOWS", "Person", "Person", "src", "dst")
         .build()
     )
     people = pa.table({"id": [1, 2, 3, 4], "name": ["Alice", "Bob", "Carol", "Dave"]})

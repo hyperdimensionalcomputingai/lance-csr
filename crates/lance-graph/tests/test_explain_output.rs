@@ -92,7 +92,7 @@ async fn test_explain_simple_node_scan() {
     println!("\n=== EXAMPLE 1: Simple Node Scan with Filter ===\n");
 
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
+        .node_table("Person", "id")
         .build()
         .unwrap();
 
@@ -116,8 +116,8 @@ async fn test_explain_one_hop_relationship() {
     println!("\n=== EXAMPLE 2: One-Hop Relationship Traversal ===\n");
 
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
-        .with_relationship("KNOWS", "src_id", "dst_id")
+        .node_table("Person", "id")
+        .rel_table("KNOWS", "Person", "Person", "src_id", "dst_id")
         .build()
         .unwrap();
 
@@ -147,8 +147,8 @@ async fn test_explain_two_hop_path() {
     println!("\n=== EXAMPLE 3: Two-Hop Path (Friends of Friends) ===\n");
 
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
-        .with_relationship("KNOWS", "src_id", "dst_id")
+        .node_table("Person", "id")
+        .rel_table("KNOWS", "Person", "Person", "src_id", "dst_id")
         .build()
         .unwrap();
 
@@ -183,10 +183,10 @@ async fn test_explain_multi_relationship_types() {
     println!("\n=== EXAMPLE 4: Multiple Relationship Types ===\n");
 
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
-        .with_node_label("Company", "id")
-        .with_relationship("KNOWS", "src_id", "dst_id")
-        .with_relationship("WORKS_AT", "person_id", "company_id")
+        .node_table("Person", "id")
+        .node_table("Company", "id")
+        .rel_table("KNOWS", "Person", "Person", "src_id", "dst_id")
+        .rel_table("WORKS_AT", "Person", "Company", "person_id", "company_id")
         .build()
         .unwrap();
 
@@ -216,8 +216,8 @@ async fn test_explain_distinct() {
     println!("\n=== EXAMPLE 5: DISTINCT Query ===\n");
 
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
-        .with_relationship("KNOWS", "src_id", "dst_id")
+        .node_table("Person", "id")
+        .rel_table("KNOWS", "Person", "Person", "src_id", "dst_id")
         .build()
         .unwrap();
 
@@ -243,7 +243,7 @@ async fn test_explain_complex_filter() {
     println!("\n=== EXAMPLE 6: Complex Boolean Filter ===\n");
 
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
+        .node_table("Person", "id")
         .build()
         .unwrap();
 
@@ -270,7 +270,7 @@ async fn test_explain_with_skip_and_limit() {
     println!("\n=== EXAMPLE 7: Pagination with SKIP and LIMIT ===\n");
 
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
+        .node_table("Person", "id")
         .build()
         .unwrap();
 
@@ -298,8 +298,8 @@ async fn test_explain_relationship_properties() {
     println!("\n=== EXAMPLE 8: Filter on Relationship Properties ===\n");
 
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
-        .with_relationship("KNOWS", "src_id", "dst_id")
+        .node_table("Person", "id")
+        .rel_table("KNOWS", "Person", "Person", "src_id", "dst_id")
         .build()
         .unwrap();
 

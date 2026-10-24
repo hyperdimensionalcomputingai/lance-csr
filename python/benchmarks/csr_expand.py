@@ -75,8 +75,8 @@ def child(root: Path, mode: str, repeats: int) -> dict:
 
     config = (
         GraphConfig.builder()
-        .with_node_label("Person", "id")
-        .with_relationship("KNOWS", "src", "dst")
+        .node_table("Person", "id")
+        .rel_table("KNOWS", "Person", "Person", "src", "dst")
         .build()
     )
     nodes = lance.dataset(root / "person.lance").count_rows()

@@ -76,9 +76,9 @@ def main() -> None:
 
     builder = mod.GraphConfig.builder()
     for i in range(labels):
-        builder = builder.with_node_label(f"L{i}", "id")
+        builder = builder.node_table(f"L{i}", "id")
     for i in range(labels - 1):
-        builder = builder.with_relationship(f"R{i}", "src", "dst")
+        builder = builder.rel_table(f"R{i}", f"L{i}", f"L{i + 1}", "src", "dst")
     config = builder.build()
 
     def open_datasets():
