@@ -1955,6 +1955,15 @@ impl CypherEngine {
     ///
     /// The whole result is held in memory; use ``execute_batches`` for large outputs.
     ///
+    /// Parameters
+    /// ----------
+    /// query : str
+    ///     The Cypher query
+    /// params : dict, optional
+    ///     Values for ``$name`` parameters in the query: numbers, strings, booleans,
+    ///     ``None``, and ``datetime``/``date`` values (compared as timestamps and dates).
+    ///     ``execute_batches`` and ``explain`` take the same argument.
+    ///
     /// Raises
     /// ------
     /// ValueError

@@ -23,8 +23,11 @@ DataFusion as extension operators, falling back to a join for any hop the CSR ca
   and `refresh()`es to new dataset versions.
 - **Smarter planning**: patterns start at their most selective node, and DataFusion gets column statistics to size
   its joins.
-- **Much wider Cypher**, enough for all 14 LDBC Interactive complex queries: `OPTIONAL MATCH`, `EXISTS`, chained
-  `WITH`, relationship alternation, `shortestPath` and more.
+- **Much wider Cypher**, enough to run the official LDBC Interactive complex queries (IC14 without `reduce()`,
+  which openCypher leaves out): `OPTIONAL MATCH`, `EXISTS` and pattern predicates, chained `WITH`, `UNWIND`,
+  list and pattern comprehensions, maps, relationship alternation, `shortestPath`, `$parameters` and more,
+  following openCypher's
+  [standardisation scope](https://github.com/opencypher/openCypher/blob/master/docs/standardisation-scope.adoc).
 - **Correctness fixes** to behavior inherited from lance-graph (for example, undirected patterns dropped incoming
   edges), each with a regression test.
 - **Current dependencies** (Lance 13, DataFusion 54, Arrow 58, PyO3 0.28), with Delta Lake and Unity Catalog support
