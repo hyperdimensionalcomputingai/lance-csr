@@ -38,9 +38,9 @@ manifest-path = "../crates/lance-graph-python/Cargo.toml"
 requires = ["maturin>=1.4"]
 build-backend = "maturin"
 
-[project.optional-dependencies]
-tests = ["pytest", "pandas", "ruff"]
-dev = ["ruff", "pyright"]
+# Development tools, installed by `uv sync` (the `dev` group is uv's default).
+[dependency-groups]
+dev = ["maturin[patchelf]>=1.9,<2", "pytest", "pandas", "ruff", "pyright"]
 
 [tool.ruff]
 lint.select = ["F", "E", "W", "I", "G", "TCH", "PERF", "B019"]

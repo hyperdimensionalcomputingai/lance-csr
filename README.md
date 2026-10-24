@@ -62,7 +62,7 @@ See [`docs/project_structure.md`](docs/project_structure.md) for the full worksp
 ## Install
 
 ```bash
-pip install lance-csr
+uv add lance-csr
 ```
 
 Prebuilt wheels cover Linux x86-64 and native Apple Silicon (CPython 3.12+); no Rust toolchain is needed.
@@ -86,21 +86,21 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all --check
 ```
 
-Python package, from `python/`:
+Python package, from `python/`. `uv sync --locked` installs the exact dependency versions in `uv.lock`,
+including the development tools (maturin, pytest, ruff, pyright), into `python/.venv`:
 
 ```bash
 cd python
-uv venv --python 3.12 .venv
-source .venv/bin/activate
-uv pip install 'maturin[patchelf]'
-maturin develop --extras tests,dev   # builds the extension, installs lance-csr with test and lint tools
-pytest python/tests                  # run the tests
-make lint                            # ruff and pyright
+uv sync --locked --no-install-project   # locked dependencies and dev tools
+uv run --no-sync maturin develop        # debug build of the extension into .venv
+uv run --no-sync pytest python/tests    # run the tests
 ```
 
-`maturin develop` makes a debug build, which compiles quickly; re-run it after changing Rust code. For timing
-queries, build with `maturin develop --release` instead: release builds use thin LTO and take several minutes.
-See [`python/DEVELOPMENT.md`](python/DEVELOPMENT.md) for more.
+`--no-install-project` leaves the package itself to `maturin develop`, which makes a debug build that compiles
+quickly; uv would otherwise build it in release mode. `--no-sync` stops `uv run` from re-syncing, which would remove
+that build. Re-run `maturin develop` after changing Rust code. `make install`, `make test` and `make lint` wrap
+these steps. For timing queries, build with `maturin develop --release`: release builds use thin LTO and take
+several minutes. See [`python/DEVELOPMENT.md`](python/DEVELOPMENT.md) for more.
 
 ## Python example: Cypher query
 

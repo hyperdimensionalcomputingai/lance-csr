@@ -29,10 +29,6 @@ jobs:
         python-version: ["3.12"]
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.python-version }}
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
       - uses: Swatinem/rust-cache@v2
@@ -45,63 +41,35 @@ jobs:
           sudo apt update
           sudo apt install -y protobuf-compiler
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
-      - name: Create virtual environment and install dependencies
+        uses: astral-sh/setup-uv@v4
+      - name: Install locked dependencies
         working-directory: python
-        run: |
-          uv venv
-          source .venv/bin/activate
-          uv pip install maturin[patchelf]
-          # Install test dependencies only (skip editable install to avoid double-building Rust)
-          uv pip install pytest pyarrow pandas ruff
+        # The package itself is built by maturin develop below, in debug mode.
+        run: uv sync --locked --no-install-project --python ${{ matrix.python-version }}
       - name: Build Python extension
         working-directory: python
-        run: |
-          source .venv/bin/activate
-          maturin develop
+        run: uv run --no-sync maturin develop
       - name: Run tests
         working-directory: python
-        run: |
-          source .venv/bin/activate
-          pytest python/tests/ -v
-      - name: Run doctests
-        working-directory: python
-        run: |
-          source .venv/bin/activate
-          if [ -f python/lance_csr/__init__.py ]; then
-            python -m doctest python/lance_csr/__init__.py || echo "No doctests found"
-          fi
+        run: uv run --no-sync pytest python/tests/ -v
 
   lint:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.12"
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
-      - name: Install linting tools
+        uses: astral-sh/setup-uv@v4
+      - name: Install locked dependencies
         working-directory: python
-        run: |
-          uv venv
-          source .venv/bin/activate
-          # Install only linting tools without building the Rust extension
-          uv pip install ruff pyright
+        # Linting needs no build of the Rust extension.
+        run: uv sync --locked --no-install-project --python 3.12
       - name: Run ruff format check
         working-directory: python
-        run: |
-          source .venv/bin/activate
-          ruff format --check python/
+        run: uv run --no-sync ruff format --check python/
       - name: Run ruff lint
         working-directory: python
-        run: |
-          source .venv/bin/activate
-          ruff check python/
+        run: uv run --no-sync ruff check python/
       - name: Run pyright type check
         working-directory: python
-        run: |
-          source .venv/bin/activate
-          pyright
+        run: uv run --no-sync pyright

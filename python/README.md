@@ -6,16 +6,24 @@ endorsed by the lance-graph maintainers.
 
 ## Installation
 
+Add it to a [uv](https://docs.astral.sh/uv/) project:
+
 ```bash
-pip install lance-csr
+uv add lance-csr
+```
+
+Or run a script with it, without a project:
+
+```bash
+uv run --with lance-csr python your_script.py
 ```
 
 Prebuilt wheels are published for Linux x86-64 (glibc 2.28 or newer: RHEL 8, Ubuntu 20.04 and later)
 and native Apple Silicon (macOS 11 or newer), for CPython 3.12 and later. Installing from a wheel needs
-no Rust toolchain; to make sure pip never falls back to compiling from source, use:
+no Rust toolchain; to make sure uv never falls back to compiling from source, use:
 
 ```bash
-pip install --only-binary=:all: lance-csr
+uv add lance-csr --no-build-package lance-csr
 ```
 
 Other platforms install from the source distribution, which needs Rust and `protoc`.
@@ -191,13 +199,12 @@ Building from source needs Rust (through rustup), `protoc` and uv; see [DEVELOPM
 
 ```bash
 cd python
-make venv       # uv venv --python 3.12 .venv
-make install    # maturin develop --extras tests,dev
+make install    # uv sync --locked --no-install-project, then a debug build with maturin develop
 make test       # pytest python/tests
 make lint       # ruff and pyright
 ```
 
-Re-run `make install` (or `maturin develop`) after changing Rust code; Python changes apply immediately.
+Re-run `make install` after changing Rust code; Python changes apply immediately.
 
 ## Repository layout
 

@@ -1,7 +1,9 @@
 # Build, test and publish lance-csr wheels: Linux x86-64 (manylinux_2_28) and native
 # Apple Silicon (macOS arm64), plus an sdist for every other platform.
 #
-# Pull requests that touch packaging build and test the wheels without publishing.
+# Pull requests that change how wheels are built (this workflow, the wheel check, the
+# release build profile) build and test them without publishing. Other changes rely on a
+# manual mode=dry_run run before a release, to spare the ~30-minute macOS build.
 # A published GitHub release (tag vX.Y.Z) publishes to PyPI after every build and test
 # passes, through PyPI trusted publishing and the protected `pypi` environment; so does
 # a manual run with mode=release. mode=dry_run builds and tests only.
@@ -15,10 +17,7 @@ on:
     paths:
       - .github/workflows/python-publish.yml
       - ci/check_wheel.py
-      - python/pyproject.toml
       - python/.cargo/**
-      - crates/lance-graph-python/Cargo.toml
-      - crates/lance-graph-python/Cargo.lock
   workflow_dispatch:
     inputs:
       mode:
@@ -54,12 +53,16 @@ jobs:
         with:
           python-version: "3.12"
 
+      - uses: astral-sh/setup-uv@v4
+
       - name: Install build dependencies
         run: |
           # protoc is needed by Lance's build scripts, not by wheel users.
           sudo apt-get update
           sudo apt-get install -y protobuf-compiler
-          pip install ziglang
+          # maturin finds zig through `python3 -m ziglang`: put a Python that has it first on PATH.
+          uv tool install ziglang
+          echo "$(uv tool dir)/ziglang/bin" >> "$GITHUB_PATH"
 
       - name: Build manylinux_2_28 x86-64 wheel
         uses: PyO3/maturin-action@04ac600d27cdf7a9a280dadf7147097c42b757ad # v1
@@ -81,8 +84,7 @@ jobs:
       - name: Inspect distributions
         working-directory: python
         run: |
-          pip install twine
-          twine check dist/*
+          uvx twine check dist/*
           sha256sum dist/*
 
       - uses: actions/upload-artifact@v4
@@ -104,6 +106,8 @@ jobs:
         with:
           python-version: "3.12"
 
+      - uses: astral-sh/setup-uv@v4
+
       - name: Install build dependencies
         run: brew install protobuf
 
@@ -119,8 +123,7 @@ jobs:
       - name: Inspect wheel
         working-directory: python
         run: |
-          pip install twine
-          twine check dist/*.whl
+          uvx twine check dist/*.whl
           shasum -a 256 dist/*.whl
 
       - uses: actions/upload-artifact@v4
@@ -161,13 +164,18 @@ jobs:
         run: |
           export PATH=$(echo "$PATH" | tr ':' '\n' | grep -v -e cargo -e rustup | paste -sd: -)
           ! command -v cargo && ! command -v rustc
-          uv venv --python ${{ matrix.python }} "$RUNNER_TEMP/venv"
-          py="$RUNNER_TEMP/venv/bin/python"
-          uv pip install --python "$py" --only-binary=:all: --find-links dist lance-csr pytest pandas
-          "$py" -I ci/check_wheel.py
+          # This platform's wheel, by path, so PyPI's copy of the same version can't stand in.
+          case "$RUNNER_OS" in
+            Linux) wheel=$(ls "$PWD"/dist/*manylinux*.whl) ;;
+            macOS) wheel=$(ls "$PWD"/dist/*macosx*.whl) ;;
+          esac
+          # A fresh environment with the wheel and test tools; --no-build refuses any sdist.
+          run=(uv run --isolated --no-project --no-build --python ${{ matrix.python }}
+               --with "$wheel" --with pytest --with pandas)
+          "${run[@]}" python -I ci/check_wheel.py
           cp -r python/python/tests "$RUNNER_TEMP/tests"
           cd "$RUNNER_TEMP"
-          "$py" -I -m pytest "$RUNNER_TEMP/tests" -q -p no:cacheprovider
+          "${run[@]}" python -I -m pytest "$RUNNER_TEMP/tests" -q -p no:cacheprovider
 
   publish:
     needs: [build-linux, build-macos, test]

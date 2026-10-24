@@ -11,7 +11,7 @@
 ## Build, Test, and Development Commands
 - `cargo test --workspace` (from the repository root) runs the Rust tests; building needs `protoc`.
 - `cargo bench --bench graph_execution -p lance-graph-benches` measures performance-critical changes; include shortened runs with `--warm-up-time 1`.
-- In `python/`: `make venv` and `make install` (`maturin develop --extras tests,dev`) bootstrap the Python environment with a debug build; re-run `make install` after Rust edits.
+- Never use `pip`. In `python/`, `make install` runs `uv sync --locked --no-install-project` (locked dependencies and the `dev` group) and then a debug build with `uv run --no-sync maturin develop`; re-run it after Rust edits. Change dependencies with `uv add`/`uv remove` and commit `uv.lock`.
 - `make test` runs the Python tests; `make lint` runs `ruff`, formatting checks, and `pyright`.
 
 ## Coding Style & Naming Conventions

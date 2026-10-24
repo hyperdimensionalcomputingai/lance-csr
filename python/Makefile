@@ -1,34 +1,34 @@
 UV ?= uv
 PYTHON ?= 3.12
-VENV ?= .venv
 PYTEST_ARGS ?= -q
-BIN := $(VENV)/bin
+# Run tools in .venv as synced; a plain `uv run` would re-sync and drop the extension build.
+RUN := $(UV) run --no-sync
 
-.PHONY: venv install test lint format wheel clean
+.PHONY: sync install test lint format wheel clean
 
-# A virtual environment for development.
-venv:
-	$(UV) venv --python $(PYTHON) $(VENV)
+# Locked dependencies and dev tools (maturin, pytest, ruff, pyright) into .venv. The project
+# itself is left out (uv would build it in release mode), and --inexact keeps an existing build.
+sync:
+	$(UV) sync --locked --no-install-project --inexact --python $(PYTHON)
 
-# Debug build of the extension, installed with the test and lint tools.
-install:
-	$(UV) pip install --python $(BIN)/python 'maturin[patchelf]'
-	VIRTUAL_ENV=$(abspath $(VENV)) $(BIN)/maturin develop --extras tests,dev
+# Debug build of the extension into .venv; re-run after changing Rust code.
+install: sync
+	$(RUN) maturin develop
 
 test:
-	$(BIN)/pytest $(PYTEST_ARGS) python/tests
+	$(RUN) pytest $(PYTEST_ARGS) python/tests
 
 lint:
-	$(BIN)/ruff check python
-	$(BIN)/ruff format --check python
-	$(BIN)/pyright
+	$(RUN) ruff check python
+	$(RUN) ruff format --check python
+	$(RUN) pyright
 
 format:
-	$(BIN)/ruff format python
+	$(RUN) ruff format python
 
 # Release wheel and sdist for this platform, in dist/ (CI builds the published ones).
 wheel:
-	VIRTUAL_ENV=$(abspath $(VENV)) $(BIN)/maturin build --release --out dist --sdist
+	$(RUN) maturin build --release --out dist --sdist
 
 clean:
-	rm -rf $(VENV) dist ../crates/lance-graph-python/target
+	rm -rf .venv dist ../crates/lance-graph-python/target
