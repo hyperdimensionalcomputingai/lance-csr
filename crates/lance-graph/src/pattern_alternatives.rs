@@ -283,8 +283,8 @@ pub fn expand(
             for rel in rels.iter().filter(|r| r.left == id || r.right == id) {
                 if let Some(t) = rel.types.iter().find(|t| endpoints(t).is_none()) {
                     return Err(plan_error(format!(
-                        "relationship type '{t}' needs endpoint labels (GraphConfig \
-                         with_relationship_endpoints) to be planned next to a node that can \
+                        "relationship type '{t}' needs endpoint labels (GraphConfig rel_table's \
+                         from_table and to_table) to be planned next to a node that can \
                          have several labels"
                     )));
                 }
@@ -388,8 +388,8 @@ fn unroll_variable_length_alternation(
             m.and_then(|m| m.target_label.clone()),
         ) else {
             return Err(plan_error(format!(
-                "relationship type '{t}' needs endpoint labels (GraphConfig \
-                 with_relationship_endpoints) for alternation in a variable-length pattern"
+                "relationship type '{t}' needs endpoint labels (GraphConfig rel_table's \
+                 from_table and to_table) for alternation in a variable-length pattern"
             )));
         };
         // Labels in traversal order: the segment is read from its left node.
@@ -565,7 +565,7 @@ mod tests {
     fn ldbc_config() -> GraphConfig {
         let mut b = GraphConfig::builder();
         for label in ["Person", "Post", "Comment"] {
-            b = b.with_node_label(label, "id");
+            b = b.node_table(label, "id");
         }
         for (t, s, d) in [
             ("postHasCreator", "Post", "Person"),
@@ -573,11 +573,13 @@ mod tests {
             ("replyOfPost", "Comment", "Post"),
             ("replyOfComment", "Comment", "Comment"),
         ] {
-            b = b
-                .with_relationship(t, "src", "dst")
-                .with_relationship_endpoints(t, s, d);
+            b = b.rel_table(t, s, d, "src", "dst");
         }
-        b = b.with_relationship("knows", "src", "dst");
+        // Without endpoint labels, which only the deprecated builder can still configure.
+        #[allow(deprecated)]
+        {
+            b = b.with_relationship("knows", "src", "dst");
+        }
         b.build().unwrap()
     }
 

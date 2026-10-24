@@ -2276,7 +2276,7 @@ mod tests {
 
         let ast = parse_cypher_query(query_text).unwrap();
         let config = GraphConfig::builder()
-            .with_node_label("Person", "id")
+            .node_table("Person", "id")
             .build()
             .unwrap();
         let mut planner = LogicalPlanner::new(&config);
@@ -2343,11 +2343,11 @@ mod tests {
     #[test]
     fn continued_path_starts_from_the_bound_end_with_smaller_fan_out() {
         let config = GraphConfig::builder()
-            .with_node_label("Person", "id")
-            .with_node_label("Post", "id")
-            .with_node_label("Forum", "id")
-            .with_relationship("postHasCreator", "src", "dst")
-            .with_relationship("containerOf", "src", "dst")
+            .node_table("Person", "id")
+            .node_table("Post", "id")
+            .node_table("Forum", "id")
+            .rel_table("postHasCreator", "Post", "Person", "src", "dst")
+            .rel_table("containerOf", "Forum", "Post", "src", "dst")
             .build()
             .unwrap();
         let q = "MATCH (friend:Person), (forum:Forum) WITH friend, forum \
@@ -2381,8 +2381,8 @@ mod tests {
     fn continued_path_bound_only_at_its_far_end_starts_there() {
         // After `WITH DISTINCT b`, `a` is a new variable: expansion must start from `b`.
         let config = GraphConfig::builder()
-            .with_node_label("Person", "id")
-            .with_relationship("KNOWS", "src", "dst")
+            .node_table("Person", "id")
+            .rel_table("KNOWS", "Person", "Person", "src", "dst")
             .build()
             .unwrap();
         let q = "MATCH (a:Person)-[:KNOWS]->(b:Person) WITH DISTINCT b \

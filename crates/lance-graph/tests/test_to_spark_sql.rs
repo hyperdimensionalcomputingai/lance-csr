@@ -80,7 +80,7 @@ fn create_works_for_table() -> RecordBatch {
 #[tokio::test]
 async fn test_to_sql_spark_simple_node_scan() {
     let config = GraphConfig::builder()
-        .with_node_label("Person", "person_id")
+        .node_table("Person", "person_id")
         .build()
         .unwrap();
 
@@ -109,7 +109,7 @@ async fn test_to_sql_spark_simple_node_scan() {
 #[tokio::test]
 async fn test_to_sql_spark_with_filter() {
     let config = GraphConfig::builder()
-        .with_node_label("Person", "person_id")
+        .node_table("Person", "person_id")
         .build()
         .unwrap();
 
@@ -135,9 +135,9 @@ async fn test_to_sql_spark_with_filter() {
 #[tokio::test]
 async fn test_to_sql_spark_with_relationship() {
     let config = GraphConfig::builder()
-        .with_node_label("Person", "person_id")
-        .with_node_label("Company", "company_id")
-        .with_relationship("WORKS_FOR", "person_id", "company_id")
+        .node_table("Person", "person_id")
+        .node_table("Company", "company_id")
+        .rel_table("WORKS_FOR", "Person", "Company", "person_id", "company_id")
         .build()
         .unwrap();
 
@@ -167,9 +167,9 @@ async fn test_to_sql_spark_with_relationship() {
 #[tokio::test]
 async fn test_to_sql_spark_complex_query() {
     let config = GraphConfig::builder()
-        .with_node_label("Person", "person_id")
-        .with_node_label("Company", "company_id")
-        .with_relationship("WORKS_FOR", "person_id", "company_id")
+        .node_table("Person", "person_id")
+        .node_table("Company", "company_id")
+        .rel_table("WORKS_FOR", "Person", "Company", "person_id", "company_id")
         .build()
         .unwrap();
 
@@ -209,7 +209,7 @@ async fn test_to_sql_spark_complex_query() {
 #[tokio::test]
 async fn test_to_sql_default_dialect_no_backticks() {
     let config = GraphConfig::builder()
-        .with_node_label("Person", "person_id")
+        .node_table("Person", "person_id")
         .build()
         .unwrap();
 
@@ -234,7 +234,7 @@ async fn test_to_sql_default_dialect_no_backticks() {
 #[tokio::test]
 async fn test_spark_sql_differs_from_default_sql() {
     let config = GraphConfig::builder()
-        .with_node_label("Person", "person_id")
+        .node_table("Person", "person_id")
         .build()
         .unwrap();
 
@@ -267,7 +267,7 @@ async fn test_spark_sql_differs_from_default_sql() {
 #[tokio::test]
 async fn test_to_sql_postgresql_dialect() {
     let config = GraphConfig::builder()
-        .with_node_label("Person", "person_id")
+        .node_table("Person", "person_id")
         .build()
         .unwrap();
 

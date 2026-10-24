@@ -60,7 +60,7 @@ fn create_person_graph_with_embeddings() -> (GraphConfig, HashMap<String, Record
     .unwrap();
 
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
+        .node_table("Person", "id")
         .build()
         .unwrap();
 

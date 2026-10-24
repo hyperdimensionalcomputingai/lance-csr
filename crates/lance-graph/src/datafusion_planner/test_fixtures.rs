@@ -33,15 +33,21 @@ pub fn make_catalog() -> Arc<dyn lance_graph_catalog::GraphSourceCatalog> {
 
 pub fn person_config() -> GraphConfig {
     GraphConfig::builder()
-        .with_node_label("Person", "id")
+        .node_table("Person", "id")
         .build()
         .unwrap()
 }
 
 pub fn person_knows_config() -> GraphConfig {
     GraphConfig::builder()
-        .with_node_label("Person", "id")
-        .with_relationship("KNOWS", "src_person_id", "dst_person_id")
+        .node_table("Person", "id")
+        .rel_table(
+            "KNOWS",
+            "Person",
+            "Person",
+            "src_person_id",
+            "dst_person_id",
+        )
         .build()
         .unwrap()
 }

@@ -214,23 +214,59 @@ impl GraphConfigBuilder {
         Self::default()
     }
 
-    /// Add a node label mapping
+    /// A node table: the nodes labelled `label`, one per row of the dataset of the same
+    /// name, identified by its `primary_key` column.
     ///
-    /// Note: Labels are case-insensitive. If you add "Person" and "person", the second
-    /// will overwrite the first. Keys are stored as lowercase to prevent duplicates.
-    pub fn with_node_label<S: Into<String>>(mut self, label: S, id_field: S) -> Self {
+    /// Labels are case-insensitive: adding "Person" and then "person" keeps the second.
+    pub fn node_table<S: Into<String>>(mut self, label: S, primary_key: S) -> Self {
         let label_str = label.into();
         let normalized_key = label_str.to_lowercase();
         self.node_mappings.insert(
             normalized_key,
             NodeMapping {
                 label: label_str, // Keep original case for display
-                id_field: id_field.into(),
+                id_field: primary_key.into(),
                 property_fields: Vec::new(),
                 filter_conditions: None,
             },
         );
         self
+    }
+
+    /// A relationship table: edges of type `rel_type` from `from_table` nodes to
+    /// `to_table` nodes, one per row of the dataset of the same name, with the source
+    /// node's key in column `src` and the target node's key in column `dst`. Both node
+    /// tables must be defined by the time [`Self::build`] runs.
+    pub fn rel_table<S: Into<String>>(
+        mut self,
+        rel_type: S,
+        from_table: S,
+        to_table: S,
+        src: S,
+        dst: S,
+    ) -> Self {
+        let type_str = rel_type.into();
+        let normalized_key = type_str.to_lowercase();
+        self.relationship_mappings.insert(
+            normalized_key,
+            RelationshipMapping {
+                relationship_type: type_str, // Keep original case for display
+                source_id_field: src.into(),
+                target_id_field: dst.into(),
+                type_field: None,
+                property_fields: Vec::new(),
+                filter_conditions: None,
+                source_label: Some(from_table.into()),
+                target_label: Some(to_table.into()),
+            },
+        );
+        self
+    }
+
+    /// Add a node label mapping.
+    #[deprecated(since = "0.2.0", note = "use `node_table`")]
+    pub fn with_node_label<S: Into<String>>(self, label: S, id_field: S) -> Self {
+        self.node_table(label, id_field)
     }
 
     /// Add a node mapping with additional configuration
@@ -240,7 +276,11 @@ impl GraphConfigBuilder {
         self
     }
 
-    /// Add a relationship type mapping
+    /// Add a relationship type mapping, without endpoint node tables.
+    #[deprecated(
+        since = "0.2.0",
+        note = "use `rel_table`, which also takes the node tables at both ends"
+    )]
     pub fn with_relationship<S: Into<String>>(
         mut self,
         rel_type: S,
@@ -267,6 +307,10 @@ impl GraphConfigBuilder {
 
     /// Record the node labels a configured relationship type connects (see
     /// [`RelationshipMapping::source_label`]). No-op for an unknown type.
+    #[deprecated(
+        since = "0.2.0",
+        note = "use `rel_table`, which takes the endpoint node tables"
+    )]
     pub fn with_relationship_endpoints<S: Into<String>>(
         mut self,
         rel_type: &str,
@@ -389,9 +433,9 @@ mod tests {
     #[test]
     fn test_graph_config_builder() {
         let config = GraphConfig::builder()
-            .with_node_label("Person", "person_id")
-            .with_node_label("Company", "company_id")
-            .with_relationship("WORKS_FOR", "person_id", "company_id")
+            .node_table("Person", "person_id")
+            .node_table("Company", "company_id")
+            .rel_table("WORKS_FOR", "Person", "Company", "person_id", "company_id")
             .build()
             .unwrap();
 
@@ -404,6 +448,32 @@ mod tests {
         let works_for_mapping = config.get_relationship_mapping("WORKS_FOR").unwrap();
         assert_eq!(works_for_mapping.source_id_field, "person_id");
         assert_eq!(works_for_mapping.target_id_field, "company_id");
+        assert_eq!(works_for_mapping.source_label.as_deref(), Some("Person"));
+        assert_eq!(works_for_mapping.target_label.as_deref(), Some("Company"));
+    }
+
+    #[test]
+    fn rel_table_endpoints_must_be_node_tables() {
+        let result = GraphConfig::builder()
+            .node_table("Person", "id")
+            .rel_table("WORKS_FOR", "Person", "Company", "src", "dst")
+            .build();
+        let message = result.unwrap_err().to_string();
+        assert!(message.contains("Company"), "{message}");
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn deprecated_builder_methods_still_configure_the_graph() {
+        let config = GraphConfig::builder()
+            .with_node_label("Person", "id")
+            .with_relationship("KNOWS", "src", "dst")
+            .with_relationship_endpoints("KNOWS", "Person", "Person")
+            .build()
+            .unwrap();
+        let knows = config.get_relationship_mapping("knows").unwrap();
+        assert_eq!(config.get_node_mapping("person").unwrap().id_field, "id");
+        assert_eq!(knows.source_label.as_deref(), Some("Person"));
     }
 
     #[test]
@@ -436,8 +506,8 @@ mod tests {
     fn test_case_insensitive_node_label_lookup() {
         // Test that node label lookups are case-insensitive
         let config = GraphConfig::builder()
-            .with_node_label("Person", "person_id")
-            .with_node_label("Company", "company_id")
+            .node_table("Person", "person_id")
+            .node_table("Company", "company_id")
             .build()
             .unwrap();
 
@@ -469,8 +539,10 @@ mod tests {
     fn test_case_insensitive_relationship_type_lookup() {
         // Test that relationship type lookups are case-insensitive
         let config = GraphConfig::builder()
-            .with_relationship("FOLLOWS", "src_id", "dst_id")
-            .with_relationship("WORKS_FOR", "person_id", "company_id")
+            .node_table("Person", "person_id")
+            .node_table("Company", "company_id")
+            .rel_table("FOLLOWS", "Person", "Person", "src_id", "dst_id")
+            .rel_table("WORKS_FOR", "Person", "Company", "person_id", "company_id")
             .build()
             .unwrap();
 
@@ -500,8 +572,8 @@ mod tests {
     #[test]
     fn test_duplicate_label_different_case_should_overwrite() {
         let builder = GraphConfig::builder()
-            .with_node_label("Person", "id")
-            .with_node_label("person", "id2"); // Should overwrite first entry
+            .node_table("Person", "id")
+            .node_table("person", "id2"); // Should overwrite first entry
 
         // Should have only 1 entry (second overwrites first due to lowercase key normalization)
         assert_eq!(builder.node_mappings.len(), 1);

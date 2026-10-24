@@ -45,10 +45,10 @@ def graph_env(tmp_path):
 
     config = (
         GraphConfig.builder()
-        .with_node_label("Person", "person_id")
-        .with_node_label("Company", "company_id")
-        .with_relationship("WORKS_FOR", "person_id", "company_id")
-        .with_relationship("FRIEND_OF", "person1_id", "person2_id")
+        .node_table("Person", "person_id")
+        .node_table("Company", "company_id")
+        .rel_table("WORKS_FOR", "Person", "Company", "person_id", "company_id")
+        .rel_table("FRIEND_OF", "Person", "Person", "person1_id", "person2_id")
         .build()
     )
 

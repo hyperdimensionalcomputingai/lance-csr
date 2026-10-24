@@ -33,10 +33,14 @@ TABLES = {
 def config(endpoints=True):
     builder = GraphConfig.builder()
     for label in ("Person", "Post", "Comment"):
-        builder = builder.with_node_label(label, "id")
+        builder = builder.node_table(label, "id")
     for name, (src, dst, _, _) in RELS.items():
-        labels = (src, dst) if endpoints else (None, None)
-        builder = builder.with_relationship(name, "src", "dst", *labels)
+        if endpoints:
+            builder = builder.rel_table(name, src, dst, "src", "dst")
+        else:
+            # Only the deprecated method can still leave the endpoint tables out.
+            with pytest.deprecated_call():
+                builder = builder.with_relationship(name, "src", "dst")
     return builder.build()
 
 
@@ -108,10 +112,9 @@ def test_label_choice_needs_endpoint_labels(datasets):
 
 
 def test_endpoint_labels_must_be_given_together():
-    with pytest.raises(ValueError, match="together"):
-        GraphConfig.builder().with_node_label("Post", "id").with_relationship(
-            "r", "src", "dst", "Post"
-        )
+    builder = GraphConfig.builder().node_table("Post", "id")
+    with pytest.raises(ValueError, match="together"), pytest.deprecated_call():
+        builder.with_relationship("r", "src", "dst", "Post")
 
 
 @pytest.mark.parametrize("use_csr", [False, True])

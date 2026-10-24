@@ -50,7 +50,7 @@ fn animals_graph() -> TestGraph {
     datasets.insert("Animal".to_string(), batch);
 
     let config = GraphConfig::builder()
-        .with_node_label("Animal", "id")
+        .node_table("Animal", "id")
         .build()
         .unwrap();
 
@@ -90,7 +90,7 @@ fn planets_graph() -> TestGraph {
     datasets.insert("Planet".to_string(), batch);
 
     let config = GraphConfig::builder()
-        .with_node_label("Planet", "id")
+        .node_table("Planet", "id")
         .build()
         .unwrap();
 
@@ -169,9 +169,9 @@ fn books_graph() -> TestGraph {
     datasets.insert("WROTE".to_string(), wrote_batch);
 
     let config = GraphConfig::builder()
-        .with_node_label("Author", "id")
-        .with_node_label("Book", "id")
-        .with_relationship("WROTE", "author_id", "book_id")
+        .node_table("Author", "id")
+        .node_table("Book", "id")
+        .rel_table("WROTE", "Author", "Book", "author_id", "book_id")
         .build()
         .unwrap();
 
@@ -223,8 +223,14 @@ fn airports_graph() -> TestGraph {
     datasets.insert("ROUTE".to_string(), route_batch);
 
     let config = GraphConfig::builder()
-        .with_node_label("Airport", "code")
-        .with_relationship("ROUTE", "src_airport_code", "dst_airport_code")
+        .node_table("Airport", "code")
+        .rel_table(
+            "ROUTE",
+            "Airport",
+            "Airport",
+            "src_airport_code",
+            "dst_airport_code",
+        )
         .build()
         .unwrap();
 
@@ -291,9 +297,15 @@ fn courses_graph() -> TestGraph {
     datasets.insert("TAUGHT_BY".to_string(), taught_batch);
 
     let config = GraphConfig::builder()
-        .with_node_label("Course", "id")
-        .with_node_label("Professor", "id")
-        .with_relationship("TAUGHT_BY", "course_id", "professor_id")
+        .node_table("Course", "id")
+        .node_table("Professor", "id")
+        .rel_table(
+            "TAUGHT_BY",
+            "Course",
+            "Professor",
+            "course_id",
+            "professor_id",
+        )
         .build()
         .unwrap();
 
@@ -380,11 +392,11 @@ fn engineers_graph() -> TestGraph {
     datasets.insert("USES".to_string(), uses_batch);
 
     let config = GraphConfig::builder()
-        .with_node_label("Engineer", "id")
-        .with_node_label("Team", "id")
-        .with_node_label("Tool", "id")
-        .with_relationship("MEMBER_OF", "engineer_id", "team_id")
-        .with_relationship("USES", "team_id", "tool_id")
+        .node_table("Engineer", "id")
+        .node_table("Team", "id")
+        .node_table("Tool", "id")
+        .rel_table("MEMBER_OF", "Engineer", "Team", "engineer_id", "team_id")
+        .rel_table("USES", "Team", "Tool", "team_id", "tool_id")
         .build()
         .unwrap();
 
@@ -454,9 +466,9 @@ fn suppliers_graph() -> TestGraph {
     datasets.insert("SUPPLIES".to_string(), supplies_batch);
 
     let config = GraphConfig::builder()
-        .with_node_label("Supplier", "id")
-        .with_node_label("Part", "id")
-        .with_relationship("SUPPLIES", "supplier_id", "part_id")
+        .node_table("Supplier", "id")
+        .node_table("Part", "id")
+        .rel_table("SUPPLIES", "Supplier", "Part", "supplier_id", "part_id")
         .build()
         .unwrap();
 
@@ -497,7 +509,7 @@ fn museums_graph() -> TestGraph {
     datasets.insert("Museum".to_string(), batch);
 
     let config = GraphConfig::builder()
-        .with_node_label("Museum", "id")
+        .node_table("Museum", "id")
         .build()
         .unwrap();
 
@@ -549,8 +561,14 @@ fn languages_graph() -> TestGraph {
     datasets.insert("RELATED_TO".to_string(), related_batch);
 
     let config = GraphConfig::builder()
-        .with_node_label("Language", "id")
-        .with_relationship("RELATED_TO", "src_language_id", "dst_language_id")
+        .node_table("Language", "id")
+        .rel_table(
+            "RELATED_TO",
+            "Language",
+            "Language",
+            "src_language_id",
+            "dst_language_id",
+        )
         .build()
         .unwrap();
 
@@ -622,9 +640,9 @@ fn projects_graph() -> TestGraph {
     datasets.insert("HAS".to_string(), has_batch);
 
     let config = GraphConfig::builder()
-        .with_node_label("Project", "id")
-        .with_node_label("Milestone", "id")
-        .with_relationship("HAS", "project_id", "milestone_id")
+        .node_table("Project", "id")
+        .node_table("Milestone", "id")
+        .rel_table("HAS", "Project", "Milestone", "project_id", "milestone_id")
         .build()
         .unwrap();
 

@@ -130,8 +130,8 @@ fn bench_cypher_execution(c: &mut Criterion) {
     // Helper function to create graph config
     let make_config = || {
         GraphConfig::builder()
-            .with_node_label("Person", "person_id")
-            .with_relationship("FRIEND_OF", "person1_id", "person2_id")
+            .node_table("Person", "person_id")
+            .rel_table("FRIEND_OF", "Person", "Person", "person1_id", "person2_id")
             .build()
             .unwrap()
     };

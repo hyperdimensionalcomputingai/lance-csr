@@ -385,8 +385,14 @@ mod tests {
         };
 
         let cfg = crate::config::GraphConfig::builder()
-            .with_node_label("Person", "id")
-            .with_relationship("KNOWS", "src_person_id", "dst_person_id")
+            .node_table("Person", "id")
+            .rel_table(
+                "KNOWS",
+                "Person",
+                "Person",
+                "src_person_id",
+                "dst_person_id",
+            )
             .build()
             .unwrap();
         let planner = DataFusionPlanner::with_catalog(cfg, make_catalog());
@@ -430,8 +436,14 @@ mod tests {
             }],
         };
         let cfg = crate::config::GraphConfig::builder()
-            .with_node_label("Person", "id")
-            .with_relationship("KNOWS", "src_person_id", "dst_person_id")
+            .node_table("Person", "id")
+            .rel_table(
+                "KNOWS",
+                "Person",
+                "Person",
+                "src_person_id",
+                "dst_person_id",
+            )
             .build()
             .unwrap();
         let planner = DataFusionPlanner::with_catalog(cfg, make_catalog());
@@ -474,8 +486,14 @@ mod tests {
             }],
         };
         let cfg = crate::config::GraphConfig::builder()
-            .with_node_label("Person", "id")
-            .with_relationship("KNOWS", "src_person_id", "dst_person_id")
+            .node_table("Person", "id")
+            .rel_table(
+                "KNOWS",
+                "Person",
+                "Person",
+                "src_person_id",
+                "dst_person_id",
+            )
             .build()
             .unwrap();
         let planner = DataFusionPlanner::with_catalog(cfg, make_catalog());
@@ -526,8 +544,14 @@ mod tests {
             predicate: pred,
         };
         let cfg = crate::config::GraphConfig::builder()
-            .with_node_label("Person", "id")
-            .with_relationship("KNOWS", "src_person_id", "dst_person_id")
+            .node_table("Person", "id")
+            .rel_table(
+                "KNOWS",
+                "Person",
+                "Person",
+                "src_person_id",
+                "dst_person_id",
+            )
             .build()
             .unwrap();
         let planner = DataFusionPlanner::with_catalog(cfg, make_catalog());

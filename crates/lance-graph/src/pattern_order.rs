@@ -475,13 +475,13 @@ mod tests {
 
     fn config() -> GraphConfig {
         GraphConfig::builder()
-            .with_node_label("Forum", "id")
-            .with_node_label("Person", "id")
-            .with_node_label("Tag", "id")
-            .with_node_label("Tagclass", "id")
-            .with_relationship("hasMember", "src", "dst")
-            .with_relationship("forumHasTag", "src", "dst")
-            .with_relationship("hasType", "src", "dst")
+            .node_table("Forum", "id")
+            .node_table("Person", "id")
+            .node_table("Tag", "id")
+            .node_table("Tagclass", "id")
+            .rel_table("hasMember", "Forum", "Person", "src", "dst")
+            .rel_table("forumHasTag", "Forum", "Tag", "src", "dst")
+            .rel_table("hasType", "Tag", "Tagclass", "src", "dst")
             .build()
             .unwrap()
     }

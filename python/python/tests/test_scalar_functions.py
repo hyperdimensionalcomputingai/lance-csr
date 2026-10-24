@@ -7,7 +7,7 @@ from lance_csr import CypherQuery, GraphConfig
 
 
 def test_unimplemented_scalar_function_errors() -> None:
-    cfg = GraphConfig.builder().with_node_label("Person", "name").build()
+    cfg = GraphConfig.builder().node_table("Person", "name").build()
     datasets = {"Person": pa.table({"name": ["Alice", "BOB", "CaSeY"]})}
 
     query = CypherQuery(

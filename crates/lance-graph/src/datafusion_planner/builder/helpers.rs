@@ -195,8 +195,8 @@ mod tests {
     fn test_collect_variables_includes_relationship_variables() {
         // Test that collect_variables now captures relationship variables
         let cfg = crate::config::GraphConfig::builder()
-            .with_node_label("Person", "id")
-            .with_relationship("KNOWS", "src_id", "dst_id")
+            .node_table("Person", "id")
+            .rel_table("KNOWS", "Person", "Person", "src_id", "dst_id")
             .build()
             .unwrap();
         let planner = DataFusionPlanner::with_catalog(cfg, make_catalog());

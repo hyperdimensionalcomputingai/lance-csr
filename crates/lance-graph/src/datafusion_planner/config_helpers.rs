@@ -108,8 +108,8 @@ mod tests {
 
     fn planner_with_basic_config() -> DataFusionPlanner {
         let cfg = GraphConfig::builder()
-            .with_node_label("Person", "id")
-            .with_relationship("KNOWS", "src", "dst")
+            .node_table("Person", "id")
+            .rel_table("KNOWS", "Person", "Person", "src", "dst")
             .build()
             .unwrap();
         DataFusionPlanner::with_catalog(cfg, make_catalog())
@@ -195,7 +195,7 @@ mod tests {
     #[test]
     fn test_get_target_node_mapping_missing_config_entry() {
         let cfg = GraphConfig::builder()
-            .with_node_label("Person", "id")
+            .node_table("Person", "id")
             .build()
             .unwrap();
         let planner = DataFusionPlanner::with_catalog(cfg, make_catalog());
@@ -222,7 +222,7 @@ mod tests {
     #[test]
     fn test_get_catalog_missing() {
         let cfg = GraphConfig::builder()
-            .with_node_label("Person", "id")
+            .node_table("Person", "id")
             .build()
             .unwrap();
         let planner = DataFusionPlanner::new(cfg);

@@ -58,7 +58,7 @@ fn create_test_graph_with_embeddings() -> (GraphConfig, HashMap<String, RecordBa
     .unwrap();
 
     let config = GraphConfig::builder()
-        .with_node_label("Document", "id")
+        .node_table("Document", "id")
         .build()
         .unwrap();
 

@@ -40,7 +40,7 @@ fn create_test_person_dataset() -> RecordBatch {
 async fn test_identifiers_case_insensitive() {
     // Test labels, properties, and table names with various case combinations
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
+        .node_table("Person", "id")
         .build()
         .unwrap();
     let person_batch = create_test_person_dataset();
@@ -111,7 +111,7 @@ async fn test_identifiers_case_insensitive() {
 async fn test_clauses_case_insensitive() {
     // Test WHERE, ORDER BY, and variable references with case variations
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
+        .node_table("Person", "id")
         .build()
         .unwrap();
     let person_batch = create_test_person_dataset();
@@ -207,8 +207,8 @@ async fn test_clauses_case_insensitive() {
 async fn test_relationships_case_insensitive() {
     // Test relationship types and relationship variables with case variations
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
-        .with_relationship("KNOWS", "src_id", "dst_id")
+        .node_table("Person", "id")
+        .rel_table("KNOWS", "Person", "Person", "src_id", "dst_id")
         .build()
         .unwrap();
 
@@ -278,7 +278,7 @@ async fn test_relationships_case_insensitive() {
 async fn test_complex_mixed_case_query() {
     // Comprehensive end-to-end test with mixed case everywhere
     let config = GraphConfig::builder()
-        .with_node_label("Person", "id")
+        .node_table("Person", "id")
         .build()
         .unwrap();
     let person_batch = create_test_person_dataset();

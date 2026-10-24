@@ -289,8 +289,8 @@ mod tests {
         };
 
         let cfg = crate::config::GraphConfig::builder()
-            .with_node_label("Person", "id")
-            .with_relationship("KNOWS", "src_id", "dst_id")
+            .node_table("Person", "id")
+            .rel_table("KNOWS", "Person", "Person", "src_id", "dst_id")
             .build()
             .unwrap();
         let _planner = crate::datafusion_planner::DataFusionPlanner::new(cfg);
@@ -340,8 +340,8 @@ mod tests {
         };
 
         let cfg = crate::config::GraphConfig::builder()
-            .with_node_label("Person", "id")
-            .with_relationship("KNOWS", "src_id", "dst_id")
+            .node_table("Person", "id")
+            .rel_table("KNOWS", "Person", "Person", "src_id", "dst_id")
             .build()
             .unwrap();
         let _planner = crate::datafusion_planner::DataFusionPlanner::new(cfg);
@@ -380,8 +380,14 @@ mod tests {
         };
 
         let cfg = crate::config::GraphConfig::builder()
-            .with_node_label("Person", "id")
-            .with_relationship("KNOWS", "src_person_id", "dst_person_id")
+            .node_table("Person", "id")
+            .rel_table(
+                "KNOWS",
+                "Person",
+                "Person",
+                "src_person_id",
+                "dst_person_id",
+            )
             .build()
             .unwrap();
         let _planner = crate::datafusion_planner::DataFusionPlanner::new(cfg);

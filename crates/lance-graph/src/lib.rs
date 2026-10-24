@@ -22,8 +22,8 @@
 //!
 //! # fn example() -> Result<()> {
 //! let config = GraphConfig::builder()
-//!     .with_node_label("Person", "person_id")
-//!     .with_relationship("KNOWS", "src_person_id", "dst_person_id")
+//!     .node_table("Person", "person_id")
+//!     .rel_table("KNOWS", "Person", "Person", "src_person_id", "dst_person_id")
 //!     .build()?;
 //!
 //! let query = CypherQuery::new("MATCH (p:Person) WHERE p.age > 30 RETURN p.name")?

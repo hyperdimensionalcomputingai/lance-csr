@@ -85,11 +85,11 @@ def test_continued_path_expands_from_the_cheaper_bound_end():
     # `friend`, should expand from `forum` and check the creator at the end.
     config = (
         GraphConfig.builder()
-        .with_node_label("Person", "id")
-        .with_node_label("Post", "id")
-        .with_node_label("Forum", "id")
-        .with_relationship("postHasCreator", "src", "dst")
-        .with_relationship("containerOf", "src", "dst")
+        .node_table("Person", "id")
+        .node_table("Post", "id")
+        .node_table("Forum", "id")
+        .rel_table("postHasCreator", "Post", "Person", "src", "dst")
+        .rel_table("containerOf", "Forum", "Post", "src", "dst")
         .build()
     )
     i64 = pa.int64()
