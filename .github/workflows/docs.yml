@@ -1,0 +1,30 @@
+name: Docs
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    paths:
+      - docs/**
+      - zensical.toml
+      - .readthedocs.yaml
+      - .github/workflows/docs.yml
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# Checks that the site builds; Read the Docs builds and hosts it.
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+      - name: Build the site
+        run: uv run --project docs --locked zensical build --strict

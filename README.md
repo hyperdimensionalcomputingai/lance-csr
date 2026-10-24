@@ -1,6 +1,6 @@
-# lance-csr
+# lance-csr: Fast graph queries on Lance
 
-lance-csr is a Cypher graph query engine over [Lance](https://lancedb.github.io/lance/) datasets, built in Rust on
+lance-csr is a fast graph query engine over [Lance](https://lancedb.github.io/lance/) datasets, built in Rust on
 Apache DataFusion, with Python bindings. It is a fork of [lance-graph](https://github.com/lance-format/lance-graph)
 and a research test bed: it pushes the limits of CSR indexes and DataFusion on top of the Lance format, with the
 goal of making multi-hop path traversal fast.
@@ -158,6 +158,45 @@ r2 = engine.execute("SELECT name FROM person ORDER BY age DESC LIMIT 2")
 ```
 
 ## Benchmarks
+
+### LDBC SNB Interactive complex queries
+
+lance-csr is benchmarked with
+[graph-benchmark-ldbc-complex](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc-complex): the 14
+complex read queries (IC1–IC14) of the LDBC SNB Interactive v1 workload over the SF1 dataset, with every result
+checked against a golden answer. lance-csr runs Neo4j's Cypher text for IC1–IC13 unchanged; IC14 replaces `reduce()`,
+which openCypher leaves out, with pattern comprehensions. These are independent, unaudited measurements with one
+fixed parameter set per query, not LDBC Benchmark Results.
+
+Mean query latency in milliseconds (lower is better, fastest per query in bold), on an Apple M5 MacBook Pro running
+macOS 26.6.2. lance-csr runs with the CSR in memory and in lazy mode, as in the 30-query workload below.
+
+| Query | lance-csr 0.2.0, in memory | lance-csr 0.2.0, lazy | Neo4j 2026.09.0 | Kuzu 0.11.3 | Ladybug 0.21.2 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| IC1 | 26.8 | 32.7 | 51.4 | **13.5** | n/a |
+| IC2 | **2.7** | 29.4 | 44.7 | 25.0 | 15.6 |
+| IC3 | **75.3** | 515.3 | 894.9 | 105.2 | 100.2 |
+| IC4 | **6.4** | 14.7 | 13.1 | 29.7 | 11.8 |
+| IC5 | **95.2** | 114.3 | 1,022.6 | 747.7 | 309.0 |
+| IC6 | 23.8 | **23.4** | 231.2 | 1,114.8 | 234.2 |
+| IC7 | 21.9 | 37.8 | **7.1** | 453.7 | 370.6 |
+| IC8 | **2.2** | 4.0 | 3.0 | 73.4 | 4.9 |
+| IC9 | **43.6** | 1,144.2 | 802.3 | 131.0 | 62.1 |
+| IC10 | 105.0 | 143.7 | 91.7 | 74.9 | **13.7** |
+| IC11 | 5.0 | 7.8 | 11.0 | 4.7 | **2.5** |
+| IC12 | 152.0 | 167.3 | 133.9 | **92.3** | 133.8 |
+| IC13 | 4.9 | 5.0 | **0.9** | 14.2 | 47.5 |
+| IC14 | **64.4** | 65.1 | 522.6 | 1,871.2 | n/a |
+
+Over the 14 queries (geometric mean), lance-csr in memory is 2.8× faster than Neo4j, 4.3× faster than Kuzu and 2.2×
+faster than Ladybug; in lazy mode it is 1.3× and 2.0× faster than Neo4j and Kuzu, and 0.92× as fast as Ladybug.
+
+- All engines ran on 2026-10-24, one after another on the same machine, with the benchmark repository's
+  `run_benchmarks.sh` settings.
+- Ladybug's IC1 returned a wrong answer and its IC14 ran out of buffer-manager memory, so neither is timed; its
+  ratios cover the other 12 queries.
+
+### LDBC SNB SF1, 30-query workload
 
 lance-csr is benchmarked with [graph-benchmark-ldbc](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc):
 30 Cypher queries over the LDBC SNB SF1 dataset (3.18M nodes, 17.3M relationships), with every result checked

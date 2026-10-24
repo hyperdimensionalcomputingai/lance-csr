@@ -1,0 +1,31 @@
+/* Brand colours from docs/assets/brand/README.md. */
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color: #2455a4;
+  --md-primary-fg-color--light: #6086bf;
+  --md-primary-fg-color--dark: #172c48;
+  --md-accent-fg-color: #2455a4;
+  --md-typeset-a-color: #2455a4;
+  --md-mermaid-node-bg-color: #2455a41a;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #82aeff;
+  --md-primary-fg-color--light: #a9c6ff;
+  --md-primary-fg-color--dark: #6f92c8;
+  --md-accent-fg-color: #a9c6ff;
+  --md-typeset-a-color: #82aeff;
+  --md-default-bg-color: #101b2d;
+  --md-mermaid-node-bg-color: #82aeff1f;
+}
+
+/* The theme hides #only-dark images only inside page content; the header logo needs it too. */
+[data-md-color-scheme="default"] img[src$="#only-dark"] {
+  display: none;
+}
+
+/* Home page wordmark. */
+.lc-hero img {
+  width: min(100%, 300px);
+  height: auto;
+  margin: 0.5rem 0 1rem;
+}

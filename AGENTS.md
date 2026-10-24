@@ -7,6 +7,7 @@
 - `crates/lance-graph-python/src/` contains the PyO3 bridge; `python/python/lance_csr/` holds the pure-Python facade and packaging metadata.
 - `python/python/tests/` stores functional tests; mirror new features with targeted cases here and in the corresponding Rust module.
 - `examples/` demonstrates Cypher usage; update or add examples when introducing new public APIs.
+- `docs/` is the Zensical documentation site (configured by `zensical.toml`); follow `docs/AGENTS.md` and update the affected pages when a user-facing API changes.
 
 ## Build, Test, and Development Commands
 - `cargo test --workspace` (from the repository root) runs the Rust tests; building needs `protoc`.
