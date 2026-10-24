@@ -3961,7 +3961,7 @@ dependencies = [
 
 [[package]]
 name = "lance-graph"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ahash",
  "arrow",
@@ -3987,7 +3987,7 @@ dependencies = [
 
 [[package]]
 name = "lance-graph-catalog"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "arrow-schema",
  "async-trait",
@@ -4000,7 +4000,7 @@ dependencies = [
 
 [[package]]
 name = "lance-graph-python"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "arrow",
  "arrow-array",
