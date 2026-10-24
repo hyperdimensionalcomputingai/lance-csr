@@ -1,5 +1,6 @@
 [project]
 site_name = "lance-csr"
+site_url = "https://lance-csr.readthedocs.io/en/latest/"
 site_description = "A fast, embedded Cypher graph query engine over Lance datasets, with a CSR adjacency index"
 site_author = "The lance-csr Authors"
 copyright = "Copyright &copy; The lance-csr Authors. Apache 2.0 licensed."
