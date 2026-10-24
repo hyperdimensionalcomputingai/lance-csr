@@ -20,8 +20,12 @@ the internals. The CSR index is the project's distinguishing feature, so it gets
   warning.
 - Read the Docs builds and hosts the site from `.readthedocs.yaml`. There is no other publishing pipeline: no
   Sphinx, no GitHub Pages.
-- Files that aren't pages (this file, `check_snippets.py`, the uv project, `overrides/`, the brand README and
-  previews) are listed under `exclude_docs` in `zensical.toml`. Add new non-page files there.
+- Files that aren't pages (this file, `check_snippets.py`, `sync_benchmarks.py`, the uv project, `overrides/`, the
+  brand README and previews) are listed under `exclude_docs` in `zensical.toml`. Add new non-page files there.
+- Benchmark tables between `<!-- bench:... -->` markers in `benchmarks.md` and the root `README.md` are
+  generated; never edit them by hand. The runners and results live in graph-benchmark-ldbc-complex and
+  graph-benchmark-ldbc. To publish a new run, merge it there, pin its commit in `sync_benchmarks.py`, and run
+  `uv run --project docs --locked python docs/sync_benchmarks.py`.
 - Brand assets are in `assets/brand/`; their `README.md` gives colours and usage. Light and dark images use the
   `#only-light` and `#only-dark` URL suffixes. The header logo is in `overrides/partials/logo.html`; the brand
   colours are in `stylesheets/extra.css`.

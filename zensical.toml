@@ -13,6 +13,7 @@ site_dir = "site"
 exclude_docs = """
 AGENTS.md
 check_snippets.py
+sync_benchmarks.py
 pyproject.toml
 uv.lock
 overrides/
