@@ -1,6 +1,6 @@
 # Contributing
 
-Contributions are welcome, within the project's [scope](index.md#what-it-is-not): a fast, single-machine
+Contributions are welcome, but only [within the project's scope](index.md#what-it-is-not): `lance-csr` is intended to be a fast, **single-machine**
 Cypher engine on Lance. Pull requests that add distributed execution are closed as out of scope.
 
 ## Set up

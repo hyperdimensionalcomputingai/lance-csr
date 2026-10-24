@@ -7,9 +7,9 @@ title: Home
 ![lance-csr](assets/brand/desktop-dark.svg#only-dark)
 </div>
 
-# Cypher graph queries on Lance, in your process
+# A fast graph query engine on Lance
 
-**lance-csr** is an embedded [openCypher](https://opencypher.org/) query engine for graphs stored as
+**lance-csr** is an open source [openCypher](https://opencypher.org/) query engine for graphs stored as
 [Lance](https://lancedb.github.io/lance/) datasets or Arrow tables. It is written in Rust on
 [Apache DataFusion](https://datafusion.apache.org/), ships as a Python package, and runs on one machine with no
 server to operate. Its distinguishing feature is a **compressed sparse row (CSR) adjacency index** that turns
@@ -78,26 +78,26 @@ print(result.to_pylist())  # [{'friend': 'Bob'}, {'friend': 'Carol'}]
 
 ## Why lance-csr?
 
-Fast and portable
+### Fast and portable
 :   An openCypher engine that runs inside your Python process on a single machine. Install a wheel and
     query; there is no database server, cluster or JVM.
 
-Built for multimodal knowledge graphs
+### Supports multimodal data alongside knowledge graphs
 :   Lance stores images, audio, video and embeddings next to structured columns. lance-csr runs path
     traversals over those same datasets, so your knowledge graph works on one copy of the data instead of a
     second copy in a separate graph database.
 
-Pushing DataFusion for graph traversal
+### Pushing DataFusion for graph traversal query plans
 :   The project is a research test bed for how far DataFusion's vectorized engine can go on multi-hop
     graph queries. The CSR runs as DataFusion extension operators, and DataFusion still plans everything
     around them.
 
-Wide openCypher coverage
-:   Enough Cypher to run the official [LDBC](https://ldbcouncil.org/) Interactive complex queries:
+### openCypher coverage
+:   Supports enough Cypher to run the official [LDBC](https://ldbcouncil.org/) Interactive complex queries:
     `OPTIONAL MATCH`, `EXISTS`, chained `WITH`, `UNWIND`, list and pattern comprehensions,
     relationship alternation, variable-length paths, `shortestPath` and `$parameters`.
 
-## How a query flows
+## Understanding the query flow
 
 ```mermaid
 flowchart LR
@@ -114,6 +114,8 @@ ordinary join, so enabling the CSR never changes results. [How it works](executi
 stage.
 
 ## What it is not
+
+The primary purpose of lance-csr is to serve as a fast, lightweight query engine on top of Lance tables. It's not meant for distributed execution.
 
 !!! warning "Out of scope: distributed execution"
 

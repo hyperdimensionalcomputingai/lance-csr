@@ -43,36 +43,36 @@ Keys match labels case-insensitively.
 
 An immutable mapping from tables to a property graph. Create one with `GraphConfig.builder()`.
 
-`GraphConfig.builder() -> GraphConfigBuilder` *(static)*
+`#!python GraphConfig.builder() -> GraphConfigBuilder` *(static)*
 :   A new, empty builder.
 
-`node_labels() -> list[str]`
+`#!python node_labels() -> list[str]`
 :   The configured node labels, lower-cased, in no particular order.
 
-`relationship_types() -> list[str]`
+`#!python relationship_types() -> list[str]`
 :   The configured relationship types, lower-cased, in no particular order.
 
 ## `GraphConfigBuilder`
 
-`GraphConfigBuilder()`
+`#!python GraphConfigBuilder()`
 :   Same as `GraphConfig.builder()`. Every method returns a new builder.
 
-`node_table(label: str, primary_key: str) -> GraphConfigBuilder`
+`#!python node_table(label: str, primary_key: str) -> GraphConfigBuilder`
 :   Nodes labelled `label`, one per row of the dataset named `label`, identified by the `primary_key`
     column.
 
-`rel_table(rel_type: str, from_table: str, to_table: str, src: str, dst: str) -> GraphConfigBuilder`
+`#!python rel_table(rel_type: str, from_table: str, to_table: str, src: str, dst: str) -> GraphConfigBuilder`
 :   Edges of type `rel_type`, one per row of the dataset named `rel_type`, from `from_table` nodes to
     `to_table` nodes. `src` and `dst` hold the endpoints' primary keys.
 
-`build() -> GraphConfig`
+`#!python build() -> GraphConfig`
 :   Validates and returns the config. Raises `ValueError` if a relationship's endpoint label has no node
     table.
 
-`with_node_label(label: str, id_field: str)` *(deprecated)*
+`#!python with_node_label(label: str, id_field: str)` *(deprecated)*
 :   Use `node_table`. Emits `DeprecationWarning`.
 
-`with_relationship(rel_type: str, source_field: str, target_field: str, source_label: str | None = None, target_label: str | None = None)` *(deprecated)*
+`#!python with_relationship(rel_type: str, source_field: str, target_field: str, source_label: str | None = None, target_label: str | None = None)` *(deprecated)*
 :   Use `rel_table`. Emits `DeprecationWarning`.
 
 See [Graph schema](graph-schema.md).
@@ -99,35 +99,35 @@ Raises `ValueError` if `datasets` is empty, a configured key or endpoint column 
 was opened through a namespace client and can't be reopened by URI. Raises `RuntimeError` if a dataset can't
 be opened.
 
-`execute(query: str, params: dict | None = None) -> pyarrow.Table`
+`#!python execute(query: str, params: dict | None = None) -> pyarrow.Table`
 :   Runs `query` and returns the whole result. `params` binds `$name` parameters: `int`, `float`, `str`,
     `bool`, `None`, `datetime.datetime` and `datetime.date`.
 
-`execute_batches(query: str, params: dict | None = None) -> pyarrow.RecordBatchReader`
+`#!python execute_batches(query: str, params: dict | None = None) -> pyarrow.RecordBatchReader`
 :   Streams the result. Planning errors raise immediately; execution errors raise while reading. The reader
     keeps its snapshot alive across `refresh()`.
 
-`explain(query: str, params: dict | None = None) -> str`
+`#!python explain(query: str, params: dict | None = None) -> str`
 :   The graph logical plan, DataFusion logical plan and physical plan.
 
-`refresh() -> None`
+`#!python refresh() -> None`
 :   Moves every Lance dataset to its latest version and updates the CSR, node indexes and statistics.
     All-or-nothing; running queries keep their snapshot. See [Lance datasets](lance.md#refresh).
 
-`dataset_versions() -> dict[str, int]`
+`#!python dataset_versions() -> dict[str, int]`
 :   The pinned version of each Lance dataset. PyArrow inputs are not listed.
 
-`csr_stats() -> dict[str, dict]`
+`#!python csr_stats() -> dict[str, dict]`
 :   Per relationship type with a CSR: `edges`, `delta_edges`, `tombstones`, `update`, `version`,
     `build_ms`. Empty without `use_csr=True`. See [Inspecting the CSR](csr.md#inspecting-the-csr).
 
-`node_index_stats() -> dict[str, dict]`
+`#!python node_index_stats() -> dict[str, dict]`
 :   Per node label with a node index: `rows`, `version`, `build_ms`.
 
-`config() -> GraphConfig`
+`#!python config() -> GraphConfig`
 :   The engine's config.
 
-`execute_with_vector_rerank(query: str, vector_search: VectorSearch) -> pyarrow.Table`
+`#!python execute_with_vector_rerank(query: str, vector_search: VectorSearch) -> pyarrow.Table`
 :   Runs `query`, then ranks its rows with `vector_search`. See [Vector search](vector-search.md).
 
 ---
@@ -141,31 +141,31 @@ CypherQuery(query_text: str)
 
 A parsed Cypher query. Raises `ValueError` if `query_text` doesn't parse. Builder methods return a new query.
 
-`with_config(config: GraphConfig) -> CypherQuery`
+`#!python with_config(config: GraphConfig) -> CypherQuery`
 :   Sets the graph config. Required before executing.
 
-`with_parameter(key: str, value: object) -> CypherQuery`
+`#!python with_parameter(key: str, value: object) -> CypherQuery`
 :   Binds `$key` to `value`.
 
-`execute(datasets: dict, strategy: ExecutionStrategy | None = None) -> pyarrow.Table`
+`#!python execute(datasets: dict, strategy: ExecutionStrategy | None = None) -> pyarrow.Table`
 :   Runs the query. Datasets are read into memory for this call.
 
-`execute_with_namespace(namespace: DirNamespace, strategy: ExecutionStrategy | None = None) -> pyarrow.Table`
+`#!python execute_with_namespace(namespace: DirNamespace, strategy: ExecutionStrategy | None = None) -> pyarrow.Table`
 :   Runs the query, resolving each label to `<base_uri>/<label>.lance`.
 
-`explain(datasets: dict) -> str`
+`#!python explain(datasets: dict) -> str`
 :   The plans, as for `CypherEngine.explain`.
 
-`to_sql(datasets: dict, dialect: SqlDialect | None = None) -> str`
+`#!python to_sql(datasets: dict, dialect: SqlDialect | None = None) -> str`
 :   The equivalent SQL, as joins. See [From Cypher to SQL](sql.md#from-cypher-to-sql).
 
-`execute_with_vector_rerank(datasets: dict, vector_search: VectorSearch) -> pyarrow.Table`
+`#!python execute_with_vector_rerank(datasets: dict, vector_search: VectorSearch) -> pyarrow.Table`
 :   Runs the query, then reranks by vector similarity.
 
-`query_text() -> str`, `parameters() -> dict`
+`#!python query_text() -> str`, `#!python parameters() -> dict`
 :   The query text and the bound parameters.
 
-`variables() -> list[str]`, `node_labels() -> list[str]`, `relationship_types() -> list[str]`
+`#!python variables() -> list[str]`, `#!python node_labels() -> list[str]`, `#!python relationship_types() -> list[str]`
 :   Names referenced by the query.
 
 ---
@@ -180,7 +180,7 @@ SqlEngine(datasets: dict)
 Registers `datasets` (names lower-cased) in a DataFusion session for repeated SQL queries. Raises
 `ValueError` if `datasets` is empty.
 
-`execute(sql: str) -> pyarrow.Table`
+`#!python execute(sql: str) -> pyarrow.Table`
 :   Runs a SQL query.
 
 ## `SqlQuery`
@@ -190,13 +190,13 @@ Registers `datasets` (names lower-cased) in a DataFusion session for repeated SQ
 SqlQuery(sql: str)
 ```
 
-`execute(datasets: dict) -> pyarrow.Table`
+`#!python execute(datasets: dict) -> pyarrow.Table`
 :   Registers `datasets` and runs the query.
 
-`explain(datasets: dict) -> str`
+`#!python explain(datasets: dict) -> str`
 :   DataFusion's logical and physical plans.
 
-`sql() -> str`
+`#!python sql() -> str`
 :   The query text.
 
 ---
@@ -213,14 +213,14 @@ result, use `alias.property` (`"d.embedding"`).
 
 | Method | Default | Description |
 | --- | --- | --- |
-| `query_vector(vector: list[float])` | required | The query vector |
-| `metric(metric: DistanceMetric)` | `DistanceMetric.L2` | Distance metric |
-| `top_k(k: int)` | `10` | Number of rows returned |
-| `include_distance(include: bool)` | `True` | Add the distance column |
-| `distance_column_name(name: str)` | `"_distance"` | Name of the distance column |
-| `use_lance_index(enabled: bool)` | `False` | Query a Lance ANN index first, then run the Cypher query on the top-k rows; can change results when the query also filters |
+| `#!python query_vector(vector: list[float])` | required | The query vector |
+| `#!python metric(metric: DistanceMetric)` | `DistanceMetric.L2` | Distance metric |
+| `#!python top_k(k: int)` | `10` | Number of rows returned |
+| `#!python include_distance(include: bool)` | `True` | Add the distance column |
+| `#!python distance_column_name(name: str)` | `"_distance"` | Name of the distance column |
+| `#!python use_lance_index(enabled: bool)` | `False` | Query a Lance ANN index first, then run the Cypher query on the top-k rows; can change results when the query also filters |
 
-`search(table: pyarrow.Table) -> pyarrow.Table`
+`#!python search(table: pyarrow.Table) -> pyarrow.Table`
 :   Brute-force search, sorted by distance, at most `top_k` rows. Raises `ValueError` if no query vector is
     set or the column doesn't exist.
 
@@ -244,7 +244,7 @@ DirNamespace(base_uri: str)
 Resolves table names to Lance datasets at `<base_uri>/<name>.lance`, for
 `CypherQuery.execute_with_namespace`.
 
-`base_uri -> str` *(property)*
+`#!python base_uri -> str` *(property)*
 :   The directory.
 
 ## `ExecutionStrategy`

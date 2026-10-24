@@ -1,6 +1,55 @@
 # Benchmarks
 
-## LDBC SNB SF1
+## LDBC SNB Interactive complex queries
+
+lance-csr is benchmarked with
+[graph-benchmark-ldbc-complex](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc-complex): the 14
+complex read queries (IC1–IC14) of the LDBC Social Network Benchmark Interactive v1 workload, over the SF1
+dataset, with every result checked against a golden answer. lance-csr runs Neo4j's Cypher text for IC1–IC13
+unchanged; IC14 replaces `reduce()`, which openCypher leaves out, with pattern comprehensions.
+
+!!! warning "Independent, unaudited measurements"
+
+    These are not official LDBC Benchmark Results. They use one fixed parameter set per query, on one machine;
+    your hardware, data and queries will differ. Use the benchmark repository to reproduce them.
+
+Over the IC queries (geometric mean of the per-query ratios):
+
+| lance-csr mode | vs Neo4j | vs Kùzu | vs Ladybug |
+| --- | ---: | ---: | ---: |
+| In memory | 2.8× faster | 4.3× faster | 2.2× faster |
+| Lazy (Lance on disk) | 1.3× faster | 2.0× faster | 0.92× (slower) |
+
+??? info "Per-query mean latency (ms, lower is better, fastest in bold)"
+
+    Apple M5 MacBook Pro, macOS 26.6.2.
+
+    | Query | lance-csr 0.2.0, in memory | lance-csr 0.2.0, lazy | Neo4j 2026.09.0 | Kuzu 0.11.3 | Ladybug 0.21.2 |
+    | --- | ---: | ---: | ---: | ---: | ---: |
+    | IC1 | 26.8 | 32.7 | 51.4 | **13.5** | n/a |
+    | IC2 | **2.7** | 29.4 | 44.7 | 25.0 | 15.6 |
+    | IC3 | **75.3** | 515.3 | 894.9 | 105.2 | 100.2 |
+    | IC4 | **6.4** | 14.7 | 13.1 | 29.7 | 11.8 |
+    | IC5 | **95.2** | 114.3 | 1,022.6 | 747.7 | 309.0 |
+    | IC6 | 23.8 | **23.4** | 231.2 | 1,114.8 | 234.2 |
+    | IC7 | 21.9 | 37.8 | **7.1** | 453.7 | 370.6 |
+    | IC8 | **2.2** | 4.0 | 3.0 | 73.4 | 4.9 |
+    | IC9 | **43.6** | 1,144.2 | 802.3 | 131.0 | 62.1 |
+    | IC10 | 105.0 | 143.7 | 91.7 | 74.9 | **13.7** |
+    | IC11 | 5.0 | 7.8 | 11.0 | 4.7 | **2.5** |
+    | IC12 | 152.0 | 167.3 | 133.9 | **92.3** | 133.8 |
+    | IC13 | 4.9 | 5.0 | **0.9** | 14.2 | 47.5 |
+    | IC14 | **64.4** | 65.1 | 522.6 | 1,871.2 | n/a |
+
+Methodology notes:
+
+- All engines ran on 2026-10-24, one after another on the same machine, with the repository's `run_benchmarks.sh`
+  settings (pytest-benchmark, at least five rounds, warmup off, GC disabled).
+- Ladybug's IC1 returned a wrong answer and its IC14 ran out of buffer-manager memory, so neither is timed; its
+  ratios cover the other 12 queries.
+- Neo4j runs as a server in a Docker VM; the other engines run embedded in the Python process.
+
+## LDBC SNB SF1, 30-query workload
 
 lance-csr is benchmarked with
 [graph-benchmark-ldbc](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc): 30 Cypher queries
