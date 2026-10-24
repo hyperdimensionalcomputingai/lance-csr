@@ -5,6 +5,27 @@ Apache DataFusion, with Python bindings. It is a fork of [lance-graph](https://g
 and a research test bed: it pushes the limits of CSR indexes and DataFusion on top of the Lance format, with the
 goal of making multi-hop path traversal fast.
 
+## Goals
+
+lance-csr is built for single-machine execution. It aims to:
+
+- **Provide a fast, lightweight and portable query engine.** An openCypher-compatible engine on top of the Lance
+  format that runs on one machine, inside your process, with no server to operate.
+- **Enable multimodal knowledge graphs.** Lance stores images, video, audio and other media alongside vectors and
+  structured columns. lance-csr runs fast path traversal queries over those same datasets, so a knowledge graph
+  works on a single copy of the data instead of a second copy in a separate graph database.
+- **Push the limits of DataFusion for graph traversal.** We want to find out how far DataFusion's execution engine
+  can go in powering multi-hop graph traversal, an area with little open-source work so far.
+
+### Out of scope: distributed execution
+
+Graph queries across multiple machines are **explicitly out of scope** for this repository, to keep it free of
+complexity that works against the goals above. **Issues and pull requests that target distributed execution will
+be closed as out of scope.**
+
+If your use case involves distributed graph query processing or graph algorithms, that is exactly the kind of
+engine we're building at HDC Labs. [Reach out to us](https://hyperdimensionalcomputing.ai/contact/) to chat more.
+
 ## Why a CSR
 
 lance-graph runs each relationship hop as a join between the edge and node tables. A multi-hop query repeats that
@@ -30,21 +51,13 @@ DataFusion as extension operators, falling back to a join for any hop the CSR ca
 - **Current dependencies** (Lance 13, DataFusion 54, Arrow 58, PyO3 0.28), with Delta Lake and Unity Catalog support
   removed.
 
-## Credits
-
-lance-csr exists thanks to the maintainers and contributors of lance-graph, who built the foundation it stands on:
-the Cypher parser, semantic analysis, the DataFusion planner, the graph configuration and the Python bindings.
-See [`NOTICE`](NOTICE) for the fork point.
-maintainers.
-
-This repository contains:
+## Repository layout
 
 - `crates/lance-graph` – the Cypher-capable query engine implemented in Rust
 - `python/` – PyO3 bindings and Python packages:
   - `lance_csr` – thin wrapper around the Rust query engine
 
-See `docs/project_structure.md` for the proposed workspace-based structure from
-issue #92.
+See [`docs/project_structure.md`](docs/project_structure.md) for the full workspace layout.
 
 ## Prerequisites
 
@@ -174,3 +187,14 @@ Numbers are illustrative; your hardware, compiler, and runtime load will affect 
 ## External Wiki
 
 For additional documentation, architecture, and examples, see the DeepWiki page: [DeepWiki — lance-graph](https://deepwiki.com/lancedb/lance-graph)
+
+## Credits
+
+lance-csr builds on the work of two open-source projects:
+
+- The maintainers and contributors of [lance-graph](https://github.com/lance-format/lance-graph), who built the
+  foundation lance-csr stands on: the Cypher parser, semantic analysis, the DataFusion planner, the graph
+  configuration and the Python bindings. See [`NOTICE`](NOTICE) for the fork point.
+- The contributors of [Apache DataFusion](https://github.com/apache/datafusion), whose query engine does much of
+  the work here: planning, optimization and vectorized execution, which lance-csr extends with its CSR traversal
+  operators.
