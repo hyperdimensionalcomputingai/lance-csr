@@ -3,24 +3,78 @@
 
 //! Aggregation operations: Projection with aggregates and grouping
 
+use crate::ast::ValueExpression;
 use crate::datafusion_planner::DataFusionPlanner;
 use crate::error::Result;
 use crate::logical_plan::*;
 use datafusion::logical_expr::{col, LogicalPlan, LogicalPlanBuilder};
+
+/// Replace each aggregate inside `expr` with a reference to a new column `__agg_<n>`,
+/// pushing the aggregate to `aggregates`, so `head(collect(x))` or `count(x) + 1` aggregate
+/// first and apply the outer expression after. Cypher's `collect` gives `[]`, not null,
+/// when nothing was collected.
+fn split_aggregates(expr: &mut ValueExpression, aggregates: &mut Vec<(String, ValueExpression)>) {
+    match expr {
+        ValueExpression::AggregateFunction { name, .. } => {
+            let column = format!("__agg_{}", aggregates.len());
+            let is_collect = name.eq_ignore_ascii_case("collect");
+            let aggregate = std::mem::replace(expr, ValueExpression::Variable(column.clone()));
+            aggregates.push((column.clone(), aggregate));
+            if is_collect {
+                *expr = ValueExpression::ScalarFunction {
+                    name: "coalesce".to_string(),
+                    args: vec![
+                        ValueExpression::Variable(column),
+                        ValueExpression::ScalarFunction {
+                            name: "__list".to_string(),
+                            args: vec![],
+                        },
+                    ],
+                };
+            }
+        }
+        ValueExpression::ScalarFunction { args, .. } => args
+            .iter_mut()
+            .for_each(|a| split_aggregates(a, aggregates)),
+        ValueExpression::Arithmetic { left, right, .. } => {
+            split_aggregates(left, aggregates);
+            split_aggregates(right, aggregates);
+        }
+        ValueExpression::Case { otherwise, whens } => {
+            for (_, then) in whens {
+                split_aggregates(then, aggregates);
+            }
+            if let Some(e) = otherwise {
+                split_aggregates(e, aggregates);
+            }
+        }
+        _ => {}
+    }
+}
 
 impl DataFusionPlanner {
     pub(crate) fn build_project_with_aggregates(
         &self,
         input_plan: LogicalPlan,
         projections: &[ProjectionItem],
+        ordering: &[datafusion::logical_expr::SortExpr],
     ) -> Result<LogicalPlan> {
         // Separate group expressions (non-aggregates) from aggregate expressions
         let mut group_exprs = Vec::new();
         let mut agg_exprs = Vec::new();
-        // Store computed aliases for aggregates to reuse in final projection
-        let mut agg_aliases = Vec::new();
+        // Each aggregating item, with its aggregates replaced by `__agg_<n>` columns.
+        let mut outer = Vec::new();
+        let mut aggregates = Vec::new();
 
         let schema = input_plan.schema().clone();
+        let bound: Vec<ProjectionItem> = projections
+            .iter()
+            .map(|p| ProjectionItem {
+                expression: super::super::expression::bind_value(&p.expression, &schema),
+                alias: p.alias.clone(),
+            })
+            .collect();
+        let projections = bound.as_slice();
         for p in projections {
             // Grouping by a node groups by all its columns (`WITH b, count(*) AS n`).
             if let Some(columns) = Self::entity_columns(&schema, &p.expression, None) {
@@ -30,22 +84,31 @@ impl DataFusionPlanner {
                 }));
                 continue;
             }
-            let expr = super::super::expression::to_df_value_expr(&p.expression);
-
             if super::super::expression::contains_aggregate(&p.expression) {
-                // Aggregate expressions get aliased. Lowercase, like plain projections: the
-                // final projection refers to it with `col`, which normalizes identifiers, so a
-                // camelCase alias (`count(*) AS postCount`) failed to plan.
+                // Aliases are lowercase, like plain projections: the final projection refers
+                // to columns with `col`, which normalizes identifiers.
                 let alias = if let Some(alias) = &p.alias {
                     alias.to_lowercase()
                 } else {
                     super::super::expression::to_cypher_column_name(&p.expression)
                 };
-                agg_exprs.push(expr.alias(&alias));
-                agg_aliases.push(alias);
+                let mut rewritten = p.expression.clone();
+                let first = aggregates.len();
+                split_aggregates(&mut rewritten, &mut aggregates);
+                for (column, aggregate) in &aggregates[first..] {
+                    let mut aggregate = super::super::expression::to_df_value_expr(aggregate);
+                    // collect() gathers in the order of a preceding `WITH ... ORDER BY`.
+                    if let datafusion::logical_expr::Expr::AggregateFunction(f) = &mut aggregate {
+                        if f.func.name() == "array_agg" && !f.params.distinct {
+                            f.params.order_by = ordering.to_vec();
+                        }
+                    }
+                    agg_exprs.push(aggregate.alias(column));
+                }
+                outer.push(super::super::expression::to_df_value_expr(&rewritten).alias(alias));
             } else {
                 // Group expressions: use raw expression for grouping, no alias
-                group_exprs.push(expr);
+                group_exprs.push(super::super::expression::to_df_value_expr(&p.expression));
             }
         }
 
@@ -77,8 +140,7 @@ impl DataFusionPlanner {
                 };
                 final_projection.push(aliased);
             } else {
-                // For aggregates, reference the column using the same alias we computed earlier
-                final_projection.push(col(&agg_aliases[agg_idx]));
+                final_projection.push(outer[agg_idx].clone());
                 agg_idx += 1;
             }
         }

@@ -35,7 +35,73 @@ pub fn parse_cypher_query(input: &str) -> Result<CypherQuery> {
         });
     }
 
+    let mut query = query;
+    let stages = query
+        .further_with_stages
+        .iter_mut()
+        .flat_map(|s| &mut s.reading_clauses);
+    let mut anonymous = 0;
+    for clause in query
+        .reading_clauses
+        .iter_mut()
+        .chain(&mut query.post_with_reading_clauses)
+        .chain(stages)
+    {
+        if let ReadingClause::Match(m) = clause {
+            move_variable_properties_to_where(m, &mut anonymous);
+        }
+    }
     Ok(query)
+}
+
+/// Inline node properties whose value is a variable or property from an earlier clause
+/// (`(t:Tag {id: tagId})`) become `t.id = tagId` in the clause's own WHERE, since scans
+/// filter only on constants. An unnamed node gets a name for the condition.
+fn move_variable_properties_to_where(clause: &mut MatchClause, anonymous: &mut usize) {
+    let mut conditions = Vec::new();
+    for pattern in &mut clause.patterns {
+        let nodes: Vec<&mut NodePattern> = match pattern {
+            GraphPattern::Node(n) => vec![n],
+            GraphPattern::Path(p) => std::iter::once(&mut p.start_node)
+                .chain(p.segments.iter_mut().map(|s| &mut s.end_node))
+                .collect(),
+        };
+        for node in nodes {
+            let keys: Vec<String> = node
+                .properties
+                .iter()
+                .filter(|(_, v)| {
+                    matches!(v, PropertyValue::Variable(_) | PropertyValue::Property(_))
+                })
+                .map(|(k, _)| k.clone())
+                .collect();
+            for key in keys {
+                let value = match node.properties.remove(&key) {
+                    Some(PropertyValue::Variable(v)) => ValueExpression::Variable(v),
+                    Some(PropertyValue::Property(p)) => ValueExpression::Property(p),
+                    _ => unreachable!("filtered above"),
+                };
+                let variable = node.variable.get_or_insert_with(|| {
+                    *anonymous += 1;
+                    format!("__inline_{anonymous}")
+                });
+                conditions.push(BooleanExpression::Comparison {
+                    left: ValueExpression::Property(PropertyRef {
+                        variable: variable.clone(),
+                        property: key,
+                    }),
+                    operator: ComparisonOperator::Equal,
+                    right: value,
+                });
+            }
+        }
+    }
+    let existing = clause.where_clause.take().map(|w| w.expression);
+    clause.where_clause = conditions
+        .into_iter()
+        .chain(existing)
+        .reduce(|a, b| BooleanExpression::And(Box::new(a), Box::new(b)))
+        .map(|expression| WhereClause { expression });
 }
 
 // Top-level parser for a complete Cypher query
@@ -327,7 +393,11 @@ fn property_pair(input: &str) -> IResult<&str, (String, PropertyValue)> {
     let (input, _) = multispace0(input)?;
     let (input, _) = char(':')(input)?;
     let (input, _) = multispace0(input)?;
-    let (input, value) = property_value(input)?;
+    let (input, value) = alt((
+        property_value,
+        map(property_reference, PropertyValue::Property),
+        map(identifier, |v| PropertyValue::Variable(v.to_string())),
+    ))(input)?;
 
     Ok((input, (key.to_string(), value)))
 }
@@ -458,6 +528,17 @@ fn comparison_expression(input: &str) -> IResult<&str, BooleanExpression> {
             },
         ));
     }
+    if let Ok((input_after_in, (_, _, list))) =
+        tuple((tag_no_case("IN"), multispace1, value_expression))(input)
+    {
+        return Ok((
+            input_after_in,
+            BooleanExpression::Member {
+                expression: left,
+                list,
+            },
+        ));
+    }
     // Match LIKE pattern
     if let Ok((input_after_like, (_, _, pattern))) =
         tuple((tag_no_case("LIKE"), multispace0, string_literal))(input)
@@ -539,16 +620,32 @@ fn comparison_expression(input: &str) -> IResult<&str, BooleanExpression> {
 
     let (input, operator) = comparison_operator(input)?;
     let (input, _) = multispace0(input)?;
-    let (input, right) = value_expression(input)?;
-
-    Ok((
-        input,
-        BooleanExpression::Comparison {
-            left: left_clone,
-            operator,
-            right,
-        },
-    ))
+    let (mut input, mut right) = value_expression(input)?;
+    let mut expr = BooleanExpression::Comparison {
+        left: left_clone,
+        operator,
+        right: right.clone(),
+    };
+    // A chain `a < b <= c` means `a < b AND b <= c`.
+    while let Ok((rest, (_, operator, _, next))) = tuple((
+        multispace0,
+        comparison_operator,
+        multispace0,
+        value_expression,
+    ))(input)
+    {
+        expr = BooleanExpression::And(
+            Box::new(expr),
+            Box::new(BooleanExpression::Comparison {
+                left: right,
+                operator,
+                right: next.clone(),
+            }),
+        );
+        right = next;
+        input = rest;
+    }
+    Ok((input, expr))
 }
 
 // Parse a comparison operator
@@ -568,13 +665,98 @@ fn comparison_operator(input: &str) -> IResult<&str, ComparisonOperator> {
 fn basic_value_expression(input: &str) -> IResult<&str, ValueExpression> {
     alt((
         parse_vector_literal, // Try vector literal first [0.1, 0.2]
-        list_literal,         // Then a list of any expressions [a.x, 'y'] (or [])
-        parse_parameter,      // Try $parameter
-        function_call,        // Regular function calls
+        pattern_comprehension,
+        list_comprehension,
+        list_literal, // Then a list of any expressions [a.x, 'y'] (or [])
+        map_literal,
+        parse_parameter,                               // Try $parameter
+        function_call,                                 // Regular function calls
         map(property_value, ValueExpression::Literal), // Try literals BEFORE property references
         map(property_reference, ValueExpression::Property),
         map(identifier, |id| ValueExpression::Variable(id.to_string())),
     ))(input)
+}
+
+// A value where a predicate may also appear (projections, CASE, lists, arguments, maps):
+// `path IS NULL`, `NOT (a)-[:R]-(b)`, `x IN list` are boolean values.
+fn expression(input: &str) -> IResult<&str, ValueExpression> {
+    alt((
+        map(boolean_expression, |b| {
+            ValueExpression::Boolean(Box::new(b))
+        }),
+        value_expression,
+    ))(input)
+}
+
+// `[(a)-[:R]->(b) WHERE predicate | value]`
+fn pattern_comprehension(input: &str) -> IResult<&str, ValueExpression> {
+    let (input, _) = tuple((char('['), multispace0))(input)?;
+    let (input, pattern) = path_pattern(input)?;
+    let (input, filter) = opt(where_clause)(input)?;
+    let (input, map) = preceded(tuple((multispace0, char('|'), multispace0)), expression)(input)?;
+    let (input, _) = tuple((multispace0, char(']')))(input)?;
+    Ok((
+        input,
+        ValueExpression::PatternComprehension {
+            pattern: Box::new(pattern),
+            filter: filter.map(|w| Box::new(w.expression)),
+            map: Box::new(map),
+        },
+    ))
+}
+
+// `[x IN list WHERE predicate | value]`
+fn list_comprehension(input: &str) -> IResult<&str, ValueExpression> {
+    let (input, (_, _, variable, _, _, _, list)) = tuple((
+        char('['),
+        multispace0,
+        identifier,
+        multispace1,
+        tag_no_case("IN"),
+        multispace1,
+        value_expression,
+    ))(input)?;
+    let (input, filter) = opt(where_clause)(input)?;
+    let (input, map) = opt(preceded(
+        tuple((multispace0, char('|'), multispace0)),
+        expression,
+    ))(input)?;
+    let (input, _) = tuple((multispace0, char(']')))(input)?;
+    Ok((
+        input,
+        ValueExpression::ListComprehension {
+            variable: variable.to_string(),
+            list: Box::new(list),
+            filter: filter.map(|w| Box::new(w.expression)),
+            map: map.map(Box::new),
+        },
+    ))
+}
+
+// `{key: value, ...}`
+fn map_literal(input: &str) -> IResult<&str, ValueExpression> {
+    let entry = tuple((
+        multispace0,
+        identifier,
+        multispace0,
+        char(':'),
+        multispace0,
+        expression,
+    ));
+    let (input, entries) = delimited(
+        tuple((char('{'), multispace0)),
+        separated_list0(tuple((multispace0, char(','))), entry),
+        tuple((multispace0, char('}'))),
+    )(input)?;
+    Ok((
+        input,
+        ValueExpression::Map(
+            entries
+                .into_iter()
+                .map(|(_, k, _, _, _, v)| (k.to_string(), v))
+                .collect(),
+        ),
+    ))
 }
 
 // Parse a value expression: arithmetic over primaries, `*` `/` `%` binding tighter than
@@ -644,18 +826,29 @@ fn primary_value_expression(input: &str) -> IResult<&str, ValueExpression> {
         case_expression,
         single_value_expression,
     ))(input)?;
-    // `list[i]`, with the `[` right after the value (so `x IN [1, 2]` is not an index).
-    while let Ok((rest, index)) = delimited(
-        tuple((char('['), multispace0)),
-        value_expression,
-        tuple((multispace0, char(']'))),
-    )(input)
-    {
-        value = ValueExpression::ScalarFunction {
-            name: "__index".to_string(),
-            args: vec![value, index],
-        };
-        input = rest;
+    // `list[i]`, with the `[` right after the value (so `x IN [1, 2]` is not an index), and
+    // `value.field`.
+    loop {
+        if let Ok((rest, index)) = delimited(
+            tuple((char('['), multispace0)),
+            value_expression,
+            tuple((multispace0, char(']'))),
+        )(input)
+        {
+            value = ValueExpression::ScalarFunction {
+                name: "__index".to_string(),
+                args: vec![value, index],
+            };
+            input = rest;
+        } else if let Ok((rest, field)) = preceded(char('.'), identifier)(input) {
+            value = ValueExpression::Field {
+                base: Box::new(value),
+                field: field.to_string(),
+            };
+            input = rest;
+        } else {
+            break;
+        }
     }
     Ok((input, value))
 }
@@ -664,16 +857,16 @@ fn primary_value_expression(input: &str) -> IResult<&str, ValueExpression> {
 fn case_expression(input: &str) -> IResult<&str, ValueExpression> {
     let keyword = |k: &'static str| tuple((multispace0, tag_no_case(k), multispace1));
     let (input, _) = tuple((tag_no_case("CASE"), multispace1))(input)?;
-    let (input, operand) = opt(terminated(value_expression, peek(keyword("WHEN"))))(input)?;
+    let (input, operand) = opt(terminated(expression, peek(keyword("WHEN"))))(input)?;
     let (input, whens) = match &operand {
         None => many1(tuple((
             preceded(keyword("WHEN"), boolean_expression),
-            preceded(keyword("THEN"), value_expression),
+            preceded(keyword("THEN"), expression),
         )))(input)?,
         Some(operand) => {
             let (input, pairs) = many1(tuple((
-                preceded(keyword("WHEN"), value_expression),
-                preceded(keyword("THEN"), value_expression),
+                preceded(keyword("WHEN"), expression),
+                preceded(keyword("THEN"), expression),
             )))(input)?;
             let whens = pairs
                 .into_iter()
@@ -689,7 +882,7 @@ fn case_expression(input: &str) -> IResult<&str, ValueExpression> {
             (input, whens)
         }
     };
-    let (input, otherwise) = opt(preceded(keyword("ELSE"), value_expression))(input)?;
+    let (input, otherwise) = opt(preceded(keyword("ELSE"), expression))(input)?;
     let (input, _) = tuple((multispace0, tag_no_case("END")))(input)?;
     Ok((
         input,
@@ -803,7 +996,8 @@ fn parse_parameter(input: &str) -> IResult<&str, ValueExpression> {
 
 // Parse a function call: function_name(args)
 fn function_call(input: &str) -> IResult<&str, ValueExpression> {
-    let (input, name) = identifier(input)?;
+    // Namespaced names such as `duration.inSeconds`.
+    let (input, name) = recognize(pair(identifier, many0(preceded(char('.'), identifier))))(input)?;
     let (input, _) = multispace0(input)?;
     let (input, _) = char('(')(input)?;
     let (input, _) = multispace0(input)?;
@@ -838,10 +1032,8 @@ fn function_call(input: &str) -> IResult<&str, ValueExpression> {
     }
 
     // Parse regular function arguments
-    let (input, args) = separated_list0(
-        tuple((multispace0, char(','), multispace0)),
-        value_expression,
-    )(input)?;
+    let (input, args) =
+        separated_list0(tuple((multispace0, char(','), multispace0)), expression)(input)?;
     let (input, _) = multispace0(input)?;
     let (input, _) = char(')')(input)?;
 
@@ -945,10 +1137,7 @@ fn parse_vector_literal(input: &str) -> IResult<&str, ValueExpression> {
 fn list_literal(input: &str) -> IResult<&str, ValueExpression> {
     let (input, items) = delimited(
         tuple((char('['), multispace0)),
-        separated_list0(
-            tuple((multispace0, char(','), multispace0)),
-            value_expression,
-        ),
+        separated_list0(tuple((multispace0, char(','), multispace0)), expression),
         tuple((multispace0, char(']'))),
     )(input)?;
     Ok((
@@ -1037,7 +1226,7 @@ fn return_clause(input: &str) -> IResult<&str, ReturnClause> {
 
 // Parse a return item
 fn return_item(input: &str) -> IResult<&str, ReturnItem> {
-    let (input, expression) = value_expression(input)?;
+    let (input, expression) = expression(input)?;
     let (input, _) = multispace0(input)?;
     let (input, alias) = opt(preceded(
         tuple((tag_no_case("AS"), multispace1)),

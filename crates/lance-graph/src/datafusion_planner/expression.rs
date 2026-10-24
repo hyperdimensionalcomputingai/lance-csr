@@ -64,6 +64,10 @@ pub(crate) fn to_df_boolean_expr(expr: &BooleanExpression) -> Expr {
             let list_exprs = list.iter().map(to_df_value_expr).collect::<Vec<_>>();
             Expr::InList(DFInList::new(Box::new(expr), list_exprs, false))
         }
+        BE::Member { expression, list } => datafusion::functions_nested::expr_fn::array_has(
+            to_df_value_expr(list),
+            to_df_value_expr(expression),
+        ),
         BE::And(l, r) => Expr::BinaryExpr(BinaryExpr {
             left: Box::new(to_df_boolean_expr(l)),
             op: Operator::And,
@@ -125,6 +129,7 @@ pub(crate) fn to_df_value_expr(expr: &ValueExpression) -> Expr {
         VE::Literal(PV::Null) => {
             datafusion::logical_expr::Expr::Literal(datafusion::scalar::ScalarValue::Null, None)
         }
+        VE::Literal(PV::Variable(v)) => col(v.to_lowercase()),
         VE::Literal(PV::Parameter(name)) => {
             panic!(
                 "Parameter ${} should have been substituted during semantic analysis",
@@ -158,13 +163,31 @@ pub(crate) fn to_df_value_expr(expr: &ValueExpression) -> Expr {
                 "coalesce" => datafusion::functions::core::expr_fn::coalesce(
                     args.iter().map(to_df_value_expr).collect(),
                 ),
-                "__list" => datafusion::functions_nested::expr_fn::make_array(
-                    args.iter().map(to_df_value_expr).collect(),
-                ),
+                "__list" => super::cypher_udf::list(args.iter().map(to_df_value_expr).collect()),
                 "tostring" => Expr::Cast(datafusion::logical_expr::Cast::new(
                     Box::new(to_df_value_expr(&args[0])),
                     arrow_schema::DataType::Utf8,
                 )),
+                "head" => datafusion::functions_nested::expr_fn::array_element(
+                    to_df_value_expr(&args[0]),
+                    lit(1_i64),
+                ),
+                "tointeger" => cast_to(to_df_value_expr(&args[0]), arrow_schema::DataType::Int64),
+                "tofloat" => cast_to(to_df_value_expr(&args[0]), arrow_schema::DataType::Float64),
+                "date" => cast_to(to_df_value_expr(&args[0]), arrow_schema::DataType::Date32),
+                "datetime" => cast_to(
+                    to_df_value_expr(&args[0]),
+                    arrow_schema::DataType::Timestamp(
+                        arrow_schema::TimeUnit::Nanosecond,
+                        Some("UTC".into()),
+                    ),
+                ),
+                // A duration between two timestamps, as the whole seconds it spans.
+                "duration.inseconds" => datafusion::functions::core::expr_fn::named_struct(vec![
+                    lit("seconds"),
+                    (epoch_ms(to_df_value_expr(&args[1])) - epoch_ms(to_df_value_expr(&args[0])))
+                        / lit(1000_i64),
+                ]),
                 // A path's length and node ids are columns of its variable (see shortest_path).
                 "length" | "nodes" => match &args[0] {
                     VE::Variable(path) => col(qualify_column(path, &name.to_lowercase())),
@@ -194,17 +217,7 @@ pub(crate) fn to_df_value_expr(expr: &ValueExpression) -> Expr {
                 ),
                 // Milliseconds since the Unix epoch, as Kuzu's to_epoch_ms: timestamps of any unit
                 // are first cast to millisecond precision, then to their raw Int64 value.
-                "to_epoch_ms" => {
-                    use arrow_schema::{DataType, TimeUnit};
-                    let ms = Expr::Cast(datafusion::logical_expr::Cast::new(
-                        Box::new(to_df_value_expr(&args[0])),
-                        DataType::Timestamp(TimeUnit::Millisecond, Some("UTC".into())),
-                    ));
-                    Expr::Cast(datafusion::logical_expr::Cast::new(
-                        Box::new(ms),
-                        DataType::Int64,
-                    ))
-                }
+                "to_epoch_ms" => epoch_ms(to_df_value_expr(&args[0])),
                 _ => {
                     // Unknown scalar function - return NULL
                     Expr::Literal(datafusion::scalar::ScalarValue::Null, None)
@@ -291,7 +304,13 @@ pub(crate) fn to_df_value_expr(expr: &ValueExpression) -> Expr {
                         // Cypher's collect skips nulls; DataFusion's array_agg keeps them.
                         use datafusion::logical_expr::ExprFunctionExt;
                         let arg_expr = to_df_value_expr(&args[0]);
-                        let agg = array_agg(arg_expr.clone()).filter(arg_expr.is_not_null());
+                        // A map literal is never null; repeating it in a FILTER would make
+                        // DataFusion extract it as a common expression, which loses the
+                        // ordering of `collect` after `WITH ... ORDER BY` (LDBC IC7).
+                        let agg = match &args[0] {
+                            VE::Map(_) => array_agg(arg_expr).filter(lit(true)),
+                            _ => array_agg(arg_expr.clone()).filter(arg_expr.is_not_null()),
+                        };
                         let agg = if *distinct { agg.distinct() } else { agg };
                         agg.build().expect("FILTER and DISTINCT apply to array_agg")
                     } else {
@@ -397,7 +416,99 @@ pub(crate) fn to_df_value_expr(expr: &ValueExpression) -> Expr {
                 name
             );
         }
+        VE::Boolean(b) => to_df_boolean_expr(b),
+        VE::Map(entries) => datafusion::functions::core::expr_fn::named_struct(
+            entries
+                .iter()
+                .flat_map(|(k, v)| [lit(k.clone()), to_df_value_expr(v)])
+                .collect(),
+        ),
+        VE::Field { base, field } => super::cypher_udf::field(to_df_value_expr(base), field),
+        VE::ListComprehension { .. } | VE::PatternComprehension { .. } => {
+            unreachable!("the logical planner turns comprehensions into operators")
+        }
     }
+}
+
+/// Milliseconds since the Unix epoch of a timestamp of any unit.
+fn epoch_ms(expr: Expr) -> Expr {
+    use arrow_schema::{DataType, TimeUnit};
+    let ms = Expr::Cast(datafusion::logical_expr::Cast::new(
+        Box::new(expr),
+        DataType::Timestamp(TimeUnit::Millisecond, Some("UTC".into())),
+    ));
+    Expr::Cast(datafusion::logical_expr::Cast::new(
+        Box::new(ms),
+        DataType::Int64,
+    ))
+}
+
+fn cast_to(expr: Expr, data_type: arrow_schema::DataType) -> Expr {
+    Expr::Cast(datafusion::logical_expr::Cast::new(
+        Box::new(expr),
+        data_type,
+    ))
+}
+
+/// `expr` with names resolved against `schema`, the input it is evaluated on:
+/// `x.y` where `x` is a value column (a map or date from WITH, not a node) becomes a field
+/// access, and a node inside a map literal becomes a map of its property columns.
+pub(crate) fn bind_value(
+    expr: &ValueExpression,
+    schema: &datafusion::common::DFSchema,
+) -> ValueExpression {
+    let has = |name: &str| schema.has_column_with_unqualified_name(name);
+    let mut expr = expr.clone();
+    crate::ast::transform_value(&mut expr, &mut |e| match e {
+        ValueExpression::Property(p)
+            if !has(&qualify_column(&p.variable, &p.property))
+                && has(&p.variable.to_lowercase()) =>
+        {
+            *e = ValueExpression::Field {
+                base: Box::new(ValueExpression::Variable(p.variable.clone())),
+                field: p.property.clone(),
+            };
+        }
+        ValueExpression::Map(entries) => {
+            for (_, value) in entries.iter_mut() {
+                let ValueExpression::Variable(var) = value else {
+                    continue;
+                };
+                let var = var.to_lowercase();
+                let prefix = format!("{var}__");
+                if has(&var) {
+                    continue;
+                }
+                let properties: Vec<(String, ValueExpression)> = schema
+                    .fields()
+                    .iter()
+                    .filter_map(|f| f.name().strip_prefix(&prefix))
+                    .map(|property| {
+                        let column = ValueExpression::Property(crate::ast::PropertyRef {
+                            variable: var.clone(),
+                            property: property.to_string(),
+                        });
+                        (property.to_string(), column)
+                    })
+                    .collect();
+                if !properties.is_empty() {
+                    *value = ValueExpression::Map(properties);
+                }
+            }
+        }
+        _ => {}
+    });
+    expr
+}
+
+/// [`bind_value`] for every value in a predicate.
+pub(crate) fn bind_boolean(
+    expr: &BooleanExpression,
+    schema: &datafusion::common::DFSchema,
+) -> BooleanExpression {
+    let mut expr = expr.clone();
+    crate::ast::transform_boolean_values(&mut expr, &mut |v| *v = bind_value(v, schema));
+    expr
 }
 
 /// Check if a ValueExpression contains an aggregate function
@@ -406,6 +517,8 @@ pub(crate) fn contains_aggregate(expr: &ValueExpression) -> bool {
     match expr {
         VE::AggregateFunction { .. } => true,
         VE::ScalarFunction { args, .. } => args.iter().any(contains_aggregate),
+        VE::Map(entries) => entries.iter().any(|(_, v)| contains_aggregate(v)),
+        VE::Field { base, .. } => contains_aggregate(base),
         VE::Arithmetic { left, right, .. } => contains_aggregate(left) || contains_aggregate(right),
         VE::Case { whens, otherwise } => {
             whens.iter().any(|(_, then)| contains_aggregate(then))
@@ -436,7 +549,7 @@ pub(crate) fn to_cypher_column_name(expr: &ValueExpression) -> String {
             // Convert to Cypher dot notation: variable.property
             format!("{}.{}", prop.variable, prop.property)
         }
-        VE::Variable(v) => v.clone(),
+        VE::Variable(v) => v.to_lowercase(),
         VE::Literal(PropertyValue::Property(prop)) => {
             // Handle nested property references
             format!("{}.{}", prop.variable, prop.property)
@@ -462,6 +575,7 @@ pub(crate) fn to_cypher_column_name(expr: &ValueExpression) -> String {
                 name.to_lowercase()
             }
         }
+        VE::Field { base, field } => format!("{}.{}", to_cypher_column_name(base), field),
         _ => {
             // For other expressions (literals, arithmetic), use a generic name
             // In practice, these should always have explicit aliases

@@ -824,6 +824,12 @@ fn python_to_json(value: &Bound<'_, PyAny>) -> PyResult<JsonValue> {
         ))
     } else if let Ok(s) = value.extract::<String>() {
         Ok(JsonValue::String(s))
+    } else if value.hasattr("isoformat")? {
+        // datetime and date: ISO 8601 text, which DataFusion casts when comparing with
+        // timestamp and date columns.
+        Ok(JsonValue::String(
+            value.call_method0("isoformat")?.extract::<String>()?,
+        ))
     } else {
         Err(PyValueError::new_err("Unsupported parameter type"))
     }
@@ -1877,9 +1883,19 @@ impl CypherEngine {
             .clone()
     }
 
-    fn parse(&self, query: &str, state: &EngineState) -> PyResult<RustCypherQuery> {
+    fn parse(
+        &self,
+        query: &str,
+        params: Option<&Bound<'_, PyDict>>,
+        state: &EngineState,
+    ) -> PyResult<RustCypherQuery> {
+        let mut parameters = HashMap::new();
+        for (key, value) in params.into_iter().flat_map(|p| p.iter()) {
+            parameters.insert(key.extract::<String>()?, python_to_json(&value)?);
+        }
         let query = RustCypherQuery::new(query)
             .map_err(graph_error_to_pyerr)?
+            .with_parameters(parameters)
             .with_config(self.config.clone())
             .with_fan_out(state.fan_out());
         Ok(if self.use_csr {
@@ -1939,15 +1955,30 @@ impl CypherEngine {
     ///
     /// The whole result is held in memory; use ``execute_batches`` for large outputs.
     ///
+    /// Parameters
+    /// ----------
+    /// query : str
+    ///     The Cypher query
+    /// params : dict, optional
+    ///     Values for ``$name`` parameters in the query: numbers, strings, booleans,
+    ///     ``None``, and ``datetime``/``date`` values (compared as timestamps and dates).
+    ///     ``execute_batches`` and ``explain`` take the same argument.
+    ///
     /// Raises
     /// ------
     /// ValueError
     ///     If the query is invalid
     /// RuntimeError
     ///     If query execution fails
-    fn execute(&self, py: Python, query: &str) -> PyResult<Py<PyAny>> {
+    #[pyo3(signature = (query, params = None))]
+    fn execute(
+        &self,
+        py: Python,
+        query: &str,
+        params: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<Py<PyAny>> {
         let state = self.snapshot();
-        let cypher_query = self.parse(query, &state)?;
+        let cypher_query = self.parse(query, params, &state)?;
         let result_batch = RT
             .block_on(
                 Some(py),
@@ -1965,11 +1996,17 @@ impl CypherEngine {
     /// stream with bounded memory; joins, sorts and aggregations may still buffer.
     /// The reader keeps its snapshot alive, so a concurrent ``refresh()`` does not
     /// affect it. Planning errors raise immediately; execution errors raise while reading.
-    fn execute_batches(&self, py: Python, query: &str) -> PyResult<Py<PyAny>> {
+    #[pyo3(signature = (query, params = None))]
+    fn execute_batches(
+        &self,
+        py: Python,
+        query: &str,
+        params: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<Py<PyAny>> {
         use arrow::pyarrow::IntoPyArrow;
 
         let state = self.snapshot();
-        let cypher_query = self.parse(query, &state)?;
+        let cypher_query = self.parse(query, params, &state)?;
         let stream = RT
             .block_on(
                 Some(py),
@@ -1987,9 +2024,15 @@ impl CypherEngine {
     }
 
     /// Return the query plan, including the physical plan with pushed-down scans.
-    fn explain(&self, py: Python, query: &str) -> PyResult<String> {
+    #[pyo3(signature = (query, params = None))]
+    fn explain(
+        &self,
+        py: Python,
+        query: &str,
+        params: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<String> {
         let state = self.snapshot();
-        let cypher_query = self.parse(query, &state)?;
+        let cypher_query = self.parse(query, params, &state)?;
         RT.block_on(
             Some(py),
             cypher_query
@@ -2111,7 +2154,7 @@ impl CypherEngine {
         vector_search: &VectorSearch,
     ) -> PyResult<Py<PyAny>> {
         let state = self.snapshot();
-        let cypher_query = self.parse(query, &state)?;
+        let cypher_query = self.parse(query, None, &state)?;
         let vs = vector_search.inner.clone();
 
         // Execute query to get candidates, then apply vector reranking

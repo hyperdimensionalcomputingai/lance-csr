@@ -14,6 +14,7 @@
 
 mod aggregate_ops;
 mod basic_ops;
+mod comprehension_ops;
 mod expand_ops;
 mod helpers;
 mod join_builder;
@@ -101,8 +102,33 @@ impl DataFusionPlanner {
                 input,
                 expression,
                 alias,
-            } => self.build_unwind(ctx, input, expression, alias),
+                label,
+            } => self.build_unwind(ctx, input, expression, alias, label.as_deref()),
             LogicalOperator::Union { inputs } => self.build_union(ctx, inputs),
+            LogicalOperator::ListComprehension {
+                input,
+                list,
+                variable,
+                label,
+                element,
+                keep,
+                map,
+                output,
+            } => self.build_list_comprehension(
+                ctx,
+                input,
+                list,
+                (variable, label.as_deref()),
+                element,
+                keep.as_ref(),
+                map,
+                output,
+            ),
+            LogicalOperator::ComprehensionElement => Ok(ctx
+                .comprehension_elements
+                .last()
+                .expect("element rows are built inside their comprehension")
+                .clone()),
             LogicalOperator::OptionalMatch {
                 input,
                 optional,

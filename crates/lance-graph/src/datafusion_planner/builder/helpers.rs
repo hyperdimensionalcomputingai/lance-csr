@@ -109,6 +109,10 @@ impl DataFusionPlanner {
                     Self::collect_variables(first, vars);
                 }
             }
+            LogicalOperator::ListComprehension { input, .. } => {
+                Self::collect_variables(input, vars)
+            }
+            LogicalOperator::ComprehensionElement => {}
         }
     }
 
@@ -153,9 +157,17 @@ impl DataFusionPlanner {
                 Self::collect_labels(left, labels);
                 Self::collect_labels(right, labels);
             }
-            LogicalOperator::Unwind { input, .. } => {
+            LogicalOperator::Unwind {
+                input,
+                alias,
+                label,
+                ..
+            } => {
                 if let Some(op) = input {
                     Self::collect_labels(op, labels);
+                }
+                if let Some(label) = label {
+                    labels.insert(alias.clone(), label.clone());
                 }
             }
             LogicalOperator::OptionalMatch { optional, .. } => {
@@ -163,6 +175,8 @@ impl DataFusionPlanner {
             }
             LogicalOperator::ShortestPath { input, .. } => Self::collect_labels(input, labels),
             LogicalOperator::Union { .. } => {}
+            LogicalOperator::ListComprehension { input, .. } => Self::collect_labels(input, labels),
+            LogicalOperator::ComprehensionElement => {}
         }
     }
 }

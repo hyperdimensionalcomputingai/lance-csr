@@ -209,6 +209,10 @@ fn substitute_in_boolean_expression(
                 substitute_in_value_expression(item, parameters)?;
             }
         }
+        BooleanExpression::Member { expression, list } => {
+            substitute_in_value_expression(expression, parameters)?;
+            substitute_in_value_expression(list, parameters)?;
+        }
         BooleanExpression::Like { expression, .. }
         | BooleanExpression::ILike { expression, .. }
         | BooleanExpression::Contains { expression, .. }
@@ -282,6 +286,30 @@ fn substitute_in_value_expression(
             }
             if let Some(otherwise) = otherwise {
                 substitute_in_value_expression(otherwise, parameters)?;
+            }
+        }
+        ValueExpression::Boolean(b) => substitute_in_boolean_expression(b, parameters)?,
+        ValueExpression::Map(entries) => {
+            for (_, v) in entries {
+                substitute_in_value_expression(v, parameters)?;
+            }
+        }
+        ValueExpression::Field { base, .. } => substitute_in_value_expression(base, parameters)?,
+        ValueExpression::PatternComprehension { filter, map, .. } => {
+            if let Some(b) = filter {
+                substitute_in_boolean_expression(b, parameters)?;
+            }
+            substitute_in_value_expression(map, parameters)?;
+        }
+        ValueExpression::ListComprehension {
+            list, filter, map, ..
+        } => {
+            substitute_in_value_expression(list, parameters)?;
+            if let Some(b) = filter {
+                substitute_in_boolean_expression(b, parameters)?;
+            }
+            if let Some(m) = map {
+                substitute_in_value_expression(m, parameters)?;
             }
         }
         _ => {}

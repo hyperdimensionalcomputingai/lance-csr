@@ -31,6 +31,123 @@ use crate::error::{GraphError, Result};
 /// Branch limit, so a pattern full of alternatives can't explode the plan.
 const MAX_BRANCHES: usize = 64;
 
+/// `patterns` with labels filled in for unlabeled nodes that the configured endpoint labels
+/// pin down: `(friend)<-[:postHasCreator]-(post)` makes `post` a Post when
+/// `postHasCreator` goes from Post to Person. Labels flow along paths and between
+/// patterns through shared variables; `bound` holds labels from earlier clauses. Nodes
+/// next to alternatives whose labels differ are left for [`expand`] to branch on.
+pub fn infer_labels(
+    patterns: &[GraphPattern],
+    config: &GraphConfig,
+    bound: &HashMap<String, String>,
+) -> Vec<GraphPattern> {
+    let mut patterns = patterns.to_vec();
+    let mut known: HashMap<String, String> = bound
+        .iter()
+        .filter(|(_, l)| config.get_node_mapping(l).is_some())
+        .map(|(v, l)| (v.clone(), l.clone()))
+        .collect();
+    // The label one end of `rel` has, if every type agrees: `source` side or target side.
+    let end_label = |rel: &RelationshipPattern, source: bool| -> Option<String> {
+        let mut labels = rel.types.iter().map(|t| {
+            let m = config.get_relationship_mapping(t)?;
+            if source {
+                m.source_label.clone()
+            } else {
+                m.target_label.clone()
+            }
+        });
+        let first = labels.next()??;
+        labels.all(|l| l.as_ref() == Some(&first)).then_some(first)
+    };
+    loop {
+        let mut changed = false;
+        for pattern in &mut patterns {
+            let GraphPattern::Path(path) = pattern else {
+                continue;
+            };
+            let rels: Vec<RelationshipPattern> = path
+                .segments
+                .iter()
+                .map(|s| s.relationship.clone())
+                .collect();
+            let mut nodes: Vec<&mut NodePattern> = std::iter::once(&mut path.start_node)
+                .chain(path.segments.iter_mut().map(|s| &mut s.end_node))
+                .collect();
+            let label_of =
+                |n: &NodePattern, known: &HashMap<String, String>| match n.labels.as_slice() {
+                    [l] => Some(l.clone()),
+                    [] => n.variable.as_ref().and_then(|v| known.get(v).cloned()),
+                    _ => None,
+                };
+            for (i, rel) in rels.iter().enumerate() {
+                if rel.types.is_empty() {
+                    continue;
+                }
+                // (left side, right side) as written.
+                let (left, right) = match rel.direction {
+                    RelationshipDirection::Outgoing => {
+                        (end_label(rel, true), end_label(rel, false))
+                    }
+                    RelationshipDirection::Incoming => {
+                        (end_label(rel, false), end_label(rel, true))
+                    }
+                    RelationshipDirection::Undirected => {
+                        let (s, t) = (end_label(rel, true), end_label(rel, false));
+                        if s == t {
+                            (s.clone(), t)
+                        } else {
+                            (None, None)
+                        }
+                    }
+                };
+                for (slot, label) in [(i, left), (i + 1, right)] {
+                    let Some(label) = label else { continue };
+                    let node = &mut nodes[slot];
+                    if !node.labels.is_empty() || label_of(node, &known).is_some() {
+                        continue;
+                    }
+                    match &node.variable {
+                        Some(v) => {
+                            known.insert(v.clone(), label);
+                        }
+                        None => node.labels = vec![label],
+                    }
+                    changed = true;
+                }
+            }
+            // Written labels of named nodes inform the other patterns.
+            for node in nodes {
+                if let (Some(v), [l]) = (&node.variable, node.labels.as_slice()) {
+                    changed |= known.insert(v.clone(), l.clone()).is_none();
+                }
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    // Write inferred labels onto the unlabeled occurrences of named, unbound variables.
+    for pattern in &mut patterns {
+        let nodes: Vec<&mut NodePattern> = match pattern {
+            GraphPattern::Node(n) => vec![n],
+            GraphPattern::Path(p) => std::iter::once(&mut p.start_node)
+                .chain(p.segments.iter_mut().map(|s| &mut s.end_node))
+                .collect(),
+        };
+        for node in nodes {
+            if let Some(v) = &node.variable {
+                if node.labels.is_empty() && !bound.contains_key(v) {
+                    if let Some(l) = known.get(v) {
+                        node.labels = vec![l.clone()];
+                    }
+                }
+            }
+        }
+    }
+    patterns
+}
+
 /// True when any relationship has several types or any node several labels.
 pub fn needs_expansion(patterns: &[GraphPattern]) -> bool {
     let nodes_multi = |n: &NodePattern| n.labels.len() > 1;

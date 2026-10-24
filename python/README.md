@@ -85,7 +85,17 @@ result3 = engine.execute("MATCH (p:Person) RETURN count(*) as total")
 
 print(result1.to_pylist())
 # [{'p.name': 'Alice'}]
+
+# $parameters, including datetime and date values
+result4 = engine.execute(
+    "MATCH (p:Person) WHERE p.age >= $min_age RETURN p.name", {"min_age": 30}
+)
 ```
+
+Giving each relationship its endpoint labels, as in
+`.with_relationship("lives_in", "src", "dst", "Person", "City")`, lets queries leave
+nodes unlabeled where the relationship decides the label (`(p:Person)-[:lives_in]->(c)`),
+and is required for relationship-type alternation such as `[:likes_post|likes_comment]`.
 
 ### 3. Lance datasets: snapshots, refresh and streaming
 

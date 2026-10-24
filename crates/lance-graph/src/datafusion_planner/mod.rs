@@ -17,6 +17,7 @@
 pub mod analysis;
 mod builder;
 mod config_helpers;
+mod cypher_udf;
 mod expression;
 mod join_ops;
 mod scan_ops;
