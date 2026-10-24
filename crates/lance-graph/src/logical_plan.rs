@@ -8,6 +8,7 @@
 //!
 //! Logical plans describe WHAT operations to perform, not HOW to perform them.
 
+use crate::case_insensitive::qualify_column;
 use crate::error::{GraphError, Result};
 use crate::{ast::*, GraphConfig};
 use serde::{Deserialize, Serialize};
@@ -123,6 +124,33 @@ pub enum LogicalOperator {
         input: Box<LogicalOperator>,
         count: u64,
     },
+
+    /// UNION ALL of the branches of one MATCH clause that uses relationship-type
+    /// alternation or multi-label nodes (see `pattern_alternatives`). Branches bind the
+    /// same variables, possibly with different labels; columns a branch lacks are null.
+    Union { inputs: Vec<LogicalOperator> },
+
+    /// `shortestPath` / `allShortestPaths` between two variables bound in `input`; adds
+    /// `<path_variable>__length` and `<path_variable>__nodes` (node ids, source first).
+    ShortestPath {
+        input: Box<LogicalOperator>,
+        source_variable: String,
+        target_variable: String,
+        relationship_type: String,
+        direction: RelationshipDirection,
+        min_hops: u32,
+        max_hops: u32,
+        all: bool,
+        path_variable: String,
+    },
+
+    /// OPTIONAL MATCH: LEFT JOIN of `input` with `optional` (which is planned on top of
+    /// `input`'s distinct shared variables) on the shared variables' id columns `keys`.
+    OptionalMatch {
+        input: Box<LogicalOperator>,
+        optional: Box<LogicalOperator>,
+        keys: Vec<String>,
+    },
 }
 
 /// Projection item for SELECT/RETURN clauses
@@ -149,11 +177,18 @@ pub struct SortItem {
     pub direction: SortDirection,
 }
 
+/// Mean neighbours per key, by (lowercase relationship type, outgoing): edges divided by
+/// the distinct source ids (outgoing) or target ids (incoming). Planning estimates only.
+pub type FanOut = HashMap<(String, bool), f64>;
+
 /// Logical plan builder - converts AST to logical plan
 pub struct LogicalPlanner<'a> {
     /// Track variables in scope
     variables: HashMap<String, String>, // variable -> label
     config: &'a GraphConfig,
+    fan_out: Option<&'a FanOut>,
+    /// Mark columns created for EXISTS subqueries so far (names `__exists_<n>`).
+    exists_marks: usize,
 }
 
 impl<'a> LogicalPlanner<'a> {
@@ -161,20 +196,91 @@ impl<'a> LogicalPlanner<'a> {
         Self {
             variables: HashMap::new(),
             config,
+            fan_out: None,
+            exists_marks: 0,
+        }
+    }
+
+    /// Use `fan_out` to pick where a path that continues earlier rows starts.
+    pub fn with_fan_out(mut self, fan_out: Option<&'a FanOut>) -> Self {
+        self.fan_out = fan_out;
+        self
+    }
+
+    /// For a path that continues earlier rows, the path read from the other end when that
+    /// is the better start: always when only the far end is bound (expansion must start
+    /// from a bound node), and, with both ends bound, when the far end's first hop has the
+    /// smaller fan-out (LDBC IC5: from `forum`, about 11 posts each, not `friend`, about
+    /// 100). `None` keeps the written order: start already right, no estimates, or a
+    /// variable-length segment.
+    fn cheaper_orientation(&self, path: &PathPattern) -> Option<PathPattern> {
+        let bound = |n: &NodePattern| {
+            n.variable
+                .as_ref()
+                .is_some_and(|v| self.variables.contains_key(v))
+        };
+        let (first, last) = (path.segments.first()?, path.segments.last()?);
+        if !bound(&last.end_node)
+            || path
+                .segments
+                .iter()
+                .any(|s| s.relationship.length.is_some())
+        {
+            return None;
+        }
+        if !bound(&path.start_node) {
+            return Some(Self::reversed_path(path));
+        }
+        let fan_out = self.fan_out?;
+        // Fan-out of a hop expanded from its left end (`forward`) or its right end.
+        let hop = |rel: &RelationshipPattern, forward: bool| -> Option<f64> {
+            let rel_type = rel.types.first()?.to_lowercase();
+            let get = |outgoing: bool| fan_out.get(&(rel_type.clone(), outgoing)).copied();
+            match (&rel.direction, forward) {
+                (RelationshipDirection::Outgoing, true)
+                | (RelationshipDirection::Incoming, false) => get(true),
+                (RelationshipDirection::Incoming, true)
+                | (RelationshipDirection::Outgoing, false) => get(false),
+                (RelationshipDirection::Undirected, _) => Some(get(true)? + get(false)?),
+            }
+        };
+        let from_start = hop(&first.relationship, true)?;
+        let from_end = hop(&last.relationship, false)?;
+        (from_end < from_start).then(|| Self::reversed_path(path))
+    }
+
+    /// The same path read backwards: nodes in reverse order, each relationship flipped.
+    fn reversed_path(path: &PathPattern) -> PathPattern {
+        let mut nodes: Vec<&NodePattern> = std::iter::once(&path.start_node)
+            .chain(path.segments.iter().map(|s| &s.end_node))
+            .collect();
+        nodes.reverse();
+        let segments = path
+            .segments
+            .iter()
+            .rev()
+            .zip(nodes.iter().skip(1))
+            .map(|(segment, end)| PathSegment {
+                relationship: crate::pattern_order::reversed(&segment.relationship),
+                end_node: (*end).clone(),
+            })
+            .collect();
+        PathPattern {
+            start_node: nodes[0].clone(),
+            segments,
+            shortest: path.shortest.clone(),
         }
     }
 
     /// Convert a Cypher AST to a logical plan
     pub fn plan(&mut self, query: &CypherQuery) -> Result<LogicalOperator> {
-        // Plan main MATCH clauses
-        let mut plan = self.plan_reading_clauses(None, &query.reading_clauses)?;
+        // Plan main MATCH clauses; the WHERE clause guides where traversal starts.
+        let where_expr = query.where_clause.as_ref().map(|w| &w.expression);
+        let mut plan = self.plan_reading_clauses(None, &query.reading_clauses, where_expr)?;
 
         // Apply WHERE clause if present (before WITH)
         if let Some(where_clause) = &query.where_clause {
-            plan = LogicalOperator::Filter {
-                input: Box::new(plan),
-                predicate: where_clause.expression.clone(),
-            };
+            plan = self.filter(plan, &where_clause.expression)?;
         }
 
         // Apply WITH clause if present (intermediate projection/aggregation)
@@ -184,15 +290,23 @@ impl<'a> LogicalPlanner<'a> {
 
         // Plan post-WITH MATCH clauses
         if !query.post_with_reading_clauses.is_empty() {
-            plan = self.plan_reading_clauses(Some(plan), &query.post_with_reading_clauses)?;
+            plan = self.plan_reading_clauses(Some(plan), &query.post_with_reading_clauses, None)?;
         }
 
         // Apply post-WITH WHERE clause if present
         if let Some(post_where) = &query.post_with_where_clause {
-            plan = LogicalOperator::Filter {
-                input: Box::new(plan),
-                predicate: post_where.expression.clone(),
-            };
+            plan = self.filter(plan, &post_where.expression)?;
+        }
+
+        // Later WITH stages chain the same way as the first.
+        for stage in &query.further_with_stages {
+            plan = self.plan_with_clause(&stage.with_clause, plan)?;
+            if !stage.reading_clauses.is_empty() {
+                plan = self.plan_reading_clauses(Some(plan), &stage.reading_clauses, None)?;
+            }
+            if let Some(where_clause) = &stage.where_clause {
+                plan = self.filter(plan, &where_clause.expression)?;
+            }
         }
 
         // Apply RETURN clause
@@ -236,6 +350,7 @@ impl<'a> LogicalPlanner<'a> {
         &mut self,
         base_plan: Option<LogicalOperator>,
         reading_clauses: &[ReadingClause],
+        filter: Option<&BooleanExpression>,
     ) -> Result<LogicalOperator> {
         let mut plan = base_plan;
 
@@ -247,7 +362,7 @@ impl<'a> LogicalPlanner<'a> {
         }
 
         for clause in reading_clauses {
-            plan = Some(self.plan_reading_clause_with_base(plan, clause)?);
+            plan = Some(self.plan_reading_clause_with_base(plan, clause, filter)?);
         }
 
         plan.ok_or_else(|| GraphError::PlanError {
@@ -261,10 +376,18 @@ impl<'a> LogicalPlanner<'a> {
         &mut self,
         base: Option<LogicalOperator>,
         clause: &ReadingClause,
+        filter: Option<&BooleanExpression>,
     ) -> Result<LogicalOperator> {
         match clause {
+            ReadingClause::Match(match_clause) if match_clause.optional => {
+                self.plan_optional_match(base, match_clause)
+            }
             ReadingClause::Match(match_clause) => {
-                self.plan_match_clause_with_base(base, match_clause)
+                let plan = self.plan_match_clause_with_base(base, match_clause, filter)?;
+                Ok(match &match_clause.where_clause {
+                    Some(w) => self.filter(plan, &w.expression)?,
+                    None => plan,
+                })
             }
             ReadingClause::Unwind(unwind_clause) => {
                 self.plan_unwind_clause_with_base(base, unwind_clause)
@@ -289,11 +412,16 @@ impl<'a> LogicalPlanner<'a> {
         })
     }
 
-    /// Plan a single MATCH clause, optionally starting from an existing base plan
+    /// Plan a single MATCH clause, optionally starting from an existing base plan.
+    ///
+    /// A clause that starts a plan may be re-rooted at its most selective node, using
+    /// `filter` (the query's WHERE clause); see [`crate::pattern_order`]. A clause that
+    /// continues an existing plan is planned as written.
     fn plan_match_clause_with_base(
         &mut self,
         base: Option<LogicalOperator>,
         match_clause: &MatchClause,
+        filter: Option<&BooleanExpression>,
     ) -> Result<LogicalOperator> {
         if match_clause.patterns.is_empty() {
             return Err(GraphError::PlanError {
@@ -301,9 +429,40 @@ impl<'a> LogicalPlanner<'a> {
                 location: snafu::Location::new(file!(), line!(), column!()),
             });
         }
+        if crate::pattern_alternatives::needs_expansion(&match_clause.patterns) {
+            let branches = crate::pattern_alternatives::expand(
+                &match_clause.patterns,
+                self.config,
+                &self.variables,
+            )?;
+            return self.plan_match_branches(base, branches, filter);
+        }
+
+        let reordered = base
+            .is_none()
+            .then(|| {
+                crate::pattern_order::reorder_patterns(&match_clause.patterns, filter, self.config)
+            })
+            .flatten();
+        let oriented: Option<Vec<GraphPattern>> = base.is_some().then(|| {
+            match_clause
+                .patterns
+                .iter()
+                .map(|p| match p {
+                    GraphPattern::Path(path) => self
+                        .cheaper_orientation(path)
+                        .map_or_else(|| p.clone(), GraphPattern::Path),
+                    _ => p.clone(),
+                })
+                .collect()
+        });
+        let patterns = reordered
+            .as_deref()
+            .or(oriented.as_deref())
+            .unwrap_or(&match_clause.patterns);
 
         let mut plan = base;
-        for pattern in &match_clause.patterns {
+        for pattern in patterns {
             match pattern {
                 GraphPattern::Node(node) => {
                     let already_bound = node
@@ -324,6 +483,9 @@ impl<'a> LogicalPlanner<'a> {
                         }
                     }
                 }
+                GraphPattern::Path(path) if path.shortest.is_some() => {
+                    plan = Some(self.plan_shortest_path(plan, path)?)
+                }
                 GraphPattern::Path(path) => plan = Some(self.plan_path(plan, path)?),
             }
         }
@@ -331,6 +493,299 @@ impl<'a> LogicalPlanner<'a> {
         plan.ok_or_else(|| GraphError::PlanError {
             message: "Failed to plan MATCH clause".to_string(),
             location: snafu::Location::new(file!(), line!(), column!()),
+        })
+    }
+
+    /// `input` filtered by `predicate`, after turning any EXISTS in it into mark columns.
+    fn filter(
+        &mut self,
+        input: LogicalOperator,
+        predicate: &BooleanExpression,
+    ) -> Result<LogicalOperator> {
+        let mut predicate = predicate.clone();
+        let input = self.rewrite_exists(input, &mut predicate)?;
+        Ok(LogicalOperator::Filter {
+            input: Box::new(input),
+            predicate,
+        })
+    }
+
+    /// Replace every pattern EXISTS in `expr` with `__exists_<n> IS NOT NULL`, adding to
+    /// `input` the LEFT JOIN that computes that mark: the pattern planned on top of the
+    /// distinct shared variables (as for OPTIONAL MATCH, so it can use the CSR), one row
+    /// per distinct binding of them with `true` as the mark. A row with no match gets a
+    /// null mark, so `NOT EXISTS` is true for it, as Cypher requires.
+    fn rewrite_exists(
+        &mut self,
+        mut input: LogicalOperator,
+        expr: &mut BooleanExpression,
+    ) -> Result<LogicalOperator> {
+        match expr {
+            BooleanExpression::And(a, b) | BooleanExpression::Or(a, b) => {
+                input = self.rewrite_exists(input, a)?;
+                self.rewrite_exists(input, b)
+            }
+            BooleanExpression::Not(inner) => self.rewrite_exists(input, inner),
+            BooleanExpression::Comparison { left, right, .. } => {
+                input = self.rewrite_exists_in_value(input, left)?;
+                self.rewrite_exists_in_value(input, right)
+            }
+            BooleanExpression::PatternExists {
+                patterns,
+                where_clause,
+            } => {
+                self.exists_marks += 1;
+                let mark = format!("__exists_{}", self.exists_marks);
+                let inner = MatchClause {
+                    patterns: patterns.clone(),
+                    optional: true,
+                    where_clause: where_clause.as_ref().map(|w| WhereClause {
+                        expression: (**w).clone(),
+                    }),
+                };
+                // The pattern's own new variables are local to the subquery.
+                let before = self.variables.clone();
+                let planned = self.plan_optional_match(Some(input), &inner);
+                self.variables = before;
+                let LogicalOperator::OptionalMatch {
+                    input,
+                    optional,
+                    keys,
+                } = planned?
+                else {
+                    unreachable!("plan_optional_match returns an OptionalMatch")
+                };
+                let shared: Vec<String> = keys
+                    .iter()
+                    .map(|k| k.split("__").next().unwrap_or(k).to_string())
+                    .collect();
+                let mut projections: Vec<ProjectionItem> = shared
+                    .iter()
+                    .map(|var| ProjectionItem {
+                        expression: ValueExpression::Variable(var.clone()),
+                        alias: None,
+                    })
+                    .collect();
+                projections.push(ProjectionItem {
+                    expression: ValueExpression::Literal(PropertyValue::Boolean(true)),
+                    alias: Some(mark.clone()),
+                });
+                let marked = LogicalOperator::Distinct {
+                    input: Box::new(LogicalOperator::Project {
+                        input: optional,
+                        projections,
+                    }),
+                };
+                *expr = BooleanExpression::IsNotNull(ValueExpression::Variable(mark));
+                Ok(LogicalOperator::OptionalMatch {
+                    input,
+                    optional: Box::new(marked),
+                    keys,
+                })
+            }
+            _ => Ok(input),
+        }
+    }
+
+    /// [`Self::rewrite_exists`] for the conditions of a CASE inside a value.
+    fn rewrite_exists_in_value(
+        &mut self,
+        mut input: LogicalOperator,
+        expr: &mut ValueExpression,
+    ) -> Result<LogicalOperator> {
+        match expr {
+            ValueExpression::Case { whens, otherwise } => {
+                for (condition, then) in whens.iter_mut() {
+                    input = self.rewrite_exists(input, condition)?;
+                    input = self.rewrite_exists_in_value(input, then)?;
+                }
+                match otherwise {
+                    Some(e) => self.rewrite_exists_in_value(input, e),
+                    None => Ok(input),
+                }
+            }
+            ValueExpression::ScalarFunction { args, .. }
+            | ValueExpression::AggregateFunction { args, .. } => {
+                for arg in args.iter_mut() {
+                    input = self.rewrite_exists_in_value(input, arg)?;
+                }
+                Ok(input)
+            }
+            ValueExpression::Arithmetic { left, right, .. } => {
+                input = self.rewrite_exists_in_value(input, left)?;
+                self.rewrite_exists_in_value(input, right)
+            }
+            _ => Ok(input),
+        }
+    }
+
+    /// A `shortestPath` pattern: end nodes not bound yet are scanned (and cross-joined with
+    /// the rows so far), then the search runs per row between the two bound ids.
+    fn plan_shortest_path(
+        &mut self,
+        base: Option<LogicalOperator>,
+        path: &PathPattern,
+    ) -> Result<LogicalOperator> {
+        let spec = path.shortest.as_ref().expect("a shortest-path pattern");
+        let unsupported = |what: &str| GraphError::UnsupportedFeature {
+            feature: format!("shortestPath {what}"),
+            location: Location::new(file!(), line!(), column!()),
+        };
+        let [segment] = path.segments.as_slice() else {
+            return Err(unsupported("over more than one relationship pattern"));
+        };
+        let rel = &segment.relationship;
+        let [rel_type] = rel.types.as_slice() else {
+            return Err(unsupported("needs exactly one relationship type"));
+        };
+        if rel.variable.is_some() || !rel.properties.is_empty() {
+            return Err(unsupported("with a relationship variable or properties"));
+        }
+        let mut plan = base;
+        let mut ends = Vec::with_capacity(2);
+        for node in [&path.start_node, &segment.end_node] {
+            let Some(var) = &node.variable else {
+                return Err(unsupported("with an unnamed end node"));
+            };
+            if !self.variables.contains_key(var) {
+                let scan = self.plan_node_scan(node)?;
+                plan = Some(match plan {
+                    None => scan,
+                    Some(p) => LogicalOperator::Join {
+                        left: Box::new(p),
+                        right: Box::new(scan),
+                        join_type: JoinType::Cross,
+                    },
+                });
+            }
+            ends.push(var.clone());
+        }
+        let path_variable = spec
+            .variable
+            .clone()
+            .unwrap_or_else(|| format!("_path_{}", self.variables.len()));
+        // Not a node: the marker keeps it in WITH scope and matches no node mapping.
+        self.variables
+            .insert(path_variable.clone(), "Path".to_string());
+        let length = rel.length.as_ref();
+        Ok(LogicalOperator::ShortestPath {
+            input: Box::new(plan.expect("both end nodes are planned")),
+            source_variable: ends[0].clone(),
+            target_variable: ends[1].clone(),
+            relationship_type: rel_type.clone(),
+            direction: rel.direction.clone(),
+            min_hops: length.and_then(|l| l.min).unwrap_or(1),
+            max_hops: length.and_then(|l| l.max).unwrap_or(u32::MAX),
+            all: spec.all,
+            path_variable,
+        })
+    }
+
+    /// OPTIONAL MATCH: the pattern is planned on top of the distinct values of the node
+    /// variables it shares with `base` (so expansion starts there, CSR included), filtered
+    /// by its own WHERE, then left-joined back to `base` on those variables' ids.
+    // shortcut: `base` is planned and run twice (left side and seed), since DataFusion
+    // plans are trees; fine for the small inputs OPTIONAL MATCH usually sees.
+    fn plan_optional_match(
+        &mut self,
+        base: Option<LogicalOperator>,
+        clause: &MatchClause,
+    ) -> Result<LogicalOperator> {
+        let unsupported = |what: &str| GraphError::UnsupportedFeature {
+            feature: format!("OPTIONAL MATCH {what}"),
+            location: Location::new(file!(), line!(), column!()),
+        };
+        let base = base.ok_or_else(|| unsupported("as the first clause"))?;
+        let mut shared = Vec::new();
+        for pattern in &clause.patterns {
+            let nodes: Vec<&NodePattern> = match pattern {
+                GraphPattern::Node(n) => vec![n],
+                GraphPattern::Path(p) => std::iter::once(&p.start_node)
+                    .chain(p.segments.iter().map(|s| &s.end_node))
+                    .collect(),
+            };
+            for var in nodes.into_iter().filter_map(|n| n.variable.as_ref()) {
+                if self.variables.contains_key(var) && !shared.contains(var) {
+                    shared.push(var.clone());
+                }
+            }
+        }
+        if shared.is_empty() {
+            return Err(unsupported("without a variable bound by an earlier clause"));
+        }
+        let mut keys = Vec::with_capacity(shared.len());
+        for var in &shared {
+            let label = &self.variables[var];
+            let mapping = self.config.get_node_mapping(label).ok_or_else(|| {
+                unsupported(&format!("from '{var}', whose label '{label}' is ambiguous"))
+            })?;
+            keys.push(qualify_column(var, &mapping.id_field));
+        }
+        let seed = LogicalOperator::Distinct {
+            input: Box::new(LogicalOperator::Project {
+                input: Box::new(base.clone()),
+                projections: shared
+                    .iter()
+                    .map(|var| ProjectionItem {
+                        expression: ValueExpression::Variable(var.clone()),
+                        alias: None,
+                    })
+                    .collect(),
+            }),
+        };
+        let inner = MatchClause {
+            patterns: clause.patterns.clone(),
+            optional: false,
+            where_clause: None,
+        };
+        let mut optional = self.plan_match_clause_with_base(Some(seed), &inner, None)?;
+        if let Some(w) = &clause.where_clause {
+            optional = self.filter(optional, &w.expression)?;
+        }
+        Ok(LogicalOperator::OptionalMatch {
+            input: Box::new(base),
+            optional: Box::new(optional),
+            keys,
+        })
+    }
+
+    /// Plan each single-type, single-label branch like an ordinary MATCH and UNION ALL them.
+    // shortcut: a `base` from earlier clauses is planned (and run) once per branch; fine for
+    // the few branches alternation produces, revisit if bases get expensive.
+    fn plan_match_branches(
+        &mut self,
+        base: Option<LogicalOperator>,
+        branches: Vec<Vec<GraphPattern>>,
+        filter: Option<&BooleanExpression>,
+    ) -> Result<LogicalOperator> {
+        let before = self.variables.clone();
+        let mut inputs = Vec::new();
+        let mut labels: HashMap<String, Vec<String>> = HashMap::new();
+        for patterns in branches {
+            self.variables = before.clone();
+            let clause = MatchClause {
+                patterns,
+                optional: false,
+                where_clause: None,
+            };
+            inputs.push(self.plan_match_clause_with_base(base.clone(), &clause, filter)?);
+            for (var, label) in &self.variables {
+                let seen = labels.entry(var.clone()).or_default();
+                if !seen.contains(label) {
+                    seen.push(label.clone());
+                }
+            }
+        }
+        // A variable with different labels per branch gets a combined name that matches no
+        // node mapping, so a later clause expanding from it fails instead of guessing.
+        self.variables = labels
+            .into_iter()
+            .map(|(var, labels)| (var, labels.join("|")))
+            .collect();
+        Ok(if inputs.len() == 1 {
+            inputs.pop().expect("one branch")
+        } else {
+            LogicalOperator::Union { inputs }
         })
     }
 
@@ -500,18 +955,36 @@ impl<'a> LogicalPlanner<'a> {
                 self.extract_variable_from_plan(right)
                     .or_else(|_| self.extract_variable_from_plan(left))
             }
+            LogicalOperator::OptionalMatch { optional, .. } => {
+                self.extract_variable_from_plan(optional)
+            }
+            LogicalOperator::ShortestPath {
+                target_variable, ..
+            } => Ok(target_variable.clone()),
+            LogicalOperator::Union { inputs } => match inputs.first() {
+                Some(first) => self.extract_variable_from_plan(first),
+                None => Err(GraphError::PlanError {
+                    message: "empty UNION".to_string(),
+                    location: snafu::Location::new(file!(), line!(), column!()),
+                }),
+            },
         }
     }
 
     /// Plan RETURN clause (Project)
     fn plan_return_clause(
-        &self,
+        &mut self,
         return_clause: &ReturnClause,
         input: LogicalOperator,
     ) -> Result<LogicalOperator> {
         let mut projections: Vec<ProjectionItem> = Vec::new();
+        let mut items = return_clause.items.clone();
+        let mut input = input;
+        for item in &mut items {
+            input = self.rewrite_exists_in_value(input, &mut item.expression)?;
+        }
 
-        for item in &return_clause.items {
+        for item in &items {
             let alias = &item.alias;
             match &item.expression {
                 ValueExpression::Variable(var) => {
@@ -579,24 +1052,64 @@ impl<'a> LogicalPlanner<'a> {
 
     /// Plan WITH clause - intermediate projection/aggregation with optional ORDER BY and LIMIT
     fn plan_with_clause(
-        &self,
+        &mut self,
         with_clause: &WithClause,
         input: LogicalOperator,
     ) -> Result<LogicalOperator> {
-        // WITH creates a projection (like RETURN)
-        let projections = with_clause
+        // WITH creates a projection (like RETURN), but its output must stay addressable by
+        // later clauses: an unaliased `b.name` keeps the internal name `b__name`, and a
+        // bare node variable passes all its columns through (see `build_simple_project`).
+        let mut projections = Vec::with_capacity(with_clause.items.len());
+        let mut items = with_clause.items.clone();
+        let mut input = input;
+        for item in &mut items {
+            input = self.rewrite_exists_in_value(input, &mut item.expression)?;
+        }
+        for item in &items {
+            let alias = match (&item.alias, &item.expression) {
+                (Some(alias), ValueExpression::Variable(var)) => {
+                    // `WITH b AS x` renames a node: x keeps b's label.
+                    if let Some(label) = self.variables.get(var).cloned() {
+                        self.variables.insert(alias.clone(), label);
+                    }
+                    Some(alias.clone())
+                }
+                (Some(alias), _) => Some(alias.clone()),
+                (None, ValueExpression::Property(prop)) => {
+                    Some(qualify_column(&prop.variable, &prop.property))
+                }
+                // A carried scalar (`WITH a, bCount`) keeps its own name, lowercased like every
+                // alias, so later clauses find it (RETURN's display names keep the written case).
+                (None, ValueExpression::Variable(var)) => Some(var.clone()),
+                (None, _) => None,
+            };
+            projections.push(ProjectionItem {
+                expression: item.expression.clone(),
+                alias,
+            });
+        }
+        // WITH ends the scope of everything it does not project: a later MATCH reusing a
+        // dropped name binds a new variable instead of expecting columns that are gone.
+        let kept: Vec<&str> = with_clause
             .items
             .iter()
-            .map(|item| ProjectionItem {
-                expression: item.expression.clone(),
-                alias: item.alias.clone(),
+            .filter_map(|item| match (&item.alias, &item.expression) {
+                (Some(alias), ValueExpression::Variable(_)) => Some(alias.as_str()),
+                (None, ValueExpression::Variable(var)) => Some(var.as_str()),
+                _ => None,
             })
             .collect();
+        self.variables.retain(|var, _| kept.contains(&var.as_str()));
 
         let mut plan = LogicalOperator::Project {
             input: Box::new(input),
             projections,
         };
+        if with_clause.distinct {
+            plan = LogicalOperator::Distinct {
+                input: Box::new(plan),
+            };
+        }
 
         // Apply ORDER BY within WITH if present
         if let Some(order_by) = &with_clause.order_by {
@@ -619,6 +1132,10 @@ impl<'a> LogicalPlanner<'a> {
                 input: Box::new(plan),
                 count: limit,
             };
+        }
+
+        if let Some(where_clause) = &with_clause.where_clause {
+            plan = self.filter(plan, &where_clause.expression)?;
         }
 
         Ok(plan)
@@ -1181,21 +1698,27 @@ mod tests {
     }
 
     #[test]
-    fn test_multi_label_node_uses_first_label() {
+    fn test_multi_label_node_is_a_union_of_its_labels() {
+        // Upstream silently scanned only the first label.
         let q = "MATCH (n:Person:Employee) RETURN n.name";
         let ast = parse_cypher_query(q).unwrap();
         let config = GraphConfig::default();
         let mut planner = LogicalPlanner::new(&config);
         let logical = planner.plan(&ast).unwrap();
-        match logical {
-            LogicalOperator::Project { input, .. } => match *input {
-                LogicalOperator::ScanByLabel { label, .. } => {
-                    assert_eq!(label, "Person");
-                }
-                _ => panic!("Expected ScanByLabel under Project"),
-            },
-            _ => panic!("Expected Project at top level"),
-        }
+        let LogicalOperator::Project { input, .. } = logical else {
+            panic!("Expected Project at top level");
+        };
+        let LogicalOperator::Union { inputs } = *input else {
+            panic!("Expected Union under Project");
+        };
+        let labels: Vec<_> = inputs
+            .iter()
+            .map(|op| match op {
+                LogicalOperator::ScanByLabel { label, .. } => label.as_str(),
+                other => panic!("Expected ScanByLabel, got {other:?}"),
+            })
+            .collect();
+        assert_eq!(labels, ["Person", "Employee"]);
     }
 
     #[test]
@@ -1412,6 +1935,86 @@ mod tests {
             err_msg.contains("Node label 'Person' doesn't exist"),
             "Expected error about missing label 'Person', got: {}",
             err_msg
+        );
+    }
+
+    /// Relationship types of the Expands under `op`, innermost (first executed) first.
+    fn expand_order(op: &LogicalOperator, out: &mut Vec<String>) {
+        match op {
+            LogicalOperator::Expand {
+                input,
+                relationship_types,
+                ..
+            } => {
+                expand_order(input, out);
+                out.push(relationship_types[0].clone());
+            }
+            LogicalOperator::Filter { input, .. }
+            | LogicalOperator::Project { input, .. }
+            | LogicalOperator::Distinct { input }
+            | LogicalOperator::Sort { input, .. }
+            | LogicalOperator::Limit { input, .. }
+            | LogicalOperator::Offset { input, .. } => expand_order(input, out),
+            LogicalOperator::OptionalMatch { optional, .. } => expand_order(optional, out),
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn continued_path_starts_from_the_bound_end_with_smaller_fan_out() {
+        let config = GraphConfig::builder()
+            .with_node_label("Person", "id")
+            .with_node_label("Post", "id")
+            .with_node_label("Forum", "id")
+            .with_relationship("postHasCreator", "src", "dst")
+            .with_relationship("containerOf", "src", "dst")
+            .build()
+            .unwrap();
+        let q = "MATCH (friend:Person), (forum:Forum) WITH friend, forum \
+                 OPTIONAL MATCH (friend)<-[:postHasCreator]-(post:Post)<-[:containerOf]-(forum) \
+                 RETURN count(post.id) AS n";
+        let ast = parse_cypher_query(q).unwrap();
+        let first_hop = |creator_in: f64, container_out: f64| {
+            let fan_out: FanOut = [
+                (("posthascreator".to_string(), false), creator_in),
+                (("posthascreator".to_string(), true), 1.0),
+                (("containerof".to_string(), true), container_out),
+                (("containerof".to_string(), false), 1.0),
+            ]
+            .into_iter()
+            .collect();
+            let plan = LogicalPlanner::new(&config)
+                .with_fan_out(Some(&fan_out))
+                .plan(&ast)
+                .unwrap();
+            let mut order = Vec::new();
+            expand_order(&plan, &mut order);
+            order[0].clone()
+        };
+        // Forums hold ~11 posts, people create ~100: start from the forum.
+        assert_eq!(first_hop(100.0, 11.0), "containerOf");
+        // The other way round keeps the written order.
+        assert_eq!(first_hop(11.0, 100.0), "postHasCreator");
+    }
+
+    #[test]
+    fn continued_path_bound_only_at_its_far_end_starts_there() {
+        // After `WITH DISTINCT b`, `a` is a new variable: expansion must start from `b`.
+        let config = GraphConfig::builder()
+            .with_node_label("Person", "id")
+            .with_relationship("KNOWS", "src", "dst")
+            .build()
+            .unwrap();
+        let q = "MATCH (a:Person)-[:KNOWS]->(b:Person) WITH DISTINCT b \
+                 MATCH (a:Person)-[:KNOWS]->(b) RETURN a.id, b.id";
+        let plan = LogicalPlanner::new(&config)
+            .plan(&parse_cypher_query(q).unwrap())
+            .unwrap();
+        let text = format!("{plan:?}");
+        let last_expand = text.rfind("Expand {").unwrap();
+        assert!(
+            text[last_expand..].contains("source_variable: \"b\""),
+            "{plan:#?}"
         );
     }
 }

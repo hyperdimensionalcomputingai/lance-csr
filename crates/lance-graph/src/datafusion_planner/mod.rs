@@ -45,6 +45,7 @@ pub trait GraphPhysicalPlanner {
 pub struct DataFusionPlanner {
     pub(crate) config: GraphConfig,
     pub(crate) catalog: Option<Arc<dyn GraphSourceCatalog>>,
+    pub(crate) adjacency: Option<crate::csr_expand::AdjacencyCatalog>,
 }
 
 impl DataFusionPlanner {
@@ -52,6 +53,7 @@ impl DataFusionPlanner {
         Self {
             config,
             catalog: None,
+            adjacency: None,
         }
     }
 
@@ -59,6 +61,7 @@ impl DataFusionPlanner {
         Self {
             config,
             catalog: Some(catalog),
+            adjacency: None,
         }
     }
 

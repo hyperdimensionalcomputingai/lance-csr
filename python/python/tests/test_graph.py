@@ -3,7 +3,7 @@
 
 import pyarrow as pa
 import pytest
-from lance_graph import CypherQuery, DirNamespace, GraphConfig
+from lance_csr import CypherQuery, DirNamespace, GraphConfig
 
 
 @pytest.fixture
@@ -174,7 +174,11 @@ def test_variable_length_path(graph_env):
     )
     data = result.to_pydict()
     got = set(zip(data["p1"], data["p2"]))
-    assert got == {(1, 2), (1, 3), (2, 4), (3, 4), (1, 4)}
+    # Undirected: every edge from both ends, and 2-hop paths that don't reuse an edge
+    # (so no (x, x) pairs). Upstream expected only the outgoing pairs.
+    edges = {(1, 2), (1, 3), (2, 4), (3, 4)}
+    two_hop = {(1, 4), (2, 3)}
+    assert got == {p for a, b in edges | two_hop for p in [(a, b), (b, a)]}
 
 
 def test_distinct_clause(graph_env):

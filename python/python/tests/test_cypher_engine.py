@@ -3,7 +3,7 @@
 
 import pyarrow as pa
 import pytest
-from lance_graph import CypherEngine, CypherQuery, GraphConfig
+from lance_csr import CypherEngine, CypherQuery, GraphConfig
 
 
 @pytest.fixture

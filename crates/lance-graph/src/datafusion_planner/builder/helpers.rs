@@ -91,6 +91,78 @@ impl DataFusionPlanner {
                 }
                 vars.push(alias.clone());
             }
+            // The optional side is planned on top of the input's variables.
+            LogicalOperator::OptionalMatch { optional, .. } => {
+                Self::collect_variables(optional, vars);
+            }
+            LogicalOperator::ShortestPath {
+                input,
+                path_variable,
+                ..
+            } => {
+                Self::collect_variables(input, vars);
+                vars.push(path_variable.clone());
+            }
+            // Every branch binds the same variables.
+            LogicalOperator::Union { inputs } => {
+                if let Some(first) = inputs.first() {
+                    Self::collect_variables(first, vars);
+                }
+            }
+        }
+    }
+
+    /// Labels that one branch of a [`LogicalOperator::Union`] binds to its variables.
+    pub(crate) fn collect_labels(
+        op: &LogicalOperator,
+        labels: &mut std::collections::HashMap<String, String>,
+    ) {
+        match op {
+            LogicalOperator::ScanByLabel {
+                variable, label, ..
+            } => {
+                labels.insert(variable.clone(), label.clone());
+            }
+            LogicalOperator::Expand {
+                input,
+                target_variable,
+                target_label,
+                ..
+            } => {
+                Self::collect_labels(input, labels);
+                labels.insert(target_variable.clone(), target_label.clone());
+            }
+            LogicalOperator::VariableLengthExpand {
+                input,
+                source_variable,
+                target_variable,
+                ..
+            } => {
+                Self::collect_labels(input, labels);
+                if let Some(label) = labels.get(source_variable).cloned() {
+                    labels.insert(target_variable.clone(), label);
+                }
+            }
+            LogicalOperator::Filter { input, .. }
+            | LogicalOperator::Project { input, .. }
+            | LogicalOperator::Sort { input, .. }
+            | LogicalOperator::Limit { input, .. }
+            | LogicalOperator::Offset { input, .. }
+            | LogicalOperator::Distinct { input } => Self::collect_labels(input, labels),
+            LogicalOperator::Join { left, right, .. } => {
+                Self::collect_labels(left, labels);
+                Self::collect_labels(right, labels);
+            }
+            LogicalOperator::Unwind { input, .. } => {
+                if let Some(op) = input {
+                    Self::collect_labels(op, labels);
+                }
+            }
+            LogicalOperator::OptionalMatch { optional, .. } => {
+                Self::collect_labels(optional, labels)
+            }
+            LogicalOperator::ShortestPath { input, .. } => Self::collect_labels(input, labels),
+            LogicalOperator::Union { .. } => {}
         }
     }
 }

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use lance_graph::DirNamespace;
 use pyo3::prelude::*;
 
-#[pyclass(name = "DirNamespace", module = "lance.graph")]
+#[pyclass(name = "DirNamespace", module = "lance_csr.graph")]
 pub struct PyDirNamespace {
     pub(crate) inner: Arc<DirNamespace>,
 }

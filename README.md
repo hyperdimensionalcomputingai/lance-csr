@@ -1,21 +1,55 @@
-# Lance Graph
+# lance-csr
 
-Lance Graph is a Cypher-capable graph query engine built in Rust with Python bindings for building high-performance, scalable, and serverless multimodal knowledge graphs.
+lance-csr is a Cypher graph query engine over [Lance](https://lancedb.github.io/lance/) datasets, built in Rust on
+Apache DataFusion, with Python bindings. It is a fork of [lance-graph](https://github.com/lance-format/lance-graph)
+and a research test bed: it pushes the limits of CSR indexes and DataFusion on top of the Lance format, with the
+goal of making multi-hop path traversal fast.
+
+## Why a CSR
+
+lance-graph runs each relationship hop as a join between the edge and node tables. A multi-hop query repeats that
+join at every hop, building a hash table and materializing every intermediate path each time.
+[Compressed sparse row (CSR)](https://en.wikipedia.org/wiki/Sparse_matrix#Compressed_sparse_row_(CSR,_CRS_or_Yale_format))
+is the standard compact layout for a sparse matrix, and so for a graph's adjacency: an offsets array indexed by node
+points into one array of neighbor ids, so each node's neighbors sit next to each other. Expanding a hop becomes an
+array lookup per node instead of a join. lance-csr builds this index from the relationship tables and runs it inside
+DataFusion as extension operators, falling back to a join for any hop the CSR can't express.
+
+## What this fork adds
+
+- **CSR traversal** (`use_csr=True`) for single hops and variable-length paths, directed or undirected, updated
+  incrementally when the underlying Lance datasets change.
+- **A Lance-native engine** that keeps each table either on disk (read lazily from a Lance snapshot) or in memory,
+  and `refresh()`es to new dataset versions.
+- **Smarter planning**: patterns start at their most selective node, and DataFusion gets column statistics to size
+  its joins.
+- **Much wider Cypher**, enough for all 14 LDBC Interactive complex queries: `OPTIONAL MATCH`, `EXISTS`, chained
+  `WITH`, relationship alternation, `shortestPath` and more.
+- **Correctness fixes** to behavior inherited from lance-graph (for example, undirected patterns dropped incoming
+  edges), each with a regression test.
+- **Current dependencies** (Lance 13, DataFusion 54, Arrow 58, PyO3 0.28), with Delta Lake and Unity Catalog support
+  removed.
+
+## Credits
+
+lance-csr exists thanks to the maintainers and contributors of lance-graph, who built the foundation it stands on:
+the Cypher parser, semantic analysis, the DataFusion planner, the graph configuration and the Python bindings.
+See [`NOTICE`](NOTICE) for the fork point.
+maintainers.
 
 This repository contains:
 
 - `crates/lance-graph` – the Cypher-capable query engine implemented in Rust
 - `python/` – PyO3 bindings and Python packages:
-  - `lance_graph` – thin wrapper around the Rust query engine
-  - `knowledge_graph` – Lance-backed knowledge graph CLI, API, and utilities
+  - `lance_csr` – thin wrapper around the Rust query engine
 
 See `docs/project_structure.md` for the proposed workspace-based structure from
 issue #92.
 
 ## Prerequisites
 
-- Rust toolchain (1.82 or newer recommended)
-- Python 3.11
+- Rust toolchain (`rust-toolchain.toml` pins the version; rustup installs it automatically)
+- Python 3.12 or newer
 - [`uv`](https://docs.astral.sh/uv/) available on your `PATH`
 
 ## Rust crate quick start
@@ -26,11 +60,20 @@ cargo check
 cargo test
 ```
 
-## Python package quick start
+## Install
+
+```bash
+pip install lance-csr
+```
+
+Prebuilt wheels cover Linux x86-64 and native Apple Silicon (CPython 3.12+); no Rust toolchain is needed.
+See [`python/README.md`](python/README.md) for details and usage.
+
+## Python package quick start (from source)
 
 ```bash
 cd python
-uv venv --python 3.11 .venv      # create the local virtualenv
+uv venv --python 3.12 .venv      # create the local virtualenv
 source .venv/bin/activate         # activate the virtual environment
 uv pip install 'maturin[patchelf]' # install build tool
 uv pip install -e '.[tests]'     # editable install with test extras
@@ -45,7 +88,7 @@ pytest python/tests/ -v          # run the test suite
 
 ```python
 import pyarrow as pa
-from lance_graph import CypherQuery, GraphConfig
+from lance_csr import CypherQuery, GraphConfig
 
 people = pa.table({
     "person_id": [1, 2, 3, 4],
@@ -73,7 +116,7 @@ For data analytics workflows where you prefer standard SQL, use `SqlQuery` or `S
 
 ```python
 import pyarrow as pa
-from lance_graph import SqlQuery, SqlEngine
+from lance_csr import SqlQuery, SqlEngine
 
 person = pa.table({
     "id": [1, 2, 3],
@@ -92,116 +135,6 @@ engine = SqlEngine({"person": person})
 r1 = engine.execute("SELECT COUNT(*) AS cnt FROM person")
 r2 = engine.execute("SELECT name FROM person ORDER BY age DESC LIMIT 2")
 ```
-
-## Python example: Unity Catalog integration
-
-Connect to [Unity Catalog](https://github.com/unitycatalog/unitycatalog) (OSS) to discover and query Delta Lake or Parquet tables directly:
-
-```python
-from lance_graph import UnityCatalog
-
-# Connect to Unity Catalog
-uc = UnityCatalog("http://localhost:8080/api/2.1/unity-catalog")
-
-# Browse catalog metadata
-catalogs = uc.list_catalogs()
-schemas = uc.list_schemas("unity")
-tables = uc.list_tables("unity", "default")
-table = uc.get_table("unity", "default", "marksheet")
-print(table.columns())  # [{"name": "id", "type_name": "INT", ...}, ...]
-
-# Auto-register tables (Delta + Parquet) and query via SQL
-engine = uc.create_sql_engine("unity", "default")
-result = engine.execute("SELECT * FROM marksheet WHERE mark > 80")
-print(result.to_pandas())
-
-# For cloud storage (S3, Azure, GCS), pass storage options:
-uc = UnityCatalog(
-    "http://localhost:8080/api/2.1/unity-catalog",
-    storage_options={
-        "aws_access_key_id": "...",
-        "aws_secret_access_key": "...",
-        "aws_region": "us-east-1",
-    }
-)
-```
-
-## Knowledge Graph CLI & API
-
-The `knowledge_graph` package layers a simple Lance-backed knowledge graph
-service on top of the `lance_graph` engine. It provides:
-
-- A CLI (`knowledge_graph.main`) for initializing storage, running Cypher
-  queries, and bootstrapping data via heuristic text extraction.
-- A reusable FastAPI component, plus a standalone web service
-  (`knowledge_graph.webservice`) that exposes query and dataset endpoints.
-- Storage helpers that persist node and relationship tables as Lance datasets.
-
-### CLI usage
-
-```bash
-uv run knowledge_graph --init                    # initialize storage and schema stub
-uv run knowledge_graph --list-datasets           # list Lance datasets on disk
-uv run knowledge_graph --extract-preview notes.txt
-uv run knowledge_graph --extract-preview "Alice joined the graph team"
-uv run knowledge_graph --extract-and-add notes.txt
-uv run knowledge_graph "MATCH (n) RETURN n LIMIT 5"
-uv run knowledge_graph --log-level DEBUG --extract-preview "Inline text"
-uv run knowledge_graph --ask "Who is working on the Presto project?"
-
-
-# Configure LLM extraction (default)
-uv sync --extra llm  # install optional LLM dependencies
-uv sync --extra lance-storage  # install Lance dataset support
-export OPENAI_API_KEY=sk-...
-uv run knowledge_graph --llm-model gpt-4o-mini --extract-preview notes.txt
-
-# Supply additional OpenAI client options via YAML (base_url, headers, etc.)
-uv run knowledge_graph --llm-config llm_config.yaml --extract-and-add notes.txt
-
-# Fall back to the heuristic extractor when LLM access is unavailable
-uv run knowledge_graph --extractor heuristic --extract-preview notes.txt
-
-```
-
-The default extractor uses OpenAI. Configure credentials via environment
-variables supported by the SDK (for example `OPENAI_API_BASE` or
-`OPENAI_API_KEY`), or place them in a YAML file passed through `--llm-config`.
-Override the model and temperature with `--llm-model` and `--llm-temperature`.
-```
-
-By default the CLI writes datasets under `./knowledge_graph_data`. Provide
-`--root` and `--schema` to point at alternate storage locations and schema YAML.
-
-### FastAPI service
-
-Run the web service after installing the `knowledge_graph` package (and
-dependencies such as FastAPI):
-
-```bash
-uv run --package knowledge_graph knowledge_graph-webservice
-```
-
-The service exposes endpoints under `/graph`, including `/graph/health`,
-`/graph/query`, `/graph/datasets`, and `/graph/schema`.
-
-### Development workflow
-
-For linting and type checks:
-
-```bash
-# Install dev dependencies and run linters
-uv pip install -e '.[dev]'
-ruff format python/              # format code
-ruff check python/               # lint code
-pyright                          # type check
-
-# Or run individual tests
-pytest python/tests/test_graph.py::test_basic_node_selection -v
-```
-
-The Python README (`python/README.md`) contains additional details if you are
-working solely on the bindings.
 
 ## Benchmarks
 

@@ -34,6 +34,9 @@ fn create_like_expr(expression: &ValueExpression, pattern: &str, case_insensitiv
 pub(crate) fn to_df_boolean_expr(expr: &BooleanExpression) -> Expr {
     use crate::ast::{BooleanExpression as BE, ComparisonOperator as CO};
     match expr {
+        BE::PatternExists { .. } => {
+            unreachable!("the logical planner rewrites EXISTS into a mark column")
+        }
         BE::Comparison {
             left,
             operator,
@@ -152,6 +155,56 @@ pub(crate) fn to_df_value_expr(expr: &ValueExpression) -> Expr {
                         Expr::Literal(datafusion::scalar::ScalarValue::Null, None)
                     }
                 }
+                "coalesce" => datafusion::functions::core::expr_fn::coalesce(
+                    args.iter().map(to_df_value_expr).collect(),
+                ),
+                "__list" => datafusion::functions_nested::expr_fn::make_array(
+                    args.iter().map(to_df_value_expr).collect(),
+                ),
+                "tostring" => Expr::Cast(datafusion::logical_expr::Cast::new(
+                    Box::new(to_df_value_expr(&args[0])),
+                    arrow_schema::DataType::Utf8,
+                )),
+                // A path's length and node ids are columns of its variable (see shortest_path).
+                "length" | "nodes" => match &args[0] {
+                    VE::Variable(path) => col(qualify_column(path, &name.to_lowercase())),
+                    _ => Expr::Literal(datafusion::scalar::ScalarValue::Null, None),
+                },
+                "size" => Expr::Cast(datafusion::logical_expr::Cast::new(
+                    Box::new(datafusion::functions_nested::expr_fn::cardinality(
+                        to_df_value_expr(&args[0]),
+                    )),
+                    arrow_schema::DataType::Int64,
+                )),
+                // Cypher's range includes its upper bound, like DataFusion's gen_series.
+                "range" => datafusion::functions_nested::expr_fn::gen_series(
+                    to_df_value_expr(&args[0]),
+                    to_df_value_expr(&args[1]),
+                    lit(1_i64),
+                ),
+                // list[i] (0-based in Cypher, 1-based in DataFusion's array_element).
+                "__index" => datafusion::functions_nested::expr_fn::array_element(
+                    to_df_value_expr(&args[0]),
+                    to_df_value_expr(&args[1]) + lit(1_i64),
+                ),
+                // date_part('month', d): the part name is a string literal, as in Kuzu and SQL.
+                "date_part" => datafusion::functions::datetime::expr_fn::date_part(
+                    to_df_value_expr(&args[0]),
+                    to_df_value_expr(&args[1]),
+                ),
+                // Milliseconds since the Unix epoch, as Kuzu's to_epoch_ms: timestamps of any unit
+                // are first cast to millisecond precision, then to their raw Int64 value.
+                "to_epoch_ms" => {
+                    use arrow_schema::{DataType, TimeUnit};
+                    let ms = Expr::Cast(datafusion::logical_expr::Cast::new(
+                        Box::new(to_df_value_expr(&args[0])),
+                        DataType::Timestamp(TimeUnit::Millisecond, Some("UTC".into())),
+                    ));
+                    Expr::Cast(datafusion::logical_expr::Cast::new(
+                        Box::new(ms),
+                        DataType::Int64,
+                    ))
+                }
                 _ => {
                     // Unknown scalar function - return NULL
                     Expr::Literal(datafusion::scalar::ScalarValue::Null, None)
@@ -235,8 +288,12 @@ pub(crate) fn to_df_value_expr(expr: &ValueExpression) -> Expr {
                 }
                 "collect" => {
                     if args.len() == 1 {
+                        // Cypher's collect skips nulls; DataFusion's array_agg keeps them.
+                        use datafusion::logical_expr::ExprFunctionExt;
                         let arg_expr = to_df_value_expr(&args[0]);
-                        array_agg(arg_expr)
+                        let agg = array_agg(arg_expr.clone()).filter(arg_expr.is_not_null());
+                        let agg = if *distinct { agg.distinct() } else { agg };
+                        agg.build().expect("FILTER and DISTINCT apply to array_agg")
                     } else {
                         lit(0)
                     }
@@ -251,6 +308,20 @@ pub(crate) fn to_df_value_expr(expr: &ValueExpression) -> Expr {
                     Expr::Literal(datafusion::scalar::ScalarValue::Null, None)
                 }
             }
+        }
+        VE::Case { whens, otherwise } => {
+            let mut whens = whens.iter();
+            let (cond, then) = whens.next().expect("the parser requires one WHEN");
+            let mut case =
+                datafusion::logical_expr::when(to_df_boolean_expr(cond), to_df_value_expr(then));
+            for (cond, then) in whens {
+                case = case.when(to_df_boolean_expr(cond), to_df_value_expr(then));
+            }
+            match otherwise {
+                Some(e) => case.otherwise(to_df_value_expr(e)),
+                None => case.end(),
+            }
+            .expect("a CASE with at least one WHEN builds")
         }
         VE::Arithmetic {
             left,
@@ -336,6 +407,10 @@ pub(crate) fn contains_aggregate(expr: &ValueExpression) -> bool {
         VE::AggregateFunction { .. } => true,
         VE::ScalarFunction { args, .. } => args.iter().any(contains_aggregate),
         VE::Arithmetic { left, right, .. } => contains_aggregate(left) || contains_aggregate(right),
+        VE::Case { whens, otherwise } => {
+            whens.iter().any(|(_, then)| contains_aggregate(then))
+                || otherwise.as_deref().is_some_and(contains_aggregate)
+        }
         VE::VectorDistance { left, right, .. } => {
             contains_aggregate(left) || contains_aggregate(right)
         }

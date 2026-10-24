@@ -32,6 +32,16 @@ pub fn substitute_parameters(
         substitute_in_where_clause(post_where, parameters)?;
     }
 
+    for stage in &mut query.further_with_stages {
+        substitute_in_with_clause(&mut stage.with_clause, parameters)?;
+        for reading_clause in &mut stage.reading_clauses {
+            substitute_in_reading_clause(reading_clause, parameters)?;
+        }
+        if let Some(where_clause) = &mut stage.where_clause {
+            substitute_in_where_clause(where_clause, parameters)?;
+        }
+    }
+
     // Substitute in RETURN clause
     substitute_in_return_clause(&mut query.return_clause, parameters)?;
 
@@ -51,6 +61,9 @@ fn substitute_in_reading_clause(
         ReadingClause::Match(match_clause) => {
             for pattern in &mut match_clause.patterns {
                 substitute_in_graph_pattern(pattern, parameters)?;
+            }
+            if let Some(where_clause) = &mut match_clause.where_clause {
+                substitute_in_where_clause(where_clause, parameters)?;
             }
         }
         ReadingClause::Unwind(unwind_clause) => {
@@ -136,6 +149,9 @@ fn substitute_in_with_clause(
     if let Some(order_by) = &mut with_clause.order_by {
         substitute_in_order_by_clause(order_by, parameters)?;
     }
+    if let Some(where_clause) = &mut with_clause.where_clause {
+        substitute_in_where_clause(where_clause, parameters)?;
+    }
     Ok(())
 }
 
@@ -176,6 +192,17 @@ fn substitute_in_boolean_expression(
             substitute_in_boolean_expression(inner, parameters)?;
         }
         BooleanExpression::Exists(_) => {}
+        BooleanExpression::PatternExists {
+            patterns,
+            where_clause,
+        } => {
+            for pattern in patterns {
+                substitute_in_graph_pattern(pattern, parameters)?;
+            }
+            if let Some(w) = where_clause {
+                substitute_in_boolean_expression(w, parameters)?;
+            }
+        }
         BooleanExpression::In { expression, list } => {
             substitute_in_value_expression(expression, parameters)?;
             for item in list {
@@ -247,6 +274,15 @@ fn substitute_in_value_expression(
         | ValueExpression::VectorSimilarity { left, right, .. } => {
             substitute_in_value_expression(left, parameters)?;
             substitute_in_value_expression(right, parameters)?;
+        }
+        ValueExpression::Case { whens, otherwise } => {
+            for (condition, then) in whens {
+                substitute_in_boolean_expression(condition, parameters)?;
+                substitute_in_value_expression(then, parameters)?;
+            }
+            if let Some(otherwise) = otherwise {
+                substitute_in_value_expression(otherwise, parameters)?;
+            }
         }
         _ => {}
     }

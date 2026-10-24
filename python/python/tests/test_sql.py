@@ -3,7 +3,7 @@
 
 import pyarrow as pa
 import pytest
-from lance_graph import SqlEngine, SqlQuery
+from lance_csr import SqlEngine, SqlQuery
 
 
 @pytest.fixture

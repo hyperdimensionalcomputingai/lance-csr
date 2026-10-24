@@ -1,5 +1,5 @@
 UV ?= uv
-PYTHON ?= 3.11
+PYTHON ?= 3.12
 PYTEST_ARGS ?= -vv -s
 
 export PATH := $(HOME)/.local/bin:$(PATH)

@@ -12,7 +12,7 @@ Recommended uv workflow:
 
 ```shell
 cd python
-uv venv --python 3.11 .venv
+uv venv --python 3.12 .venv
 source .venv/bin/activate
 uv pip install maturin[patchelf]
 uv pip install -e '.[tests]'

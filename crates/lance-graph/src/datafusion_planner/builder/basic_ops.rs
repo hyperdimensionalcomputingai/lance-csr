@@ -10,6 +10,75 @@ use crate::logical_plan::*;
 use datafusion::logical_expr::{LogicalPlan, LogicalPlanBuilder, SortExpr};
 
 impl DataFusionPlanner {
+    /// UNION ALL of alternation branches. Each branch is planned with its own variable
+    /// labels (the analysis keeps only one per variable), then all branches are projected
+    /// to the same columns by name: a column some branch lacks (a property only one label
+    /// has) is a typed null there, and differing types are cast to the first branch's.
+    pub(crate) fn build_union(
+        &self,
+        ctx: &mut PlanningContext,
+        inputs: &[LogicalOperator],
+    ) -> Result<LogicalPlan> {
+        use datafusion::common::{Column, ScalarValue};
+        use datafusion::logical_expr::{cast, lit, Expr};
+
+        let mut plans = Vec::with_capacity(inputs.len());
+        for input in inputs {
+            let mut analysis = ctx.analysis.clone();
+            Self::collect_labels(input, &mut analysis.var_to_label);
+            let mut branch = PlanningContext::new(&analysis);
+            branch.relationship_instance_idx = ctx.relationship_instance_idx.clone();
+            plans.push(self.build_operator(&mut branch, input)?);
+            // Branches consume distinct relationship instances, in analysis order.
+            ctx.relationship_instance_idx = branch.relationship_instance_idx;
+        }
+        let mut columns: Vec<(String, arrow_schema::DataType)> = Vec::new();
+        for plan in &plans {
+            for field in plan.schema().fields() {
+                if !columns.iter().any(|(name, _)| name == field.name()) {
+                    columns.push((field.name().clone(), field.data_type().clone()));
+                }
+            }
+        }
+        let mut union: Option<LogicalPlanBuilder> = None;
+        for plan in plans {
+            let schema = plan.schema().clone();
+            let mut exprs = Vec::with_capacity(columns.len());
+            for (name, data_type) in &columns {
+                let expr = match schema.iter().find(|(_, f)| f.name() == name) {
+                    Some((qualifier, field)) => {
+                        let column = Expr::Column(Column::new(qualifier.cloned(), field.name()));
+                        if field.data_type() == data_type {
+                            column
+                        } else {
+                            cast(column, data_type.clone())
+                        }
+                    }
+                    None => lit(ScalarValue::try_from(data_type)
+                        .map_err(|e| self.plan_error("Failed to build a null column", e))?),
+                };
+                exprs.push(expr.alias(name));
+            }
+            let branch = LogicalPlanBuilder::from(plan)
+                .project(exprs)
+                .and_then(|b| b.build())
+                .map_err(|e| self.plan_error("Failed to align UNION branch", e))?;
+            union = Some(match union {
+                None => LogicalPlanBuilder::from(branch),
+                Some(b) => b
+                    .union(branch)
+                    .map_err(|e| self.plan_error("Failed to UNION branches", e))?,
+            });
+        }
+        union
+            .ok_or_else(|| crate::error::GraphError::PlanError {
+                message: "empty UNION".to_string(),
+                location: snafu::Location::new(file!(), line!(), column!()),
+            })?
+            .build()
+            .map_err(|e| self.plan_error("Failed to build UNION", e))
+    }
+
     pub(crate) fn build_filter(
         &self,
         ctx: &mut PlanningContext,
@@ -45,27 +114,65 @@ impl DataFusionPlanner {
         }
     }
 
+    /// The columns of a node or relationship variable (`b` -> `b__id`, `b__name`, ...),
+    /// renamed for `alias`, or `None` when `expr` is not a bare variable of that kind.
+    /// Lets `WITH b` carry a whole node to later clauses; RETURN never reaches here
+    /// with a node, as the logical planner expands those to their configured properties.
+    pub(crate) fn entity_columns(
+        schema: &datafusion::common::DFSchema,
+        expr: &crate::ast::ValueExpression,
+        alias: Option<&str>,
+    ) -> Option<Vec<datafusion::logical_expr::Expr>> {
+        let crate::ast::ValueExpression::Variable(var) = expr else {
+            return None;
+        };
+        let var = var.to_lowercase();
+        if schema.has_column_with_unqualified_name(&var) {
+            return None; // a scalar (an alias from an earlier WITH, an UNWIND value)
+        }
+        let prefix = format!("{var}__");
+        let columns: Vec<_> = schema
+            .iter()
+            .filter(|(_, f)| f.name().starts_with(&prefix))
+            .map(|(qualifier, f)| {
+                let name = match alias {
+                    Some(a) => format!("{}__{}", a.to_lowercase(), &f.name()[prefix.len()..]),
+                    None => f.name().clone(),
+                };
+                datafusion::logical_expr::Expr::Column(datafusion::common::Column::new(
+                    qualifier.cloned(),
+                    f.name(),
+                ))
+                .alias(name)
+            })
+            .collect();
+        (!columns.is_empty()).then_some(columns)
+    }
+
     pub(crate) fn build_simple_project(
         &self,
         input_plan: LogicalPlan,
         projections: &[ProjectionItem],
     ) -> Result<LogicalPlan> {
-        let exprs: Vec<datafusion::logical_expr::Expr> = projections
-            .iter()
-            .map(|p| {
-                let expr = super::super::expression::to_df_value_expr(&p.expression);
-                // Apply alias if provided, otherwise use Cypher dot notation
-                // Normalize alias to lowercase for case-insensitive behavior
-                if let Some(alias) = &p.alias {
-                    expr.alias(alias.to_lowercase())
-                } else {
-                    // Convert to Cypher dot notation (e.g., p__name -> p.name)
-                    let cypher_name =
-                        super::super::expression::to_cypher_column_name(&p.expression);
-                    expr.alias(cypher_name)
-                }
-            })
-            .collect();
+        let schema = input_plan.schema().clone();
+        let mut exprs: Vec<datafusion::logical_expr::Expr> = Vec::new();
+        for p in projections {
+            if let Some(columns) = Self::entity_columns(&schema, &p.expression, p.alias.as_deref())
+            {
+                exprs.extend(columns);
+                continue;
+            }
+            let expr = super::super::expression::to_df_value_expr(&p.expression);
+            // Apply alias if provided, otherwise use Cypher dot notation
+            // Normalize alias to lowercase for case-insensitive behavior
+            exprs.push(if let Some(alias) = &p.alias {
+                expr.alias(alias.to_lowercase())
+            } else {
+                // Convert to Cypher dot notation (e.g., p__name -> p.name)
+                let cypher_name = super::super::expression::to_cypher_column_name(&p.expression);
+                expr.alias(cypher_name)
+            });
+        }
         LogicalPlanBuilder::from(input_plan)
             .project(exprs)
             .map_err(|e| self.plan_error("Failed to build projection", e))?

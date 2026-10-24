@@ -11,6 +11,66 @@ use crate::logical_plan::*;
 use datafusion::logical_expr::{LogicalPlan, LogicalPlanBuilder};
 
 impl DataFusionPlanner {
+    /// LEFT JOIN for OPTIONAL MATCH on the shared variables' id columns. The optional side
+    /// repeats the input's columns for the shared variables (and any others it carries);
+    /// those are renamed for the join and dropped after it, so each name appears once.
+    pub(crate) fn build_optional_match(
+        &self,
+        ctx: &mut PlanningContext,
+        input: &LogicalOperator,
+        optional: &LogicalOperator,
+        keys: &[String],
+    ) -> Result<LogicalPlan> {
+        use datafusion::common::Column;
+        use datafusion::logical_expr::Expr;
+
+        let left = self.build_operator(ctx, input)?;
+        let right = self.build_operator(ctx, optional)?;
+        let renamed = |name: &str| format!("__optional__{name}");
+        let left_names: std::collections::HashSet<String> = left
+            .schema()
+            .fields()
+            .iter()
+            .map(|f| f.name().clone())
+            .collect();
+        let right_exprs: Vec<Expr> = right
+            .schema()
+            .iter()
+            .map(|(qualifier, f)| {
+                let column = Expr::Column(Column::new(qualifier.cloned(), f.name()));
+                if left_names.contains(f.name()) {
+                    column.alias(renamed(f.name()))
+                } else {
+                    column.alias(f.name())
+                }
+            })
+            .collect();
+        let right_keys: Vec<String> = keys.iter().map(|k| renamed(k)).collect();
+        let joined = LogicalPlanBuilder::from(right)
+            .project(right_exprs)
+            .and_then(|right| right.build())
+            .and_then(|right| {
+                LogicalPlanBuilder::from(left).join(
+                    right,
+                    datafusion::logical_expr::JoinType::Left,
+                    (keys.to_vec(), right_keys),
+                    None,
+                )
+            })
+            .and_then(|b| b.build())
+            .map_err(|e| self.plan_error("Failed to build OPTIONAL MATCH join", e))?;
+        let keep: Vec<Expr> = joined
+            .schema()
+            .iter()
+            .filter(|(_, f)| !f.name().starts_with("__optional__"))
+            .map(|(qualifier, f)| Expr::Column(Column::new(qualifier.cloned(), f.name())))
+            .collect();
+        LogicalPlanBuilder::from(joined)
+            .project(keep)
+            .and_then(|b| b.build())
+            .map_err(|e| self.plan_error("Failed to project OPTIONAL MATCH", e))
+    }
+
     /// Build a join between two logical operators
     ///
     /// The join type and keys are determined by:
