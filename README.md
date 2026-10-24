@@ -1,9 +1,41 @@
 # lance-csr
 
-A fork of [lance-graph](https://github.com/lance-format/lance-graph): a Cypher graph query engine over Lance
-datasets, built in Rust on Apache DataFusion, with Python bindings. It adds a CSR adjacency index for fast
-traversal, a lazy and refreshable engine over Lance snapshots, and much wider Cypher support. Not affiliated with
-or endorsed by the lance-graph maintainers.
+lance-csr is a Cypher graph query engine over [Lance](https://lancedb.github.io/lance/) datasets, built in Rust on
+Apache DataFusion, with Python bindings. It is a fork of [lance-graph](https://github.com/lance-format/lance-graph)
+and a research test bed: it pushes the limits of CSR indexes and DataFusion on top of the Lance format, with the
+goal of making multi-hop path traversal fast.
+
+## Why a CSR
+
+lance-graph runs each relationship hop as a join between the edge and node tables. A multi-hop query repeats that
+join at every hop, building a hash table and materializing every intermediate path each time.
+[Compressed sparse row (CSR)](https://en.wikipedia.org/wiki/Sparse_matrix#Compressed_sparse_row_(CSR,_CRS_or_Yale_format))
+is the standard compact layout for a sparse matrix, and so for a graph's adjacency: an offsets array indexed by node
+points into one array of neighbor ids, so each node's neighbors sit next to each other. Expanding a hop becomes an
+array lookup per node instead of a join. lance-csr builds this index from the relationship tables and runs it inside
+DataFusion as extension operators, falling back to a join for any hop the CSR can't express.
+
+## What this fork adds
+
+- **CSR traversal** (`use_csr=True`) for single hops and variable-length paths, directed or undirected, updated
+  incrementally when the underlying Lance datasets change.
+- **A Lance-native engine** that keeps each table either on disk (read lazily from a Lance snapshot) or in memory,
+  and `refresh()`es to new dataset versions.
+- **Smarter planning**: patterns start at their most selective node, and DataFusion gets column statistics to size
+  its joins.
+- **Much wider Cypher**, enough for all 14 LDBC Interactive complex queries: `OPTIONAL MATCH`, `EXISTS`, chained
+  `WITH`, relationship alternation, `shortestPath` and more.
+- **Correctness fixes** to behavior inherited from lance-graph (for example, undirected patterns dropped incoming
+  edges), each with a regression test.
+- **Current dependencies** (Lance 13, DataFusion 54, Arrow 58, PyO3 0.28), with Delta Lake and Unity Catalog support
+  removed.
+
+## Credits
+
+lance-csr exists thanks to the maintainers and contributors of lance-graph, who built the foundation it stands on:
+the Cypher parser, semantic analysis, the DataFusion planner, the graph configuration and the Python bindings.
+See [`NOTICE`](NOTICE) for the fork point. lance-csr is not affiliated with or endorsed by the lance-graph
+maintainers.
 
 This repository contains:
 
@@ -16,7 +48,7 @@ issue #92.
 
 ## Prerequisites
 
-- Rust toolchain (1.82 or newer recommended)
+- Rust toolchain (`rust-toolchain.toml` pins the version; rustup installs it automatically)
 - Python 3.12 or newer
 - [`uv`](https://docs.astral.sh/uv/) available on your `PATH`
 
