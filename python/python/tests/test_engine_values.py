@@ -3,9 +3,10 @@
 
 """Nodes as values, lists of nodes, UNWIND, parameters and inferred labels.
 
-The constructs LDBC's official IC queries use: `a = b` on nodes, `x IN list`, `collect(node)`
-then `UNWIND`, inline properties that read a variable, chained comparisons, unlabeled
-nodes whose label follows from a relationship's endpoints. Answers are written out by hand.
+The constructs LDBC's official IC queries use: `a = b` on nodes, `x IN list`,
+`collect(node)` then `UNWIND`, inline properties that read a variable, chained
+comparisons, unlabeled nodes whose label follows from a relationship's endpoints.
+Answers are written out by hand.
 """
 
 from datetime import datetime, timezone
@@ -56,13 +57,15 @@ CONFIG = (
 CASES = [
     # A node compared with a node compares ids.
     (
-        "MATCH (a:Person {id: 1})-[:KNOWS*1..2]->(b) WHERE NOT a = b RETURN DISTINCT b.id",
+        "MATCH (a:Person {id: 1})-[:KNOWS*1..2]->(b) WHERE NOT a = b RETURN DISTINCT "
+        "b.id",
         [(2,), (3,), (4,)],
     ),
     # `p` is a Post: HAS_CREATOR goes from Post to Person.
     ("MATCH (a:Person {id: 2})<-[:HAS_CREATOR]-(p) RETURN p.id", [(10,)]),
     (
-        "MATCH (x:City {name: 'X'}), (p:Person)-[:LIVES_IN]->(c) WHERE c IN [x] RETURN p.id",
+        "MATCH (x:City {name: 'X'}), (p:Person)-[:LIVES_IN]->(c) WHERE c IN [x] "
+        "RETURN p.id",
         [(1,), (2,)],
     ),
     # A list of nodes, and a pattern after WITH that starts at a new node.
@@ -91,7 +94,8 @@ CASES = [
     # A scalar from WITH survives a variable-length path.
     (
         "MATCH (c:City {name: 'Y'}) WITH c.id AS cid "
-        "MATCH (:Person {id: 1})-[:KNOWS*1..2]->(b)-[:LIVES_IN]->(c2) WHERE c2.id = cid "
+        "MATCH (:Person {id: 1})-[:KNOWS*1..2]->(b)-[:LIVES_IN]->(c2) WHERE c2.id = "
+        "cid "
         "RETURN DISTINCT b.id",
         [(3,), (4,)],
     ),
@@ -135,7 +139,8 @@ CASES += [
     (
         "MATCH (p:Person {id: 3})<-[:HAS_CREATOR]-(post:Post) WITH p, post "
         "ORDER BY post.created ASC "
-        "WITH p, head(collect({id: post.id, at: post.created})) AS first RETURN first.id",
+        "WITH p, head(collect({id: post.id, at: post.created})) AS first RETURN "
+        "first.id",
         [(11,)],
     ),
     (
@@ -144,13 +149,49 @@ CASES += [
     ),
     (
         "MATCH (a:Post {id: 10}), (b:Post {id: 11}) "
-        "RETURN toInteger(duration.inSeconds(a.created, b.created).seconds / 86400.0) AS days",
+        "RETURN toInteger(duration.inSeconds(a.created, b.created).seconds / "
+        "86400.0) AS days",
         [(152,)],
     ),
     (
-        "MATCH (a:Person {id: 4}), (b:Person {id: 1}), p = shortestPath((a)-[:KNOWS*]-(b)) "
+        "MATCH (a:Person {id: 4}), (b:Person {id: 1}), p = "
+        "shortestPath((a)-[:KNOWS*]-(b)) "
         "RETURN CASE p IS NULL WHEN true THEN -1 ELSE length(p) END AS len",
         [(2,)],
+    ),
+]
+
+# List and pattern comprehensions.
+CASES += [
+    (
+        "MATCH (p:Person) OPTIONAL MATCH (p)<-[:HAS_CREATOR]-(post:Post) "
+        "WITH p, collect(post) AS posts RETURN p.id, [x IN posts WHERE x.id > 10 | "
+        "x.id] AS l",
+        [(1, []), (2, []), (3, [11, 12]), (4, [])],
+    ),
+    # A pattern predicate inside the comprehension (LDBC IC10's shape).
+    (
+        "MATCH (p:Person) OPTIONAL MATCH (p)-[:KNOWS]->(f:Person) WITH p, collect(f) "
+        "AS fs "
+        "RETURN p.id, size([f IN fs WHERE (f)-[:LIVES_IN]->(:City {name: 'Y'})]) AS "
+        "inY",
+        [(1, 1), (2, 1), (3, 1), (4, 0)],
+    ),
+    (
+        "MATCH (p:Person) RETURN p.id, [(p)<-[:HAS_CREATOR]-(post) WHERE post.id > "
+        "10 | post.id] AS l",
+        [(1, []), (2, []), (3, [11, 12]), (4, [])],
+    ),
+    (
+        "MATCH (a:Person)-[:KNOWS]->(b:Person) "
+        "RETURN a.id, b.id, size([(a)-[:KNOWS]->(m)-[:KNOWS]->(b) | m]) AS via",
+        [(1, 2, 0), (1, 3, 1), (2, 3, 0), (3, 4, 0)],
+    ),
+    (
+        "MATCH (a:Person {id: 1}), (b:Person {id: 4}), p = "
+        "shortestPath((a)-[:KNOWS*]->(b)) "
+        "RETURN [n IN nodes(p) | n.name] AS names",
+        [(["a", "c", "d"],)],
     ),
 ]
 

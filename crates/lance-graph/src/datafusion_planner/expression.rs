@@ -424,6 +424,9 @@ pub(crate) fn to_df_value_expr(expr: &ValueExpression) -> Expr {
                 .collect(),
         ),
         VE::Field { base, field } => super::cypher_udf::field(to_df_value_expr(base), field),
+        VE::ListComprehension { .. } | VE::PatternComprehension { .. } => {
+            unreachable!("the logical planner turns comprehensions into operators")
+        }
     }
 }
 

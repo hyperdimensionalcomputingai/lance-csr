@@ -38,6 +38,8 @@ pub struct RelationshipInstance {
 pub struct PlanningContext<'a> {
     pub analysis: &'a QueryAnalysis,
     pub(crate) relationship_instance_idx: HashMap<String, usize>,
+    /// Element rows of the list comprehensions being built, innermost last.
+    pub(crate) comprehension_elements: Vec<datafusion::logical_expr::LogicalPlan>,
 }
 
 impl<'a> PlanningContext<'a> {
@@ -45,6 +47,7 @@ impl<'a> PlanningContext<'a> {
         Self {
             analysis,
             relationship_instance_idx: HashMap::new(),
+            comprehension_elements: Vec::new(),
         }
     }
 
@@ -236,6 +239,24 @@ fn analyze_operator(
                 analyze_operator(input, analysis, rel_counter)?;
             }
         }
+        // Same order as `build_list_comprehension`: the rows, then the element plan.
+        LogicalOperator::ListComprehension {
+            input,
+            variable,
+            label,
+            element,
+            ..
+        } => {
+            analyze_operator(input, analysis, rel_counter)?;
+            if let Some(label) = label {
+                analysis
+                    .var_to_label
+                    .insert(variable.clone(), label.clone());
+                analysis.required_datasets.insert(label.clone());
+            }
+            analyze_operator(element, analysis, rel_counter)?;
+        }
+        LogicalOperator::ComprehensionElement => {}
     }
     Ok(())
 }

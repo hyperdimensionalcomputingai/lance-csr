@@ -295,6 +295,23 @@ fn substitute_in_value_expression(
             }
         }
         ValueExpression::Field { base, .. } => substitute_in_value_expression(base, parameters)?,
+        ValueExpression::PatternComprehension { filter, map, .. } => {
+            if let Some(b) = filter {
+                substitute_in_boolean_expression(b, parameters)?;
+            }
+            substitute_in_value_expression(map, parameters)?;
+        }
+        ValueExpression::ListComprehension {
+            list, filter, map, ..
+        } => {
+            substitute_in_value_expression(list, parameters)?;
+            if let Some(b) = filter {
+                substitute_in_boolean_expression(b, parameters)?;
+            }
+            if let Some(m) = map {
+                substitute_in_value_expression(m, parameters)?;
+            }
+        }
         _ => {}
     }
     Ok(())

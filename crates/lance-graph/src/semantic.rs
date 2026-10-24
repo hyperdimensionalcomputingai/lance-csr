@@ -698,6 +698,45 @@ impl SemanticAnalyzer {
                 }
             }
             ValueExpression::Field { base, .. } => self.analyze_value_expression(base)?,
+            ValueExpression::PatternComprehension {
+                pattern,
+                filter,
+                map,
+            } => {
+                // New variables of the pattern are local to the comprehension.
+                let before = self.variables.clone();
+                let result = (|| -> Result<()> {
+                    self.analyze_graph_pattern(&GraphPattern::Path((**pattern).clone()))?;
+                    if let Some(b) = filter {
+                        self.analyze_boolean_expression(b)?;
+                    }
+                    self.analyze_value_expression(map)
+                })();
+                self.variables = before;
+                result?;
+            }
+            ValueExpression::ListComprehension {
+                variable,
+                list,
+                filter,
+                map,
+            } => {
+                self.analyze_value_expression(list)?;
+                // The variable is local to the comprehension.
+                let before = self.variables.clone();
+                self.register_projection_alias(variable);
+                let result = (|| -> Result<()> {
+                    if let Some(b) = filter {
+                        self.analyze_boolean_expression(b)?;
+                    }
+                    if let Some(m) = map {
+                        self.analyze_value_expression(m)?;
+                    }
+                    Ok(())
+                })();
+                self.variables = before;
+                result?;
+            }
         }
         Ok(())
     }

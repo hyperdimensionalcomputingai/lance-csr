@@ -154,6 +154,26 @@ pub enum LogicalOperator {
         optional: Box<LogicalOperator>,
         keys: Vec<String>,
     },
+
+    /// `[variable IN list WHERE keep | map]` for each row of `input`, into the column
+    /// `output`. The list is unnested with element positions (an empty or null list keeps
+    /// its row), `element` is planned over those element rows (its leaf is
+    /// [`LogicalOperator::ComprehensionElement`]; EXISTS marks of `keep` join onto it), and
+    /// the kept values are collected back per row in position order. With `label`, the
+    /// list holds node ids and each element is joined to its node.
+    ListComprehension {
+        input: Box<LogicalOperator>,
+        list: ValueExpression,
+        variable: String,
+        label: Option<String>,
+        element: Box<LogicalOperator>,
+        keep: Option<BooleanExpression>,
+        map: ValueExpression,
+        output: String,
+    },
+
+    /// The element rows of the enclosing [`LogicalOperator::ListComprehension`].
+    ComprehensionElement,
 }
 
 /// Projection item for SELECT/RETURN clauses
@@ -194,6 +214,10 @@ pub struct LogicalPlanner<'a> {
     exists_marks: usize,
     /// Aliases holding lists of node ids (`collect(node) AS friends`), with the label.
     node_lists: HashMap<String, String>,
+    /// List comprehensions planned so far (output columns `__list_<n>`).
+    comprehensions: usize,
+    /// The node label of each path variable's nodes, for `nodes(path)`.
+    path_labels: HashMap<String, String>,
 }
 
 impl<'a> LogicalPlanner<'a> {
@@ -204,6 +228,8 @@ impl<'a> LogicalPlanner<'a> {
             fan_out: None,
             exists_marks: 0,
             node_lists: HashMap::new(),
+            comprehensions: 0,
+            path_labels: HashMap::new(),
         }
     }
 
@@ -739,6 +765,134 @@ impl<'a> LogicalPlanner<'a> {
                 Ok(input)
             }
             ValueExpression::Field { base, .. } => self.rewrite_exists_in_value(input, base),
+            ValueExpression::PatternComprehension {
+                pattern,
+                filter,
+                map,
+            } => {
+                // As an EXISTS mark, but collecting `map` per binding of the shared
+                // variables instead of marking `true`.
+                self.comprehensions += 1;
+                let column = format!("__pattern_{}", self.comprehensions);
+                let inner = MatchClause {
+                    patterns: vec![GraphPattern::Path((**pattern).clone())],
+                    optional: true,
+                    where_clause: filter.as_ref().map(|w| WhereClause {
+                        expression: (**w).clone(),
+                    }),
+                };
+                let before = self.variables.clone();
+                let planned = (|| -> Result<(LogicalOperator, ValueExpression)> {
+                    let planned = self.plan_optional_match(Some(input), &inner)?;
+                    let mut value = (**map).clone();
+                    let LogicalOperator::OptionalMatch {
+                        input,
+                        optional,
+                        keys,
+                    } = planned
+                    else {
+                        unreachable!("plan_optional_match returns an OptionalMatch")
+                    };
+                    let optional = self.rewrite_exists_in_value(*optional, &mut value)?;
+                    self.resolve_value(&mut value);
+                    let mut projections: Vec<ProjectionItem> = keys
+                        .iter()
+                        .map(|k| ProjectionItem {
+                            expression: ValueExpression::Variable(
+                                k.split("__").next().unwrap_or(k).to_string(),
+                            ),
+                            alias: None,
+                        })
+                        .collect();
+                    projections.push(ProjectionItem {
+                        expression: ValueExpression::AggregateFunction {
+                            name: "collect".to_string(),
+                            args: vec![value],
+                            distinct: false,
+                        },
+                        alias: Some(column.clone()),
+                    });
+                    let collected = LogicalOperator::Project {
+                        input: Box::new(optional),
+                        projections,
+                    };
+                    let joined = LogicalOperator::OptionalMatch {
+                        input,
+                        optional: Box::new(collected),
+                        keys,
+                    };
+                    // No match: the left join gives null, which is an empty list.
+                    let result = ValueExpression::ScalarFunction {
+                        name: "coalesce".to_string(),
+                        args: vec![
+                            ValueExpression::Variable(column.clone()),
+                            ValueExpression::ScalarFunction {
+                                name: "__list".to_string(),
+                                args: vec![],
+                            },
+                        ],
+                    };
+                    Ok((joined, result))
+                })();
+                self.variables = before;
+                let (joined, result) = planned?;
+                *expr = result;
+                Ok(joined)
+            }
+            ValueExpression::ListComprehension {
+                variable,
+                list,
+                filter,
+                map,
+            } => {
+                input = self.rewrite_exists_in_value(input, list)?;
+                self.resolve_value(list);
+                let label = match list.as_ref() {
+                    ValueExpression::Variable(l) => self.node_lists.get(l).cloned(),
+                    ValueExpression::ScalarFunction { name, args }
+                        if name.eq_ignore_ascii_case("nodes") =>
+                    {
+                        match args.as_slice() {
+                            [ValueExpression::Variable(p)] => self.path_labels.get(p).cloned(),
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                };
+                self.comprehensions += 1;
+                let output = format!("__list_{}", self.comprehensions);
+                // The variable is local: an element of the list, a node when it has a label.
+                let before = self.variables.clone();
+                let kind = label.clone().unwrap_or_else(|| "Unwound".to_string());
+                self.variables.insert(variable.clone(), kind);
+                let lowered = (|| -> Result<LogicalOperator> {
+                    let mut element = LogicalOperator::ComprehensionElement;
+                    let mut keep = filter.as_deref().cloned();
+                    if let Some(k) = &mut keep {
+                        element = self.rewrite_exists(element, k)?;
+                        self.resolve_boolean(k);
+                    }
+                    let mut value = map
+                        .as_deref()
+                        .cloned()
+                        .unwrap_or_else(|| ValueExpression::Variable(variable.clone()));
+                    element = self.rewrite_exists_in_value(element, &mut value)?;
+                    self.resolve_value(&mut value);
+                    Ok(LogicalOperator::ListComprehension {
+                        input: Box::new(input),
+                        list: (**list).clone(),
+                        variable: variable.clone(),
+                        label,
+                        element: Box::new(element),
+                        keep,
+                        map: value,
+                        output: output.clone(),
+                    })
+                })();
+                self.variables = before;
+                *expr = ValueExpression::Variable(output);
+                lowered
+            }
             _ => Ok(input),
         }
     }
@@ -791,6 +945,9 @@ impl<'a> LogicalPlanner<'a> {
         // Not a node: the marker keeps it in WITH scope and matches no node mapping.
         self.variables
             .insert(path_variable.clone(), "Path".to_string());
+        if let Some(label) = self.variables.get(&ends[0]).cloned() {
+            self.path_labels.insert(path_variable.clone(), label);
+        }
         let length = rel.length.as_ref();
         Ok(LogicalOperator::ShortestPath {
             input: Box::new(plan.expect("both end nodes are planned")),
@@ -1114,6 +1271,13 @@ impl<'a> LogicalPlanner<'a> {
             LogicalOperator::OptionalMatch { optional, .. } => {
                 self.extract_variable_from_plan(optional)
             }
+            LogicalOperator::ListComprehension { input, .. } => {
+                self.extract_variable_from_plan(input)
+            }
+            LogicalOperator::ComprehensionElement => Err(GraphError::PlanError {
+                message: "a comprehension's element rows bind no pattern variable".to_string(),
+                location: snafu::Location::new(file!(), line!(), column!()),
+            }),
             LogicalOperator::ShortestPath {
                 target_variable, ..
             } => Ok(target_variable.clone()),

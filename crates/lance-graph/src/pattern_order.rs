@@ -234,6 +234,30 @@ fn value_variables<'a>(expr: &'a ValueExpression, out: &mut HashSet<&'a str>) {
         ValueExpression::Boolean(b) => boolean_variables(b, out),
         ValueExpression::Map(entries) => entries.iter().for_each(|(_, v)| value_variables(v, out)),
         ValueExpression::Field { base, .. } => value_variables(base, out),
+        ValueExpression::PatternComprehension {
+            pattern,
+            filter,
+            map,
+        } => {
+            let nodes = std::iter::once(&pattern.start_node)
+                .chain(pattern.segments.iter().map(|s| &s.end_node));
+            out.extend(nodes.filter_map(|n| n.variable.as_deref()));
+            if let Some(b) = filter {
+                boolean_variables(b, out);
+            }
+            value_variables(map, out);
+        }
+        ValueExpression::ListComprehension {
+            list, filter, map, ..
+        } => {
+            value_variables(list, out);
+            if let Some(b) = filter {
+                boolean_variables(b, out);
+            }
+            if let Some(m) = map {
+                value_variables(m, out);
+            }
+        }
         ValueExpression::Literal(_)
         | ValueExpression::Parameter(_)
         | ValueExpression::VectorLiteral(_) => {}

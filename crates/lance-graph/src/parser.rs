@@ -665,7 +665,9 @@ fn comparison_operator(input: &str) -> IResult<&str, ComparisonOperator> {
 fn basic_value_expression(input: &str) -> IResult<&str, ValueExpression> {
     alt((
         parse_vector_literal, // Try vector literal first [0.1, 0.2]
-        list_literal,         // Then a list of any expressions [a.x, 'y'] (or [])
+        pattern_comprehension,
+        list_comprehension,
+        list_literal, // Then a list of any expressions [a.x, 'y'] (or [])
         map_literal,
         parse_parameter,                               // Try $parameter
         function_call,                                 // Regular function calls
@@ -684,6 +686,51 @@ fn expression(input: &str) -> IResult<&str, ValueExpression> {
         }),
         value_expression,
     ))(input)
+}
+
+// `[(a)-[:R]->(b) WHERE predicate | value]`
+fn pattern_comprehension(input: &str) -> IResult<&str, ValueExpression> {
+    let (input, _) = tuple((char('['), multispace0))(input)?;
+    let (input, pattern) = path_pattern(input)?;
+    let (input, filter) = opt(where_clause)(input)?;
+    let (input, map) = preceded(tuple((multispace0, char('|'), multispace0)), expression)(input)?;
+    let (input, _) = tuple((multispace0, char(']')))(input)?;
+    Ok((
+        input,
+        ValueExpression::PatternComprehension {
+            pattern: Box::new(pattern),
+            filter: filter.map(|w| Box::new(w.expression)),
+            map: Box::new(map),
+        },
+    ))
+}
+
+// `[x IN list WHERE predicate | value]`
+fn list_comprehension(input: &str) -> IResult<&str, ValueExpression> {
+    let (input, (_, _, variable, _, _, _, list)) = tuple((
+        char('['),
+        multispace0,
+        identifier,
+        multispace1,
+        tag_no_case("IN"),
+        multispace1,
+        value_expression,
+    ))(input)?;
+    let (input, filter) = opt(where_clause)(input)?;
+    let (input, map) = opt(preceded(
+        tuple((multispace0, char('|'), multispace0)),
+        expression,
+    ))(input)?;
+    let (input, _) = tuple((multispace0, char(']')))(input)?;
+    Ok((
+        input,
+        ValueExpression::ListComprehension {
+            variable: variable.to_string(),
+            list: Box::new(list),
+            filter: filter.map(|w| Box::new(w.expression)),
+            map: map.map(Box::new),
+        },
+    ))
 }
 
 // `{key: value, ...}`

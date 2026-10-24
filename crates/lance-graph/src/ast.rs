@@ -408,6 +408,20 @@ pub enum ValueExpression {
         base: Box<ValueExpression>,
         field: String,
     },
+    /// `[(a)-[:R]->(b) WHERE predicate | value]`: the values for each match of the pattern
+    /// from this row's bound variables.
+    PatternComprehension {
+        pattern: Box<PathPattern>,
+        filter: Option<Box<BooleanExpression>>,
+        map: Box<ValueExpression>,
+    },
+    /// `[x IN list WHERE predicate | value]`, both parts optional.
+    ListComprehension {
+        variable: String,
+        list: Box<ValueExpression>,
+        filter: Option<Box<BooleanExpression>>,
+        map: Option<Box<ValueExpression>>,
+    },
     /// Vector literal: [0.1, 0.2, 0.3]
     /// Represents an inline vector for similarity search
     VectorLiteral(Vec<f32>),
@@ -610,6 +624,23 @@ pub fn transform_value(expr: &mut ValueExpression, f: &mut dyn FnMut(&mut ValueE
             entries.iter_mut().for_each(|(_, v)| transform_value(v, f))
         }
         ValueExpression::Field { base, .. } => transform_value(base, f),
+        ValueExpression::ListComprehension {
+            list, filter, map, ..
+        } => {
+            transform_value(list, f);
+            if let Some(b) = filter {
+                transform_boolean_values(b, f);
+            }
+            if let Some(m) = map {
+                transform_value(m, f);
+            }
+        }
+        ValueExpression::PatternComprehension { filter, map, .. } => {
+            if let Some(b) = filter {
+                transform_boolean_values(b, f);
+            }
+            transform_value(map, f);
+        }
         ValueExpression::Variable(_)
         | ValueExpression::Property(_)
         | ValueExpression::Literal(_)
