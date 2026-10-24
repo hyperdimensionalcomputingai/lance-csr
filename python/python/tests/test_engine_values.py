@@ -113,6 +113,47 @@ CASES = [
     ("MATCH (p:Person {id: 1}) RETURN [p.name, p.id] AS l", [(["a", "1"],)]),
 ]
 
+# Predicates as values, maps, fields of values, and collect() after ORDER BY.
+CASES += [
+    (
+        "MATCH (a:Person)-[:KNOWS]->(b) "
+        "RETURN a.id, b.id, (a)-[:KNOWS]->(:Person)-[:KNOWS]->(b) AS viaOne",
+        [(1, 2, False), (1, 3, True), (2, 3, False), (3, 4, False)],
+    ),
+    (
+        "MATCH (p:Person) OPTIONAL MATCH (p)<-[:HAS_CREATOR]-(post:Post) "
+        "RETURN DISTINCT p.id, post IS NULL AS none",
+        [(1, True), (2, False), (3, False), (4, True)],
+    ),
+    (
+        "MATCH (p:Person {id: 3})<-[:HAS_CREATOR]-(post:Post) WITH p, post "
+        "ORDER BY post.created DESC "
+        "WITH p, head(collect({id: post.id, at: post.created})) AS latest "
+        "RETURN p.id, latest.id",
+        [(3, 12)],
+    ),
+    (
+        "MATCH (p:Person {id: 3})<-[:HAS_CREATOR]-(post:Post) WITH p, post "
+        "ORDER BY post.created ASC "
+        "WITH p, head(collect({id: post.id, at: post.created})) AS first RETURN first.id",
+        [(11,)],
+    ),
+    (
+        "MATCH (post:Post {id: 11}) RETURN post.created.month, post.created.year",
+        [(6, 2020)],
+    ),
+    (
+        "MATCH (a:Post {id: 10}), (b:Post {id: 11}) "
+        "RETURN toInteger(duration.inSeconds(a.created, b.created).seconds / 86400.0) AS days",
+        [(152,)],
+    ),
+    (
+        "MATCH (a:Person {id: 4}), (b:Person {id: 1}), p = shortestPath((a)-[:KNOWS*]-(b)) "
+        "RETURN CASE p IS NULL WHEN true THEN -1 ELSE length(p) END AS len",
+        [(2,)],
+    ),
+]
+
 
 def rows(table):
     return sorted(tuple(r.values()) for r in table.to_pylist())

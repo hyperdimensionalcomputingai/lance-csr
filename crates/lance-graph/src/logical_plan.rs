@@ -460,6 +460,13 @@ impl<'a> LogicalPlanner<'a> {
                     self.resolve_value(e);
                 }
             }
+            ValueExpression::Boolean(b) => self.resolve_boolean(b),
+            // A node inside a map keeps its properties (see `bind_value`), not just its id.
+            ValueExpression::Map(entries) => entries
+                .iter_mut()
+                .filter(|(_, v)| !matches!(v, ValueExpression::Variable(_)))
+                .for_each(|(_, v)| self.resolve_value(v)),
+            ValueExpression::Field { base, .. } => self.resolve_value(base),
             _ => {}
         }
     }
@@ -724,6 +731,14 @@ impl<'a> LogicalPlanner<'a> {
                 input = self.rewrite_exists_in_value(input, left)?;
                 self.rewrite_exists_in_value(input, right)
             }
+            ValueExpression::Boolean(b) => self.rewrite_exists(input, b),
+            ValueExpression::Map(entries) => {
+                for (_, v) in entries.iter_mut() {
+                    input = self.rewrite_exists_in_value(input, v)?;
+                }
+                Ok(input)
+            }
+            ValueExpression::Field { base, .. } => self.rewrite_exists_in_value(input, base),
             _ => Ok(input),
         }
     }

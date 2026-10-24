@@ -469,6 +469,23 @@ impl SemanticAnalyzer {
                         }
                     }
                     "__list" => {}
+                    "head" | "tointeger" | "tofloat" | "date" | "datetime" => {
+                        if args.len() != 1 {
+                            return Err(GraphError::PlanError {
+                                message: format!("{} requires exactly 1 argument", name),
+                                location: snafu::Location::new(file!(), line!(), column!()),
+                            });
+                        }
+                    }
+                    "duration.inseconds" => {
+                        if args.len() != 2 {
+                            return Err(GraphError::PlanError {
+                                message: "duration.inSeconds requires exactly 2 arguments"
+                                    .to_string(),
+                                location: snafu::Location::new(file!(), line!(), column!()),
+                            });
+                        }
+                    }
                     "tostring" => {
                         if args.len() != 1 {
                             return Err(GraphError::PlanError {
@@ -674,6 +691,13 @@ impl SemanticAnalyzer {
             ValueExpression::Parameter(_) => {
                 // Parameters are always valid (resolved at runtime)
             }
+            ValueExpression::Boolean(b) => self.analyze_boolean_expression(b)?,
+            ValueExpression::Map(entries) => {
+                for (_, v) in entries {
+                    self.analyze_value_expression(v)?;
+                }
+            }
+            ValueExpression::Field { base, .. } => self.analyze_value_expression(base)?,
         }
         Ok(())
     }

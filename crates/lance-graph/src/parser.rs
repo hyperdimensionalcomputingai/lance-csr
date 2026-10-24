@@ -666,12 +666,50 @@ fn basic_value_expression(input: &str) -> IResult<&str, ValueExpression> {
     alt((
         parse_vector_literal, // Try vector literal first [0.1, 0.2]
         list_literal,         // Then a list of any expressions [a.x, 'y'] (or [])
-        parse_parameter,      // Try $parameter
-        function_call,        // Regular function calls
+        map_literal,
+        parse_parameter,                               // Try $parameter
+        function_call,                                 // Regular function calls
         map(property_value, ValueExpression::Literal), // Try literals BEFORE property references
         map(property_reference, ValueExpression::Property),
         map(identifier, |id| ValueExpression::Variable(id.to_string())),
     ))(input)
+}
+
+// A value where a predicate may also appear (projections, CASE, lists, arguments, maps):
+// `path IS NULL`, `NOT (a)-[:R]-(b)`, `x IN list` are boolean values.
+fn expression(input: &str) -> IResult<&str, ValueExpression> {
+    alt((
+        map(boolean_expression, |b| {
+            ValueExpression::Boolean(Box::new(b))
+        }),
+        value_expression,
+    ))(input)
+}
+
+// `{key: value, ...}`
+fn map_literal(input: &str) -> IResult<&str, ValueExpression> {
+    let entry = tuple((
+        multispace0,
+        identifier,
+        multispace0,
+        char(':'),
+        multispace0,
+        expression,
+    ));
+    let (input, entries) = delimited(
+        tuple((char('{'), multispace0)),
+        separated_list0(tuple((multispace0, char(','))), entry),
+        tuple((multispace0, char('}'))),
+    )(input)?;
+    Ok((
+        input,
+        ValueExpression::Map(
+            entries
+                .into_iter()
+                .map(|(_, k, _, _, _, v)| (k.to_string(), v))
+                .collect(),
+        ),
+    ))
 }
 
 // Parse a value expression: arithmetic over primaries, `*` `/` `%` binding tighter than
@@ -741,18 +779,29 @@ fn primary_value_expression(input: &str) -> IResult<&str, ValueExpression> {
         case_expression,
         single_value_expression,
     ))(input)?;
-    // `list[i]`, with the `[` right after the value (so `x IN [1, 2]` is not an index).
-    while let Ok((rest, index)) = delimited(
-        tuple((char('['), multispace0)),
-        value_expression,
-        tuple((multispace0, char(']'))),
-    )(input)
-    {
-        value = ValueExpression::ScalarFunction {
-            name: "__index".to_string(),
-            args: vec![value, index],
-        };
-        input = rest;
+    // `list[i]`, with the `[` right after the value (so `x IN [1, 2]` is not an index), and
+    // `value.field`.
+    loop {
+        if let Ok((rest, index)) = delimited(
+            tuple((char('['), multispace0)),
+            value_expression,
+            tuple((multispace0, char(']'))),
+        )(input)
+        {
+            value = ValueExpression::ScalarFunction {
+                name: "__index".to_string(),
+                args: vec![value, index],
+            };
+            input = rest;
+        } else if let Ok((rest, field)) = preceded(char('.'), identifier)(input) {
+            value = ValueExpression::Field {
+                base: Box::new(value),
+                field: field.to_string(),
+            };
+            input = rest;
+        } else {
+            break;
+        }
     }
     Ok((input, value))
 }
@@ -761,16 +810,16 @@ fn primary_value_expression(input: &str) -> IResult<&str, ValueExpression> {
 fn case_expression(input: &str) -> IResult<&str, ValueExpression> {
     let keyword = |k: &'static str| tuple((multispace0, tag_no_case(k), multispace1));
     let (input, _) = tuple((tag_no_case("CASE"), multispace1))(input)?;
-    let (input, operand) = opt(terminated(value_expression, peek(keyword("WHEN"))))(input)?;
+    let (input, operand) = opt(terminated(expression, peek(keyword("WHEN"))))(input)?;
     let (input, whens) = match &operand {
         None => many1(tuple((
             preceded(keyword("WHEN"), boolean_expression),
-            preceded(keyword("THEN"), value_expression),
+            preceded(keyword("THEN"), expression),
         )))(input)?,
         Some(operand) => {
             let (input, pairs) = many1(tuple((
-                preceded(keyword("WHEN"), value_expression),
-                preceded(keyword("THEN"), value_expression),
+                preceded(keyword("WHEN"), expression),
+                preceded(keyword("THEN"), expression),
             )))(input)?;
             let whens = pairs
                 .into_iter()
@@ -786,7 +835,7 @@ fn case_expression(input: &str) -> IResult<&str, ValueExpression> {
             (input, whens)
         }
     };
-    let (input, otherwise) = opt(preceded(keyword("ELSE"), value_expression))(input)?;
+    let (input, otherwise) = opt(preceded(keyword("ELSE"), expression))(input)?;
     let (input, _) = tuple((multispace0, tag_no_case("END")))(input)?;
     Ok((
         input,
@@ -900,7 +949,8 @@ fn parse_parameter(input: &str) -> IResult<&str, ValueExpression> {
 
 // Parse a function call: function_name(args)
 fn function_call(input: &str) -> IResult<&str, ValueExpression> {
-    let (input, name) = identifier(input)?;
+    // Namespaced names such as `duration.inSeconds`.
+    let (input, name) = recognize(pair(identifier, many0(preceded(char('.'), identifier))))(input)?;
     let (input, _) = multispace0(input)?;
     let (input, _) = char('(')(input)?;
     let (input, _) = multispace0(input)?;
@@ -935,10 +985,8 @@ fn function_call(input: &str) -> IResult<&str, ValueExpression> {
     }
 
     // Parse regular function arguments
-    let (input, args) = separated_list0(
-        tuple((multispace0, char(','), multispace0)),
-        value_expression,
-    )(input)?;
+    let (input, args) =
+        separated_list0(tuple((multispace0, char(','), multispace0)), expression)(input)?;
     let (input, _) = multispace0(input)?;
     let (input, _) = char(')')(input)?;
 
@@ -1042,10 +1090,7 @@ fn parse_vector_literal(input: &str) -> IResult<&str, ValueExpression> {
 fn list_literal(input: &str) -> IResult<&str, ValueExpression> {
     let (input, items) = delimited(
         tuple((char('['), multispace0)),
-        separated_list0(
-            tuple((multispace0, char(','), multispace0)),
-            value_expression,
-        ),
+        separated_list0(tuple((multispace0, char(','), multispace0)), expression),
         tuple((multispace0, char(']'))),
     )(input)?;
     Ok((
@@ -1134,7 +1179,7 @@ fn return_clause(input: &str) -> IResult<&str, ReturnClause> {
 
 // Parse a return item
 fn return_item(input: &str) -> IResult<&str, ReturnItem> {
-    let (input, expression) = value_expression(input)?;
+    let (input, expression) = expression(input)?;
     let (input, _) = multispace0(input)?;
     let (input, alias) = opt(preceded(
         tuple((tag_no_case("AS"), multispace1)),

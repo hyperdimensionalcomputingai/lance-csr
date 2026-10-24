@@ -398,6 +398,16 @@ pub enum ValueExpression {
     },
     /// Parameter reference for query parameters (e.g., $query_vector)
     Parameter(String),
+    /// A predicate used as a value: `path IS NULL`, `NOT (a)-[:R]-(b) AS isNew`.
+    Boolean(Box<BooleanExpression>),
+    /// A map literal `{key: value, ...}`; a node as a value inside it keeps its properties.
+    Map(Vec<(String, ValueExpression)>),
+    /// `value.field` on something other than a node or relationship variable: a map key,
+    /// or a component of a date or timestamp (`birthday.month`).
+    Field {
+        base: Box<ValueExpression>,
+        field: String,
+    },
     /// Vector literal: [0.1, 0.2, 0.3]
     /// Represents an inline vector for similarity search
     VectorLiteral(Vec<f32>),
@@ -419,7 +429,8 @@ pub fn classify_function(name: &str) -> FunctionType {
     match name.to_lowercase().as_str() {
         "count" | "sum" | "avg" | "min" | "max" | "collect" => FunctionType::Aggregate,
         "tolower" | "lower" | "toupper" | "upper" | "coalesce" | "date_part" | "to_epoch_ms"
-        | "length" | "nodes" | "size" | "range" | "__index" | "__list" | "tostring" => {
+        | "length" | "nodes" | "size" | "range" | "__index" | "__list" | "tostring" | "head"
+        | "tointeger" | "tofloat" | "date" | "datetime" | "duration.inseconds" => {
             FunctionType::Scalar
         }
         // Vector functions are handled separately as special variants
@@ -568,6 +579,77 @@ impl PropertyRef {
             variable: variable.into(),
             property: property.into(),
         }
+    }
+}
+
+/// Apply `f` to every value inside `expr`, children before parents, including the values
+/// inside predicates. Patterns of EXISTS subqueries are left alone.
+pub fn transform_value(expr: &mut ValueExpression, f: &mut dyn FnMut(&mut ValueExpression)) {
+    match expr {
+        ValueExpression::ScalarFunction { args, .. }
+        | ValueExpression::AggregateFunction { args, .. } => {
+            args.iter_mut().for_each(|a| transform_value(a, f))
+        }
+        ValueExpression::Arithmetic { left, right, .. }
+        | ValueExpression::VectorDistance { left, right, .. }
+        | ValueExpression::VectorSimilarity { left, right, .. } => {
+            transform_value(left, f);
+            transform_value(right, f);
+        }
+        ValueExpression::Case { whens, otherwise } => {
+            for (condition, then) in whens {
+                transform_boolean_values(condition, f);
+                transform_value(then, f);
+            }
+            if let Some(e) = otherwise {
+                transform_value(e, f);
+            }
+        }
+        ValueExpression::Boolean(b) => transform_boolean_values(b, f),
+        ValueExpression::Map(entries) => {
+            entries.iter_mut().for_each(|(_, v)| transform_value(v, f))
+        }
+        ValueExpression::Field { base, .. } => transform_value(base, f),
+        ValueExpression::Variable(_)
+        | ValueExpression::Property(_)
+        | ValueExpression::Literal(_)
+        | ValueExpression::Parameter(_)
+        | ValueExpression::VectorLiteral(_) => {}
+    }
+    f(expr);
+}
+
+/// [`transform_value`] over every value in a predicate.
+pub fn transform_boolean_values(
+    expr: &mut BooleanExpression,
+    f: &mut dyn FnMut(&mut ValueExpression),
+) {
+    match expr {
+        BooleanExpression::Comparison { left, right, .. } => {
+            transform_value(left, f);
+            transform_value(right, f);
+        }
+        BooleanExpression::And(a, b) | BooleanExpression::Or(a, b) => {
+            transform_boolean_values(a, f);
+            transform_boolean_values(b, f);
+        }
+        BooleanExpression::Not(inner) => transform_boolean_values(inner, f),
+        BooleanExpression::In { expression, list } => {
+            transform_value(expression, f);
+            list.iter_mut().for_each(|v| transform_value(v, f));
+        }
+        BooleanExpression::Member { expression, list } => {
+            transform_value(expression, f);
+            transform_value(list, f);
+        }
+        BooleanExpression::Like { expression, .. }
+        | BooleanExpression::ILike { expression, .. }
+        | BooleanExpression::Contains { expression, .. }
+        | BooleanExpression::StartsWith { expression, .. }
+        | BooleanExpression::EndsWith { expression, .. }
+        | BooleanExpression::IsNull(expression)
+        | BooleanExpression::IsNotNull(expression) => transform_value(expression, f),
+        BooleanExpression::Exists(_) | BooleanExpression::PatternExists { .. } => {}
     }
 }
 

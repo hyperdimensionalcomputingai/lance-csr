@@ -86,7 +86,8 @@ impl DataFusionPlanner {
         predicate: &crate::ast::BooleanExpression,
     ) -> Result<LogicalPlan> {
         let input_plan = self.build_operator(ctx, input)?;
-        let expr = super::super::expression::to_df_boolean_expr(predicate);
+        let predicate = super::super::expression::bind_boolean(predicate, input_plan.schema());
+        let expr = super::super::expression::to_df_boolean_expr(&predicate);
         LogicalPlanBuilder::from(input_plan)
             .filter(expr)
             .map_err(|e| self.plan_error("Failed to build filter", e))?
@@ -100,18 +101,29 @@ impl DataFusionPlanner {
         input: &LogicalOperator,
         projections: &[ProjectionItem],
     ) -> Result<LogicalPlan> {
-        let input_plan = self.build_operator(ctx, input)?;
-
         // Check if any projection contains an aggregate function
         let has_aggregates = projections
             .iter()
             .any(|p| super::super::expression::contains_aggregate(&p.expression));
 
-        if has_aggregates {
-            self.build_project_with_aggregates(input_plan, projections)
-        } else {
-            self.build_simple_project(input_plan, projections)
+        if !has_aggregates {
+            let input_plan = self.build_operator(ctx, input)?;
+            return self.build_simple_project(input_plan, projections);
         }
+        // An ORDER BY right before an aggregation only orders what collect() gathers, as in
+        // Neo4j (LDBC IC7 takes `head(collect(...))` of sorted rows): it becomes the
+        // aggregate's own ORDER BY instead of a sort of its input.
+        if let LogicalOperator::Sort {
+            input: inner,
+            sort_items,
+        } = input
+        {
+            let input_plan = self.build_operator(ctx, inner)?;
+            let ordering = self.sort_exprs(&input_plan, sort_items);
+            return self.build_project_with_aggregates(input_plan, projections, &ordering);
+        }
+        let input_plan = self.build_operator(ctx, input)?;
+        self.build_project_with_aggregates(input_plan, projections, &[])
     }
 
     /// The columns of a node or relationship variable (`b` -> `b__id`, `b__name`, ...),
@@ -162,7 +174,8 @@ impl DataFusionPlanner {
                 exprs.extend(columns);
                 continue;
             }
-            let expr = super::super::expression::to_df_value_expr(&p.expression);
+            let bound = super::super::expression::bind_value(&p.expression, &schema);
+            let expr = super::super::expression::to_df_value_expr(&bound);
             // Apply alias if provided, otherwise use Cypher dot notation
             // Normalize alias to lowercase for case-insensitive behavior
             exprs.push(if let Some(alias) = &p.alias {
@@ -200,26 +213,33 @@ impl DataFusionPlanner {
         sort_items: &[SortItem],
     ) -> Result<LogicalPlan> {
         let input_plan = self.build_operator(ctx, input)?;
-
-        // Convert sort items to DataFusion sort expressions
-        let sort_exprs: Vec<SortExpr> = sort_items
-            .iter()
-            .map(|item| {
-                let expr = super::super::expression::to_df_value_expr(&item.expression);
-                let asc = matches!(item.direction, crate::ast::SortDirection::Ascending);
-                SortExpr {
-                    expr,
-                    asc,
-                    nulls_first: true,
-                }
-            })
-            .collect();
+        let sort_exprs = self.sort_exprs(&input_plan, sort_items);
 
         LogicalPlanBuilder::from(input_plan)
             .sort(sort_exprs)
             .map_err(|e| self.plan_error("Failed to build sort", e))?
             .build()
             .map_err(|e| self.plan_error("Failed to build plan", e))
+    }
+
+    /// `sort_items` as DataFusion sort expressions over `input_plan`'s columns.
+    pub(crate) fn sort_exprs(
+        &self,
+        input_plan: &LogicalPlan,
+        sort_items: &[SortItem],
+    ) -> Vec<SortExpr> {
+        sort_items
+            .iter()
+            .map(|item| {
+                let bound =
+                    super::super::expression::bind_value(&item.expression, input_plan.schema());
+                SortExpr {
+                    expr: super::super::expression::to_df_value_expr(&bound),
+                    asc: matches!(item.direction, crate::ast::SortDirection::Ascending),
+                    nulls_first: true,
+                }
+            })
+            .collect()
     }
 
     pub(crate) fn build_limit(
@@ -268,7 +288,8 @@ impl DataFusionPlanner {
         };
 
         // Convert expression to DataFusion Expr
-        let df_expr = super::super::expression::to_df_value_expr(expression);
+        let bound = super::super::expression::bind_value(expression, input_plan.schema());
+        let df_expr = super::super::expression::to_df_value_expr(&bound);
         // A list of node ids: unnest under a temporary name, then join each id back to the
         // node table so the alias carries the node's columns like any matched node.
         let unnested = match label {

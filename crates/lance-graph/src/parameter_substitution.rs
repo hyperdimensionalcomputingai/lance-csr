@@ -288,6 +288,13 @@ fn substitute_in_value_expression(
                 substitute_in_value_expression(otherwise, parameters)?;
             }
         }
+        ValueExpression::Boolean(b) => substitute_in_boolean_expression(b, parameters)?,
+        ValueExpression::Map(entries) => {
+            for (_, v) in entries {
+                substitute_in_value_expression(v, parameters)?;
+            }
+        }
+        ValueExpression::Field { base, .. } => substitute_in_value_expression(base, parameters)?,
         _ => {}
     }
     Ok(())

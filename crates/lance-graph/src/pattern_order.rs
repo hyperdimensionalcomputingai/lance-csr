@@ -231,6 +231,9 @@ fn value_variables<'a>(expr: &'a ValueExpression, out: &mut HashSet<&'a str>) {
                 value_variables(otherwise, out);
             }
         }
+        ValueExpression::Boolean(b) => boolean_variables(b, out),
+        ValueExpression::Map(entries) => entries.iter().for_each(|(_, v)| value_variables(v, out)),
+        ValueExpression::Field { base, .. } => value_variables(base, out),
         ValueExpression::Literal(_)
         | ValueExpression::Parameter(_)
         | ValueExpression::VectorLiteral(_) => {}

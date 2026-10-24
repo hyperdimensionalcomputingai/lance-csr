@@ -57,6 +57,7 @@ impl DataFusionPlanner {
         &self,
         input_plan: LogicalPlan,
         projections: &[ProjectionItem],
+        ordering: &[datafusion::logical_expr::SortExpr],
     ) -> Result<LogicalPlan> {
         // Separate group expressions (non-aggregates) from aggregate expressions
         let mut group_exprs = Vec::new();
@@ -66,6 +67,14 @@ impl DataFusionPlanner {
         let mut aggregates = Vec::new();
 
         let schema = input_plan.schema().clone();
+        let bound: Vec<ProjectionItem> = projections
+            .iter()
+            .map(|p| ProjectionItem {
+                expression: super::super::expression::bind_value(&p.expression, &schema),
+                alias: p.alias.clone(),
+            })
+            .collect();
+        let projections = bound.as_slice();
         for p in projections {
             // Grouping by a node groups by all its columns (`WITH b, count(*) AS n`).
             if let Some(columns) = Self::entity_columns(&schema, &p.expression, None) {
@@ -87,7 +96,13 @@ impl DataFusionPlanner {
                 let first = aggregates.len();
                 split_aggregates(&mut rewritten, &mut aggregates);
                 for (column, aggregate) in &aggregates[first..] {
-                    let aggregate = super::super::expression::to_df_value_expr(aggregate);
+                    let mut aggregate = super::super::expression::to_df_value_expr(aggregate);
+                    // collect() gathers in the order of a preceding `WITH ... ORDER BY`.
+                    if let datafusion::logical_expr::Expr::AggregateFunction(f) = &mut aggregate {
+                        if f.func.name() == "array_agg" && !f.params.distinct {
+                            f.params.order_by = ordering.to_vec();
+                        }
+                    }
                     agg_exprs.push(aggregate.alias(column));
                 }
                 outer.push(super::super::expression::to_df_value_expr(&rewritten).alias(alias));
