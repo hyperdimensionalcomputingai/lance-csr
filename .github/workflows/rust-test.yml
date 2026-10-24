@@ -24,64 +24,19 @@ jobs:
   test:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    strategy:
-      matrix:
-        toolchain:
-          - stable
     steps:
+      # rust-toolchain.toml selects the toolchain.
       - uses: actions/checkout@v4
-      - name: Setup rust toolchain
-        run: |
-          rustup toolchain install ${{ matrix.toolchain }}
-          rustup default ${{ matrix.toolchain }}
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "lance-graph-deps"
-          workspaces: |
-            crates/lance-graph
-            crates/lance-graph-python
+          shared-key: "lance-csr-deps"
       - name: Install dependencies
         run: |
           sudo apt update
           sudo apt install -y protobuf-compiler
       - name: Build tests
-        run: cargo test --manifest-path crates/lance-graph/Cargo.toml --no-run
-      - name: Run unit tests
-        run: cargo test --manifest-path crates/lance-graph/Cargo.toml --lib
-      - name: Run integration tests
-        run: cargo test --manifest-path crates/lance-graph/Cargo.toml --tests
-      - name: Run doc tests
-        run: cargo test --manifest-path crates/lance-graph/Cargo.toml --doc
-
-  test-with-coverage:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup rust toolchain
-        run: |
-          rustup toolchain install stable
-          rustup default stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "lance-graph-deps"
-          workspaces: |
-            crates/lance-graph
-            crates/lance-graph-python
-      - name: Install dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y protobuf-compiler
-      - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
-      - name: Run tests with coverage
-        env:
-          CARGO_BUILD_JOBS: "2"
-        run: |
-          cargo llvm-cov --manifest-path crates/lance-graph/Cargo.toml --lib --lcov --output-path lcov.info
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
-        with:
-          files: lcov.info
-          flags: rust-unittests
-          fail_ci_if_error: false
+        run: cargo test --workspace --no-run
+      - name: Run tests
+        run: cargo test --workspace
+      - name: Check benchmarks
+        run: cargo check -p lance-graph-benches --benches
