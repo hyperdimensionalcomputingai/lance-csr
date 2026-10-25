@@ -35,7 +35,7 @@ use std::sync::Arc;
 use arrow::array::{
     new_empty_array, Array, ArrayRef, AsArray, Int64Array, RecordBatch, UInt32Array, UInt64Array,
 };
-use arrow::compute::{cast, take};
+use arrow::compute::{cast, filter as filter_array, take};
 use arrow::datatypes::{DataType, Field, Int64Type, Schema, SchemaRef};
 use async_trait::async_trait;
 use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
@@ -502,6 +502,8 @@ pub struct NodeRows {
     schema: SchemaRef,
     /// Index of the id column in `schema`; its values are reconstructed, never fetched.
     id_index: usize,
+    #[cfg(test)]
+    fetched_cells: std::sync::atomic::AtomicUsize,
 }
 
 enum NodeData {
@@ -544,6 +546,8 @@ impl NodeRows {
             data: NodeData::Lance(dataset),
             schema,
             id_index,
+            #[cfg(test)]
+            fetched_cells: std::sync::atomic::AtomicUsize::new(0),
         }))
     }
 
@@ -562,6 +566,8 @@ impl NodeRows {
             schema: batch.schema(),
             data: NodeData::Memory(batch),
             id_index,
+            #[cfg(test)]
+            fetched_cells: std::sync::atomic::AtomicUsize::new(0),
         }))
     }
 
@@ -585,6 +591,11 @@ impl NodeRows {
                 .map(|&c| new_empty_array(self.schema.field(c).data_type()))
                 .collect());
         }
+        #[cfg(test)]
+        self.fetched_cells.fetch_add(
+            positions.len() * columns.len(),
+            std::sync::atomic::Ordering::Relaxed,
+        );
         match &self.data {
             NodeData::Lance(dataset) => {
                 let names = columns.iter().map(|&c| self.schema.field(c).name());
@@ -1297,15 +1308,40 @@ async fn materialize(
         mut neighbor_values,
         mut target_positions,
     } = expanded;
+    let mut reused = Vec::new();
     if let (Some(target), Some(filter)) = (target, target_filter) {
         // Take only the filter's columns, evaluate, and keep passing rows before
         // taking anything else. Null counts as false, as in a WHERE clause.
-        let taken = target
+        let fetch: Vec<_> = filter
+            .columns
+            .iter()
+            .copied()
+            .filter(|&c| c != target.rows.id_index)
+            .collect();
+        let mut taken = target
             .rows
-            .take(&target_positions, &filter.columns)
+            .take(&target_positions, &fetch)
             .await
-            .map_err(|e| datafusion::common::DataFusionError::External(Box::new(e)))?;
-        let candidates = RecordBatch::try_new(filter.schema.clone(), taken)?;
+            .map_err(|e| datafusion::common::DataFusionError::External(Box::new(e)))?
+            .into_iter();
+        let arrays = filter
+            .columns
+            .iter()
+            .enumerate()
+            .map(|(i, &c)| {
+                if c == target.rows.id_index {
+                    cast(
+                        &Int64Array::from(neighbor_values.clone()),
+                        filter.schema.field(i).data_type(),
+                    )
+                } else {
+                    Ok(taken
+                        .next()
+                        .expect("one fetched array per non-id filter column"))
+                }
+            })
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let candidates = RecordBatch::try_new(filter.schema.clone(), arrays)?;
         let mask = filter
             .predicate
             .evaluate(&candidates)?
@@ -1314,6 +1350,11 @@ async fn materialize(
         let keep: Vec<bool> = (0..mask.len())
             .map(|i| mask.is_valid(i) && mask.value(i))
             .collect();
+        for (i, &column) in filter.columns.iter().enumerate() {
+            if column != target.rows.id_index && target.columns.contains(&column) {
+                reused.push((column, filter_array(candidates.column(i), mask)?));
+            }
+        }
         retain_by_mask(&mut rows, &keep);
         retain_by_mask(&mut key_values, &keep);
         retain_by_mask(&mut neighbor_values, &keep);
@@ -1338,7 +1379,7 @@ async fn materialize(
             .columns
             .iter()
             .copied()
-            .filter(|&c| c != id_index)
+            .filter(|&c| c != id_index && !reused.iter().any(|(column, _)| *column == c))
             .collect();
         let mut fetched = target
             .rows
@@ -1350,6 +1391,8 @@ async fn materialize(
             // The target id equals the neighbour value, so it is never fetched.
             columns.push(if c == id_index {
                 cast(&neighbor_values, field.data_type())?
+            } else if let Some((_, array)) = reused.iter().find(|(column, _)| *column == c) {
+                array.clone()
             } else {
                 fetched.next().expect("one fetched array per non-id column")
             });
@@ -2064,5 +2107,132 @@ mod tests {
         assert_eq!(both.neighbors_from(2, &mut position).next(), Some(1));
         assert_eq!(both.neighbors_from(2, &mut position).next(), Some(1));
         assert_eq!(both.neighbors_from(2, &mut position).next(), None);
+    }
+
+    #[tokio::test]
+    async fn materialization_reuses_filter_columns_for_memory_and_lance() {
+        use arrow::array::{RecordBatchIterator, StringArray};
+        use datafusion::logical_expr::{col, lit};
+        use std::sync::atomic::Ordering;
+
+        let nodes = RecordBatch::try_from_iter([
+            (
+                "id",
+                Arc::new(Int64Array::from(vec![10, 20, 30, 40])) as ArrayRef,
+            ),
+            (
+                "age",
+                Arc::new(Int64Array::from(vec![Some(2), None, Some(5), Some(1)])) as ArrayRef,
+            ),
+            (
+                "name",
+                Arc::new(StringArray::from(vec!["ten", "twenty", "thirty", "forty"])) as ArrayRef,
+            ),
+            (
+                "unused",
+                Arc::new(StringArray::from(vec!["unused payload"; 4])) as ArrayRef,
+            ),
+        ])
+        .unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("nodes.lance");
+        let reader = RecordBatchIterator::new(vec![Ok(nodes.clone())], nodes.schema());
+        let dataset = Dataset::write(
+            reader,
+            path.to_str().unwrap(),
+            None::<lance::dataset::WriteParams>,
+        )
+        .await
+        .unwrap();
+        let sources = [
+            NodeRows::from_batch(nodes.clone(), "id").unwrap().unwrap(),
+            NodeRows::from_lance(Arc::new(dataset), "id")
+                .await
+                .unwrap()
+                .unwrap(),
+        ];
+        let input = RecordBatch::try_from_iter([(
+            "a__id",
+            Arc::new(Int64Array::from(vec![999])) as ArrayRef,
+        )])
+        .unwrap();
+        let state = datafusion::execution::context::SessionContext::new().state();
+        for source in sources {
+            let source = Arc::new(source);
+            for selected in [vec![0, 1, 2], vec![0, 1], vec![2], vec![]] {
+                let fields: Vec<_> = selected
+                    .iter()
+                    .map(|&i| {
+                        let f = nodes.schema().field(i).clone();
+                        Field::new(
+                            format!("b__{}", f.name()),
+                            f.data_type().clone(),
+                            f.is_nullable(),
+                        )
+                    })
+                    .collect();
+                let target = TargetLookup {
+                    variable: "b".into(),
+                    rows: source.clone(),
+                    columns: selected.clone(),
+                    fields: fields.clone(),
+                };
+                let schema = Arc::new(Schema::new(
+                    [
+                        Field::new("a__id", DataType::Int64, false),
+                        Field::new("edge__src", DataType::Int64, false),
+                        Field::new("edge__dst", DataType::Int64, false),
+                    ]
+                    .into_iter()
+                    .chain(fields)
+                    .collect::<Vec<_>>(),
+                ));
+                for threshold in [2, 99] {
+                    source.fetched_cells.store(0, Ordering::Relaxed);
+                    let predicate = col("b__age")
+                        .gt_eq(lit(threshold))
+                        .and(col("b__id").gt_eq(lit(10)));
+                    let filter = target.compile_filter(&predicate, &state).unwrap();
+                    let neighbors = vec![30, 10, 20, 30, 40, 10];
+                    let expanded = ExpandedRows {
+                        rows: vec![0; 6],
+                        key_values: vec![999; 6],
+                        target_positions: neighbors
+                            .iter()
+                            .map(|&n| source.position(n).unwrap())
+                            .collect(),
+                        neighbor_values: neighbors,
+                    };
+                    let out = materialize(&input, expanded, Some(&target), Some(&filter), &schema)
+                        .await
+                        .unwrap();
+                    let expected_rows: Vec<u32> = if threshold == 2 {
+                        vec![2, 0, 2, 0]
+                    } else {
+                        vec![]
+                    };
+                    assert_eq!(out.num_rows(), expected_rows.len());
+                    for (i, &column) in selected.iter().enumerate() {
+                        let expected = take(
+                            nodes.column(column),
+                            &UInt32Array::from(expected_rows.clone()),
+                            None,
+                        )
+                        .unwrap();
+                        assert_eq!(out.column(3 + i).to_data(), expected.to_data());
+                    }
+                    // Only age is read for six candidates; only name needs a later read.
+                    let projection_cells = if selected.contains(&2) {
+                        expected_rows.len()
+                    } else {
+                        0
+                    };
+                    assert_eq!(
+                        source.fetched_cells.load(Ordering::Relaxed),
+                        6 + projection_cells
+                    );
+                }
+            }
+        }
     }
 }

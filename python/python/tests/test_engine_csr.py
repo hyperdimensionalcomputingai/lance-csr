@@ -52,6 +52,11 @@ QUERIES = [
     # Target filter moved into the CSR node (start is more selective than b).
     "MATCH (a:Person)-[:KNOWS]->(b:Person) "
     "WHERE a.id = 1 AND b.age >= 40 RETURN b.name",
+    # Reuse a filter column in the projection, including reconstructed target ids.
+    "MATCH (a:Person)-[:KNOWS]->(b:Person) "
+    "WHERE a.id = 1 AND b.id >= 2 AND b.age >= 30 RETURN b.id, b.age, b.name",
+    "MATCH (a:Person)-[:KNOWS]->(b:Person) "
+    "WHERE a.id = 1 AND b.age > 100 RETURN b.age, b.name",
     # Closing edges: cycles back to an already-bound variable (duplicates included).
     "MATCH (a:Person)-[:KNOWS]->(b:Person)-[:KNOWS]->(a) RETURN a.id, b.id",
     "MATCH (a:Person)-[:KNOWS]->(b:Person), (b)<-[:KNOWS]-(a) RETURN count(*) AS n",
