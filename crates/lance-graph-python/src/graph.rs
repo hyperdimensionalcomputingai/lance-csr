@@ -348,13 +348,19 @@ impl GraphConfig {
     /// Get node labels
     fn node_labels(&self) -> Vec<String> {
         // Extract from the config's node mappings
-        self.inner.node_mappings.keys().cloned().collect()
+        self.inner
+            .iter_node_mappings()
+            .map(|(name, _)| name.clone())
+            .collect()
     }
 
     /// Get relationship types
     fn relationship_types(&self) -> Vec<String> {
         // Extract from the config's relationship mappings
-        self.inner.relationship_mappings.keys().cloned().collect()
+        self.inner
+            .iter_relationship_mappings()
+            .map(|(name, _)| name.clone())
+            .collect()
     }
 
     fn __repr__(&self) -> String {
@@ -1477,10 +1483,10 @@ fn validate_sources(
         }
         Ok(())
     };
-    for mapping in config.node_mappings.values() {
+    for (_, mapping) in config.iter_node_mappings() {
         check(&mapping.label, &mapping.id_field)?;
     }
-    for mapping in config.relationship_mappings.values() {
+    for (_, mapping) in config.iter_relationship_mappings() {
         check(&mapping.relationship_type, &mapping.source_id_field)?;
         check(&mapping.relationship_type, &mapping.target_id_field)?;
     }
@@ -1587,7 +1593,7 @@ fn build_node_index(
     previous: Option<&EngineState>,
 ) -> PyResult<HashMap<String, NodeIndexEntry>> {
     let mut entries = HashMap::new();
-    for mapping in config.node_mappings.values() {
+    for (_, mapping) in config.iter_node_mappings() {
         let label = &mapping.label;
         let Some(source) = sources
             .iter()
@@ -1697,7 +1703,7 @@ fn build_key_statistics(
         let mut to_count = Vec::new();
         // Relationship type and endpoint columns, for the fan-out once counts are known.
         let mut endpoints = None;
-        for mapping in config.node_mappings.values() {
+        for (_, mapping) in config.iter_node_mappings() {
             if !mapping.label.eq_ignore_ascii_case(name) {
                 continue;
             }
@@ -1705,7 +1711,7 @@ fn build_key_statistics(
                 distinct.insert(id.name().clone(), rows()?);
             }
         }
-        for mapping in config.relationship_mappings.values() {
+        for (_, mapping) in config.iter_relationship_mappings() {
             if !mapping.relationship_type.eq_ignore_ascii_case(name) {
                 continue;
             }
@@ -1804,7 +1810,7 @@ fn build_csr_entries(
     previous: Option<&EngineState>,
 ) -> PyResult<HashMap<String, CsrEntry>> {
     let mut entries = HashMap::new();
-    for mapping in config.relationship_mappings.values() {
+    for (_, mapping) in config.iter_relationship_mappings() {
         let rel_type = &mapping.relationship_type;
         let Some((name, source)) = sources
             .iter()
@@ -2267,8 +2273,8 @@ impl CypherEngine {
     fn __repr__(&self) -> String {
         format!(
             "CypherEngine(nodes={}, relationships={})",
-            self.config.node_mappings.len(),
-            self.config.relationship_mappings.len()
+            self.config.iter_node_mappings().len(),
+            self.config.iter_relationship_mappings().len()
         )
     }
 }

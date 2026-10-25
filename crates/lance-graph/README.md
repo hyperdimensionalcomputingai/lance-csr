@@ -91,6 +91,13 @@ let config = GraphConfig::builder()
     .build()?;
 ```
 
+For Rust callers migrating away from direct mapping-field access, use `get_node_mapping(label)` and
+`get_relationship_mapping(type_name)` for case-insensitive lookups. `iter_node_mappings()` and
+`iter_relationship_mappings()` yield read-only `(normalized_key, mapping)` pairs; iteration order is
+unspecified. Build mappings through `GraphConfigBuilder` so keys are normalized. Public fields remain
+available for compatibility until a breaking release; replacing direct writes with builder calls avoids
+that future migration. The serialized configuration and Python API are unchanged.
+
 ## Executing Cypher Queries
 
 - `CypherQuery::new` parses Cypher text into the internal AST.

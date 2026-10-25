@@ -21,16 +21,8 @@ use std::collections::HashMap;
 /// # Future API Changes
 ///
 /// These fields may become private in a future major version to enforce invariants.
-/// Code should migrate to using accessor methods (`get_node_mapping()`, `get_relationship_mapping()`)
-/// rather than direct field access.
-///
-/// # TODO: API Safety
-///
-/// TODO: Make `node_mappings` and `relationship_mappings` private to prevent external code
-/// from bypassing key normalization. This would require:
-/// 1. Adding iterator methods for external access (e.g., `iter_node_mappings()`)
-/// 2. Making this a breaking API change in next major version
-/// 3. Ensuring all internal code uses accessor methods
+/// Use the lookup and iterator accessors for reads, and [`GraphConfigBuilder`] for writes.
+/// The mapping fields remain public for source compatibility until a breaking release.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphConfig {
     /// Mapping of node labels to their field configurations
@@ -124,6 +116,18 @@ impl GraphConfig {
     /// For example, "FOLLOWS", "follows", and "Follows" all refer to the same type.
     pub fn get_relationship_mapping(&self, rel_type: &str) -> Option<&RelationshipMapping> {
         self.relationship_mappings.get(&rel_type.to_lowercase())
+    }
+
+    /// Iterate over normalized node labels and their mappings without allowing mutation.
+    pub fn iter_node_mappings(&self) -> impl ExactSizeIterator<Item = (&String, &NodeMapping)> {
+        self.node_mappings.iter()
+    }
+
+    /// Iterate over normalized relationship types and their mappings without allowing mutation.
+    pub fn iter_relationship_mappings(
+        &self,
+    ) -> impl ExactSizeIterator<Item = (&String, &RelationshipMapping)> {
+        self.relationship_mappings.iter()
     }
 
     /// Validate the configuration
@@ -431,6 +435,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_mapping_iterators_keep_normalized_keys_and_original_labels() {
+        let config = GraphConfig::builder()
+            .node_table("Person", "id")
+            .rel_table("KNOWS", "Person", "Person", "src", "dst")
+            .build()
+            .unwrap();
+        let (key, node) = config.iter_node_mappings().next().unwrap();
+        assert_eq!(key, "person");
+        assert_eq!(node.label, "Person");
+        assert!(std::ptr::eq(
+            node,
+            config.get_node_mapping("PERSON").unwrap()
+        ));
+        let (key, relationship) = config.iter_relationship_mappings().next().unwrap();
+        assert_eq!(key, "knows");
+        assert_eq!(relationship.relationship_type, "KNOWS");
+        assert!(std::ptr::eq(
+            relationship,
+            config.get_relationship_mapping("KnOwS").unwrap()
+        ));
+    }
+
+    #[test]
     fn test_graph_config_builder() {
         let config = GraphConfig::builder()
             .node_table("Person", "person_id")
@@ -439,8 +466,8 @@ mod tests {
             .build()
             .unwrap();
 
-        assert_eq!(config.node_mappings.len(), 2);
-        assert_eq!(config.relationship_mappings.len(), 1);
+        assert_eq!(config.iter_node_mappings().len(), 2);
+        assert_eq!(config.iter_relationship_mappings().len(), 1);
 
         let person_mapping = config.get_node_mapping("Person").unwrap();
         assert_eq!(person_mapping.id_field, "person_id");
