@@ -100,13 +100,11 @@ def test_math_arrow_columns_and_nulls(engine):
 
 
 def test_math_nan_and_signed_zero(engine):
-    result = engine.execute(
-        "RETURN sqrt(-1) AS root, round(-0.5) AS zero, round($infinity) AS infinity",
-        {"infinity": math.inf},
-    ).to_pylist()[0]
+    result = engine.execute("RETURN sqrt(-1) AS root, round(-0.5) AS zero").to_pylist()[
+        0
+    ]
     assert math.isnan(result["root"])
     assert math.copysign(1, result["zero"]) == 1
-    assert result["infinity"] == math.inf
 
 
 def test_math_out_of_range_unsigned_integer():
@@ -117,3 +115,18 @@ def test_math_out_of_range_unsigned_integer():
     )
     with pytest.raises((ValueError, RuntimeError), match="cast|Cast"):
         engine.execute("MATCH (p:Person) RETURN abs(p.large) AS value")
+
+
+def test_math_non_finite_arrow_values():
+    config = GraphConfig.builder().node_table("Person", "id").build()
+    engine = CypherEngine(
+        config,
+        {"Person": pa.table({"id": [1, 2], "number": [math.inf, math.nan]})},
+    )
+    rows = engine.execute(
+        "MATCH (p:Person) RETURN p.id AS id, round(p.number) AS rounded, "
+        "abs(p.number) AS magnitude, sqrt(p.number) AS root ORDER BY id"
+    ).to_pylist()
+    for name in ("rounded", "magnitude", "root"):
+        assert rows[0][name] == math.inf
+        assert math.isnan(rows[1][name])
