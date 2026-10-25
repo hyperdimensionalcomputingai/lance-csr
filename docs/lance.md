@@ -90,7 +90,8 @@ DataFusion logical planning. Every execution binds its own values before optimiz
 rows and results are never cached. Query text and parameter names/types identify each template, with nulls
 separate from non-null values. Least recently used templates are evicted at the limit.
 
-Lists and maps use ordinary planning because their shape can change the plan. Unaliased parameter expressions
+Lists, maps and parameterized `SKIP`/`LIMIT` counts use ordinary planning because their shape or value can
+change the plan. Unaliased parameter expressions
 also use ordinary planning to preserve their value-dependent column names; use `RETURN $value AS value`
 when you want a stable name. Queries whose operators cannot produce a reusable template fall back to ordinary
 planning. `explain()` plans the current values directly. A successful `refresh()` starts an empty cache for the
