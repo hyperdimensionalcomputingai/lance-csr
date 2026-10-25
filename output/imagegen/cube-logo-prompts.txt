@@ -1,0 +1,6 @@
+Built-in imagegen; reference: /Users/prrao/Downloads/lance-csr-logo.png
+
+Edit this approved logo, preserving its exact overall design: the isometric sparse matrix of ivory and charcoal cubes on the left, five orange cubes forming a right-pointing chevron, and the distinctive squared lowercase "lance-csr" wordmark on the right. Remove the entire small "HDC LABS" line beneath the wordmark. Do not add any other text. Preserve the cube count, positions, colours, faceted shading, lettering shapes, and relative scale faithfully. Clean all stray fringe pixels and halos. Use a genuinely transparent background, including spaces between cubes and within letters. A tightly framed horizontal logo with modest transparent margin. This is a precise production cleanup, not a redesign.
+
+Light: For LIGHT backgrounds, change the large lance-csr wordmark to deep neutral charcoal #292929, maintaining the exact letter shapes. Keep the cube emblem colours.
+Dark: For DARK backgrounds, change the large lance-csr wordmark to warm near-white #F2EFE8, maintaining the exact letter shapes. Keep the cube emblem colours, with just enough definition on charcoal cubes to be visible against #171717.
