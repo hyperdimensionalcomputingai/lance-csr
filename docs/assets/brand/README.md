@@ -27,8 +27,17 @@ Use the full wordmark around 300–360 px wide and the mobile emblem around 64 p
 
 `preview.html` shows both modes at desktop, mobile and favicon sizes; `preview.png` is its rendered export. Raster dimensions and transparency are checked during packaging.
 
+`social-preview.png` is an opaque 1731 × 909 px banner for shared links, with the light wordmark centred on a
+warm-white background. The shared template declares its absolute URL through Open Graph and Twitter card
+metadata. Chat and social apps may cache older previews after deployment.
+
 ## Provenance
 
 Source supplied by the user: `lance-csr-logo.png`. Built-in imagegen removed the bottom line and adapted wordmark contrast for light and dark backgrounds. The cube arrangement and letter shapes were preserved rather than replaced with a new design. The generation prompt is saved at `../../../output/imagegen/cube-logo-prompts.txt`.
 
 The docs header, home-page wordmarks and favicon use these assets. The ZIP package is at `../lance-csr-brand-assets.zip`.
+
+The social banner was generated with built-in imagegen from `desktop-light-1016.png`. Prompt: place the complete
+approved logo centrally on a solid warm-white (#FAF9F6) landscape canvas, approximately 1.905:1, with ample
+margin; preserve the cube arrangement, orange chevron, charcoal wordmark, proportions and colours; add no text
+or decoration. The generated size is retained, with the actual dimensions declared in the metadata.

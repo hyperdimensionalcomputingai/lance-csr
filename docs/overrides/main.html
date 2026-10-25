@@ -3,4 +3,21 @@
 {#- favicon.svg follows the OS colour scheme; the ICO covers browsers without SVG favicons. -#}
 {% block extrahead %}
   <link rel="icon" href="{{ 'assets/brand/favicon.ico' | url }}" sizes="any">
+  {#- Absolute image URLs let link-preview crawlers resolve the shared banner on every page. -#}
+  {% set social_image = config.site_url ~ 'assets/brand/social-preview.png' %}
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="{{ config.site_name }}">
+  <meta property="og:title" content="{% if page and page.title %}{{ page.title }} - {% endif %}{{ config.site_name }}">
+  <meta property="og:description" content="{% if page and page.meta and page.meta.description %}{{ page.meta.description }}{% else %}{{ config.site_description }}{% endif %}">
+  {% if page and page.canonical_url %}
+  <meta property="og:url" content="{{ page.canonical_url }}">
+  {% endif %}
+  <meta property="og:image" content="{{ social_image }}">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1731">
+  <meta property="og:image:height" content="909">
+  <meta property="og:image:alt" content="lance-csr cube logo and wordmark">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="{{ social_image }}">
+  <meta name="twitter:image:alt" content="lance-csr cube logo and wordmark">
 {% endblock %}
