@@ -283,6 +283,11 @@ case-insensitive. `match (P:person) return p.NAME` works, and the output column 
 
 | Exception | Raised when |
 | --- | --- |
-| `ValueError` | The query doesn't parse, refers to an unknown label, or a dataset is missing a configured column. |
+| `ValueError` | The query doesn't parse, refers to an unknown label, a dataset is missing a configured column, or a comparison/arithmetic expression has incompatible known types. Type errors name the expression and its operand types. |
 | `NotImplementedError` | The query parses but uses an unsupported feature (for example a function that isn't implemented, or more than 20 hops). |
 | `RuntimeError` | Execution fails, for example when a Lance dataset can't be read. |
+
+Known comparison and arithmetic types are checked against the current dataset schemas before planning.
+For example, comparing a string property with a number reports the expression and both types in a
+`ValueError`. Mixed numeric types and supported date/timestamp coercions remain valid. Types that cannot
+be determined in the current scope are left to the planner, so these checks are not a complete type system.
