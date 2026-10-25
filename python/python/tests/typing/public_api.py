@@ -66,6 +66,8 @@ def public_api(
     CypherEngine(config, {"Person": batch})
     CypherEngine(config, {"Person": reader})
     CypherEngine(config, {"Person": dataset})
+    CypherEngine(config, datasets, target_partitions=1)
+    CypherEngine(config, datasets, target_partitions=None)
 
     one = CypherQuery(query).with_config(config).with_parameter("id", 1)
     assert_type(one, CypherQuery)
@@ -107,6 +109,8 @@ def public_api(
     assert_type(SqlEngine(datasets).execute(sql.sql()), Table)
 
     # Rejected calls are checked too: removing a type restriction makes these unused.
+    CypherEngine(config, datasets, target_partitions="1")  # pyright: ignore[reportArgumentType]
+    CypherEngine(config, datasets, False, 1)  # pyright: ignore[reportCallIssue]
     engine.execute(query, {"id": object()})  # pyright: ignore[reportArgumentType]
     vector.top_k("5")  # pyright: ignore[reportArgumentType]
     one.with_parameter("ids", {1, 2})  # pyright: ignore[reportArgumentType]

@@ -123,7 +123,7 @@ See [Graph schema](graph-schema.md).
 
 <!-- skip-check -->
 ```python
-CypherEngine(config: GraphConfig, datasets: dict, use_csr: bool = False)
+CypherEngine(config: GraphConfig, datasets: dict, use_csr: bool = False, *, target_partitions: int | None = None)
 ```
 
 Registers `datasets` once and reuses the catalog, DataFusion session and (with `use_csr=True`) CSR index
@@ -138,10 +138,12 @@ See [Repeated queries](lance.md#repeated-queries) for the scope and limits.
 | `config` | The graph mapping. |
 | `datasets` | See [Datasets](#datasets). Lance datasets are pinned to the version passed in and not read here. |
 | `use_csr` | Build the experimental [CSR index](csr.md) for relationship types with integer endpoints, and node indexes for labels with unique integer keys. Default `False`. |
+| `target_partitions` | Optional positive integer target for DataFusion query partitioning. `None` keeps DataFusion's default. Keyword-only; preserved by `refresh()`. It is not a thread or memory limit. See [Query parallelism](lance.md#query-parallelism). |
 
 Raises `ValueError` if `datasets` is empty, a configured key or endpoint column is missing, or a Lance dataset
 was opened through a namespace client and can't be reopened by URI. Raises `RuntimeError` if a dataset can't
-be opened.
+be opened. For `target_partitions`, booleans and non-integers other than `None` raise `TypeError`;
+zero, negative values and integers outside the platform's unsigned integer range raise `ValueError`.
 
 `#!python execute(query: str, params: dict | None = None, *, timeout: float | None = None) -> pyarrow.Table`
 :   Runs `query` and returns the whole result. `params` binds `$name` parameters: `int`, `float`, `str`,
@@ -160,7 +162,8 @@ be opened.
 `#!python refresh() -> None`
 :   Moves every Lance dataset to its latest version and updates the CSR, node indexes and statistics.
     All-or-nothing; running queries keep their snapshot. If another refresh publishes first, retries from
-    that snapshot so an older candidate cannot replace it. See [Lance datasets](lance.md#refresh).
+    that snapshot so an older candidate cannot replace it. Preserves `target_partitions`.
+    See [Lance datasets](lance.md#refresh).
 
 `#!python dataset_versions() -> dict[str, int]`
 :   The pinned version of each Lance dataset. PyArrow inputs are not listed.

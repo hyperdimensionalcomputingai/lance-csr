@@ -22,7 +22,7 @@ use arrow::ffi_stream::ArrowArrayStreamReader;
 use arrow_array::{RecordBatch, RecordBatchReader};
 use arrow_schema::Schema;
 use datafusion::datasource::{DefaultTableSource, MemTable, TableProvider};
-use datafusion::execution::context::SessionContext;
+use datafusion::execution::context::{SessionConfig, SessionContext};
 use datafusion::execution::session_state::SessionStateBuilder;
 use futures::StreamExt;
 use lance::datafusion::LanceTableProvider;
@@ -40,9 +40,9 @@ use lance_graph::{
     SqlDialect as RustSqlDialect, SqlQuery as RustSqlQuery, VectorSearch as RustVectorSearch,
 };
 use pyo3::{
-    exceptions::{PyNotImplementedError, PyRuntimeError, PyValueError},
+    exceptions::{PyNotImplementedError, PyRuntimeError, PyTypeError, PyValueError},
     prelude::*,
-    types::{PyDict, PyInt, PyList},
+    types::{PyBool, PyDict, PyInt, PyList},
     IntoPyObject,
 };
 use serde_json::Value as JsonValue;
@@ -1537,12 +1537,18 @@ fn build_engine_state(
     config: &RustGraphConfig,
     sources: HashMap<String, EngineSource>,
     use_csr: bool,
+    target_partitions: Option<usize>,
     previous: Option<&EngineState>,
 ) -> PyResult<EngineState> {
+    let mut session_config = SessionConfig::new();
+    if let Some(partitions) = target_partitions {
+        session_config = session_config.with_target_partitions(partitions);
+    }
     // The CSR planner only changes plans that contain CSR nodes, so install it always.
     let ctx = SessionContext::new_with_state(
         SessionStateBuilder::new()
             .with_default_features()
+            .with_config(session_config)
             .with_query_planner(Arc::new(CsrQueryPlanner))
             // Move target-only filters into CSR nodes first, so pruning can then drop
             // the filter columns from the take.
@@ -2109,6 +2115,7 @@ pub struct CypherEngine {
     config: RustGraphConfig,
     state: RwLock<Arc<EngineState>>,
     use_csr: bool,
+    target_partitions: Option<usize>,
 }
 
 impl CypherEngine {
@@ -2213,23 +2220,48 @@ impl CypherEngine {
     /// datasets : dict
     ///     Dictionary mapping table names to Lance datasets or PyArrow tables.
     ///     Lance datasets are not read here; PyArrow inputs are held in memory.
+    /// target_partitions : int or None, optional
+    ///     Positive target for DataFusion query partitioning, preserved by refresh().
+    ///     None keeps DataFusion's default. This is not a thread or memory limit.
     ///
     /// Raises
     /// ------
     /// ValueError
     ///     If no datasets are given, a configured id/endpoint column is missing, or a
     ///     Lance dataset cannot be reopened by URI (for example, namespace-vended
-    ///     credentials)
+    ///     credentials), or target_partitions is zero, negative or out of range
+    /// TypeError
+    ///     If target_partitions is a boolean or a non-integer value other than None
     /// RuntimeError
     ///     If a dataset cannot be opened or registered
     #[new]
-    #[pyo3(signature = (config, datasets, use_csr = false))]
+    #[pyo3(signature = (config, datasets, use_csr = false, *, target_partitions = None))]
     fn new(
         py: Python,
         config: &GraphConfig,
         datasets: &Bound<'_, PyDict>,
         use_csr: bool,
+        target_partitions: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
+        let target_partitions = target_partitions
+            .map(|value| {
+                if value.is_instance_of::<PyBool>() || !value.is_instance_of::<PyInt>() {
+                    return Err(PyTypeError::new_err(
+                        "target_partitions must be an integer or None, not a boolean",
+                    ));
+                }
+                value
+                    .extract::<usize>()
+                    .ok()
+                    .filter(|value| *value > 0)
+                    .ok_or_else(|| {
+                        PyValueError::new_err(format!(
+                            "target_partitions must be between 1 and {}",
+                            usize::MAX
+                        ))
+                    })
+            })
+            .transpose()?;
         if datasets.is_empty() {
             return Err(PyValueError::new_err("No input datasets provided"));
         }
@@ -2239,11 +2271,13 @@ impl CypherEngine {
             let source = python_value_to_source(py, &name, &value)?;
             sources.insert(name, source);
         }
-        let state = build_engine_state(py, &config.inner, sources, use_csr, None)?;
+        let state =
+            build_engine_state(py, &config.inner, sources, use_csr, target_partitions, None)?;
         Ok(Self {
             config: config.inner.clone(),
             state: RwLock::new(Arc::new(state)),
             use_csr,
+            target_partitions,
         })
     }
 
@@ -2372,8 +2406,14 @@ impl CypherEngine {
                     }
                 }
             }
-            let state =
-                build_engine_state(py, &self.config, sources, self.use_csr, Some(&current))?;
+            let state = build_engine_state(
+                py,
+                &self.config,
+                sources,
+                self.use_csr,
+                self.target_partitions,
+                Some(&current),
+            )?;
             if self.try_publish_refresh(&current, state) {
                 return Ok(());
             }
@@ -2752,6 +2792,48 @@ mod tests {
     }
 
     #[test]
+    fn target_partitions_survive_refresh_without_changing_other_defaults() {
+        Python::initialize();
+        Python::attach(|py| {
+            let defaults = SessionConfig::new();
+            let config = RustGraphConfig::builder()
+                .node_table("Person", "id")
+                .build()
+                .unwrap();
+            for target_partitions in [None, Some(1), Some(2)] {
+                let state = build_engine_state(
+                    py,
+                    &config,
+                    test_state(1).sources,
+                    false,
+                    target_partitions,
+                    None,
+                )
+                .unwrap();
+                let engine = CypherEngine {
+                    config: config.clone(),
+                    state: RwLock::new(Arc::new(state)),
+                    use_csr: false,
+                    target_partitions,
+                };
+                let before = engine.snapshot();
+                engine.refresh(py).unwrap();
+                for snapshot in [before, engine.snapshot()] {
+                    let state = snapshot.context.state();
+                    assert_eq!(
+                        state.config().target_partitions(),
+                        target_partitions.unwrap_or(defaults.target_partitions())
+                    );
+                    assert_eq!(
+                        state.config().round_robin_repartition(),
+                        defaults.round_robin_repartition()
+                    );
+                }
+            }
+        });
+    }
+
+    #[test]
     fn test_plan_cache_reuses_bounds_and_refreshes() {
         let engine = CypherEngine {
             config: RustGraphConfig::builder()
@@ -2760,6 +2842,7 @@ mod tests {
                 .unwrap(),
             state: RwLock::new(Arc::new(test_state(1))),
             use_csr: false,
+            target_partitions: None,
         };
         let snapshot = engine.snapshot();
         let text = "MATCH (p:Person) WHERE p.id = $value RETURN p.id";
@@ -2835,6 +2918,7 @@ mod tests {
                 .unwrap(),
             state: RwLock::new(Arc::new(test_state(1))),
             use_csr: false,
+            target_partitions: None,
         };
         let reader_snapshot = engine.snapshot();
         let (started_tx, started_rx) = mpsc::channel();

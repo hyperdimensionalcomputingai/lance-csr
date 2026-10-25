@@ -95,6 +95,28 @@ change the plan. Queries whose operators cannot produce a reusable template fall
 new snapshot, including a refresh whose datasets did not change; active readers retain their existing plans.
 These rules apply with and without CSR. They do not promise a speedup for a particular workload.
 
+## Query parallelism
+
+`CypherEngine(..., target_partitions=None)` keeps DataFusion's default query partitioning. If you have
+measured your workload, you can choose a positive target explicitly:
+
+```python
+serial_engine = CypherEngine(
+    config,
+    {"Person": lance.dataset("person.lance"), "KNOWS": lance.dataset("knows.lance")},
+    use_csr=True,
+    target_partitions=1,
+)
+print(serial_engine.execute("MATCH (p:Person) RETURN count(*) AS n").to_pylist())  # [{'n': 4}]
+serial_engine.refresh()  # retains target_partitions=1
+```
+
+The target is a planning preference, not a thread or memory limit; operators may use a different number
+of partitions. A lower target can help short queries while making larger joins and scans slower. Compare
+your full workload in the storage mode you use before choosing a value. The default remains unchanged,
+and `refresh()` preserves your choice. Booleans and non-integers other than `None` raise `TypeError`;
+zero, negative and out-of-range integers raise `ValueError`.
+
 ## Streaming large results
 
 `execute()` returns one table, held in memory. For big outputs, stream:

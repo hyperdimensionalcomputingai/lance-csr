@@ -40,12 +40,13 @@ engine = CypherEngine(config, datasets, use_csr=True)
 ## `CypherEngine`
 
 ```python
-CypherEngine(config, datasets, use_csr=False)
+CypherEngine(config, datasets, use_csr=False, target_partitions=None)
 ```
 
 The constructor validates the datasets against the config, registers them with a DataFusion session, and,
 with `use_csr=True`, builds the [CSR index](csr.md). After that, every query reuses the same catalog and
-session.
+session. The optional keyword-only `target_partitions` sets a positive target for query partitioning;
+`None` keeps the current default. See [Query parallelism](lance.md#query-parallelism) before tuning it.
 
 !!! tip "Share one engine"
 

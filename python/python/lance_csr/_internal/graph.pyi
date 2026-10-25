@@ -115,7 +115,12 @@ class CypherQuery:
 @final
 class CypherEngine:
     def __init__(
-        self, config: GraphConfig, datasets: dict[str, _DatasetT], use_csr: bool = False
+        self,
+        config: GraphConfig,
+        datasets: dict[str, _DatasetT],
+        use_csr: bool = False,
+        *,
+        target_partitions: int | None = None,
     ) -> None: ...
     def execute(
         self,
