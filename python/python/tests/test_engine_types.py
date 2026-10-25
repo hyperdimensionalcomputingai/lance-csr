@@ -95,3 +95,65 @@ def test_comprehension_shadow_does_not_change_outer_type(engine):
         {"ages": [31], "name": "Ada"},
         {"ages": [41], "name": "Bob"},
     ]
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "RETURN left('12', 1) + 1",
+        "RETURN abs(1) = '1'",
+        "WITH sqrt(4) AS value RETURN value = '2'",
+        "WITH split('1,2', ',') AS values UNWIND values AS value RETURN value + 1",
+        "RETURN last(reverse(['1'])) + 1",
+        "WITH tail(['1', '2']) AS values UNWIND values AS value RETURN value + 1",
+        "UNWIND keys({one: 1}) AS key RETURN key = 1",
+        "MATCH (p:Person) UNWIND labels(p) AS label RETURN label = 1",
+    ],
+)
+def test_scalar_return_types_reject_string_numeric_coercion(engine, query):
+    with pytest.raises(ValueError, match="Type mismatch"):
+        engine.execute(query)
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        ("RETURN abs(-1) + sqrt(4) AS value", [3.0]),
+        ("RETURN round(null) + 1 AS value", [None]),
+        ("RETURN abs(null) = '1' AS value", [None]),
+        ("RETURN left('猫😀', 1) = '猫' AS value", [True]),
+        ("RETURN reverse('猫😀') = '😀猫' AS value", [True]),
+        (
+            "WITH split('猫,😀', ',') AS values UNWIND values AS value "
+            "RETURN value AS value ORDER BY value",
+            ["猫", "😀"],
+        ),
+        ("RETURN last(reverse([1, 2])) + 1 AS value", [2]),
+        (
+            "WITH tail([1, 2, 3]) AS values UNWIND values AS value "
+            "RETURN value + 0.5 AS value ORDER BY value",
+            [2.5, 3.5],
+        ),
+        ("RETURN left(null, 1) AS value", [None]),
+    ],
+)
+def test_scalar_return_types_preserve_values_and_nulls(engine, query, expected):
+    assert engine.execute(query).column("value").to_pylist() == expected
+
+
+def test_lambda_types_shadow_and_restore_outer_bindings(engine):
+    for initial, expected in [(0, 3), (0.5, 3.5), (None, None), (0, 3)]:
+        rows = engine.execute(
+            "WITH 'outer' AS total RETURN total AS outer, "
+            "reduce(total = $initial, item IN [1, 2] | total + item) AS value",
+            {"initial": initial},
+        ).to_pylist()
+        assert rows == [{"outer": "outer", "value": expected}]
+    assert engine.execute(
+        "WITH 'outer' AS item RETURN all(item IN [1, 2] WHERE item > 0) AS valid, "
+        "item AS outer"
+    ).to_pylist() == [{"valid": True, "outer": "outer"}]
+    with pytest.raises(ValueError, match="Type mismatch"):
+        engine.execute(
+            "RETURN reduce(total = 0, item IN ['text'] | total + item) AS value"
+        )

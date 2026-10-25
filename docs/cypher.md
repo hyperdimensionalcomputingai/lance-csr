@@ -485,7 +485,7 @@ aggregation and `OPTIONAL MATCH`.
 | `NotImplementedError` | The query parses but uses an unsupported feature (for example a function that isn't implemented, or more than 20 hops). |
 | `RuntimeError` | Execution fails, for example when a Lance dataset can't be read. |
 
-Known comparison and arithmetic types are checked against the current dataset schemas before planning.
+Known comparison and arithmetic types are checked against the current dataset schemas before planning. Known math, string and list result types retain these checks through WITH and UNWIND. Fold parameters use their own lexical types; shadowed outer bindings are restored afterward.
 For example, comparing a string property with a number reports the expression and both types in a
 `ValueError`. Mixed numeric types and supported date/timestamp coercions remain valid. Types that cannot
 be determined in the current scope are left to the planner, so these checks are not a complete type system.
