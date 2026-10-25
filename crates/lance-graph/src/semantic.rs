@@ -483,7 +483,9 @@ impl SemanticAnalyzer {
                 let function_name = name.to_lowercase();
                 // Validate arity and known functions
                 match function_name.as_str() {
-                    "tolower" | "lower" | "toupper" | "upper" => {
+                    "tolower" | "lower" | "toupper" | "upper" | "abs" | "round" | "floor"
+                    | "ceil" | "sqrt" | "trim" | "ltrim" | "rtrim" | "reverse" | "last"
+                    | "tail" => {
                         if args.len() != 1 {
                             return Err(GraphError::PlanError {
                                 message: format!(
@@ -495,10 +497,11 @@ impl SemanticAnalyzer {
                             });
                         }
                     }
-                    "date_part" | "to_epoch_ms" | "length" | "nodes" | "size" | "range"
-                    | "__index" => {
+                    "date_part" | "to_epoch_ms" | "length" | "nodes" | "size" | "left"
+                    | "right" | "split" | "replace" | "__index" => {
                         let want = match function_name.as_str() {
-                            "date_part" | "range" | "__index" => 2,
+                            "date_part" | "__index" | "left" | "right" | "split" => 2,
+                            "replace" => 3,
                             _ => 1,
                         };
                         if args.len() != want {
@@ -507,6 +510,18 @@ impl SemanticAnalyzer {
                                     "{} requires exactly {} argument(s), got {}",
                                     name.to_uppercase(),
                                     want,
+                                    args.len()
+                                ),
+                                location: snafu::Location::new(file!(), line!(), column!()),
+                            });
+                        }
+                    }
+                    "substring" | "range" => {
+                        if !(2..=3).contains(&args.len()) {
+                            return Err(GraphError::PlanError {
+                                message: format!(
+                                    "{} requires 2 or 3 arguments, got {}",
+                                    name,
                                     args.len()
                                 ),
                                 location: snafu::Location::new(file!(), line!(), column!()),
@@ -551,7 +566,7 @@ impl SemanticAnalyzer {
                         // Unknown scalar function - reject early with helpful error
                         return Err(GraphError::UnsupportedFeature {
                             feature: format!(
-                                "Cypher function '{}' is not implemented. Supported scalar functions: toLower, lower, toUpper, upper, toString, coalesce, date_part, to_epoch_ms, length, nodes, size, range. Supported aggregate functions: COUNT, SUM, AVG, MIN, MAX, COLLECT.",
+                                "Cypher function '{}' is not implemented. Supported scalar functions: toLower, lower, toUpper, upper, toString, coalesce, date_part, to_epoch_ms, length, nodes, size, range, head, last, tail, reverse, left, right, substring, replace, split, trim, lTrim, rTrim, abs, round, floor, ceil, sqrt, toInteger, toFloat, date, datetime, duration.inSeconds. Supported aggregate functions: COUNT, SUM, AVG, MIN, MAX, COLLECT.",
                                 name
                             ),
                             location: snafu::Location::new(file!(), line!(), column!()),
@@ -1642,7 +1657,7 @@ mod tests {
     #[test]
     fn test_unimplemented_scalar_function_fails_validation() {
         let expr = ValueExpression::ScalarFunction {
-            name: "replace".to_string(),
+            name: "not_a_function".to_string(),
             args: vec![ValueExpression::Property(PropertyRef::new("n", "name"))],
         };
         let result = analyze_return_with_match("n", "Person", expr).unwrap();

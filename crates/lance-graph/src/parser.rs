@@ -10,7 +10,7 @@ use crate::ast::*;
 use crate::error::{GraphError, Result};
 use nom::{
     branch::alt,
-    bytes::complete::{tag, tag_no_case, take_while1},
+    bytes::complete::{tag, tag_no_case, take_while, take_while1},
     character::complete::{char, digit0, digit1, multispace0, multispace1, one_of, satisfy},
     combinator::{map, map_res, not, opt, peek, recognize},
     multi::{many0, many1, separated_list0, separated_list1},
@@ -1382,14 +1382,14 @@ fn string_literal(input: &str) -> IResult<&str, String> {
 
 fn double_quoted_string(input: &str) -> IResult<&str, String> {
     let (input, _) = char('"')(input)?;
-    let (input, content) = take_while1(|c| c != '"')(input)?;
+    let (input, content) = take_while(|c| c != '"')(input)?;
     let (input, _) = char('"')(input)?;
     Ok((input, content.to_string()))
 }
 
 fn single_quoted_string(input: &str) -> IResult<&str, String> {
     let (input, _) = char('\'')(input)?;
-    let (input, content) = take_while1(|c| c != '\'')(input)?;
+    let (input, content) = take_while(|c| c != '\'')(input)?;
     let (input, _) = char('\'')(input)?;
     Ok((input, content.to_string()))
 }

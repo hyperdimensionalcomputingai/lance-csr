@@ -227,18 +227,18 @@ pub(crate) fn to_df_value_expr(expr: &ValueExpression) -> Expr {
                     VE::Variable(path) => col(qualify_column(path, &name.to_lowercase())),
                     _ => Expr::Literal(datafusion::scalar::ScalarValue::Null, None),
                 },
-                "size" => Expr::Cast(datafusion::logical_expr::Cast::new(
-                    Box::new(datafusion::functions_nested::expr_fn::cardinality(
-                        to_df_value_expr(&args[0]),
-                    )),
-                    arrow_schema::DataType::Int64,
-                )),
-                // Cypher's range includes its upper bound, like DataFusion's gen_series.
-                "range" => datafusion::functions_nested::expr_fn::gen_series(
-                    to_df_value_expr(&args[0]),
-                    to_df_value_expr(&args[1]),
-                    lit(1_i64),
-                ),
+                "abs" | "round" | "floor" | "ceil" | "sqrt" | "left" | "right" | "substring"
+                | "replace" | "split" | "trim" | "ltrim" | "rtrim" | "size" | "reverse"
+                | "last" | "tail" => {
+                    super::scalar_functions::call(name, args.iter().map(to_df_value_expr).collect())
+                }
+                "range" => {
+                    let mut args: Vec<_> = args.iter().map(to_df_value_expr).collect();
+                    if args.len() == 2 {
+                        args.push(lit(1_i64));
+                    }
+                    super::scalar_functions::call(name, args)
+                }
                 // list[i] (0-based in Cypher, 1-based in DataFusion's array_element).
                 "__index" => datafusion::functions_nested::expr_fn::array_element(
                     to_df_value_expr(&args[0]),
