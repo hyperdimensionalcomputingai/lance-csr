@@ -10,6 +10,27 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// A pagination count, resolved to a nonnegative literal before logical planning.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum RowCount {
+    Literal(u64),
+    Parameter(String),
+}
+
+impl RowCount {
+    /// Return a resolved count; unresolved parameters are a planning error.
+    pub fn value(&self) -> crate::error::Result<u64> {
+        match self {
+            Self::Literal(value) => Ok(*value),
+            Self::Parameter(name) => Err(crate::error::GraphError::PlanError {
+                message: format!("Unresolved pagination parameter: ${name}"),
+                location: snafu::Location::new(file!(), line!(), column!()),
+            }),
+        }
+    }
+}
+
 /// A complete Cypher query
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CypherQuery {
@@ -30,11 +51,11 @@ pub struct CypherQuery {
     /// RETURN clause
     pub return_clause: ReturnClause,
     /// LIMIT clause (optional)
-    pub limit: Option<u64>,
+    pub limit: Option<RowCount>,
     /// ORDER BY clause (optional)
     pub order_by: Option<OrderByClause>,
     /// SKIP/OFFSET clause (optional)
-    pub skip: Option<u64>,
+    pub skip: Option<RowCount>,
 }
 
 impl CypherQuery {
@@ -476,7 +497,7 @@ pub struct WithClause {
     /// Optional ORDER BY within WITH
     pub order_by: Option<OrderByClause>,
     /// Optional LIMIT within WITH
-    pub limit: Option<u64>,
+    pub limit: Option<RowCount>,
     /// `WITH ... WHERE`: filters the WITH output, before any following MATCH
     #[serde(default)]
     pub where_clause: Option<WhereClause>,
