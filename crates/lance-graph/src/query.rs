@@ -253,10 +253,7 @@ impl CypherQuery {
                     .filter_map(|stage| stage.with_clause.limit.as_ref()),
             )
             .any(|count| matches!(count, crate::ast::RowCount::Parameter(_)));
-        if parameter_counts
-            || self.scalar_parameters().is_none()
-            || self.has_parameter_named_columns()
-        {
+        if parameter_counts || self.scalar_parameters().is_none() {
             return Ok(false);
         }
         let (graph, datafusion) = self.build_logical_plans(catalog.clone(), true)?;
@@ -272,38 +269,6 @@ impl CypherQuery {
                 .collect(),
         }));
         Ok(true)
-    }
-
-    // Unaliased expressions use their bound values as column names. Reusing a
-    // placeholder-named projection would change the observable Arrow schema.
-    fn has_parameter_named_columns(&self) -> bool {
-        self.ast
-            .return_clause
-            .items
-            .iter()
-            .chain(self.ast.with_clause.iter().flat_map(|clause| &clause.items))
-            .chain(
-                self.ast
-                    .further_with_stages
-                    .iter()
-                    .flat_map(|stage| &stage.with_clause.items),
-            )
-            .any(|item| {
-                if item.alias.is_some() {
-                    return false;
-                }
-                let mut found = false;
-                crate::ast::transform_value(&mut item.expression.clone(), &mut |value| {
-                    found |= matches!(
-                        value,
-                        crate::ast::ValueExpression::Parameter(_)
-                            | crate::ast::ValueExpression::Literal(
-                                crate::ast::PropertyValue::Parameter(_)
-                            )
-                    );
-                });
-                found
-            })
     }
 
     fn scalar_parameters(&self) -> Option<HashMap<String, datafusion::common::ScalarValue>> {
@@ -1587,8 +1552,10 @@ mod tests {
                 .await
                 .unwrap();
             let catalog: Arc<dyn lance_graph_catalog::GraphSourceCatalog> = Arc::new(catalog);
-            let cached = template.prepare_cached_plan(catalog.clone()).unwrap();
-            assert_eq!(cached, !template.has_parameter_named_columns(), "{text}");
+            assert!(
+                template.prepare_cached_plan(catalog.clone()).unwrap(),
+                "{text}"
+            );
             for value in values {
                 let cached = template.clone().with_parameter("value", value.clone());
                 let fresh = CypherQuery::new(text)
