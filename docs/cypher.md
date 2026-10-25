@@ -258,13 +258,35 @@ RETURN length(p), nodes(p)
 | Group | Functions |
 | --- | --- |
 | Aggregates | `count` (including `count(*)` and `count(DISTINCT x)`), `sum`, `avg`, `min`, `max`, `collect` (including `DISTINCT`; skips nulls) |
-| Strings | `toLower` / `lower`, `toUpper` / `upper`, `toString` |
+| Strings | `toLower` / `lower`, `toUpper` / `upper`, `toString`, `left`, `right`, `substring`, `replace`, `split`, `trim`, `lTrim`, `rTrim`, `reverse`, `size` |
 | Conversion | `toInteger`, `toFloat`, `coalesce` |
-| Lists | `size`, `head`, `range(start, end)` (inclusive, no step) |
+| Lists | `size`, `head`, `last`, `tail`, `reverse`, `range(start, end [, step])` (inclusive) |
 | Math | `abs`, `round`, `floor`, `ceil`, `sqrt` |
 | Temporal | `date`, `datetime`, `date_part('month', d)`, `to_epoch_ms`, `duration.inSeconds(a, b).seconds` |
 | Paths | `length(p)`, `nodes(p)` on `shortestPath` variables |
 | Vectors | `vector_distance(a, b, metric)`, `vector_similarity(a, b, metric)`; see [Vector search](vector-search.md) |
+
+The string and list functions follow the [Cypher v9 reference](https://s3.amazonaws.com/artifacts.opencypher.org/openCypher9.pdf),
+within the list representation described above. `size` counts Unicode characters in a string or the
+outer elements of a list. `left(text, length)`, `right(text, length)` and
+`substring(text, start [, length])` count characters; the substring start is zero-based. Lengths and
+starts must be non-negative integers. A null input string returns null; a null start or length on a
+non-null string raises an error. `trim`, `lTrim` and `rTrim` remove whitespace, and `replace` replaces
+all literal matches. `split` preserves empty fields; an empty delimiter splits into characters.
+Splitting an empty string returns `['']`.
+
+`last([])` returns null; `tail([])` and `reverse([])` return empty lists. `reverse` also accepts strings.
+`range(start, end [, step])` includes the end when reached, defaults to step 1, and accepts negative
+steps. A step pointing away from the end gives an empty list; zero steps and non-integer arguments
+raise an error. Null arguments return null.
+
+```python
+result = engine.execute("""
+    RETURN substring('a猫😀z', 1, 2) AS text,
+           reverse(range(1, 5, 2)) AS numbers
+""")
+print(result.to_pylist())  # [{'text': '猫😀', 'numbers': [5, 3, 1]}]
+```
 
 `abs` preserves integer results; the other math functions return floating point values. Integer
 `abs` raises an error on absolute-value overflow or unsigned inputs outside Int64 range. The other
@@ -281,9 +303,8 @@ print(result.to_pylist())  # [{'magnitude': 5, 'rounded': -1.0, 'root': 3.0}]
 ```
 
 Any other function raises `ValueError` with `Cypher function 'name' is not implemented`. This is a
-bounded function set, not a claim of full Cypher conformance. Remaining functions include most
-string and list functions, `reduce`, the list predicates `any` / `all` / `none` / `single`, and
-`relationships(p)`.
+bounded function set, not a claim of full Cypher conformance. Remaining functions include `keys`,
+`labels`, `reduce`, the list predicates `any` / `all` / `none` / `single`, and `relationships(p)`.
 
 ### Example: a little of everything
 

@@ -21,6 +21,7 @@ mod cypher_udf;
 mod expression;
 mod join_ops;
 mod math_functions;
+mod scalar_functions;
 mod scan_ops;
 mod udf;
 pub mod vector_ops;
