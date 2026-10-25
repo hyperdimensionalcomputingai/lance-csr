@@ -359,8 +359,8 @@ properties. It therefore materializes those tables, even with `use_csr=True`. Tr
 in batches and named ordinary paths keep a cursor per hop, but inventory memory grows with the graph.
 Rich path queries bypass the query-template cache: each execution binds its current parameters and
 creates an inventory from its own snapshot. A reader opened before `refresh()` retains the old snapshot.
-Queries asking only for shortest-path length or node keys, including existing homogeneous node-property
-comprehensions, retain the usual CSR execution route.
+Queries asking only for shortest-path length or node keys, including homogeneous node-property
+comprehensions and paths carried through `WITH` aliases, retain the usual CSR execution route.
 
 ### Expressions and predicates
 

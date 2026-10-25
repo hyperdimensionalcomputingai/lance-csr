@@ -426,3 +426,43 @@ def test_rich_inventory_reads_every_partition(tmp_path, storage, shortest):
     assert len(rows) == 1
     assert rows[0]["p"]["nodes"] == list(range(n - 10, n - 4))
     assert len(rows[0]["p"]["relationships"]) == 5
+
+
+@pytest.mark.parametrize(
+    ("suffix", "rich"),
+    [
+        ("WITH p RETURN nodes(p) AS ids", False),
+        ("WITH p AS q WITH q AS r RETURN nodes(r) AS ids", False),
+        ("WITH p AS q RETURN [n IN nodes(q) | n.id] AS ids", False),
+        (
+            "WITH p AS q WITH collect(q) AS ps UNWIND ps AS r RETURN nodes(r) AS ids",
+            True,
+        ),
+    ],
+)
+def test_path_pass_through_only_materializes_consumed_values(engine, suffix, rich):
+    query = (
+        "MATCH p = allShortestPaths((a:Person {id: 1})-[:KNOWS*]->(b:Person {id: 3})) "
+        + suffix
+    )
+    assert engine.execute(query).to_pylist() == [{"ids": [1, 2, 3]}] * 2
+    assert ("PathMatchExec" in engine.explain(query)) is rich
+
+
+@pytest.mark.parametrize(
+    "suffix", ["RETURN relationships(q) AS edges", "RETURN q AS path"]
+)
+def test_path_alias_retains_actual_relationship_values(engine, suffix):
+    query = (
+        "MATCH p = allShortestPaths((a:Person {id: 1})-[:KNOWS*]->(b:Person {id: 3})) "
+        "WITH p AS q " + suffix
+    )
+    rows = engine.execute(query).to_pylist()
+    edges = [row.get("edges", row.get("path", {}).get("relationships")) for row in rows]
+    assert sorted(
+        [r["__lance_graph_properties"]["weight"] for r in path] for path in edges
+    ) == [
+        [5, 11],
+        [7, 11],
+    ]
+    assert "PathMatchExec" in engine.explain(query)
