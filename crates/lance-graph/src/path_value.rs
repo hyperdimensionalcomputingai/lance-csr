@@ -123,8 +123,8 @@ pub(crate) fn paths_array(
     )))
 }
 
-/// A direct length/nodes query can keep its existing CSR plan. Values carried through
-/// containers and node-property comprehensions need the actual path records.
+/// Length/nodes queries, including WITH pass-through aliases, keep their CSR plan.
+/// Returned path values, relationship access and containers need actual path records.
 pub(crate) fn needs_values(query: &crate::ast::CypherQuery) -> bool {
     use crate::ast::{GraphPattern, ReadingClause, ValueExpression as V};
     let clauses: Vec<_> = query
@@ -149,6 +149,20 @@ pub(crate) fn needs_values(query: &crate::ast::CypherQuery) -> bool {
                     if let Some(name) = path.shortest.as_ref().and_then(|s| s.variable.as_ref()) {
                         names.insert(name.to_lowercase());
                     }
+                }
+            }
+        }
+    }
+    // A bare WITH only renames/carries a path; inspect its eventual consumers instead.
+    for with in query
+        .with_clause
+        .iter()
+        .chain(query.further_with_stages.iter().map(|s| &s.with_clause))
+    {
+        for item in &with.items {
+            if let (V::Variable(name), Some(alias)) = (&item.expression, &item.alias) {
+                if names.contains(&name.to_lowercase()) {
+                    names.insert(alias.to_lowercase());
                 }
             }
         }
@@ -201,7 +215,10 @@ pub(crate) fn needs_values(query: &crate::ast::CypherQuery) -> bool {
         .chain(query.further_with_stages.iter().map(|s| &s.with_clause))
     {
         for item in &with.items {
-            inspect(&item.expression);
+            if !matches!(&item.expression, V::Variable(name) if names.contains(&name.to_lowercase()))
+            {
+                inspect(&item.expression);
+            }
         }
         if let Some(order) = &with.order_by {
             for item in &order.items {
@@ -246,6 +263,17 @@ mod tests {
         for (suffix, rich) in [
             ("RETURN length(p), nodes(p)", false),
             ("RETURN [n IN nodes(p) | n.id]", false),
+            ("WITH p RETURN nodes(p)", false),
+            (
+                "WITH p AS q WITH q AS r RETURN [n IN nodes(r) | n.id]",
+                false,
+            ),
+            ("WITH p AS q RETURN q", true),
+            ("WITH p AS q RETURN relationships(q)", true),
+            (
+                "WITH p AS q WITH collect(q) AS ps UNWIND ps AS r RETURN nodes(r)",
+                true,
+            ),
             ("RETURN p", true),
             ("RETURN relationships(p)", true),
             ("RETURN length(head(collect(p)))", true),

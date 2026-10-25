@@ -1757,6 +1757,9 @@ impl<'a> LogicalPlanner<'a> {
                     if let Some(label) = self.variables.get(var).cloned() {
                         self.variables.insert(alias.clone(), label);
                     }
+                    if let Some(label) = self.path_labels.get(var).cloned() {
+                        self.path_labels.insert(alias.clone(), label);
+                    }
                     Some(alias.clone())
                 }
                 (Some(alias), _) => Some(alias.clone()),
