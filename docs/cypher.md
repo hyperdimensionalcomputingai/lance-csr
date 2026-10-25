@@ -164,8 +164,9 @@ implemented; `ExecutionStrategy.LanceNative` is reserved and raises an error.
 
 ## Supported Cypher
 
-lance-csr implements a large read-only subset of openCypher, enough to run all 14 official
-[LDBC SNB Interactive](https://ldbcouncil.org/benchmarks/snb/) complex queries (IC14 without `reduce()`).
+The Graph Data Council (GDC), formerly known as the Linked Data Benchmark Council (LDBC), maintains the
+[GDC SNB Interactive](https://ldbcouncil.org/benchmarks/snb/) complex queries. lance-csr implements a large
+read-only subset of openCypher, enough to run all 14 (IC14 without `reduce()`).
 
 ### Clauses
 

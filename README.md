@@ -44,8 +44,9 @@ DataFusion as extension operators, falling back to a join for any hop the CSR ca
   and `refresh()`es to new dataset versions.
 - **Smarter planning**: patterns start at their most selective node, and DataFusion gets column statistics to size
   its joins.
-- **Much wider Cypher**, enough to run the official LDBC Interactive complex queries (IC14 without `reduce()`,
-  which openCypher leaves out): `OPTIONAL MATCH`, `EXISTS` and pattern predicates, chained `WITH`, `UNWIND`,
+- **Much wider Cypher**. The Graph Data Council (GDC), formerly known as the Linked Data Benchmark Council (LDBC),
+  maintains the official Interactive complex queries. lance-csr runs them (IC14 without `reduce()`, which
+  openCypher leaves out), with `OPTIONAL MATCH`, `EXISTS` and pattern predicates, chained `WITH`, `UNWIND`,
   list and pattern comprehensions, maps, relationship alternation, `shortestPath`, `$parameters` and more,
   following openCypher's
   [standardisation scope](https://github.com/opencypher/openCypher/blob/master/docs/standardisation-scope.adoc).
@@ -160,16 +161,18 @@ r2 = engine.execute("SELECT name FROM person ORDER BY age DESC LIMIT 2")
 ## Benchmarks
 
 The benchmark runners and raw results live in two sibling repositories, next to the other engines' runners, so
-every number below can be reproduced from there. These are independent, unaudited measurements, not LDBC Benchmark
+every number below can be reproduced from there. These are independent, unaudited measurements, not GDC Benchmark
 Results. lance-csr runs with the CSR (`use_csr=True`) in two modes: *in memory* holds every table as Arrow in
 memory, and *lazy* reads Lance datasets from disk as queries need them. Neo4j runs as a server in a Docker VM; the
 other engines run embedded in the Python process. `docs/sync_benchmarks.py` regenerates the tables from the
 repositories' committed results.
 
-### LDBC SNB Interactive complex queries
+<a id="ldbc-snb-interactive-complex-queries"></a>
 
-[graph-benchmark-ldbc-complex](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc-complex) runs the
-14 complex read queries (IC1–IC14) of the LDBC SNB Interactive v1 workload over the SF1 dataset, with one fixed
+### GDC SNB Interactive complex queries
+
+[GDC Interactive benchmark repository](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc-complex) runs the
+14 complex read queries (IC1–IC14) of the GDC SNB Interactive v1 workload over the SF1 dataset, with one fixed
 parameter set per query and every result checked against a golden answer. lance-csr's
 [runner](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc-complex/tree/main/lance_csr) runs
 Neo4j's Cypher text for IC1–IC13 unchanged; IC14 replaces `reduce()`, which openCypher leaves out, with pattern
@@ -217,10 +220,12 @@ Mean query latency in milliseconds (lower is better, fastest per query in bold):
 
 <!-- /bench:ic:notes -->
 
-### LDBC SNB SF1, 30-query workload
+<a id="ldbc-snb-sf1-30-query-workload"></a>
 
-[graph-benchmark-ldbc](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc) runs 30 custom Cypher
-queries over the LDBC SNB SF1 dataset (3.18M nodes, 17.3M relationships), with every result checked against an
+### GDC SNB SF1, 30-query workload
+
+[GDC SF1 benchmark repository](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc) runs 30 custom Cypher
+queries over the GDC SNB SF1 dataset (3.18M nodes, 17.3M relationships), with every result checked against an
 expected answer. lance-csr's [runner](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc/tree/main/lance_csr)
 runs the same query text and Lance datasets as the lance-graph runner.
 
