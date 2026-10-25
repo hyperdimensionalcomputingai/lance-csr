@@ -51,12 +51,12 @@ def test_cached_parameter_types_and_container_fallback(engine):
         ]
 
 
-def test_unaliased_parameters_keep_bound_column_names(engine):
+def test_unaliased_parameters_keep_existing_column_names(engine):
     query = "MATCH (p:Person) WHERE p.id = 1 RETURN $value"
     first = engine.execute(query, {"value": 1})
     second = engine.execute(query, {"value": 2})
-    assert first.column_names == ["1"]
-    assert second.column_names == ["2"]
+    assert first.column_names == ["expr"]
+    assert second.column_names == ["expr"]
     assert first.column(0).to_pylist() == [1]
     assert second.column(0).to_pylist() == [2]
 
