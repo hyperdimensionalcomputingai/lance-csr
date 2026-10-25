@@ -144,6 +144,24 @@ flag; each branch has its own variable scope. Exhaustive matches on `LogicalOper
 new `SingleRow` and `QueryUnion` variants. These are Rust source compatibility changes; Python method
 signatures are unchanged by UNION.
 
+Named ordinary paths add `PathPattern.variable`; set it to `None` in existing unnamed-path struct
+literals, or `Some(name)` for `p = (a)-[:R]->(b)`. Shortest-path names still use
+`ShortestPathSpec.variable`. `LogicalOperator::PathMatch` retains ordered node and relationship
+records, so visitors must traverse its input and path pattern instead of treating a path value as a
+length. The public `nodes(path)` result remains a list of integer keys; the Cypher guide describes the
+separate Arrow record returned by a path value.
+
+Read-only subqueries add `ReadingClause::Call(Box<CypherQuery>)` and
+`LogicalOperator::{Apply, CallInput}`. Update exhaustive matches and visitors to recurse into the CALL
+query, including its UNION branches. A leading importing `WITH` declares the outer variables available
+in that query; each CALL body otherwise has its own scope.
+
+List folds add `ValueExpression::{Reduce, ListPredicate, LocalVariable}`. Update exhaustive matches
+and visitors to traverse the input and body while respecting iterator and accumulator scope. Prefer
+parsing Cypher text to construct these expressions: the parser marks local variable references so they
+cannot accidentally bind to graph variables with the same name. These path, CALL and fold additions
+also require updates from Rust consumers that construct ASTs or exhaustively match public enums.
+
 ## Testing
 
 ```bash
