@@ -89,6 +89,10 @@ table values. Cypher `round(-1.5)` produces `-1.0`; DataFusion SQL `round(-1.5)`
 Integer `abs` also normalizes its result to Int64 in Cypher, while SQL preserves the input width.
 Use `CypherQuery.execute` or `CypherEngine.execute` for these expressions.
 
+Constant-folded typed nulls use DataFusion `arrow_cast` in the Default dialect so their Arrow
+result types are preserved. Other dialects raise `NotImplementedError` for typed-null literals;
+a bare Cypher `null` remains an untyped SQL `NULL`.
+
 List `size` and inclusive `range` retain SQL export support through native expressions, including
 null arguments, integer casts and the optional range step. Constant expressions that the optimizer
 evaluates completely can also export their resulting literals. These checks establish DataFusion

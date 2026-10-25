@@ -477,17 +477,18 @@ impl CypherQuery {
     ///
     /// # Errors
     /// Returns `GraphError::UnsupportedFeature` for runtime-only Cypher functions
-    /// without a faithful SQL translation. Constant expressions may be folded first.
+    /// without a faithful SQL translation or typed nulls outside the Default dialect.
+    /// Constant expressions may be folded first.
     pub async fn to_sql(
         &self,
         datasets: HashMap<String, arrow::record_batch::RecordBatch>,
         dialect: Option<SqlDialect>,
     ) -> Result<String> {
         use datafusion::common::tree_node::{Transformed, TreeNode};
-        use datafusion::common::{not_impl_err, DFSchema};
+        use datafusion::common::{not_impl_err, DFSchema, ScalarValue};
         use datafusion::logical_expr::expr_rewriter::NamePreserver;
         use datafusion::logical_expr::registry::FunctionRegistry;
-        use datafusion::logical_expr::{utils::merge_schema, Expr, LogicalPlan};
+        use datafusion::logical_expr::{lit, utils::merge_schema, Expr, LogicalPlan};
         use std::sync::Arc;
 
         let dialect = dialect.unwrap_or_default();
@@ -532,6 +533,21 @@ impl CypherQuery {
                                     "SQL export of Cypher function '{}' is unsupported; execute the Cypher query directly",
                                     function.name()
                                 );
+                            }
+                        }
+                        if let Expr::Literal(value, _) = &expr {
+                            let data_type = value.data_type();
+                            if value.is_null() && !data_type.is_null() {
+                                let type_name = data_type.to_string();
+                                if dialect != SqlDialect::Default
+                                    || !type_name.parse::<arrow_schema::DataType>().is_ok_and(|parsed| parsed == data_type)
+                                {
+                                    return not_impl_err!("SQL export of typed null {data_type} requires a faithful Default-dialect Arrow cast");
+                                }
+                                // The unparser emits bare NULL for typed nulls, losing their Arrow type.
+                                return Ok(Transformed::yes(datafusion::functions::core::arrow_cast().call(vec![
+                                    lit(ScalarValue::Null), lit(type_name),
+                                ])));
                             }
                         }
                         Ok(Transformed::no(expr))
@@ -2582,6 +2598,45 @@ mod tests {
         assert!(error
             .to_string()
             .contains("SQL export of Cypher function 'round'"));
+    }
+
+    #[tokio::test]
+    async fn test_to_sql_preserves_constant_null_types() {
+        let batch = RecordBatch::try_from_iter(vec![(
+            "id",
+            Arc::new(arrow_array::Int64Array::from(vec![1])) as arrow_array::ArrayRef,
+        )])
+        .unwrap();
+        let datasets = HashMap::from([("Person".to_string(), batch)]);
+        let config = GraphConfig::builder()
+            .node_table("Person", "id")
+            .build()
+            .unwrap();
+        for expression in [
+            "round(null)",
+            "abs(null)",
+            "sqrt(null)",
+            "floor(null)",
+            "ceil(null)",
+            "toUpper(null)",
+            "null",
+        ] {
+            let query = CypherQuery::new(&format!("MATCH (p:Person) RETURN {expression} AS value"))
+                .unwrap()
+                .with_config(config.clone());
+            let cypher = query.execute(datasets.clone(), None).await.unwrap();
+            let sql_text = query.to_sql(datasets.clone(), None).await.unwrap();
+            let sql = crate::sql_query::SqlQuery::new(&sql_text)
+                .execute(datasets.clone())
+                .await
+                .unwrap();
+            assert_eq!(
+                sql.schema().field(0).data_type(),
+                cypher.schema().field(0).data_type(),
+                "{expression}: {sql_text}"
+            );
+            assert_eq!(sql.column(0).logical_null_count(), 1, "{expression}");
+        }
     }
 
     async fn write_lance_dataset(path: &std::path::Path, batch: arrow_array::RecordBatch) {
