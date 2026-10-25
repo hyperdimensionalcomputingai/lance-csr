@@ -1921,6 +1921,16 @@ impl CypherEngine {
             .clone()
     }
 
+    /// Publish only if no other refresh replaced the snapshot used to build this state.
+    fn try_publish_refresh(&self, expected: &Arc<EngineState>, replacement: EngineState) -> bool {
+        let mut current = self.state.write().expect("engine state lock poisoned");
+        if !Arc::ptr_eq(&current, expected) {
+            return false;
+        }
+        *current = Arc::new(replacement);
+        true
+    }
+
     fn parse(
         &self,
         query: &str,
@@ -2085,25 +2095,31 @@ impl CypherEngine {
     /// The replacement is validated in full before it is swapped in; on error nothing
     /// changes and the previous snapshot stays usable. Queries already running finish
     /// on the snapshot they started with. PyArrow inputs are unchanged.
+    /// If another refresh publishes first, retry from its snapshot instead of replacing
+    /// it with a candidate built from an older state.
     fn refresh(&self, py: Python) -> PyResult<()> {
-        let current = self.snapshot();
-        let mut sources = current.sources.clone();
-        for source in sources.values_mut() {
-            if let EngineSource::Lance {
-                uri,
-                storage_options,
-                dataset,
-            } = source
-            {
-                let latest = open_lance_dataset(py, uri, None, storage_options)?;
-                if !same_lance_snapshot(&latest, dataset) {
-                    *dataset = Arc::new(latest);
+        loop {
+            let current = self.snapshot();
+            let mut sources = current.sources.clone();
+            for source in sources.values_mut() {
+                if let EngineSource::Lance {
+                    uri,
+                    storage_options,
+                    dataset,
+                } = source
+                {
+                    let latest = open_lance_dataset(py, uri, None, storage_options)?;
+                    if !same_lance_snapshot(&latest, dataset) {
+                        *dataset = Arc::new(latest);
+                    }
                 }
             }
+            let state =
+                build_engine_state(py, &self.config, sources, self.use_csr, Some(&current))?;
+            if self.try_publish_refresh(&current, state) {
+                return Ok(());
+            }
         }
-        let state = build_engine_state(py, &self.config, sources, self.use_csr, Some(&current))?;
-        *self.state.write().expect("engine state lock poisoned") = Arc::new(state);
-        Ok(())
     }
 
     /// Node id -> row index statistics per node label (experimental, ``use_csr=True``).
@@ -2452,6 +2468,83 @@ pub fn register_graph_module(py: Python, parent_module: &Bound<'_, PyModule>) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_refresh_rejects_stale_snapshot() {
+        use arrow_array::Int64Array;
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        fn state(id: i64) -> EngineState {
+            let batch = RecordBatch::try_from_iter([(
+                "id",
+                Arc::new(Int64Array::from(vec![id])) as arrow_array::ArrayRef,
+            )])
+            .unwrap();
+            let provider =
+                Arc::new(MemTable::try_new(batch.schema(), vec![vec![batch.clone()]]).unwrap());
+            let context = SessionContext::new();
+            context.register_table("person", provider.clone()).unwrap();
+            EngineState {
+                sources: HashMap::from([("Person".to_string(), EngineSource::Arrow(batch))]),
+                catalog: Arc::new(
+                    InMemoryCatalog::new()
+                        .with_node_source("Person", Arc::new(DefaultTableSource::new(provider))),
+                ),
+                context,
+                csr: HashMap::new(),
+                node_index: HashMap::new(),
+                key_stats: HashMap::new(),
+            }
+        }
+
+        let engine = CypherEngine {
+            config: RustGraphConfig::builder()
+                .node_table("Person", "id")
+                .build()
+                .unwrap(),
+            state: RwLock::new(Arc::new(state(1))),
+            use_csr: false,
+        };
+        let reader_snapshot = engine.snapshot();
+        let (started_tx, started_rx) = mpsc::channel();
+        let (published_tx, published_rx) = mpsc::channel();
+        std::thread::scope(|threads| {
+            let engine = &engine;
+            let older = threads.spawn(move || {
+                let starting_snapshot = engine.snapshot();
+                started_tx.send(()).unwrap();
+                published_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                engine.try_publish_refresh(&starting_snapshot, state(2))
+            });
+            started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+            assert!(engine.try_publish_refresh(&engine.snapshot(), state(3)));
+            published_tx.send(()).unwrap();
+            assert!(!older.join().unwrap());
+        });
+
+        for (snapshot, expected) in [(reader_snapshot, 1), (engine.snapshot(), 3)] {
+            let query = RustCypherQuery::new("MATCH (p:Person) RETURN p.id")
+                .unwrap()
+                .with_config(engine.config.clone());
+            let result = RT
+                .runtime
+                .block_on(query.execute_with_catalog_and_context(
+                    snapshot.catalog.clone(),
+                    snapshot.context.clone(),
+                ))
+                .unwrap();
+            assert_eq!(
+                result
+                    .column(0)
+                    .as_any()
+                    .downcast_ref::<Int64Array>()
+                    .unwrap()
+                    .value(0),
+                expected
+            );
+        }
+    }
 
     #[test]
     fn test_split_vector_column_with_alias() {
