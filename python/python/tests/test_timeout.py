@@ -70,6 +70,16 @@ def test_no_deadline_and_normal_execution_errors(engine):
         engine.execute("RETURN unknown", timeout=10)
 
 
+def test_execution_error_in_a_timed_stream_is_preserved(engine):
+    reader = engine.execute_batches("MATCH (p:Person) RETURN 1 / p.id AS n", timeout=10)
+    with pytest.raises(pa.ArrowInvalid) as raised:
+        reader.read_next_batch()
+    assert "Query timeout exceeded" not in str(raised.value)
+    with pytest.raises(StopIteration):
+        reader.read_next_batch()
+    assert engine.execute("RETURN 3 AS n").to_pylist() == [{"n": 3}]
+
+
 def test_expensive_query_stops_and_engine_stays_usable(engine):
     started = time.monotonic()
     with pytest.raises(TimeoutError, match="Query timeout exceeded"):
