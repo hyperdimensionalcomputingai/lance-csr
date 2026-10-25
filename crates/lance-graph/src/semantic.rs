@@ -589,7 +589,7 @@ impl SemanticAnalyzer {
                 match function_name.as_str() {
                     "tolower" | "lower" | "toupper" | "upper" | "abs" | "round" | "floor"
                     | "ceil" | "sqrt" | "trim" | "ltrim" | "rtrim" | "reverse" | "last"
-                    | "tail" => {
+                    | "tail" | "keys" | "labels" => {
                         if args.len() != 1 {
                             return Err(GraphError::PlanError {
                                 message: format!(
@@ -670,11 +670,39 @@ impl SemanticAnalyzer {
                         // Unknown scalar function - reject early with helpful error
                         return Err(GraphError::UnsupportedFeature {
                             feature: format!(
-                                "Cypher function '{}' is not implemented. Supported scalar functions: toLower, lower, toUpper, upper, toString, coalesce, date_part, to_epoch_ms, length, nodes, size, range, head, last, tail, reverse, left, right, substring, replace, split, trim, lTrim, rTrim, abs, round, floor, ceil, sqrt, toInteger, toFloat, date, datetime, duration.inSeconds. Supported aggregate functions: COUNT, SUM, AVG, MIN, MAX, COLLECT.",
+                                "Cypher function '{}' is not implemented. Supported scalar functions: toLower, lower, toUpper, upper, toString, coalesce, date_part, to_epoch_ms, length, nodes, size, range, head, last, tail, keys, labels, reverse, left, right, substring, replace, split, trim, lTrim, rTrim, abs, round, floor, ceil, sqrt, toInteger, toFloat, date, datetime, duration.inSeconds. Supported aggregate functions: COUNT, SUM, AVG, MIN, MAX, COLLECT.",
                                 name
                             ),
                             location: snafu::Location::new(file!(), line!(), column!()),
                         });
+                    }
+                }
+
+                if function_name == "labels" {
+                    if let ValueExpression::Variable(var) = &args[0] {
+                        if let Some(info) = self.variables.get_ci(var) {
+                            if info
+                                .labels
+                                .iter()
+                                .map(|label| label.to_lowercase())
+                                .collect::<HashSet<_>>()
+                                .len()
+                                > 1
+                            {
+                                return Err(GraphError::UnsupportedFeature {
+                                    feature: "labels() on a mixed-label binding is not supported"
+                                        .to_string(),
+                                    location: snafu::Location::new(file!(), line!(), column!()),
+                                });
+                            }
+                            if info.variable_type == VariableType::Relationship {
+                                return Err(GraphError::PlanError {
+                                    message: "labels() requires a node, not a relationship"
+                                        .to_string(),
+                                    location: snafu::Location::new(file!(), line!(), column!()),
+                                });
+                            }
+                        }
                     }
                 }
 

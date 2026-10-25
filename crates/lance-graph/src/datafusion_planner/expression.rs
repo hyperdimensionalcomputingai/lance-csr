@@ -229,7 +229,7 @@ pub(crate) fn to_df_value_expr(expr: &ValueExpression) -> Expr {
                 },
                 "abs" | "round" | "floor" | "ceil" | "sqrt" | "left" | "right" | "substring"
                 | "replace" | "split" | "trim" | "ltrim" | "rtrim" | "size" | "reverse"
-                | "last" | "tail" => {
+                | "last" | "tail" | "keys" | "__entity_keys" | "labels" => {
                     super::scalar_functions::call(name, args.iter().map(to_df_value_expr).collect())
                 }
                 "range" => {
@@ -492,6 +492,27 @@ pub(crate) fn bind_value(
     schema: &datafusion::common::DFSchema,
 ) -> ValueExpression {
     let has = |name: &str| schema.has_column_with_unqualified_name(name);
+    let entity_properties = |var: &str| {
+        let var = var.to_lowercase();
+        let prefix = format!("{var}__");
+        if has(&var) {
+            return Vec::new();
+        }
+        schema
+            .fields()
+            .iter()
+            .filter_map(|f| f.name().strip_prefix(&prefix))
+            .map(|property| {
+                (
+                    property.to_string(),
+                    ValueExpression::Property(crate::ast::PropertyRef {
+                        variable: var.clone(),
+                        property: property.to_string(),
+                    }),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
     let mut expr = expr.clone();
     crate::ast::transform_value(&mut expr, &mut |e| match e {
         ValueExpression::Property(p)
@@ -503,28 +524,23 @@ pub(crate) fn bind_value(
                 field: p.property.clone(),
             };
         }
+        ValueExpression::ScalarFunction { name, args } if name.eq_ignore_ascii_case("keys") => {
+            if let [ValueExpression::Variable(var)] = args.as_slice() {
+                let properties = entity_properties(var);
+                if !properties.is_empty() {
+                    *e = ValueExpression::ScalarFunction {
+                        name: "__entity_keys".to_string(),
+                        args: vec![ValueExpression::Map(properties)],
+                    };
+                }
+            }
+        }
         ValueExpression::Map(entries) => {
             for (_, value) in entries.iter_mut() {
                 let ValueExpression::Variable(var) = value else {
                     continue;
                 };
-                let var = var.to_lowercase();
-                let prefix = format!("{var}__");
-                if has(&var) {
-                    continue;
-                }
-                let properties: Vec<(String, ValueExpression)> = schema
-                    .fields()
-                    .iter()
-                    .filter_map(|f| f.name().strip_prefix(&prefix))
-                    .map(|property| {
-                        let column = ValueExpression::Property(crate::ast::PropertyRef {
-                            variable: var.clone(),
-                            property: property.to_string(),
-                        });
-                        (property.to_string(), column)
-                    })
-                    .collect();
+                let properties = entity_properties(var);
                 if !properties.is_empty() {
                     *value = ValueExpression::Map(properties);
                 }
