@@ -71,6 +71,9 @@ What `refresh()` guarantees:
 - **Schema changes are picked up.** New columns are queryable after the refresh.
 - **All or nothing.** The replacement is validated in full before it's swapped in. On error, nothing changes
   and the previous snapshot keeps working.
+- **Concurrent refreshes cannot overwrite a newer published snapshot with an older candidate.** If another
+  refresh publishes first, the overlapping refresh retries from that snapshot and reopens the latest datasets.
+  The retry can add work when refreshes overlap; it does not block queries while the replacement is built.
 - **Running queries are unaffected.** Queries and `execute_batches()` readers that started before the refresh
   finish on their original snapshot.
 - **The CSR updates incrementally**, as described in [Keeping the CSR current](csr.md#keeping-the-csr-current).
