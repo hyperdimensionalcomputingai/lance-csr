@@ -261,13 +261,27 @@ RETURN length(p), nodes(p)
 | Strings | `toLower` / `lower`, `toUpper` / `upper`, `toString` |
 | Conversion | `toInteger`, `toFloat`, `coalesce` |
 | Lists | `size`, `head`, `range(start, end)` (inclusive, no step) |
+| Math | `abs`, `round`, `floor`, `ceil`, `sqrt` |
 | Temporal | `date`, `datetime`, `date_part('month', d)`, `to_epoch_ms`, `duration.inSeconds(a, b).seconds` |
 | Paths | `length(p)`, `nodes(p)` on `shortestPath` variables |
 | Vectors | `vector_distance(a, b, metric)`, `vector_similarity(a, b, metric)`; see [Vector search](vector-search.md) |
 
-Any other function raises `NotImplementedError: Cypher function 'name' is not implemented`. Notably
-missing: math functions (`abs`, `round`, `sqrt`, ...), most string and list functions, `reduce`, the list
-predicates `any` / `all` / `none` / `single`, and `relationships(p)`.
+`abs` preserves integer results; the other math functions return floating point values. Integer
+absolute-value overflow raises an error. `round` accepts one argument, with ties toward positive
+infinity (`round(-1.5)` is `-1.0`), as specified in the
+[Neo4j 4.4 numeric reference](https://neo4j.com/docs/cypher-manual/4.4/functions/mathematical-numeric/).
+`sqrt` of a negative number returns NaN. These functions return null for null input and reject
+non-numeric values, including strings and booleans.
+
+```python
+result = engine.execute("RETURN abs(-5) AS magnitude, round(-1.5) AS rounded, sqrt(9) AS root")
+print(result.to_pylist())  # [{'magnitude': 5, 'rounded': -1.0, 'root': 3.0}]
+```
+
+Any other function raises `ValueError` with `Cypher function 'name' is not implemented`. This is a
+bounded function set, not a claim of full Cypher conformance. Remaining functions include most
+string and list functions, `reduce`, the list predicates `any` / `all` / `none` / `single`, and
+`relationships(p)`.
 
 ### Example: a little of everything
 

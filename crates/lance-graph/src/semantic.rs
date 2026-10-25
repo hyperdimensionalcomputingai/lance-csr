@@ -438,7 +438,8 @@ impl SemanticAnalyzer {
                 let function_name = name.to_lowercase();
                 // Validate arity and known functions
                 match function_name.as_str() {
-                    "tolower" | "lower" | "toupper" | "upper" => {
+                    "tolower" | "lower" | "toupper" | "upper" | "abs" | "round" | "floor"
+                    | "ceil" | "sqrt" => {
                         if args.len() != 1 {
                             return Err(GraphError::PlanError {
                                 message: format!(
@@ -506,7 +507,7 @@ impl SemanticAnalyzer {
                         // Unknown scalar function - reject early with helpful error
                         return Err(GraphError::UnsupportedFeature {
                             feature: format!(
-                                "Cypher function '{}' is not implemented. Supported scalar functions: toLower, lower, toUpper, upper, toString, coalesce, date_part, to_epoch_ms, length, nodes, size, range. Supported aggregate functions: COUNT, SUM, AVG, MIN, MAX, COLLECT.",
+                                "Cypher function '{}' is not implemented. Supported scalar functions: toLower, lower, toUpper, upper, toString, coalesce, date_part, to_epoch_ms, length, nodes, size, range, abs, round, floor, ceil, sqrt. Supported aggregate functions: COUNT, SUM, AVG, MIN, MAX, COLLECT.",
                                 name
                             ),
                             location: snafu::Location::new(file!(), line!(), column!()),

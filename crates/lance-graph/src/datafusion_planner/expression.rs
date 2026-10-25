@@ -193,6 +193,9 @@ pub(crate) fn to_df_value_expr(expr: &ValueExpression) -> Expr {
                     VE::Variable(path) => col(qualify_column(path, &name.to_lowercase())),
                     _ => Expr::Literal(datafusion::scalar::ScalarValue::Null, None),
                 },
+                "abs" | "round" | "floor" | "ceil" | "sqrt" => {
+                    super::math_functions::call(name, args.iter().map(to_df_value_expr).collect())
+                }
                 "size" => Expr::Cast(datafusion::logical_expr::Cast::new(
                     Box::new(datafusion::functions_nested::expr_fn::cardinality(
                         to_df_value_expr(&args[0]),
