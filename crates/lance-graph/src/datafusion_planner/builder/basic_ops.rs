@@ -154,9 +154,18 @@ impl DataFusionPlanner {
                 });
             }
         }
-        let union = LogicalPlanBuilder::from(left)
-            .union(right)
-            .map_err(|e| self.plan_error("Failed to build query UNION", e))?;
+        // Consumers need the final output schema before collecting UNION results.
+        // DataFusion's UNION builder deliberately leaves coercion until analysis;
+        // perform its standard UNION coercion now, without optimizing parameter values.
+        let union = datafusion::logical_expr::Union::try_new_with_loose_types(vec![
+            std::sync::Arc::new(left),
+            std::sync::Arc::new(right),
+        ])
+        .and_then(
+            datafusion::optimizer::analyzer::type_coercion::TypeCoercionRewriter::coerce_union,
+        )
+        .map_err(|e| self.plan_error("Failed to coerce query UNION", e))?;
+        let union = LogicalPlanBuilder::from(union);
         let union = if all {
             union
         } else {

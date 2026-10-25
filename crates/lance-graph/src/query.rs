@@ -624,14 +624,24 @@ impl CypherQuery {
             .dataframe_with_catalog_and_context(catalog, ctx)
             .await?;
 
-        // Get schema before collecting (in case result is empty)
-        let result_schema = df.schema().inner().clone();
-
-        // Collect results
-        let batches = df.collect().await.map_err(|e| GraphError::ExecutionError {
-            message: format!("Failed to collect query results: {}", e),
-            location: snafu::Location::new(file!(), line!(), column!()),
-        })?;
+        // Capture the final schema after type coercion, exactly as DataFrame::collect
+        // creates its physical plan. UNION batches can differ in nullability, while
+        // the unoptimized logical schema can still have a narrower data type.
+        let task_context = Arc::new(df.task_ctx());
+        let physical = df
+            .create_physical_plan()
+            .await
+            .map_err(|e| GraphError::ExecutionError {
+                message: format!("Failed to plan query results: {e}"),
+                location: snafu::Location::new(file!(), line!(), column!()),
+            })?;
+        let result_schema = physical.schema();
+        let batches = datafusion::physical_plan::collect(physical, task_context)
+            .await
+            .map_err(|e| GraphError::ExecutionError {
+                message: format!("Failed to collect query results: {e}"),
+                location: snafu::Location::new(file!(), line!(), column!()),
+            })?;
 
         if batches.is_empty() {
             // Return empty batch with the schema from the DataFrame
@@ -639,9 +649,9 @@ impl CypherQuery {
             return Ok(arrow::record_batch::RecordBatch::new_empty(result_schema));
         }
 
-        // Combine all batches
-        let schema = batches[0].schema();
-        concat_batches(&schema, &batches).map_err(|e| GraphError::ExecutionError {
+        // UNION branches may emit batches with narrower nullability. The complete
+        // result schema must govern concatenation regardless of which branch finishes first.
+        concat_batches(&result_schema, &batches).map_err(|e| GraphError::ExecutionError {
             message: format!("Failed to concatenate result batches: {}", e),
             location: snafu::Location::new(file!(), line!(), column!()),
         })
