@@ -131,6 +131,12 @@ When those hold, it covers:
 Everything else in the query (filters, aggregations, sorts and any hop the CSR can't take) is planned by
 DataFusion as usual. You can mix: a three-hop query might run two hops on the CSR and one as a join.
 
+For `shortestPath` and `allShortestPaths`, a source with one target in an input batch searches from both
+ends using the outgoing and incoming CSR. It expands the smaller frontier and finishes the whole layer
+before joining paths, so it keeps all shortest alternatives. Several targets for the same source share
+one forward search. Undirected searches can use both ends without a persistent CSR too; directed searches
+without a CSR keep their forward search over the adjacency built for that query.
+
 !!! tip "Leave relationship variables out unless you need them"
 
     `MATCH (a)-[k:KNOWS]->(b) RETURN b.name` falls back to joins only because it names `k`. If you don't read
