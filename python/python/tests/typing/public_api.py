@@ -1,7 +1,7 @@
 """Strict static consumer; checked by make lint, not executed by pytest."""
 
 from datetime import date
-from typing import assert_type
+from typing import TYPE_CHECKING, TypeAlias, assert_type
 
 from lance import LanceDataset
 from lance_csr import (
@@ -19,6 +19,19 @@ from lance_csr import (
     __version__,
 )
 from pyarrow import RecordBatch, RecordBatchReader, Table
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+ParameterResult: TypeAlias = (
+    int
+    | float
+    | str
+    | bool
+    | None
+    | list["ParameterResult"]
+    | dict[str, "ParameterResult"]
+)
 
 
 def public_api(
@@ -56,9 +69,12 @@ def public_api(
 
     one = CypherQuery(query).with_config(config).with_parameter("id", 1)
     assert_type(one, CypherQuery)
+    assert_type(one.with_parameter("ids", [1, 2]), CypherQuery)
+    one.with_parameter("options", {"ids": [1, 2], "nested": {"enabled": True}})
     one.with_parameter("day", date(2026, 1, 1))
     assert_type(one.query_text(), str)
-    assert_type(one.parameters(), dict[str, int | float | str | bool | None])
+    parameters: Mapping[str, ParameterResult] = one.parameters()
+    assert_type(len(parameters), int)
     assert_type(one.variables(), list[str])
     assert_type(one.node_labels(), list[str])
     assert_type(one.relationship_types(), list[str])
@@ -91,5 +107,5 @@ def public_api(
     # Rejected calls are checked too: removing a type restriction makes these unused.
     engine.execute(query, {"id": object()})  # pyright: ignore[reportArgumentType]
     vector.top_k("5")  # pyright: ignore[reportArgumentType]
-    one.with_parameter("ids", [1, 2])  # pyright: ignore[reportArgumentType]
+    one.with_parameter("ids", {1, 2})  # pyright: ignore[reportArgumentType]
     namespace.base_uri = "elsewhere"  # pyright: ignore[reportAttributeAccessIssue]
