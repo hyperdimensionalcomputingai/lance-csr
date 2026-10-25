@@ -58,14 +58,16 @@ test executable needs an explicit link to the active Python library. From `pytho
 
 ```shell
 lance_python_library=$(uv run --no-sync python -c 'import pathlib, sysconfig; print(pathlib.Path(sysconfig.get_config_var("LIBDIR")) / sysconfig.get_config_var("LDLIBRARY"))')
+lance_python_home=$(uv run --no-sync python -c 'import sys; print(sys.base_prefix)')
 lance_test_artifacts=$(mktemp)
 cargo rustc --manifest-path ../crates/lance-graph-python/Cargo.toml --tests --message-format=json -- -C "link-arg=$lance_python_library" > "$lance_test_artifacts"
 lance_test_binary=$(uv run --no-sync python -c 'import json, sys; artifacts = [json.loads(line) for line in open(sys.argv[1])]; print(next(a["executable"] for a in artifacts if a.get("reason") == "compiler-artifact" and a.get("profile", {}).get("test") and a.get("executable")))' "$lance_test_artifacts")
-"$lance_test_binary"
+PYTHONHOME="$lance_python_home" "$lance_test_binary"
 rm "$lance_test_artifacts"
 ```
 
-This uses Cargo's emitted executable path rather than selecting an older binary from `target/`. It does not
+`PYTHONHOME` lets tests that initialize the interpreter find its standard library, including with a
+relocatable Python installation. This uses Cargo's emitted executable path rather than selecting an older binary from `target/`. It does not
 change extension packaging or replace the Python tests. Use a separate `CARGO_TARGET_DIR` for each worktree
 when validating multiple revisions, so each test binary is built from that worktree's sources.
 
