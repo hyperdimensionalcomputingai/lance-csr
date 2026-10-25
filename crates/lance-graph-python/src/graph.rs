@@ -2690,6 +2690,7 @@ mod tests {
 
     #[test]
     fn test_refresh_rejects_stale_snapshot() {
+        use arrow_array::Int64Array;
         use std::sync::mpsc;
         use std::time::Duration;
 
