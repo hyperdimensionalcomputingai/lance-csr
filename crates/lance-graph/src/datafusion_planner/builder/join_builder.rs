@@ -242,10 +242,8 @@ impl DataFusionPlanner {
                     .find(|r| r.alias == *var)
                 {
                     // Get the relationship mapping to find src/dst field names
-                    if let Some(rel_map) = self
-                        .config
-                        .relationship_mappings
-                        .get(&rel_instance.rel_type)
+                    if let Some(rel_map) =
+                        self.config.get_relationship_mapping(&rel_instance.rel_type)
                     {
                         // Generate composite join keys for both src_id and dst_id
                         // This ensures we're matching the exact same relationship instance
