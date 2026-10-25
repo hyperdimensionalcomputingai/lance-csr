@@ -492,3 +492,48 @@ def test_rich_path_rejects_ambiguous_node_ids(tmp_path, storage):
         Exception, match="unique node IDs within label 'Person'; duplicate ID 1"
     ):
         engine.execute("MATCH p = (a:Person)-[:R]->(b:Person) RETURN p")
+
+
+@pytest.mark.parametrize("use_csr", [False, True])
+@pytest.mark.parametrize("search", ["shortestPath", "allShortestPaths"])
+@pytest.mark.parametrize("minimum", [0, 1])
+def test_shortest_scalar_consumers_preserve_cross_label_identity(
+    use_csr, search, minimum
+):
+    config = (
+        GraphConfig.builder()
+        .node_table("Person", "id")
+        .node_table("Place", "id")
+        .rel_table("LIVES", "Person", "Place", "src", "dst")
+        .build()
+    )
+    engine = CypherEngine(
+        config,
+        {
+            "Person": pa.table({"id": [1, 2], "name": ["one", "two"]}),
+            "Place": pa.table({"id": [1], "name": ["place"]}),
+            "LIVES": pa.table({"src": [1, 2], "dst": [1, 1]}),
+        },
+        use_csr=use_csr,
+    )
+    query = (
+        f"MATCH p = {search}((a:Person {{id: 1}})-[:LIVES*{minimum}..]->(b:Place)) "
+        "WITH p AS q RETURN length(q) AS hops, nodes(q) AS ids, "
+        "[n IN nodes(q) | n.name] AS names, [n IN nodes(q) | labels(n)] AS labels"
+    )
+    assert engine.execute(query).to_pylist() == [
+        {
+            "hops": 1,
+            "ids": [1, 1],
+            "names": ["one", "place"],
+            "labels": [["Person"], ["Place"]],
+        }
+    ]
+    assert "PathMatchExec" in engine.explain(query)
+    # Equal endpoint labels do not make Place 1 interchangeable with Person 1.
+    rows = engine.execute(
+        f"MATCH p = {search}((a:Person {{id: 1}})"
+        f"-[:LIVES*{minimum}..]-(b:Person {{id: 2}})) "
+        "RETURN length(p) AS hops, nodes(p) AS ids, [n IN nodes(p) | n.name] AS names"
+    ).to_pylist()
+    assert rows == [{"hops": 2, "ids": [1, 1, 2], "names": ["one", "place", "two"]}]

@@ -402,7 +402,7 @@ impl<'a> LogicalPlanner<'a> {
 
     /// Convert a Cypher AST to a logical plan
     pub fn plan(&mut self, query: &CypherQuery) -> Result<LogicalOperator> {
-        self.rich_paths = crate::path_value::needs_values(query);
+        self.rich_paths = crate::path_value::needs_values(query, self.config);
         // Plan main MATCH clauses; the WHERE clause guides where traversal starts.
         let where_expr = query.where_clause.as_ref().map(|w| &w.expression);
         let mut plan = self.plan_reading_clauses(None, &query.reading_clauses, where_expr)?;

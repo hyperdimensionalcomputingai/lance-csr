@@ -290,7 +290,9 @@ A path value needs a query-local inventory of the participating node and relatio
 properties. It therefore materializes those tables, even with `use_csr=True`. Traversal output is emitted
 in batches and named ordinary paths keep a cursor per hop, but inventory memory grows with the graph.
 Queries asking only for shortest-path length or node keys, including homogeneous node-property
-comprehensions and paths carried through `WITH` aliases, retain the usual CSR execution route.
+comprehensions and paths carried through `WITH` aliases, retain the usual CSR execution route when
+the relationship joins the same node label. Cross-label shortest paths use typed identities even for
+length or node keys, so equal numeric keys from different labels cannot become a false zero-hop path.
 
 ### Expressions and predicates
 

@@ -136,7 +136,9 @@ Named path values and `relationships(path)` use a query-local inventory of actua
 CSR neighbors do not carry edge identity or properties. This also preserves parallel edges when a path
 passes through `collect()` and `UNWIND`. The inventory materializes the participating node and relationship
 tables; bounded traversal batches do not bound that inventory. See [path values](cypher.md#path-values).
-Shortest-path queries that only read length or node keys keep the CSR route below.
+Shortest-path queries within one node label that only read length or node keys keep the CSR route below.
+Relationships crossing labels use typed identities, even for these queries, to distinguish equal keys
+from different labels.
 
 For `shortestPath` and `allShortestPaths`, a source with one target in an input batch searches from both
 ends using the outgoing and incoming CSR. It expands the smaller frontier and finishes the whole layer
