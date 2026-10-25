@@ -55,6 +55,17 @@ def scalar_export_env():
         "toUpper(null)",
         "null",
         "left('a猫😀z', 3)",
+        "left(null, 1)",
+        "right(null, 1)",
+        "substring(null, 0)",
+        "replace(null, 'x', 'y')",
+        "split(null, ',')",
+        "trim(null)",
+        "reverse(null)",
+        "size(null)",
+        "range(null, 3)",
+        "last(range(1, 0))",
+        "tail(null)",
     ],
 )
 def test_sql_export_preserves_scalar_values_and_types(scalar_export_env, expression):
