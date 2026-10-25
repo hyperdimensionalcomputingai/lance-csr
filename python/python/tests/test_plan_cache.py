@@ -81,3 +81,21 @@ def test_cached_query_still_rejects_missing_or_wrong_types(engine):
         engine.execute(query)
     with pytest.raises(ValueError, match="Type mismatch"):
         engine.execute(query, {"id": "wrong"})
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (p:Person) RETURN p.id AS id ORDER BY id LIMIT $count",
+        "MATCH (p:Person) WITH p ORDER BY p.id LIMIT $count RETURN p.id AS id",
+        "MATCH (p:Person) WITH p WITH p ORDER BY p.id LIMIT $count RETURN p.id AS id",
+    ],
+)
+def test_parameterized_limits_replan_each_count(engine, query):
+    for count in [1, 3, 0, 2]:
+        expected = [{"id": value} for value in range(1, count + 1)]
+        assert engine.execute(query, {"count": count}).to_pylist() == expected
+        assert (
+            engine.execute_batches(query, {"count": count}).read_all().to_pylist()
+            == expected
+        )

@@ -2008,6 +2008,7 @@ impl CypherEngine {
 
     fn parse(
         &self,
+        py: Python,
         query: &str,
         params: Option<&Bound<'_, PyDict>>,
         state: &EngineState,
@@ -2020,7 +2021,7 @@ impl CypherEngine {
                 python_to_json(&value)?,
             );
         }
-        self.plan_query(query, parameters, state, use_cache)
+        py.detach(|| self.plan_query(query, parameters, state, use_cache))
             .map_err(graph_error_to_pyerr)
     }
 
@@ -2149,7 +2150,7 @@ impl CypherEngine {
         params: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<Py<PyAny>> {
         let state = self.snapshot();
-        let cypher_query = self.parse(query, params, &state, true)?;
+        let cypher_query = self.parse(py, query, params, &state, true)?;
         let result_batch = RT
             .block_on(
                 Some(py),
@@ -2177,7 +2178,7 @@ impl CypherEngine {
         use arrow::pyarrow::IntoPyArrow;
 
         let state = self.snapshot();
-        let cypher_query = self.parse(query, params, &state, true)?;
+        let cypher_query = self.parse(py, query, params, &state, true)?;
         let stream = RT
             .block_on(
                 Some(py),
@@ -2203,7 +2204,7 @@ impl CypherEngine {
         params: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<String> {
         let state = self.snapshot();
-        let cypher_query = self.parse(query, params, &state, false)?;
+        let cypher_query = self.parse(py, query, params, &state, false)?;
         RT.block_on(
             Some(py),
             cypher_query
@@ -2331,7 +2332,7 @@ impl CypherEngine {
         vector_search: &VectorSearch,
     ) -> PyResult<Py<PyAny>> {
         let state = self.snapshot();
-        let cypher_query = self.parse(query, None, &state, false)?;
+        let cypher_query = self.parse(py, query, None, &state, false)?;
         let vs = vector_search.inner.clone();
 
         // Execute query to get candidates, then apply vector reranking
