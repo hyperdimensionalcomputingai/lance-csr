@@ -569,7 +569,7 @@ impl NodeRows {
         self.positions.len()
     }
 
-    fn position(&self, id: i64) -> Option<u64> {
+    pub(crate) fn position(&self, id: i64) -> Option<u64> {
         self.positions.get(&id).copied()
     }
 
@@ -788,7 +788,7 @@ pub struct Neighbors {
 
 /// Occurrence offsets are sufficient to pause even a high-degree source row.
 #[derive(Default)]
-struct NeighborPosition {
+pub(crate) struct NeighborPosition {
     forward: usize,
     reverse: usize,
 }
@@ -813,7 +813,7 @@ impl Neighbors {
             .for_each(f);
     }
 
-    fn neighbors_from<'a>(
+    pub(crate) fn neighbors_from<'a>(
         &'a self,
         key: i64,
         position: &'a mut NeighborPosition,
@@ -874,6 +874,7 @@ pub struct CsrExpandNode {
     /// Closing edge: input column holding the already-bound target id. Only neighbours
     /// equal to it are kept, replacing a filter after a full expansion.
     closing_column: Option<String>,
+    traversal: Option<Arc<crate::csr_traversal::Traversal>>,
     schema: DFSchemaRef,
 }
 
@@ -903,6 +904,7 @@ impl CsrExpandNode {
             target,
             target_filter: None,
             closing_column: None,
+            traversal: None,
             schema: Arc::new(schema),
         })
     }
@@ -910,6 +912,11 @@ impl CsrExpandNode {
     /// Keep only neighbours equal to the bound target id in `column` (a closing edge).
     pub fn with_closing_column(mut self, column: String) -> Self {
         self.closing_column = Some(column);
+        self
+    }
+
+    pub(crate) fn with_traversal(mut self, traversal: crate::csr_traversal::Traversal) -> Self {
+        self.traversal = Some(Arc::new(traversal));
         self
     }
 
@@ -925,6 +932,7 @@ impl CsrExpandNode {
         )?;
         node.target_filter = self.target_filter.clone();
         node.closing_column = self.closing_column.clone();
+        node.traversal = self.traversal.clone();
         Ok(node)
     }
 
@@ -980,6 +988,11 @@ impl PartialEq for CsrExpandNode {
             }
             && self.target_filter == other.target_filter
             && self.closing_column == other.closing_column
+            && match (&self.traversal, &other.traversal) {
+                (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+                (None, None) => true,
+                _ => false,
+            }
     }
 }
 impl Eq for CsrExpandNode {}
@@ -1082,6 +1095,9 @@ impl UserDefinedLogicalNodeCore for CsrExpandNode {
         if let Some(column) = &self.closing_column {
             write!(f, ", match={}", column)?;
         }
+        if let Some(walk) = &self.traversal {
+            write!(f, ", iterative hops={}..{}", walk.min_hops, walk.max_hops)?;
+        }
         Ok(())
     }
 
@@ -1106,6 +1122,7 @@ pub struct CsrExpandExec {
     /// The moved target filter, if any.
     target_filter: Option<CompiledTargetFilter>,
     closing_column: Option<String>,
+    traversal: Option<Arc<crate::csr_traversal::Traversal>>,
     schema: SchemaRef,
     properties: Arc<PlanProperties>,
 }
@@ -1119,6 +1136,7 @@ impl CsrExpandExec {
         target: Option<TargetLookup>,
         target_filter: Option<CompiledTargetFilter>,
         closing_column: Option<String>,
+        traversal: Option<Arc<crate::csr_traversal::Traversal>>,
         schema: SchemaRef,
     ) -> Self {
         let properties = Arc::new(PlanProperties::new(
@@ -1134,6 +1152,7 @@ impl CsrExpandExec {
             target,
             target_filter,
             closing_column,
+            traversal,
             schema,
             properties,
         }
@@ -1147,6 +1166,7 @@ struct BatchExpansion {
     bound: Option<Int64Array>,
     row: usize,
     position: NeighborPosition,
+    walk: Option<crate::csr_traversal::TraversalCursor>,
 }
 
 impl BatchExpansion {
@@ -1166,6 +1186,7 @@ impl BatchExpansion {
             bound,
             row: 0,
             position: NeighborPosition::default(),
+            walk: None,
         })
     }
 
@@ -1204,6 +1225,49 @@ impl BatchExpansion {
             }
             self.row += 1;
             self.position = NeighborPosition::default();
+        }
+        chunk
+    }
+
+    async fn next_path_chunk(
+        &mut self,
+        graph: &crate::csr_traversal::Traversal,
+        target: Option<&TargetLookup>,
+        batch_size: usize,
+    ) -> ExpandedRows {
+        let mut chunk = ExpandedRows::default();
+        while self.row < self.keys.len() {
+            let i = self.row;
+            if self.keys.is_valid(i) && self.bound.as_ref().is_none_or(|b| b.is_valid(i)) {
+                let key = self.keys.value(i);
+                let walk = self
+                    .walk
+                    .get_or_insert_with(|| crate::csr_traversal::TraversalCursor::new(graph, key));
+                let mut candidates = 0usize;
+                while let Some(neighbor) = walk.next(graph).await {
+                    candidates += 1;
+                    if candidates.is_multiple_of(1024) {
+                        cooperative_yield().await;
+                    }
+                    if self.bound.as_ref().is_some_and(|b| b.value(i) != neighbor) {
+                        continue;
+                    }
+                    if let Some(target) = target {
+                        let Some(position) = target.rows.position(neighbor) else {
+                            continue;
+                        };
+                        chunk.target_positions.push(position);
+                    }
+                    chunk.rows.push(i as u32);
+                    chunk.key_values.push(key);
+                    chunk.neighbor_values.push(neighbor);
+                    if chunk.rows.len() == batch_size.max(1) {
+                        return chunk;
+                    }
+                }
+            }
+            self.row += 1;
+            self.walk = None;
         }
         chunk
     }
@@ -1300,6 +1364,20 @@ fn retain_by_mask<T>(values: &mut Vec<T>, keep: &[bool]) {
     values.retain(|_| *keep.next().expect("one mask entry per value"));
 }
 
+/// Cooperate with the stream's executor without requiring a particular async runtime.
+pub(crate) async fn cooperative_yield() {
+    let mut yielded = false;
+    std::future::poll_fn(move |cx| {
+        if std::mem::replace(&mut yielded, true) {
+            std::task::Poll::Ready(())
+        } else {
+            cx.waker().wake_by_ref();
+            std::task::Poll::Pending
+        }
+    })
+    .await
+}
+
 impl DisplayAs for CsrExpandExec {
     fn fmt_as(&self, _t: DisplayFormatType, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
@@ -1320,6 +1398,9 @@ impl DisplayAs for CsrExpandExec {
         if let Some(column) = &self.closing_column {
             write!(f, ", match={}", column)?;
         }
+        if let Some(walk) = &self.traversal {
+            write!(f, ", iterative hops={}..{}", walk.min_hops, walk.max_hops)?;
+        }
         Ok(())
     }
 }
@@ -1338,6 +1419,9 @@ impl ExecutionPlan for CsrExpandExec {
         use datafusion::common::stats::Precision;
         let input = self.input.partition_statistics(partition)?;
         let mut stats = datafusion::common::Statistics::new_unknown(&self.schema);
+        if self.traversal.is_some() {
+            return Ok(Arc::new(stats));
+        }
         let degree = self.adjacency.mean_degree();
         stats.num_rows = match input.num_rows {
             Precision::Exact(n) | Precision::Inexact(n) => {
@@ -1371,6 +1455,7 @@ impl ExecutionPlan for CsrExpandExec {
             self.target.clone(),
             self.target_filter.clone(),
             self.closing_column.clone(),
+            self.traversal.clone(),
             self.schema.clone(),
         )))
     }
@@ -1394,6 +1479,7 @@ impl ExecutionPlan for CsrExpandExec {
         let schema = self.schema.clone();
         let out_schema = schema.clone();
         let batch_size = context.session_config().batch_size();
+        let traversal = self.traversal.clone();
         // Keep one input and one materialization in flight per partition. A hub's
         // remaining neighbours stay in the immutable adjacency until the next poll.
         let stream = futures::stream::try_unfold((input, None), move |(mut input, mut pending)| {
@@ -1403,6 +1489,7 @@ impl ExecutionPlan for CsrExpandExec {
                 target_filter.clone(),
                 schema.clone(),
             );
+            let traversal = traversal.clone();
             async move {
                 loop {
                     if pending.is_none() {
@@ -1412,7 +1499,14 @@ impl ExecutionPlan for CsrExpandExec {
                         pending = Some(BatchExpansion::try_new(batch?, key_index, closing_index)?);
                     }
                     let expansion = pending.as_mut().expect("input batch just set");
-                    let chunk = expansion.next_chunk(&adjacency, target.as_deref(), batch_size);
+                    let chunk = match &traversal {
+                        Some(walk) => {
+                            expansion
+                                .next_path_chunk(walk, target.as_deref(), batch_size)
+                                .await
+                        }
+                        None => expansion.next_chunk(&adjacency, target.as_deref(), batch_size),
+                    };
                     if chunk.rows.is_empty() {
                         pending = None;
                         continue;
@@ -1477,6 +1571,7 @@ impl ExtensionPlanner for CsrExtensionPlanner {
             node.target.clone(),
             target_filter,
             node.closing_column.clone(),
+            node.traversal.clone(),
             Arc::new(node.schema.as_arrow().clone()),
         ))))
     }

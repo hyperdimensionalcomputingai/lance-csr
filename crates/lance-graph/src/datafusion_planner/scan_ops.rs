@@ -355,6 +355,7 @@ mod tests {
             input: Box::new(scan),
             source_variable: "foo_bar".to_string(), // Will generate _temp_foo_bar_1
             target_variable: "baz".to_string(),
+            target_label: "Person".to_string(),
             relationship_types: vec!["KNOWS".to_string()],
             direction: crate::ast::RelationshipDirection::Outgoing,
             min_length: Some(2),

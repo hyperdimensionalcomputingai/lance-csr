@@ -1036,7 +1036,9 @@ impl CypherQuery {
         }
 
         // Phase 2: Graph Logical Plan
-        let mut logical_planner = LogicalPlanner::new(config).with_fan_out(self.fan_out.as_ref());
+        let mut logical_planner = LogicalPlanner::new(config)
+            .with_fan_out(self.fan_out.as_ref())
+            .with_adjacency(self.adjacency.as_ref());
         let ast = if parameterized {
             &self.ast
         } else {

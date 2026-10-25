@@ -31,6 +31,12 @@ use crate::error::{GraphError, Result};
 /// Branch limit, so a pattern full of alternatives can't explode the plan.
 const MAX_BRANCHES: usize = 64;
 
+fn zero_hop(rel: &RelationshipPattern) -> bool {
+    rel.length
+        .as_ref()
+        .is_some_and(|r| r.min == Some(0) && r.max == Some(0))
+}
+
 /// `patterns` with labels filled in for unlabeled nodes that the configured endpoint labels
 /// pin down: `(friend)<-[:postHasCreator]-(post)` makes `post` a Post when
 /// `postHasCreator` goes from Post to Person. Labels flow along paths and between
@@ -149,16 +155,17 @@ pub fn infer_labels(
 }
 
 /// True when any relationship has several types or any node several labels.
-pub fn needs_expansion(patterns: &[GraphPattern]) -> bool {
+pub fn needs_expansion(patterns: &[GraphPattern], retain_variable: bool) -> bool {
     let nodes_multi = |n: &NodePattern| n.labels.len() > 1;
     patterns.iter().any(|p| match p {
         GraphPattern::Node(n) => nodes_multi(n),
         GraphPattern::Path(path) => {
             nodes_multi(&path.start_node)
-                || path
-                    .segments
-                    .iter()
-                    .any(|s| s.relationship.types.len() > 1 || nodes_multi(&s.end_node))
+                || path.segments.iter().any(|s| {
+                    (s.relationship.types.len() > 1
+                        && !(retain_variable && s.relationship.length.is_some()))
+                        || nodes_multi(&s.end_node)
+                })
         }
     })
 }
@@ -178,11 +185,16 @@ pub fn expand(
     patterns: &[GraphPattern],
     config: &GraphConfig,
     bound: &HashMap<String, String>,
+    retain_variable: bool,
 ) -> Result<Vec<Vec<GraphPattern>>> {
-    if let Some(variants) = unroll_variable_length_alternation(patterns, config, bound)? {
+    if let Some(variants) = if retain_variable {
+        None
+    } else {
+        unroll_variable_length_alternation(patterns, config, bound)?
+    } {
         let mut branches = Vec::new();
         for variant in variants {
-            branches.extend(expand(&variant, config, bound)?);
+            branches.extend(expand(&variant, config, bound, retain_variable)?);
             if branches.len() > MAX_BRANCHES {
                 return Err(too_many());
             }
@@ -227,12 +239,14 @@ pub fn expand(
                 for segment in &path.segments {
                     let rel = &segment.relationship;
                     let right = slot(&segment.end_node, &mut allowed);
-                    rels.push(Rel {
-                        left,
-                        right,
-                        direction: rel.direction.clone(),
-                        types: rel.types.clone(),
-                    });
+                    if !(zero_hop(rel) || retain_variable && rel.length.is_some()) {
+                        rels.push(Rel {
+                            left,
+                            right,
+                            direction: rel.direction.clone(),
+                            types: rel.types.clone(),
+                        });
+                    }
                     left = right;
                 }
             }
@@ -338,7 +352,13 @@ pub fn expand(
             }
         });
         if consistent {
-            branches.push(rewrite(patterns, &occurrence_slots, &labels, &types));
+            branches.push(rewrite(
+                patterns,
+                &occurrence_slots,
+                &labels,
+                &types,
+                retain_variable,
+            ));
         }
     }
     if branches.is_empty() {
@@ -414,7 +434,7 @@ fn unroll_variable_length_alternation(
         labels.is_empty() || labels.iter().any(|l| l.eq_ignore_ascii_case(label))
     };
     let range = rel.length.as_ref().expect("a variable-length segment");
-    let min = range.min.unwrap_or(1).max(1);
+    let min = range.min.unwrap_or(1);
     let max = range.max.unwrap_or(crate::MAX_VARIABLE_LENGTH_HOPS);
     if max > crate::MAX_VARIABLE_LENGTH_HOPS {
         return Err(unsupported(&format!(
@@ -449,43 +469,52 @@ fn unroll_variable_length_alternation(
             }
         }
     }
-    if sequences.is_empty() {
+    if sequences.is_empty() && min != 0 {
         return Err(plan_error(
             "no sequence of relationship types in the variable-length pattern chains its \
              endpoint labels"
                 .into(),
         ));
     }
-    let variants = sequences
-        .into_iter()
-        .map(|sequence| {
-            let last = sequence.len() - 1;
-            let hops = sequence
-                .into_iter()
-                .enumerate()
-                .map(|(h, (t, label))| PathSegment {
-                    relationship: RelationshipPattern {
-                        types: vec![t],
-                        length: None,
-                        ..rel.clone()
-                    },
-                    end_node: if h == last {
-                        path.segments[i].end_node.clone()
-                    } else {
-                        NodePattern {
-                            variable: None,
-                            labels: vec![label],
-                            properties: HashMap::new(),
-                        }
-                    },
-                });
-            let mut unrolled = path.clone();
-            unrolled.segments.splice(i..=i, hops);
-            let mut variant = patterns.to_vec();
-            variant[p] = GraphPattern::Path(unrolled);
-            variant
-        })
-        .collect();
+    let mut variants = Vec::new();
+    if min == 0 {
+        let mut identity = path.clone();
+        identity.segments[i].relationship.types = vec![rel.types[0].clone()];
+        identity.segments[i].relationship.length = Some(crate::ast::LengthRange {
+            min: Some(0),
+            max: Some(0),
+        });
+        let mut variant = patterns.to_vec();
+        variant[p] = GraphPattern::Path(identity);
+        variants.push(variant);
+    }
+    variants.extend(sequences.into_iter().map(|sequence| {
+        let last = sequence.len() - 1;
+        let hops = sequence
+            .into_iter()
+            .enumerate()
+            .map(|(h, (t, label))| PathSegment {
+                relationship: RelationshipPattern {
+                    types: vec![t],
+                    length: None,
+                    ..rel.clone()
+                },
+                end_node: if h == last {
+                    path.segments[i].end_node.clone()
+                } else {
+                    NodePattern {
+                        variable: None,
+                        labels: vec![label],
+                        properties: HashMap::new(),
+                    }
+                },
+            });
+        let mut unrolled = path.clone();
+        unrolled.segments.splice(i..=i, hops);
+        let mut variant = patterns.to_vec();
+        variant[p] = GraphPattern::Path(unrolled);
+        variant
+    }));
     Ok(Some(variants))
 }
 
@@ -515,6 +544,7 @@ fn rewrite(
     occurrence_slots: &[usize],
     labels: &[Option<&str>],
     types: &[&str],
+    retain_variable: bool,
 ) -> Vec<GraphPattern> {
     let mut occurrences = occurrence_slots.iter();
     let mut types = types.iter();
@@ -532,8 +562,12 @@ fn rewrite(
                 let mut path = path.clone();
                 path.start_node = relabel(&path.start_node);
                 for segment in &mut path.segments {
-                    segment.relationship.types =
-                        vec![types.next().expect("one type per relationship").to_string()];
+                    if !(zero_hop(&segment.relationship)
+                        || retain_variable && segment.relationship.length.is_some())
+                    {
+                        segment.relationship.types =
+                            vec![types.next().expect("one type per relationship").to_string()];
+                    }
                     segment.end_node = relabel(&segment.end_node);
                 }
                 GraphPattern::Path(path)
@@ -588,7 +622,7 @@ mod tests {
         let ReadingClause::Match(m) = &ast.reading_clauses[0] else {
             panic!("not a MATCH")
         };
-        let out = expand(&m.patterns, &ldbc_config(), &HashMap::new())?;
+        let out = expand(&m.patterns, &ldbc_config(), &HashMap::new(), false)?;
         Ok(out.iter().map(|b| describe(b)).collect())
     }
 

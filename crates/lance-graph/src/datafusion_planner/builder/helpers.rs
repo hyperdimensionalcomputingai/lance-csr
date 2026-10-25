@@ -144,14 +144,12 @@ impl DataFusionPlanner {
             }
             LogicalOperator::VariableLengthExpand {
                 input,
-                source_variable,
                 target_variable,
+                target_label,
                 ..
             } => {
                 Self::collect_labels(input, labels);
-                if let Some(label) = labels.get(source_variable).cloned() {
-                    labels.insert(target_variable.clone(), label);
-                }
+                labels.insert(target_variable.clone(), target_label.clone());
             }
             LogicalOperator::Filter { input, .. }
             | LogicalOperator::Project { input, .. }
@@ -319,6 +317,7 @@ mod tests {
             input: Box::new(scan),
             source_variable: "a".into(),
             target_variable: "b".into(),
+            target_label: "Person".to_string(),
             relationship_types: vec!["KNOWS".into()],
             direction: RelationshipDirection::Outgoing,
             relationship_variable: None,

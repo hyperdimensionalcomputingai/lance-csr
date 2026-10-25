@@ -146,6 +146,7 @@ fn analyze_operator(
             input,
             source_variable,
             target_variable,
+            target_label,
             relationship_types,
             direction,
             relationship_variable,
@@ -156,13 +157,9 @@ fn analyze_operator(
             // Recursively analyze input first
             analyze_operator(input, analysis, rel_counter)?;
 
-            // Infer target variable's label from source variable
-            // For (a:Person)-[:KNOWS]->(b), b also gets label Person
-            if let Some(source_label) = analysis.var_to_label.get(source_variable).cloned() {
-                analysis
-                    .var_to_label
-                    .insert(target_variable.clone(), source_label);
-            }
+            analysis
+                .var_to_label
+                .insert(target_variable.clone(), target_label.clone());
 
             // For variable-length paths, register multiple instances (one per hop)
             // We need to register instances for all possible hop counts
@@ -389,6 +386,7 @@ mod tests {
             input: Box::new(scan_a),
             source_variable: "a".to_string(),
             target_variable: "b".to_string(),
+            target_label: "Person".to_string(),
             relationship_types: vec!["KNOWS".to_string()],
             direction: RelationshipDirection::Outgoing,
             relationship_variable: None,
