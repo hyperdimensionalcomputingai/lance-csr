@@ -1454,8 +1454,8 @@ impl CypherQueryBuilder {
                     items: self.order_by_items,
                 })
             },
-            limit: self.limit,
-            skip: self.skip,
+            limit: self.limit.map(crate::ast::RowCount::Literal),
+            skip: self.skip.map(crate::ast::RowCount::Literal),
         };
 
         // Generate query text from AST (simplified)

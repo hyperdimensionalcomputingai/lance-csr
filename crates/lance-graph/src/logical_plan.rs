@@ -360,18 +360,18 @@ impl<'a> LogicalPlanner<'a> {
         }
 
         // Apply SKIP/OFFSET if present
-        if let Some(skip) = query.skip {
+        if let Some(skip) = &query.skip {
             plan = LogicalOperator::Offset {
                 input: Box::new(plan),
-                offset: skip,
+                offset: skip.value()?,
             };
         }
 
         // Apply LIMIT if present
-        if let Some(limit) = query.limit {
+        if let Some(limit) = &query.limit {
             plan = LogicalOperator::Limit {
                 input: Box::new(plan),
-                count: limit,
+                count: limit.value()?,
             };
         }
 
@@ -1510,10 +1510,10 @@ impl<'a> LogicalPlanner<'a> {
         }
 
         // Apply LIMIT within WITH if present
-        if let Some(limit) = with_clause.limit {
+        if let Some(limit) = &with_clause.limit {
             plan = LogicalOperator::Limit {
                 input: Box::new(plan),
-                count: limit,
+                count: limit.value()?,
             };
         }
 
