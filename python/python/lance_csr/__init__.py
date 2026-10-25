@@ -11,7 +11,7 @@ Provides two query interfaces:
 from __future__ import annotations
 
 try:
-    from . import _internal as _bindings  # type: ignore[attr-defined]
+    from . import _internal as _bindings
 except ImportError as e:
     raise ImportError(
         "Unable to import the compiled lance-csr extension. "
