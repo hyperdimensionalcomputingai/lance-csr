@@ -132,8 +132,15 @@ impl SemanticAnalyzer {
                     "count" | "size" | "length" | "tointeger" | "to_epoch_ms" => {
                         Scalar(DataType::Int64)
                     }
-                    "tofloat" => Scalar(DataType::Float64),
-                    "tolower" | "lower" | "toupper" | "upper" | "tostring" => {
+                    "abs" => match first() {
+                        Scalar(value) if value.is_integer() => Scalar(DataType::Int64),
+                        Scalar(value) if value.is_floating() => Scalar(DataType::Float64),
+                        Scalar(DataType::Null) => Scalar(DataType::Null),
+                        _ => Unknown,
+                    },
+                    "tofloat" | "round" | "floor" | "ceil" | "sqrt" => Scalar(DataType::Float64),
+                    "tolower" | "lower" | "toupper" | "upper" | "tostring" | "left" | "right"
+                    | "substring" | "trim" | "ltrim" | "rtrim" | "replace" => {
                         Scalar(DataType::Utf8)
                     }
                     "date" => Scalar(DataType::Date32),
@@ -142,7 +149,16 @@ impl SemanticAnalyzer {
                         Some("UTC".into()),
                     )),
                     "collect" => List(Box::new(first())),
-                    "head" | "__index" => first().element(),
+                    "head" | "last" | "__index" => first().element(),
+                    "split" | "keys" | "labels" => List(Box::new(Scalar(DataType::Utf8))),
+                    "tail" | "reverse" => match first() {
+                        Scalar(DataType::FixedSizeList(field, _))
+                            if name.eq_ignore_ascii_case("tail") =>
+                        {
+                            Scalar(DataType::List(field))
+                        }
+                        value => value,
+                    },
                     "range" => List(Box::new(Scalar(DataType::Int64))),
                     "nodes" => List(Box::new(Unknown)),
                     "__list" => List(Box::new(common_type(
@@ -360,6 +376,23 @@ mod tests {
             let errors = analyze(query).errors.join("\n");
             assert!(errors.contains("Type mismatch") && errors.contains(expression)
                 && types.iter().all(|name| errors.contains(name)), "{query}: {errors}");
+        }
+    }
+
+    #[test]
+    fn scalar_return_types_follow_with_and_unwind_scopes() {
+        for query in [
+            "RETURN left('12', 1) + 1",
+            "RETURN abs(1) = '1'",
+            "WITH sqrt(4) AS value RETURN value = '2'",
+            "WITH split('1,2', ',') AS values UNWIND values AS value RETURN value + 1",
+            "RETURN last(reverse(['1'])) + 1",
+            "WITH tail(['1','2']) AS values UNWIND values AS value RETURN value + 1",
+            "UNWIND keys({one: 1}) AS key RETURN key = 1",
+            "MATCH (p:Person) UNWIND labels(p) AS label RETURN label = 1",
+        ] {
+            let errors = analyze(query).errors.join("\n");
+            assert!(errors.contains("Type mismatch"), "{query}: {errors}");
         }
     }
 

@@ -525,7 +525,7 @@ aggregation and `OPTIONAL MATCH`.
 
 | Exception | Raised when |
 | --- | --- |
-| `ValueError` | The query doesn't parse, refers to an unknown label, a dataset is missing a configured column, or a comparison/arithmetic expression has incompatible known types. Type errors name the expression and its operand types. |
+| `ValueError` | The query doesn't parse, refers to an unknown label, a dataset is missing a configured column, or a comparison/arithmetic expression has incompatible known types. Type errors name the expression and its operand types. Known scalar-function return types are checked through `WITH` and `UNWIND` scopes. |
 | `NotImplementedError` | The query parses but uses an unsupported feature (for example a function that isn't implemented, or more than 20 hops). |
 | `RuntimeError` | Execution fails, for example when a Lance dataset can't be read. |
 
