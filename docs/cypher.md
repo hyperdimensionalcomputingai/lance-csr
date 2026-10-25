@@ -330,10 +330,10 @@ print(result.to_pylist())
 Keywords, function names, variables, labels, relationship types and property names are all
 case-insensitive. `match (P:person) return p.NAME` works, and the output column keeps the spelling you wrote.
 
-!!! bug "Known issue: an alias that shadows a variable"
-
-    `RETURN p.name AS p` reuses the variable name `p` as an output alias, which can fail to plan once the
-    query also aggregates or uses `OPTIONAL MATCH`. Pick a different alias, such as `AS name`.
+An output alias may reuse an input variable's name. Expressions in the same `RETURN` still use the input
+variable; the following `ORDER BY` uses the output alias. For example,
+`RETURN p.name AS p, p.id AS id ORDER BY p` returns names and IDs, sorted by name. This also works with
+aggregation and `OPTIONAL MATCH`.
 
 ## Errors
 
