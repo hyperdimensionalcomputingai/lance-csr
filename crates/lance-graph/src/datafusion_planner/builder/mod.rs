@@ -109,6 +109,9 @@ impl DataFusionPlanner {
                 label,
             } => self.build_unwind(ctx, input, expression, alias, label.as_deref()),
             LogicalOperator::Union { inputs } => self.build_union(ctx, inputs),
+            LogicalOperator::QueryUnion { left, right, all } => {
+                self.build_query_union(ctx, left, right, *all)
+            }
             LogicalOperator::ListComprehension {
                 input,
                 list,

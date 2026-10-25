@@ -9,6 +9,34 @@ use crate::error::Result;
 use crate::logical_plan::*;
 use datafusion::logical_expr::{LogicalPlan, LogicalPlanBuilder, SortExpr};
 
+fn union_compatible(left: &arrow_schema::DataType, right: &arrow_schema::DataType) -> bool {
+    use arrow_schema::DataType;
+    if left == right
+        || left.is_null()
+        || right.is_null()
+        || (left.is_numeric() && right.is_numeric())
+    {
+        return true;
+    }
+    let text =
+        |t: &DataType| matches!(t, DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View);
+    if text(left) && text(right) {
+        return true;
+    }
+    match (left, right) {
+        (DataType::List(left), DataType::List(right)) => {
+            union_compatible(left.data_type(), right.data_type())
+        }
+        (DataType::Struct(left), DataType::Struct(right)) => {
+            left.len() == right.len()
+                && left.iter().zip(right).all(|(l, r)| {
+                    l.name() == r.name() && union_compatible(l.data_type(), r.data_type())
+                })
+        }
+        _ => false,
+    }
+}
+
 impl DataFusionPlanner {
     /// UNION ALL of alternation branches. Each branch is planned with its own variable
     /// labels (the analysis keeps only one per variable), then all branches are projected
@@ -78,6 +106,67 @@ impl DataFusionPlanner {
             })?
             .build()
             .map_err(|e| self.plan_error("Failed to build UNION", e))
+    }
+
+    /// Language-level UNION validates the positional output contract before concatenation.
+    pub(crate) fn build_query_union(
+        &self,
+        ctx: &mut PlanningContext,
+        left: &LogicalOperator,
+        right: &LogicalOperator,
+        all: bool,
+    ) -> Result<LogicalPlan> {
+        let mut plans = Vec::with_capacity(2);
+        for input in [left, right] {
+            let mut analysis = ctx.analysis.clone();
+            Self::collect_labels(input, &mut analysis.var_to_label);
+            let mut branch = PlanningContext::new(&analysis);
+            branch.relationship_instance_idx = ctx.relationship_instance_idx.clone();
+            plans.push(self.build_operator(&mut branch, input)?);
+            ctx.relationship_instance_idx = branch.relationship_instance_idx;
+        }
+        let right = plans.pop().unwrap();
+        let left = plans.pop().unwrap();
+        let l = left.schema();
+        let r = right.schema();
+        if l.fields().len() != r.fields().len()
+            || l.fields()
+                .iter()
+                .zip(r.fields())
+                .any(|(l, r)| !l.name().eq_ignore_ascii_case(r.name()))
+        {
+            return Err(crate::error::GraphError::PlanError {
+                message: "UNION branches must return the same column names in the same order"
+                    .to_string(),
+                location: snafu::Location::new(file!(), line!(), column!()),
+            });
+        }
+        for (left, right) in l.fields().iter().zip(r.fields()) {
+            if !union_compatible(left.data_type(), right.data_type()) {
+                return Err(crate::error::GraphError::PlanError {
+                    message: format!(
+                        "UNION column '{}' has incompatible types {} and {}",
+                        left.name(),
+                        left.data_type(),
+                        right.data_type()
+                    ),
+                    location: snafu::Location::new(file!(), line!(), column!()),
+                });
+            }
+        }
+        let union = LogicalPlanBuilder::from(left)
+            .union(right)
+            .map_err(|e| self.plan_error("Failed to build query UNION", e))?;
+        let union = if all {
+            union
+        } else {
+            union
+                .distinct()
+                .map_err(|e| self.plan_error("Failed to deduplicate UNION", e))?
+        };
+        union
+            .build()
+            .map_err(|e| self.plan_error("Failed to build query UNION", e))
     }
 
     pub(crate) fn build_filter(

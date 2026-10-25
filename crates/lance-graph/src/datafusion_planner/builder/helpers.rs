@@ -81,7 +81,8 @@ impl DataFusionPlanner {
                 }
             }
             // Binary operator: recurse into both left and right
-            LogicalOperator::Join { left, right, .. } => {
+            LogicalOperator::Join { left, right, .. }
+            | LogicalOperator::QueryUnion { left, right, .. } => {
                 Self::collect_variables(left, vars);
                 Self::collect_variables(right, vars);
             }
@@ -160,7 +161,8 @@ impl DataFusionPlanner {
             | LogicalOperator::Limit { input, .. }
             | LogicalOperator::Offset { input, .. }
             | LogicalOperator::Distinct { input } => Self::collect_labels(input, labels),
-            LogicalOperator::Join { left, right, .. } => {
+            LogicalOperator::Join { left, right, .. }
+            | LogicalOperator::QueryUnion { left, right, .. } => {
                 Self::collect_labels(left, labels);
                 Self::collect_labels(right, labels);
             }
