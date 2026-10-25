@@ -5,7 +5,7 @@
 
 import pyarrow as pa
 import pytest
-from lance_csr import CypherQuery, GraphConfig, SqlEngine
+from lance_csr import CypherQuery, GraphConfig, SqlDialect, SqlEngine
 
 
 @pytest.fixture
@@ -31,6 +31,13 @@ def scalar_export_env():
         "round(-1.5)",
         "abs(-100)",
         "sqrt(9)",
+        "round(null)",
+        "abs(null)",
+        "sqrt(null)",
+        "floor(null)",
+        "ceil(null)",
+        "toUpper(null)",
+        "null",
     ],
 )
 def test_sql_export_preserves_scalar_values_and_types(scalar_export_env, expression):
@@ -75,6 +82,21 @@ def test_sql_export_rejects_runtime_only_cypher_functions(
         sql = engine.execute("SELECT abs(integer) AS value FROM person ORDER BY id")
         assert sql.schema.field("value").type == pa.int8()
         assert result.schema.field("value").type == pa.int64()
+
+
+@pytest.mark.parametrize(
+    "dialect",
+    [SqlDialect.Spark, SqlDialect.PostgreSql, SqlDialect.MySql, SqlDialect.Sqlite],
+)
+def test_sql_export_typed_null_requires_default_dialect(scalar_export_env, dialect):
+    config, datasets = scalar_export_env
+    query = CypherQuery("MATCH (p:Person) RETURN round(null) AS value").with_config(
+        config
+    )
+    with pytest.raises(NotImplementedError, match="SQL export of typed null Float64"):
+        query.to_sql(datasets, dialect)
+    bare_null = CypherQuery("MATCH (p:Person) RETURN null AS value").with_config(config)
+    assert "NULL" in bare_null.to_sql(datasets, dialect)
 
 
 def test_sql_export_checks_filter_functions(scalar_export_env):
