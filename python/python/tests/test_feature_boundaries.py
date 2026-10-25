@@ -85,7 +85,10 @@ def test_union_rich_paths_and_one_shot_queries(graph):
 
 def test_union_parameterized_counts_replan_in_each_branch(graph):
     engine, _, _ = graph
-    text = "RETURN 0 AS id UNION ALL MATCH (p:Person) RETURN p.id AS id ORDER BY id LIMIT $count"
+    text = (
+        "RETURN 0 AS id UNION ALL MATCH (p:Person) "
+        "RETURN p.id AS id ORDER BY id LIMIT $count"
+    )
     for count in [1, 3, 0, 2]:
         expected = [{"id": value} for value in [0, *[10, 20, 30, 40][:count]]]
         actual = engine.execute(text, {"count": count}).to_pylist()
