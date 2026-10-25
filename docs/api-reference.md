@@ -211,7 +211,8 @@ A parsed Cypher query. Raises `ValueError` if `query_text` doesn't parse. Builde
 :   The plans, as for `CypherEngine.explain`.
 
 `#!python to_sql(datasets: dict, dialect: SqlDialect | None = None) -> str`
-:   The equivalent SQL, as joins. See [From Cypher to SQL](sql.md#from-cypher-to-sql).
+:   Exports supported expressions as SQL joins. Raises `NotImplementedError` for runtime-only Cypher
+    functions without a faithful SQL translation. See [From Cypher to SQL](sql.md#from-cypher-to-sql).
 
 `#!python execute_with_vector_rerank(datasets: dict, vector_search: VectorSearch) -> pyarrow.Table`
 :   Runs the query, then reranks by vector similarity.
