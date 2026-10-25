@@ -36,6 +36,11 @@ pub fn parse_cypher_query(input: &str) -> Result<CypherQuery> {
     }
 
     let mut query = query;
+    normalize_inline_properties(&mut query);
+    Ok(query)
+}
+
+fn normalize_inline_properties(query: &mut CypherQuery) {
     let stages = query
         .further_with_stages
         .iter_mut()
@@ -47,11 +52,12 @@ pub fn parse_cypher_query(input: &str) -> Result<CypherQuery> {
         .chain(&mut query.post_with_reading_clauses)
         .chain(stages)
     {
-        if let ReadingClause::Match(m) = clause {
-            move_variable_properties_to_where(m, &mut anonymous);
+        match clause {
+            ReadingClause::Match(m) => move_variable_properties_to_where(m, &mut anonymous),
+            ReadingClause::Call(inner) => normalize_inline_properties(inner),
+            ReadingClause::Unwind(_) => {}
         }
     }
-    Ok(query)
 }
 
 /// Inline node properties whose value is a variable or property from an earlier clause
@@ -153,7 +159,15 @@ fn reading_clause(input: &str) -> IResult<&str, ReadingClause> {
     alt((
         map(match_clause, ReadingClause::Match),
         map(unwind_clause, ReadingClause::Unwind),
+        map(call_clause, |query| ReadingClause::Call(Box::new(query))),
     ))(input)
+}
+
+fn call_clause(input: &str) -> IResult<&str, CypherQuery> {
+    let (input, _) = multispace0(input)?;
+    let (input, _) = tag_no_case("CALL")(input)?;
+    let (input, _) = multispace0(input)?;
+    delimited(char('{'), cypher_query, preceded(multispace0, char('}')))(input)
 }
 
 // Parse a MATCH clause
@@ -2499,7 +2513,7 @@ mod tests {
             .iter()
             .map(|c| match c {
                 ReadingClause::Match(m) => m,
-                ReadingClause::Unwind(_) => unreachable!(),
+                ReadingClause::Unwind(_) | ReadingClause::Call(_) => unreachable!(),
             })
             .collect();
         assert_eq!(clauses.len(), 3);

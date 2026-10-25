@@ -190,18 +190,56 @@ read-only subset of openCypher, enough to run all 14 (IC14 without `reduce()`).
 | `WHERE` | After `MATCH`, `OPTIONAL MATCH` (filters inside the optional part) or `WITH`. |
 | `WITH [DISTINCT]` | With `ORDER BY`, `LIMIT` and `WHERE`; chain as many as you need. No `SKIP` inside `WITH`. |
 | `UNWIND list AS x` | |
+| `CALL { ... RETURN ... }` | Read-only subquery. Import outer variables with a leading plain `WITH`; see below. |
 | `RETURN [DISTINCT]` | With `AS` aliases. Without reading clauses, expressions run on one implicit row. |
 | `ORDER BY`, `SKIP`, `LIMIT` | `SKIP` and `LIMIT` take nonnegative integer literals or parameters. |
 
 !!! failure "Not supported"
 
-    Writes (`CREATE`, `MERGE`, `SET`, `DELETE`, `REMOVE`), `UNION`, `CALL`, and `FOREACH`.
+    Writes (`CREATE`, `MERGE`, `SET`, `DELETE`, `REMOVE`), `UNION`, procedure calls (`CALL name(...)` / `YIELD`), and `FOREACH`.
 
 Integer list literals retain signed 64-bit values: `RETURN [1, 2, 3] AS ids` returns integers, and
 `UNWIND [1131, 19791209300775] AS id RETURN id` preserves both IDs exactly. Numeric literals with a decimal
 point or exponent, such as `[0.1, 1e-3]`, form float32 vectors. Whole-number lists can also be used as query
 vectors; conversion to float32 happens inside the vector operation. A configured engine is still required
 for standalone `RETURN` queries.
+
+### Read-only subqueries
+
+Use `CALL { ... }` when a match, aggregate or limit should run separately for each incoming row:
+
+```python
+print(engine.execute("""
+    MATCH (p:Person)
+    CALL {
+        WITH p
+        MATCH (p)-[:KNOWS]->(f:Person)
+        RETURN f AS friend ORDER BY friend.age DESC LIMIT 1
+    }
+    RETURN p.name AS person, friend.name AS friend ORDER BY person
+""").to_pylist())
+# [{'person': 'Alice', 'friend': 'Bob'}, {'person': 'Bob', 'friend': 'David'},
+#  {'person': 'Carol', 'friend': 'David'}]
+```
+
+The leading importing `WITH` accepts only existing variable names, without aliases, expressions,
+`DISTINCT`, filters or pagination. Use a second `WITH` to transform or filter them. A body without an
+importing `WITH` has its own independent scope. Calls can nest and can appear after `WITH` or `UNWIND`.
+
+Every body must end with `RETURN`. Give expressions an `AS` alias; bare variables keep their names.
+Returned names must be distinct and must not already exist outside the call. Returning a node or
+relationship retains its properties, so later clauses can use the returned entity. Names that the body
+only uses internally do not become visible outside it.
+
+Each child result row is combined with its incoming row. Duplicate results remain duplicates. An empty
+child removes that incoming row; an aggregate such as `count()` without grouping still returns a row
+with zero. An empty outer input never executes the child. `ORDER BY` and `LIMIT` inside the body apply
+separately to each incoming row.
+
+CALL currently binds, optimizes and physically plans a child for every incoming row. It streams the
+child's batches before advancing that row, but operators such as sorting and aggregation can still
+buffer their inputs. CALL queries bypass the query-template cache. For large outer inputs, measure the
+query on representative data before choosing this form. Procedures, `YIELD`, and writes are unsupported.
 
 ### Patterns
 

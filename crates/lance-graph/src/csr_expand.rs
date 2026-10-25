@@ -61,6 +61,21 @@ use futures::StreamExt;
 use lance::dataset::{Dataset, ProjectionRequest};
 use lance_table::format::Fragment;
 
+/// Yield after bounded CPU work without requiring a particular async runtime.
+pub(crate) async fn cooperative_yield() {
+    let mut yielded = false;
+    std::future::poll_fn(|cx| {
+        if yielded {
+            std::task::Poll::Ready(())
+        } else {
+            yielded = true;
+            cx.waker().wake_by_ref();
+            std::task::Poll::Pending
+        }
+    })
+    .await
+}
+
 /// Lance's row-address column (`lance_core::ROW_ADDR`, not re-exported by `lance`).
 const ROW_ADDR: &str = "_rowaddr";
 
@@ -1373,6 +1388,13 @@ impl ExtensionPlanner for CsrExtensionPlanner {
         physical_inputs: &[Arc<dyn ExecutionPlan>],
         session_state: &SessionState,
     ) -> datafusion::common::Result<Option<Arc<dyn ExecutionPlan>>> {
+        if let Some(node) = node.as_any().downcast_ref::<crate::apply::ApplyNode>() {
+            return Ok(Some(crate::apply::plan_apply(
+                node,
+                physical_inputs,
+                session_state,
+            )));
+        }
         if let Some(node) = node
             .as_any()
             .downcast_ref::<crate::shortest_path::ShortestPathNode>()
@@ -1402,7 +1424,7 @@ impl ExtensionPlanner for CsrExtensionPlanner {
 }
 
 /// Query planner that adds [`CsrExtensionPlanner`]; install it on any
-/// `SessionContext` that executes plans built with an [`AdjacencyCatalog`].
+/// `SessionContext` that executes plans built with an [`AdjacencyCatalog`] or CALL subqueries.
 #[derive(Debug, Default)]
 pub struct CsrQueryPlanner;
 

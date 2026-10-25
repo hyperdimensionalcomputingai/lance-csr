@@ -177,6 +177,17 @@ pub enum LogicalOperator {
         count_only: bool,
     },
 
+    /// Evaluate a read-only subquery once per input row, extending it by each result.
+    Apply {
+        input: Box<LogicalOperator>,
+        inner: Box<LogicalOperator>,
+        imports: Vec<String>,
+        labels: HashMap<String, String>,
+        id: usize,
+    },
+    /// The single imported row of a CALL body; its values are bound at execution.
+    CallInput { labels: HashMap<String, String> },
+
     /// The element rows of the enclosing [`LogicalOperator::ListComprehension`].
     ComprehensionElement,
 }
@@ -221,6 +232,7 @@ pub struct LogicalPlanner<'a> {
     node_lists: HashMap<String, String>,
     /// List comprehensions planned so far (output columns `__list_<n>`).
     comprehensions: usize,
+    calls: usize,
     /// The node label of each path variable's nodes, for `nodes(path)`.
     path_labels: HashMap<String, String>,
     /// The rows a projection or WHERE started from, while its EXISTS marks and
@@ -238,6 +250,7 @@ impl<'a> LogicalPlanner<'a> {
             exists_marks: 0,
             node_lists: HashMap::new(),
             comprehensions: 0,
+            calls: 0,
             path_labels: HashMap::new(),
             seed_source: None,
         }
@@ -316,9 +329,18 @@ impl<'a> LogicalPlanner<'a> {
 
     /// Convert a Cypher AST to a logical plan
     pub fn plan(&mut self, query: &CypherQuery) -> Result<LogicalOperator> {
+        self.plan_query(query, None, false)
+    }
+
+    fn plan_query(
+        &mut self,
+        query: &CypherQuery,
+        input: Option<LogicalOperator>,
+        preserve_entities: bool,
+    ) -> Result<LogicalOperator> {
         // Plan main MATCH clauses; the WHERE clause guides where traversal starts.
         let where_expr = query.where_clause.as_ref().map(|w| &w.expression);
-        let mut plan = self.plan_reading_clauses(None, &query.reading_clauses, where_expr)?;
+        let mut plan = self.plan_reading_clauses(input, &query.reading_clauses, where_expr)?;
 
         // Apply WHERE clause if present (before WITH)
         if let Some(where_clause) = &query.where_clause {
@@ -352,7 +374,20 @@ impl<'a> LogicalPlanner<'a> {
         }
 
         // Apply RETURN clause
-        plan = self.plan_return_clause(&query.return_clause, plan)?;
+        plan = if preserve_entities {
+            self.plan_with_clause(
+                &WithClause {
+                    distinct: query.return_clause.distinct,
+                    items: query.return_clause.items.clone(),
+                    order_by: None,
+                    limit: None,
+                    where_clause: None,
+                },
+                plan,
+            )?
+        } else {
+            self.plan_return_clause(&query.return_clause, plan)?
+        };
 
         // Apply ORDER BY if present
         if let Some(order_by) = &query.order_by {
@@ -411,6 +446,7 @@ impl<'a> LogicalPlanner<'a> {
         filter: Option<&BooleanExpression>,
     ) -> Result<LogicalOperator> {
         match clause {
+            ReadingClause::Call(query) => self.plan_call(base, query),
             ReadingClause::Match(match_clause) if match_clause.optional => {
                 self.plan_optional_match(base, match_clause, None)
             }
@@ -425,6 +461,56 @@ impl<'a> LogicalPlanner<'a> {
                 self.plan_unwind_clause_with_base(base, unwind_clause)
             }
         }
+    }
+
+    fn plan_call(
+        &mut self,
+        input: Option<LogicalOperator>,
+        query: &CypherQuery,
+    ) -> Result<LogicalOperator> {
+        let imports = query.call_imports()?;
+        self.calls += 1;
+        let id = self.calls;
+        let mut inner = Self::new(self.config).with_fan_out(self.fan_out);
+        inner.calls = self.calls;
+        for name in &imports {
+            if let Some(label) = self.variables.get(name) {
+                inner.variables.insert(name.clone(), label.clone());
+            }
+            if let Some(label) = self.node_lists.get(name) {
+                inner.node_lists.insert(name.clone(), label.clone());
+            }
+            if let Some(label) = self.path_labels.get(name) {
+                inner.path_labels.insert(name.clone(), label.clone());
+            }
+        }
+        let input_labels = inner.variables.clone();
+        let plan = inner.plan_query(
+            query,
+            Some(LogicalOperator::CallInput {
+                labels: input_labels,
+            }),
+            true,
+        )?;
+        self.calls = inner.calls;
+        let labels = inner.variables.clone();
+        self.variables.extend(inner.variables);
+        self.node_lists.extend(inner.node_lists);
+        for item in &query.return_clause.items {
+            if let ValueExpression::Variable(name) = &item.expression {
+                if let Some(label) = inner.path_labels.get(name) {
+                    self.path_labels
+                        .insert(item.alias.as_ref().unwrap_or(name).clone(), label.clone());
+                }
+            }
+        }
+        Ok(LogicalOperator::Apply {
+            input: Box::new(input.unwrap_or(LogicalOperator::SingleRow)),
+            inner: Box::new(plan),
+            imports,
+            labels,
+            id,
+        })
     }
 
     /// Plan an UNWIND clause
@@ -1287,10 +1373,13 @@ impl<'a> LogicalPlanner<'a> {
     #[allow(clippy::only_used_in_recursion)]
     fn extract_variable_from_plan(&self, plan: &LogicalOperator) -> Result<String> {
         match plan {
-            LogicalOperator::SingleRow => Err(GraphError::PlanError {
-                message: "a singleton row binds no pattern variable".to_string(),
-                location: snafu::Location::new(file!(), line!(), column!()),
-            }),
+            LogicalOperator::Apply { input, .. } => self.extract_variable_from_plan(input),
+            LogicalOperator::CallInput { .. } | LogicalOperator::SingleRow => {
+                Err(GraphError::PlanError {
+                    message: "a singleton row binds no pattern variable".to_string(),
+                    location: snafu::Location::new(file!(), line!(), column!()),
+                })
+            }
             LogicalOperator::ScanByLabel { variable, .. } => Ok(variable.clone()),
             LogicalOperator::Unwind { alias, .. } => Ok(alias.clone()),
             LogicalOperator::Expand {

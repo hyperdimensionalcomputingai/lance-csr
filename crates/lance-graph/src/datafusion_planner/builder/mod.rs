@@ -14,6 +14,7 @@
 
 mod aggregate_ops;
 mod basic_ops;
+mod call_ops;
 mod comprehension_ops;
 mod expand_ops;
 mod helpers;
@@ -34,6 +35,16 @@ impl DataFusionPlanner {
         op: &LogicalOperator,
     ) -> Result<LogicalPlan> {
         match op {
+            LogicalOperator::Apply {
+                input,
+                inner,
+                imports,
+                id,
+                ..
+            } => self.build_apply(ctx, input, inner, imports, *id),
+            LogicalOperator::CallInput { .. } => ctx.call_input.clone().ok_or_else(|| {
+                self.plan_error("CALL input", "import rows must be built inside CALL")
+            }),
             LogicalOperator::SingleRow => LogicalPlanBuilder::empty(true)
                 .build()
                 .map_err(|e| self.plan_error("Failed to build singleton row", e)),

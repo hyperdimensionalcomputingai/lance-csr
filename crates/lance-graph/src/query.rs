@@ -253,7 +253,14 @@ impl CypherQuery {
                     .filter_map(|stage| stage.with_clause.limit.as_ref()),
             )
             .any(|count| matches!(count, crate::ast::RowCount::Parameter(_)));
-        if parameter_counts || self.scalar_parameters().is_none() {
+        if parameter_counts
+            || self.scalar_parameters().is_none()
+            || self
+                .ast
+                .all_reading_clauses()
+                .any(|clause| matches!(clause, ReadingClause::Call(_)))
+        {
+            // CALL owns an inner template that is bound independently per outer row.
             return Ok(false);
         }
         let (graph, datafusion) = self.build_logical_plans(catalog.clone(), true)?;
@@ -771,7 +778,12 @@ impl CypherQuery {
         }
 
         // Create session context and catalog
-        let ctx = SessionContext::new();
+        let ctx = SessionContext::new_with_state(
+            datafusion::execution::session_state::SessionStateBuilder::new()
+                .with_default_features()
+                .with_query_planner(Arc::new(crate::csr_expand::CsrQueryPlanner))
+                .build(),
+        );
         let mut catalog = InMemoryCatalog::new();
 
         // Register all datasets as tables
@@ -851,7 +863,12 @@ impl CypherQuery {
             });
         }
 
-        let ctx = SessionContext::new();
+        let ctx = SessionContext::new_with_state(
+            datafusion::execution::session_state::SessionStateBuilder::new()
+                .with_default_features()
+                .with_query_planner(Arc::new(crate::csr_expand::CsrQueryPlanner))
+                .build(),
+        );
         let mut catalog = InMemoryCatalog::new();
         let mut providers: HashMap<String, Arc<dyn TableProvider>> = HashMap::new();
 
@@ -1172,7 +1189,10 @@ impl CypherQuery {
     pub fn referenced_node_labels(&self) -> Vec<String> {
         let mut labels = Vec::new();
 
-        for clause in &self.ast.reading_clauses {
+        for clause in self.ast.all_reading_clauses() {
+            if let ReadingClause::Call(inner) = clause {
+                labels.extend(inner.get_node_labels());
+            }
             if let ReadingClause::Match(match_clause) = clause {
                 for pattern in &match_clause.patterns {
                     self.collect_node_labels_from_pattern(pattern, &mut labels);
@@ -1189,7 +1209,10 @@ impl CypherQuery {
     pub fn referenced_relationship_types(&self) -> Vec<String> {
         let mut types = Vec::new();
 
-        for clause in &self.ast.reading_clauses {
+        for clause in self.ast.all_reading_clauses() {
+            if let ReadingClause::Call(inner) = clause {
+                types.extend(inner.get_relationship_types());
+            }
             if let ReadingClause::Match(match_clause) = clause {
                 for pattern in &match_clause.patterns {
                     self.collect_relationship_types_from_pattern(pattern, &mut types);
@@ -1206,8 +1229,17 @@ impl CypherQuery {
     pub fn variables(&self) -> Vec<String> {
         let mut variables = Vec::new();
 
-        for clause in &self.ast.reading_clauses {
+        for clause in self.ast.all_reading_clauses() {
             match clause {
+                ReadingClause::Call(inner) => {
+                    variables.extend(inner.call_imports().unwrap_or_default());
+                    variables.extend(inner.return_clause.items.iter().filter_map(|item| {
+                        item.alias.clone().or_else(|| match &item.expression {
+                            crate::ast::ValueExpression::Variable(name) => Some(name.clone()),
+                            _ => None,
+                        })
+                    }));
+                }
                 ReadingClause::Match(match_clause) => {
                     for pattern in &match_clause.patterns {
                         self.collect_variables_from_pattern(pattern, &mut variables);
