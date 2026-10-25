@@ -164,8 +164,12 @@ impl Inventory {
                         "path inventory exceeds u32 row references".into(),
                     )
                 })?;
-                if keys.is_valid(row) {
-                    by_key.insert((label, keys.value(row)), dense);
+                if keys.is_valid(row) && by_key.insert((label, keys.value(row)), dense).is_some() {
+                    return exec_err!(
+                        "path values require unique node IDs within label '{}'; duplicate ID {}",
+                        source.label,
+                        keys.value(row)
+                    );
                 }
                 node_labels.push(label);
                 labels.push(source.label.as_str());
@@ -278,5 +282,36 @@ impl Inventory {
             by_key,
             neighbors,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use datafusion::prelude::SessionContext;
+
+    #[tokio::test]
+    async fn duplicate_node_keys_do_not_choose_an_arbitrary_endpoint() {
+        let batch = RecordBatch::try_from_iter([(
+            "id",
+            Arc::new(Int64Array::from(vec![1, 1])) as ArrayRef,
+        )])
+        .unwrap();
+        let source = NodeSource {
+            label: "Person".into(),
+            id: "id".into(),
+            schema: batch.schema(),
+        };
+        let ctx = SessionContext::new();
+        let plan = ctx
+            .read_batch(batch)
+            .unwrap()
+            .create_physical_plan()
+            .await
+            .unwrap();
+        let error = Inventory::build(&[source], &[], &[plan], ctx.task_ctx(), &Default::default())
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("duplicate ID 1"));
     }
 }
