@@ -9,7 +9,7 @@ use std::sync::Arc;
 use arrow::array::{
     new_null_array, Array, AsArray, Int64Array, ListBuilder, StringArray, StringBuilder,
 };
-use arrow::compute::cast;
+use arrow::compute::{cast, cast_with_options, CastOptions};
 use arrow_schema::{DataType, Field};
 use datafusion::common::{exec_err, plan_err, ScalarValue};
 use datafusion::error::Result;
@@ -83,8 +83,14 @@ impl ScalarUDFImpl for CypherScalar {
         }
         if self.name == "range" {
             for arg in &mut args.args {
-                *arg =
-                    ColumnarValue::Array(cast(&arg.to_array(args.number_rows)?, &DataType::Int64)?);
+                *arg = ColumnarValue::Array(cast_with_options(
+                    &arg.to_array(args.number_rows)?,
+                    &DataType::Int64,
+                    &CastOptions {
+                        safe: false,
+                        ..Default::default()
+                    },
+                )?);
             }
             return range::gen_series_udf().invoke_with_args(args);
         }
@@ -266,6 +272,35 @@ mod tests {
     use crate::{config::GraphConfig, query::CypherQuery};
     use arrow::array::{ArrayRef, RecordBatch};
     use std::collections::HashMap;
+
+    #[tokio::test]
+    async fn range_rejects_unsigned_overflow() {
+        let batch = RecordBatch::try_from_iter(vec![
+            ("id", Arc::new(Int64Array::from(vec![1])) as ArrayRef),
+            (
+                "large",
+                Arc::new(arrow::array::UInt64Array::from(vec![1_u64 << 63])) as ArrayRef,
+            ),
+        ])
+        .unwrap();
+        let config = GraphConfig::builder()
+            .node_table("Person", "id")
+            .build()
+            .unwrap();
+        for expression in [
+            "range(p.large, 1)",
+            "range(1, p.large)",
+            "range(1, 2, p.large)",
+        ] {
+            let error = CypherQuery::new(&format!("MATCH (p:Person) RETURN {expression} AS value"))
+                .unwrap()
+                .with_config(config.clone())
+                .execute(HashMap::from([("Person".to_string(), batch.clone())]), None)
+                .await
+                .unwrap_err();
+            assert!(error.to_string().contains("cast"), "{expression}: {error}");
+        }
+    }
 
     async fn run(expression: &str) -> crate::error::Result<RecordBatch> {
         let batch =

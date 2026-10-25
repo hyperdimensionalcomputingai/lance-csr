@@ -278,7 +278,8 @@ Splitting an empty string returns `['']`.
 `last([])` returns null; `tail([])` and `reverse([])` return empty lists. `reverse` also accepts strings.
 `range(start, end [, step])` includes the end when reached, defaults to step 1, and accepts negative
 steps. A step pointing away from the end gives an empty list; zero steps and non-integer arguments
-raise an error. Null arguments return null.
+raise an error. Unsigned Arrow arguments outside Int64 range also raise an error; they are not
+converted to null. Null arguments return null.
 
 ```python
 result = engine.execute("""
