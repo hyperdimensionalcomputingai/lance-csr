@@ -201,3 +201,126 @@ def test_call_parameterized_child_limit_is_per_row_and_fresh(graph):
         ),
     ]:
         assert engine.execute(query, {"take": take}).to_pylist() == expected
+
+
+@pytest.mark.parametrize(("union", "repeats"), [("UNION", 1), ("UNION ALL", 2)])
+def test_call_union_distinct_is_per_outer_row(graph, union, repeats):
+    engine, _, _ = graph
+    query = (
+        "UNWIND [1, 1, 2] AS x CALL { WITH x RETURN x + $value AS n "
+        f"{union} WITH x RETURN x + $value AS n }} RETURN x, n ORDER BY x"
+    )
+    for value in [10, 20, 10]:
+        expected = [{"x": x, "n": x + value} for x in [1, 1, 2] for _ in range(repeats)]
+        assert engine.execute(query, {"value": value}).to_pylist() == expected
+        assert (
+            engine.execute_batches(query, {"value": value}).read_all().to_pylist()
+            == expected
+        )
+
+
+def test_call_union_branches_import_different_variables_without_leaking(graph):
+    engine, _, _ = graph
+    assert engine.execute(
+        "WITH 2 AS x, 3 AS y CALL { WITH x RETURN x AS n "
+        "UNION ALL WITH y RETURN y AS n } RETURN n ORDER BY n"
+    ).to_pylist() == [{"n": 2}, {"n": 3}]
+    assert engine.execute(
+        "WITH 3 AS y CALL { RETURN 2 AS n "
+        "UNION ALL WITH y RETURN y AS n } RETURN n ORDER BY n"
+    ).to_pylist() == [{"n": 2}, {"n": 3}]
+    for query in [
+        "WITH 2 AS x CALL { WITH x RETURN x AS n UNION RETURN x AS n } RETURN n",
+        "WITH 2 AS x CALL { RETURN x AS n UNION WITH x RETURN x AS n } RETURN n",
+        "WITH 2 AS x CALL { WITH x RETURN x AS n UNION WITH x RETURN x + 1 } RETURN n",
+    ]:
+        with pytest.raises(ValueError):
+            engine.execute(query)
+
+
+@pytest.mark.parametrize("union", ["UNION", "UNION ALL"])
+def test_call_union_nodes_and_per_branch_top_k(graph, union):
+    engine, _, _ = graph
+    query = (
+        "MATCH (p:Person) CALL { WITH p MATCH (p)-[:KNOWS]->(f:Person) "
+        "RETURN f AS friend ORDER BY friend.age DESC LIMIT 1 "
+        f"{union} WITH p MATCH (p)-[:KNOWS]->(f:Person) "
+        "RETURN f AS friend ORDER BY friend.age ASC LIMIT 1 } "
+        "RETURN p.id AS id, friend.name AS name ORDER BY id, name"
+    )
+    expected = [
+        {"id": 10, "name": "B"},
+        {"id": 10, "name": "C"},
+        {"id": 20, "name": "D"},
+    ]
+    if union == "UNION ALL":
+        expected.append({"id": 20, "name": "D"})
+    assert engine.execute(query).to_pylist() == expected
+
+
+def test_call_union_aggregates_and_empty_branches(graph):
+    engine, _, _ = graph
+    assert engine.execute(
+        "MATCH (p:Person) CALL { WITH p MATCH (p)-[:KNOWS]->(f:Person) "
+        "RETURN count(f) AS n UNION ALL WITH p MATCH (p)-[:KNOWS]->(f:Person) "
+        "WHERE f.id < 0 RETURN count(f) AS n } RETURN p.id AS id, n ORDER BY id, n"
+    ).to_pylist() == [
+        {"id": person, "n": n}
+        for person, count in [(10, 3), (20, 1), (30, 0), (40, 0)]
+        for n in [0, count]
+    ]
+    assert engine.execute(
+        "UNWIND [1, 2] AS x CALL { WITH x UNWIND [] AS empty RETURN x AS n "
+        "UNION ALL WITH x RETURN x AS n } RETURN n ORDER BY n"
+    ).to_pylist() == [{"n": 1}, {"n": 2}]
+
+
+def test_call_in_later_union_branch_uses_fresh_parameters(graph):
+    engine, _, _ = graph
+    query = "RETURN 0 AS n UNION ALL CALL { RETURN $value AS n } RETURN n"
+    for value in [1, 2, 1]:
+        assert sorted(
+            row["n"] for row in engine.execute(query, {"value": value}).to_pylist()
+        ) == [0, value]
+
+
+def test_call_union_schema_validation_uses_each_branch_catalog(graph):
+    engine, _, _ = graph
+    with pytest.raises(ValueError, match="Type mismatch"):
+        engine.execute(
+            "MATCH (p:Person) CALL { WITH p RETURN p.age AS n "
+            "UNION ALL WITH p RETURN p.name + 1 AS n } RETURN n"
+        )
+
+
+def test_call_union_rejects_mixed_node_label_exports():
+    config = (
+        GraphConfig.builder()
+        .node_table("Person", "id")
+        .node_table("City", "id")
+        .build()
+    )
+    engine = CypherEngine(
+        config, {"Person": pa.table({"id": [1]}), "City": pa.table({"id": [1]})}
+    )
+    with pytest.raises(ValueError, match="same labels"):
+        engine.execute(
+            "CALL { MATCH (p:Person) RETURN p AS entity "
+            "UNION MATCH (c:City) RETURN c AS entity } RETURN entity.id"
+        )
+
+
+def test_call_union_coerces_numeric_and_null_output_schema(graph):
+    engine, _, _ = graph
+    query = (
+        "UNWIND [1, 2] AS x CALL { WITH x RETURN x AS n UNION ALL "
+        "RETURN $value AS n } RETURN n ORDER BY n"
+    )
+    for value, expected in [(2.5, [1.0, 2.0, 2.5, 2.5]), (None, [None, None, 1, 2])]:
+        table = engine.execute(query, {"value": value})
+        expected_type = pa.float64() if value is not None else pa.int64()
+        assert table.schema.field("n").type == expected_type
+        assert table.column(0).to_pylist() == expected
+        reader = engine.execute_batches(query, {"value": value})
+        assert reader.schema.field("n").type == expected_type
+        assert reader.read_all().column(0).to_pylist() == expected

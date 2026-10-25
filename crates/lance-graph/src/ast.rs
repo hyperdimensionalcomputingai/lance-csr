@@ -197,6 +197,17 @@ pub enum ReadingClause {
 }
 
 impl CypherQuery {
+    /// Every outer variable needed by this CALL's independently scoped UNION branches.
+    pub(crate) fn call_union_imports(&self) -> crate::error::Result<Vec<String>> {
+        let mut names = self.call_imports()?;
+        for branch in &self.union_branches {
+            names.extend(branch.query.call_union_imports()?);
+        }
+        names.sort();
+        names.dedup();
+        Ok(names)
+    }
+
     /// Names explicitly imported by a leading plain WITH in a CALL body.
     pub(crate) fn call_imports(&self) -> crate::error::Result<Vec<String>> {
         let Some(clause) = self

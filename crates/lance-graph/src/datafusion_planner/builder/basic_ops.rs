@@ -56,6 +56,8 @@ impl DataFusionPlanner {
             Self::collect_labels(input, &mut analysis.var_to_label);
             let mut branch = PlanningContext::new(&analysis);
             branch.relationship_instance_idx = ctx.relationship_instance_idx.clone();
+            branch.call_input = ctx.call_input.clone();
+            branch.comprehension_elements = ctx.comprehension_elements.clone();
             plans.push(self.build_operator(&mut branch, input)?);
             // Branches consume distinct relationship instances, in analysis order.
             ctx.relationship_instance_idx = branch.relationship_instance_idx;
@@ -121,6 +123,8 @@ impl DataFusionPlanner {
             Self::collect_labels(input, &mut analysis.var_to_label);
             let mut branch = PlanningContext::new(&analysis);
             branch.relationship_instance_idx = ctx.relationship_instance_idx.clone();
+            branch.call_input = ctx.call_input.clone();
+            branch.comprehension_elements = ctx.comprehension_elements.clone();
             plans.push(self.build_operator(&mut branch, input)?);
             ctx.relationship_instance_idx = branch.relationship_instance_idx;
         }
@@ -153,9 +157,18 @@ impl DataFusionPlanner {
                 });
             }
         }
-        let union = LogicalPlanBuilder::from(left)
-            .union(right)
-            .map_err(|e| self.plan_error("Failed to build query UNION", e))?;
+        // A CALL must know its child's final schema before physical planning per row.
+        // DataFusion's UNION builder deliberately leaves coercion until analysis;
+        // perform its standard UNION coercion now, without optimizing parameter values.
+        let union = datafusion::logical_expr::Union::try_new_with_loose_types(vec![
+            std::sync::Arc::new(left),
+            std::sync::Arc::new(right),
+        ])
+        .and_then(
+            datafusion::optimizer::analyzer::type_coercion::TypeCoercionRewriter::coerce_union,
+        )
+        .map_err(|e| self.plan_error("Failed to coerce query UNION", e))?;
+        let union = LogicalPlanBuilder::from(union);
         let union = if all {
             union
         } else {

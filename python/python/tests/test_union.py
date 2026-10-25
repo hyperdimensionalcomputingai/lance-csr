@@ -94,3 +94,24 @@ def test_union_query_metadata():
         "UNION MATCH (c:City)-[:Y]->(p:Person) RETURN p.id AS n"
     )
     assert set(relationships.relationship_types()) == {"X", "Y"}
+
+
+def test_union_nullability_does_not_depend_on_first_batch(engine):
+    for query in [
+        "RETURN null AS n UNION ALL RETURN 1 AS n",
+        "RETURN 1 AS n UNION ALL RETURN null AS n",
+        "RETURN $a AS n UNION ALL RETURN $b AS n",
+    ]:
+        for _ in range(5):
+            table = engine.execute(query, {"a": None, "b": 1})
+            assert table.schema.field("n").nullable
+            assert sorted(table.column(0).to_pylist(), key=lambda n: n is None) == [
+                1,
+                None,
+            ]
+            stream = engine.execute_batches(query, {"a": None, "b": 1}).read_all()
+            assert stream.schema.field("n").nullable
+            assert sorted(stream.column(0).to_pylist(), key=lambda n: n is None) == [
+                1,
+                None,
+            ]

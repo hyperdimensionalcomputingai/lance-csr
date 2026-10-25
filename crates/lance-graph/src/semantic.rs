@@ -27,6 +27,7 @@ pub struct SemanticAnalyzer {
     current_scope: ScopeType,
     catalog: Option<Arc<dyn lance_graph_catalog::GraphSourceCatalog>>,
     expression_types: HashMap<String, ExpressionType>,
+    call_body: bool,
 }
 
 /// Information about a variable in the query
@@ -78,6 +79,7 @@ impl SemanticAnalyzer {
             current_scope: ScopeType::Match,
             catalog: None,
             expression_types: HashMap::new(),
+            call_body: false,
         }
     }
 
@@ -96,6 +98,17 @@ impl SemanticAnalyzer {
         query: &CypherQuery,
         parameters: &HashMap<String, serde_json::Value>,
     ) -> Result<SemanticResult> {
+        // UNION siblings receive the same available CALL imports, never variables
+        // created by the preceding branch. Each branch opts in with its own WITH.
+        let (imports, import_types) = if self.call_body {
+            let available = (self.variables.clone(), self.expression_types.clone());
+            let names = query.call_imports()?;
+            self.variables.retain(|name, _| names.contains(name));
+            self.expression_types.retain(|name, _| names.contains(name));
+            available
+        } else {
+            (HashMap::new(), HashMap::new())
+        };
         // Clone the query to perform parameter substitution
         let mut analyzed_query = query.clone();
 
@@ -214,6 +227,14 @@ impl SemanticAnalyzer {
             }
         }
 
+        if self.call_body
+            && query.return_clause.items.iter().any(|item| {
+                item.alias.is_none() && !matches!(item.expression, ValueExpression::Variable(_))
+            })
+        {
+            errors.push("CALL RETURN expressions need an alias".into());
+        }
+
         // Phase 7: Schema validation
         self.validate_schema(&mut warnings);
 
@@ -222,6 +243,10 @@ impl SemanticAnalyzer {
 
         for branch in &mut analyzed_query.union_branches {
             let mut analyzer = SemanticAnalyzer::new(self.config.clone());
+            analyzer.catalog = self.catalog.clone();
+            analyzer.call_body = self.call_body;
+            analyzer.variables = imports.clone();
+            analyzer.expression_types = import_types.clone();
             let analyzed = analyzer.analyze(&branch.query, parameters)?;
             branch.query = analyzed.ast;
             errors.extend(
@@ -248,7 +273,8 @@ impl SemanticAnalyzer {
         };
         let mut inner = Self::new(self.config.clone());
         inner.catalog = self.catalog.clone();
-        for name in query.call_imports()? {
+        inner.call_body = true;
+        for name in query.call_union_imports()? {
             let variable = self
                 .variables
                 .get(&name)

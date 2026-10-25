@@ -412,6 +412,53 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn call_union_branches_bind_independently_and_keep_outer_duplicates() {
+        let result = run("UNWIND [1, 1, 2] AS x CALL { WITH x RETURN x AS n UNION WITH x RETURN x AS n } RETURN x, n ORDER BY x").await.unwrap();
+        assert_eq!(ints(&result, "x"), [1, 1, 2]);
+        assert_eq!(ints(&result, "n"), [1, 1, 2]);
+        let result = run("WITH 2 AS x, 3 AS y CALL { WITH x RETURN x AS n UNION ALL WITH y RETURN y AS n } RETURN n ORDER BY n").await.unwrap();
+        assert_eq!(ints(&result, "n"), [2, 3]);
+        let error = run("WITH 2 AS x CALL { WITH x RETURN x AS n UNION RETURN x AS n } RETURN n")
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("Undefined variable"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn call_union_node_exports_and_empty_aggregate_branches() {
+        let result = run("MATCH (p:Person) CALL { WITH p MATCH (p)-[:KNOWS]->(f:Person) RETURN f AS friend UNION WITH p MATCH (p)-[:KNOWS]->(f:Person) RETURN f AS friend } RETURN p.id AS id, friend.id AS friend ORDER BY id, friend").await.unwrap();
+        assert_eq!(ints(&result, "id"), [10, 10, 20]);
+        assert_eq!(ints(&result, "friend"), [20, 30, 40]);
+        let result = run("MATCH (p:Person) CALL { WITH p MATCH (p)-[:KNOWS]->(f:Person) RETURN count(f) AS n UNION ALL WITH p MATCH (p)-[:KNOWS]->(f:Person) WHERE f.id < 0 RETURN count(f) AS n } RETURN p.id AS id, n ORDER BY id, n").await.unwrap();
+        assert_eq!(ints(&result, "n"), [0, 3, 0, 1, 0, 0, 0, 0]);
+    }
+
+    #[tokio::test]
+    async fn call_union_uses_coerced_schema_for_numbers_and_nulls() {
+        let batch = run("CALL { RETURN 1 AS n UNION ALL RETURN 2.5 AS n } RETURN n ORDER BY n")
+            .await
+            .unwrap();
+        assert_eq!(
+            batch.schema().field(0).data_type(),
+            &arrow_schema::DataType::Float64
+        );
+        for text in [
+            "RETURN null AS n UNION ALL RETURN 1 AS n",
+            "RETURN 1 AS n UNION ALL RETURN null AS n",
+            "CALL { RETURN null AS n UNION ALL RETURN 1 AS n } RETURN n",
+        ] {
+            let batch = run(text).await.unwrap();
+            assert_eq!(
+                batch.schema().field(0).data_type(),
+                &arrow_schema::DataType::Int64
+            );
+            assert!(batch.schema().field(0).is_nullable());
+            assert_eq!(batch.column(0).null_count(), 1);
+        }
+    }
+
     #[test]
     fn call_bypasses_snapshot_templates_in_every_reading_stage() {
         let catalog = Arc::new(lance_graph_catalog::InMemoryCatalog::new());
@@ -419,6 +466,8 @@ mod tests {
             "CALL { RETURN 1 AS n } RETURN n",
             "WITH 1 AS x CALL { WITH x RETURN x AS n } RETURN n",
             "WITH 1 AS x WITH x AS y CALL { WITH y RETURN y AS n } RETURN n",
+            "RETURN 1 AS n UNION CALL { RETURN 2 AS n } RETURN n",
+            "RETURN 1 AS n UNION RETURN 2 AS n LIMIT $take",
         ] {
             let mut query = CypherQuery::new(text).unwrap();
             assert!(!query.prepare_cached_plan(catalog.clone()).unwrap());

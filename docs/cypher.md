@@ -236,6 +236,12 @@ The leading importing `WITH` accepts only existing variable names, without alias
 `DISTINCT`, filters or pagination. Use a second `WITH` to transform or filter them. A body without an
 importing `WITH` has its own independent scope. Calls can nest and can appear after `WITH` or `UNWIND`.
 
+A CALL body can combine branches with `UNION` or `UNION ALL`. Each branch needs its own importing
+`WITH` and may import a different subset of the outer variables. Branches cannot see variables created
+by sibling branches. Deduplication happens within each incoming row, so repeated outer rows remain
+repeated. Node and node-list exports must retain the same labels in every branch; mixed-label entity
+outputs are not represented by the current binding metadata.
+
 Every body must end with `RETURN`. Give expressions an `AS` alias; bare variables keep their names.
 Returned names must be distinct and must not already exist outside the call. Returning a node or
 relationship retains its properties, so later clauses can use the returned entity. Names that the body

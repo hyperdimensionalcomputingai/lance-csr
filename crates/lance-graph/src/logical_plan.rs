@@ -344,6 +344,18 @@ impl<'a> LogicalPlanner<'a> {
         input: Option<LogicalOperator>,
         preserve_entities: bool,
     ) -> Result<LogicalOperator> {
+        let seed = input.clone();
+        let imports = (
+            self.variables.clone(),
+            self.node_lists.clone(),
+            self.path_labels.clone(),
+        );
+        if preserve_entities {
+            let names = query.call_imports()?;
+            self.variables.retain(|name, _| names.contains(name));
+            self.node_lists.retain(|name, _| names.contains(name));
+            self.path_labels.retain(|name, _| names.contains(name));
+        }
         // Plan main MATCH clauses; the WHERE clause guides where traversal starts.
         let where_expr = query.where_clause.as_ref().map(|w| &w.expression);
         let mut plan = self.plan_reading_clauses(input, &query.reading_clauses, where_expr)?;
@@ -421,7 +433,31 @@ impl<'a> LogicalPlanner<'a> {
 
         for branch in &query.union_branches {
             let mut planner = LogicalPlanner::new(self.config).with_fan_out(self.fan_out);
-            let right = planner.plan(&branch.query)?;
+            planner.calls = self.calls;
+            if preserve_entities {
+                planner.variables = imports.0.clone();
+                planner.node_lists = imports.1.clone();
+                planner.path_labels = imports.2.clone();
+            }
+            let right = planner.plan_query(&branch.query, seed.clone(), preserve_entities)?;
+            self.calls = planner.calls;
+            if preserve_entities {
+                let node_bindings = |variables: &HashMap<String, String>| {
+                    variables
+                        .iter()
+                        .filter(|(_, label)| self.config.get_node_mapping(label).is_some())
+                        .map(|(name, label)| (name.clone(), label.clone()))
+                        .collect::<HashMap<_, _>>()
+                };
+                if node_bindings(&self.variables) != node_bindings(&planner.variables)
+                    || self.node_lists != planner.node_lists
+                {
+                    return Err(GraphError::PlanError {
+                        message: "CALL UNION node and node-list outputs must retain the same labels in every branch".into(),
+                        location: snafu::Location::new(file!(), line!(), column!()),
+                    });
+                }
+            }
             plan = LogicalOperator::QueryUnion {
                 left: Box::new(plan),
                 right: Box::new(right),
@@ -483,7 +519,7 @@ impl<'a> LogicalPlanner<'a> {
         input: Option<LogicalOperator>,
         query: &CypherQuery,
     ) -> Result<LogicalOperator> {
-        let imports = query.call_imports()?;
+        let imports = query.call_union_imports()?;
         self.calls += 1;
         let id = self.calls;
         let mut inner = Self::new(self.config).with_fan_out(self.fan_out);
