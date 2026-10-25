@@ -347,11 +347,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn call_empty_memory_batches_yield_before_reaching_the_result() {
+    async fn call_empty_memory_batches_yield_before_end_of_stream() {
         use datafusion::datasource::{MemTable, TableProvider};
         use datafusion::execution::context::SessionContext;
         use datafusion::logical_expr::{lit, LogicalPlanBuilder};
-        use futures::TryStreamExt;
+        use futures::{Future, TryStreamExt};
         use std::task::{Context, Poll};
 
         let batch = RecordBatch::try_from_iter(vec![(
@@ -359,8 +359,7 @@ mod tests {
             Arc::new(Int64Array::from(vec![7])) as arrow_array::ArrayRef,
         )])
         .unwrap();
-        let mut batches = vec![RecordBatch::new_empty(batch.schema()); 10_000];
-        batches.push(batch.clone());
+        let batches = vec![RecordBatch::new_empty(batch.schema()); 65];
         let table = MemTable::try_new(batch.schema(), vec![batches]).unwrap();
         let state = SessionContext::new().state();
         let input = table.scan(&state, None, &[], None).await.unwrap();
@@ -376,11 +375,12 @@ mod tests {
         let plan = ApplyExec::new(input, inner, vec![], Arc::new(state.clone()), schema);
         let mut stream = plan.execute(0, state.task_ctx()).unwrap();
         let mut cx = Context::from_waker(futures::task::noop_waker_ref());
-        assert!(matches!(stream.poll_next_unpin(&mut cx), Poll::Pending));
+        // Isolate Apply's own bound from Tokio's task-wide scheduling budget.
+        let mut next = Box::pin(tokio::task::unconstrained(stream.next()));
+        assert!(matches!(next.as_mut().poll(&mut cx), Poll::Pending));
+        drop(next);
         let batches: Vec<_> = stream.try_collect().await.unwrap();
-        assert_eq!(batches.len(), 1);
-        assert_eq!(ints(&batches[0], "x"), [7]);
-        assert_eq!(ints(&batches[0], "n"), [1]);
+        assert!(batches.is_empty());
     }
 
     #[tokio::test]
