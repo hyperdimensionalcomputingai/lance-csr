@@ -132,6 +132,8 @@ be opened.
 :   Runs `query` and returns the whole result. `params` binds `$name` parameters: `int`, `float`, `str`,
     `bool`, `None`, lists, string-keyed nested maps, `datetime.datetime` and `datetime.date`.
     Integers must fit signed 64-bit values; nesting beyond 128 levels, cycles and unsupported values raise `ValueError`.
+    Direct counts from `size()` of an unmapped list comprehension have a non-nullable Arrow field;
+    see [Cypher functions](cypher.md#functions).
 
 `#!python execute_batches(query: str, params: dict | None = None) -> pyarrow.RecordBatchReader`
 :   Streams the result. Planning errors raise immediately; execution errors raise while reading. The reader

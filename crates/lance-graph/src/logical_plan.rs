@@ -172,6 +172,9 @@ pub enum LogicalOperator {
         keep: Option<BooleanExpression>,
         map: ValueExpression,
         output: String,
+        /// Count retained elements without building an ordered list.
+        #[serde(default)]
+        count_only: bool,
     },
 
     /// The element rows of the enclosing [`LogicalOperator::ListComprehension`].
@@ -754,6 +757,24 @@ impl<'a> LogicalPlanner<'a> {
                     None => Ok(input),
                 }
             }
+            // The unmapped comprehension retains every passing element, including
+            // nulls and duplicates. Its size needs a filtered count, not ARRAY_AGG.
+            // Keep mapped comprehensions unchanged so their evaluation/errors remain.
+            ValueExpression::ScalarFunction { name, args }
+                if name.eq_ignore_ascii_case("size")
+                    && matches!(
+                        args.as_slice(),
+                        [ValueExpression::ListComprehension { map: None, .. }]
+                    ) =>
+            {
+                let mut lowered = self.rewrite_exists_in_value(input, &mut args[0])?;
+                let LogicalOperator::ListComprehension { count_only, .. } = &mut lowered else {
+                    unreachable!("a list comprehension lowers to its own operator")
+                };
+                *count_only = true;
+                *expr = args.remove(0);
+                Ok(lowered)
+            }
             ValueExpression::ScalarFunction { args, .. }
             | ValueExpression::AggregateFunction { args, .. } => {
                 for arg in args.iter_mut() {
@@ -901,6 +922,7 @@ impl<'a> LogicalPlanner<'a> {
                         keep,
                         map: value,
                         output: output.clone(),
+                        count_only: false,
                     })
                 })();
                 self.variables = before;

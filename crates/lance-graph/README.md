@@ -19,6 +19,10 @@ Replace a directly constructed `Some(n)` with `Some(ast::RowCount::Literal(n))`;
 use `ast::RowCount::Parameter(name)`. Resolve parameter values before building a logical plan, using
 the normal `CypherQuery` parameter-binding methods. Existing Cypher text with literal pagination is unchanged.
 
+`LogicalOperator::ListComprehension` also has a `count_only` field. Direct constructors that produce
+list values must set it to `false`; the planner sets it to `true` only for an unmapped comprehension
+whose size is requested. Its count output is Int64 and non-nullable, including for empty or null lists.
+
 ## Quick Start
 
 ```rust

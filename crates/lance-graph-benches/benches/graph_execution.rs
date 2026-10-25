@@ -336,5 +336,44 @@ fn bench_cypher_execution(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_cypher_execution);
+fn bench_comprehension_counts(c: &mut Criterion) {
+    use arrow_array::Int64Array;
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let config = GraphConfig::builder()
+        .node_table("Person", "person_id")
+        .build()
+        .unwrap();
+    let data = HashMap::from([("Person".to_string(), make_people_batch(1000))]);
+    let mut group = c.benchmark_group("comprehension_count");
+    for length in [16, 256] {
+        let query = |map| {
+            CypherQuery::new(&format!(
+            "MATCH (p:Person) RETURN p.person_id AS id,              size([x IN range(0, {}) WHERE x % 2 = 0 {map}]) AS n ORDER BY id", length - 1
+        )).unwrap().with_config(config.clone())
+        };
+        let count = query("");
+        let reference = query("| x");
+        let actual = execute_cypher_query(&rt, &count, data.clone());
+        let expected = execute_cypher_query(&rt, &reference, data.clone());
+        assert_eq!(actual.columns(), expected.columns());
+        assert_eq!(actual.num_rows(), 1000);
+        let counts = actual
+            .column(1)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap();
+        assert_eq!(counts.values().iter().sum::<i64>(), 1000 * length / 2);
+        for (name, query) in [
+            ("filtered_count", &count),
+            ("materialized_reference", &reference),
+        ] {
+            group.bench_with_input(BenchmarkId::new(name, length), &length, |b, _| {
+                b.iter(|| black_box(execute_cypher_query(&rt, query, data.clone())));
+            });
+        }
+    }
+    group.finish();
+}
+
+criterion_group!(benches, bench_cypher_execution, bench_comprehension_counts);
 criterion_main!(benches);
