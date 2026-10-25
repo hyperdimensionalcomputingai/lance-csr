@@ -7,8 +7,7 @@
 use std::sync::Arc;
 
 use arrow::array::{
-    new_null_array, Array, ArrayRef, AsArray, Float64Array, Int64Array, ListBuilder, StringArray,
-    StringBuilder,
+    new_null_array, Array, AsArray, Int64Array, ListBuilder, StringArray, StringBuilder,
 };
 use arrow::compute::cast;
 use arrow_schema::{DataType, Field};
@@ -48,7 +47,6 @@ impl ScalarUDFImpl for CypherScalar {
     fn return_type(&self, types: &[DataType]) -> Result<DataType> {
         for (i, t) in types.iter().enumerate() {
             let valid = match self.name.as_str() {
-                "abs" | "round" | "floor" | "ceil" | "sqrt" => t.is_integer() || t.is_floating(),
                 "range" => t.is_integer(),
                 "__predicate_all" | "__predicate_any" | "__predicate_none"
                 | "__predicate_single" => list_field(t)
@@ -76,8 +74,6 @@ impl ScalarUDFImpl for CypherScalar {
                 DataType::Boolean
             }
             "size" => DataType::Int64,
-            "abs" if types[0].is_integer() => DataType::Int64,
-            "abs" | "round" | "floor" | "ceil" | "sqrt" => DataType::Float64,
             "range" => DataType::List(Arc::new(Field::new("item", DataType::Int64, true))),
             "split" | "keys" | "__entity_keys" | "labels" => {
                 DataType::List(Arc::new(Field::new("item", DataType::Utf8, true)))
@@ -247,58 +243,6 @@ impl ScalarUDFImpl for CypherScalar {
                 Ok(result)
             };
         }
-        if matches!(
-            self.name.as_str(),
-            "abs" | "round" | "floor" | "ceil" | "sqrt"
-        ) {
-            let input = cast(&args.args[0].to_array(args.number_rows)?, &output_type)?;
-            let result: ArrayRef = if output_type == DataType::Int64 {
-                Arc::new(
-                    input
-                        .as_primitive::<arrow::datatypes::Int64Type>()
-                        .iter()
-                        .map(|n| {
-                            n.map(|n| {
-                                n.checked_abs().ok_or_else(|| {
-                                    datafusion::common::exec_datafusion_err!("abs overflow")
-                                })
-                            })
-                            .transpose()
-                        })
-                        .collect::<Result<Int64Array>>()?,
-                )
-            } else {
-                Arc::new(
-                    input
-                        .as_primitive::<arrow::datatypes::Float64Type>()
-                        .iter()
-                        .map(|n| {
-                            n.map(|n| match self.name.as_str() {
-                                "abs" => n.abs(),
-                                // Cypher rounds ties toward positive infinity and returns positive zero.
-                                "round" => {
-                                    let rounded = if n.fract() == -0.5 {
-                                        n.ceil()
-                                    } else {
-                                        n.round()
-                                    };
-                                    if rounded == 0.0 {
-                                        0.0
-                                    } else {
-                                        rounded
-                                    }
-                                }
-                                "floor" => n.floor(),
-                                "ceil" => n.ceil(),
-                                "sqrt" => n.sqrt(),
-                                _ => unreachable!(),
-                            })
-                        })
-                        .collect::<Float64Array>(),
-                )
-            };
-            return Ok(ColumnarValue::Array(result));
-        }
         let arrays = args
             .args
             .iter()
@@ -421,7 +365,7 @@ pub(super) fn call(name: &str, args: Vec<Expr>) -> Expr {
 mod tests {
     use super::*;
     use crate::{config::GraphConfig, query::CypherQuery};
-    use arrow::array::RecordBatch;
+    use arrow::array::{ArrayRef, RecordBatch};
     use std::collections::HashMap;
 
     async fn run(expression: &str) -> crate::error::Result<RecordBatch> {

@@ -275,11 +275,13 @@ pub(crate) fn to_df_value_expr(expr: &ValueExpression) -> Expr {
                     VE::Variable(path) => col(qualify_column(path, &name.to_lowercase())),
                     _ => Expr::Literal(datafusion::scalar::ScalarValue::Null, None),
                 },
-                "abs" | "round" | "floor" | "ceil" | "sqrt" | "left" | "right" | "substring"
-                | "replace" | "split" | "trim" | "ltrim" | "rtrim" | "size" | "reverse"
-                | "last" | "tail" | "keys" | "__entity_keys" | "labels" | "startnode"
-                | "endnode" | "__predicate_all" | "__predicate_any" | "__predicate_none"
-                | "__predicate_single" => {
+                "abs" | "round" | "floor" | "ceil" | "sqrt" => {
+                    super::math_functions::call(name, args.iter().map(to_df_value_expr).collect())
+                }
+                "left" | "right" | "substring" | "replace" | "split" | "trim" | "ltrim"
+                | "rtrim" | "size" | "reverse" | "last" | "tail" | "keys" | "__entity_keys"
+                | "labels" | "startnode" | "endnode" | "__predicate_all" | "__predicate_any"
+                | "__predicate_none" | "__predicate_single" => {
                     super::scalar_functions::call(name, args.iter().map(to_df_value_expr).collect())
                 }
                 "range" => {
