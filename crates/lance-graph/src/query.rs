@@ -235,7 +235,9 @@ impl CypherQuery {
         &mut self,
         catalog: Arc<dyn lance_graph_catalog::GraphSourceCatalog>,
     ) -> Result<bool> {
-        let mut shape_sensitive = false;
+        // Rich path properties live in an extension-owned spec, and its inventory is
+        // query-local. Keep ordinary substitution and a fresh inventory for each query.
+        let mut shape_sensitive = crate::path_value::needs_values(&self.ast);
         self.ast.for_each_query(&mut |query| {
             shape_sensitive |= query
                 .limit

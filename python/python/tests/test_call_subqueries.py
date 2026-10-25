@@ -324,3 +324,120 @@ def test_call_union_coerces_numeric_and_null_output_schema(graph):
         reader = engine.execute_batches(query, {"value": value})
         assert reader.schema.field("n").type == expected_type
         assert reader.read_all().column(0).to_pylist() == expected
+
+
+def test_call_imported_shortest_path_keeps_relationship_records(graph):
+    engine, _, _ = graph
+    query = (
+        "MATCH path = allShortestPaths((a:Person {id: 10})-[:KNOWS*..3]->"
+        "(b:Person {id: 40})) CALL { WITH path "
+        "RETURN [edge IN relationships(path) | endNode(edge).id] AS targets, "
+        "reduce(total = 0, edge IN relationships(path) | total + endNode(edge).id) AS total } "
+        "RETURN targets, total ORDER BY targets"
+    )
+    assert engine.execute(query).to_pylist() == [
+        {"targets": [20, 40], "total": 60},
+        {"targets": [20, 40], "total": 60},
+    ]
+
+
+def test_call_union_shares_path_occurrence_identity(graph):
+    engine, _, _ = graph
+    query = (
+        "CALL { MATCH path = (a:Person {id: 10})-[:KNOWS]->(b:Person) "
+        "RETURN path UNION MATCH path = (a:Person {id: 10})-[:KNOWS]->(b:Person) "
+        "RETURN path } WITH collect(path) AS paths UNWIND paths AS path "
+        "RETURN length(path) AS hops, [n IN nodes(path) | n.name] AS names, "
+        "[r IN relationships(path) | endNode(r).id] AS targets ORDER BY targets"
+    )
+    assert engine.execute(query).to_pylist() == [
+        {"hops": 1, "names": ["A", "B"], "targets": [20]},
+        {"hops": 1, "names": ["A", "B"], "targets": [20]},
+        {"hops": 1, "names": ["A", "C"], "targets": [30]},
+    ]
+
+
+def test_call_keeps_path_alias_across_nested_union(graph):
+    engine, _, _ = graph
+    query = (
+        "MATCH path = (a:Person {id: 20})-[:KNOWS]->(b:Person) "
+        "CALL { WITH path CALL { WITH path RETURN path AS value "
+        "UNION ALL WITH path RETURN path AS value LIMIT 0 } RETURN value AS result } "
+        "RETURN length(result) AS hops, [n IN nodes(result) | labels(n)] AS labels"
+    )
+    assert engine.execute(query).to_pylist() == [
+        {"hops": 1, "labels": [["Person"], ["Person"]]}
+    ]
+
+
+def test_call_empty_children_respect_query_deadline(graph):
+    engine, _, _ = graph
+    with pytest.raises(TimeoutError):
+        engine.execute(
+            "UNWIND range(1, 1000000) AS x CALL { WITH x UNWIND [] AS n RETURN n } RETURN n",
+            timeout=0.02,
+        )
+    assert engine.execute("RETURN 1 AS ok").to_pylist() == [{"ok": 1}]
+
+
+def test_rich_path_parameters_bind_freshly(graph):
+    engine, _, _ = graph
+    query = (
+        "MATCH path = (a:Person {id: $start})-[:KNOWS]->(b:Person) "
+        "RETURN nodes(path) AS ids ORDER BY ids"
+    )
+    for start, expected in [
+        (10, [[10, 20], [10, 20], [10, 30]]),
+        (20, [[20, 40]]),
+        (10, [[10, 20], [10, 20], [10, 30]]),
+    ]:
+        assert engine.execute(query, {"start": start}).column(0).to_pylist() == expected
+
+
+def test_rich_path_reader_retains_snapshot_after_refresh(graph, tmp_path):
+    import lance
+
+    original, config, data = graph
+    paths = {name: str(tmp_path / f"{name}.lance") for name in data}
+    datasets = {
+        name: lance.write_dataset(table, paths[name]) for name, table in data.items()
+    }
+    engine = CypherEngine(config, datasets, use_csr=bool(original.csr_stats()))
+    query = (
+        "MATCH path = (a:Person {id: $start})-[:KNOWS]->(b:Person) "
+        "RETURN nodes(path) AS ids ORDER BY ids"
+    )
+    old = engine.execute_batches(query, {"start": 20})
+    lance.write_dataset(
+        pa.table({"src": [20], "dst": [30]}), paths["KNOWS"], mode="append"
+    )
+    engine.refresh()
+    assert engine.execute(query, {"start": 20}).column(0).to_pylist() == [
+        [20, 30],
+        [20, 40],
+    ]
+    assert old.read_all().column(0).to_pylist() == [[20, 40]]
+    assert engine.execute(query, {"start": 10}).column(0).to_pylist() == [
+        [10, 20],
+        [10, 20],
+        [10, 30],
+    ]
+
+
+def test_lambda_types_shadow_and_restore_outer_bindings(graph):
+    engine, _, _ = graph
+    for initial, expected in [(0, 3), (0.5, 3.5), (None, None), (0, 3)]:
+        rows = engine.execute(
+            "WITH 'outer' AS total RETURN total AS outer, "
+            "reduce(total = $initial, item IN [1, 2] | total + item) AS value",
+            {"initial": initial},
+        ).to_pylist()
+        assert rows == [{"outer": "outer", "value": expected}]
+    assert engine.execute(
+        "WITH 'outer' AS item RETURN all(item IN [1, 2] WHERE item > 0) AS valid, "
+        "item AS outer"
+    ).to_pylist() == [{"valid": True, "outer": "outer"}]
+    with pytest.raises(ValueError, match="Type mismatch"):
+        engine.execute(
+            "RETURN reduce(total = 0, item IN ['text'] | total + item) AS value"
+        )

@@ -357,6 +357,8 @@ property types fail explicitly. Expanding a graph pattern from a mixed-label val
 A path value needs a query-local inventory of the participating node and relationship tables, including
 properties. It therefore materializes those tables, even with `use_csr=True`. Traversal output is emitted
 in batches and named ordinary paths keep a cursor per hop, but inventory memory grows with the graph.
+Rich path queries bypass the query-template cache: each execution binds its current parameters and
+creates an inventory from its own snapshot. A reader opened before `refresh()` retains the old snapshot.
 Queries asking only for shortest-path length or node keys, including existing homogeneous node-property
 comprehensions, retain the usual CSR execution route.
 

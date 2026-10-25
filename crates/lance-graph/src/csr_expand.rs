@@ -1447,20 +1447,6 @@ fn retain_by_mask<T>(values: &mut Vec<T>, keep: &[bool]) {
     values.retain(|_| *keep.next().expect("one mask entry per value"));
 }
 
-/// Cooperate with the stream's executor without requiring a particular async runtime.
-pub(crate) async fn cooperative_yield() {
-    let mut yielded = false;
-    std::future::poll_fn(move |cx| {
-        if std::mem::replace(&mut yielded, true) {
-            std::task::Poll::Ready(())
-        } else {
-            cx.waker().wake_by_ref();
-            std::task::Poll::Pending
-        }
-    })
-    .await
-}
-
 impl DisplayAs for CsrExpandExec {
     fn fmt_as(&self, _t: DisplayFormatType, f: &mut fmt::Formatter) -> fmt::Result {
         write!(

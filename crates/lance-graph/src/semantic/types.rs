@@ -90,7 +90,9 @@ impl SemanticAnalyzer {
     pub(super) fn expression_type(&self, expression: &ValueExpression) -> ExpressionType {
         use ExpressionType::{List, Map, Scalar, Unknown};
         match expression {
-            ValueExpression::Variable(name) => self.variable_expression_type(name),
+            ValueExpression::Variable(name) | ValueExpression::LocalVariable(name) => {
+                self.variable_expression_type(name)
+            }
             ValueExpression::Property(property)
             | ValueExpression::Literal(PropertyValue::Property(property)) => self
                 .property_expression_type(
@@ -165,7 +167,9 @@ impl SemanticAnalyzer {
                     .chain(otherwise.iter().map(|value| self.expression_type(value)))
                     .collect(),
             ),
-            ValueExpression::Boolean(_) => Scalar(DataType::Boolean),
+            ValueExpression::Boolean(_) | ValueExpression::ListPredicate { .. } => {
+                Scalar(DataType::Boolean)
+            }
             ValueExpression::Map(fields) => Map(fields
                 .iter()
                 .map(|(name, value)| (name.clone(), self.expression_type(value)))
@@ -178,7 +182,8 @@ impl SemanticAnalyzer {
                 Scalar(DataType::Float64)
             }
             // Their local scopes have ended; do not infer from similarly named outer variables.
-            ValueExpression::ListComprehension { .. }
+            ValueExpression::Reduce { .. }
+            | ValueExpression::ListComprehension { .. }
             | ValueExpression::PatternComprehension { .. }
             | ValueExpression::Parameter(_) => Unknown,
         }

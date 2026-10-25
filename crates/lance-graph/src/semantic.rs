@@ -917,7 +917,14 @@ impl SemanticAnalyzer {
                         location: snafu::Location::new(file!(), line!(), column!()),
                     });
                 }
-                self.analyze_lambda(&[accumulator, variable], expression, false)?;
+                self.analyze_lambda(
+                    &[
+                        (accumulator, self.expression_type(initial)),
+                        (variable, self.expression_type(list).element()),
+                    ],
+                    expression,
+                    false,
+                )?;
             }
             ValueExpression::ListPredicate {
                 variable,
@@ -926,7 +933,11 @@ impl SemanticAnalyzer {
                 ..
             } => {
                 self.analyze_value_expression(list)?;
-                self.analyze_lambda(&[variable], predicate, true)?;
+                self.analyze_lambda(
+                    &[(variable, self.expression_type(list).element())],
+                    predicate,
+                    true,
+                )?;
             }
             ValueExpression::ListComprehension {
                 variable,
@@ -961,14 +972,17 @@ impl SemanticAnalyzer {
 
     fn analyze_lambda(
         &mut self,
-        names: &[&String],
+        names: &[(&String, ExpressionType)],
         expression: &ValueExpression,
         allow_patterns: bool,
     ) -> Result<()> {
         let before = self.variables.clone();
-        for name in names {
+        let before_types = self.expression_types.clone();
+        for (name, value_type) in names {
             self.variables.remove(&name.to_lowercase());
             self.register_projection_alias(name);
+            self.expression_types
+                .insert(name.to_lowercase(), value_type.clone());
         }
         let mut unsupported =
             !allow_patterns && crate::ast::needs_relational_evaluation(expression);
@@ -984,6 +998,7 @@ impl SemanticAnalyzer {
             self.analyze_value_expression(expression)
         };
         self.variables = before;
+        self.expression_types = before_types;
         result
     }
 

@@ -468,6 +468,8 @@ mod tests {
             "WITH 1 AS x WITH x AS y CALL { WITH y RETURN y AS n } RETURN n",
             "RETURN 1 AS n UNION CALL { RETURN 2 AS n } RETURN n",
             "RETURN 1 AS n UNION RETURN 2 AS n LIMIT $take",
+            "MATCH path = (p:Person)-[:KNOWS]->(f:Person) RETURN path",
+            "MATCH path = shortestPath((p:Person)-[:KNOWS*..3]->(f:Person)) RETURN relationships(path)",
         ] {
             let mut query = CypherQuery::new(text).unwrap();
             assert!(!query.prepare_cached_plan(catalog.clone()).unwrap());
