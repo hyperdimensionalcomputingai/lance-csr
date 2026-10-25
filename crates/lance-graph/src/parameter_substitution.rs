@@ -240,29 +240,7 @@ fn substitute_in_value_expression(
                         location: snafu::Location::new(file!(), line!(), column!()),
                     })?;
 
-            // Check for array to VectorLiteral conversion
-            if let serde_json::Value::Array(arr) = param_value {
-                let mut floats = Vec::new();
-                for v in arr {
-                    if let Some(f) = v.as_f64() {
-                        floats.push(f as f32);
-                    } else {
-                        return Err(GraphError::PlanError {
-                            message: format!(
-                                "Parameter ${} is a list but contains non-numeric values. Only float vectors are supported as list parameters currently.",
-                                name
-                            ),
-                            location: snafu::Location::new(file!(), line!(), column!()),
-                        });
-                    }
-                }
-                *expr = ValueExpression::VectorLiteral(floats);
-                return Ok(());
-            }
-
-            // Scalar conversion
-            let prop_val = json_to_property_value(param_value)?;
-            *expr = ValueExpression::Literal(prop_val);
+            *expr = json_to_expression(param_value)?;
         }
         ValueExpression::ScalarFunction { args, .. }
         | ValueExpression::AggregateFunction { args, .. } => {
@@ -317,6 +295,26 @@ fn substitute_in_value_expression(
     Ok(())
 }
 
+/// Keep container parameters in the same representation as literal lists and maps.
+fn json_to_expression(value: &serde_json::Value) -> Result<ValueExpression> {
+    match value {
+        serde_json::Value::Array(values) => Ok(ValueExpression::ScalarFunction {
+            name: "__list".to_string(),
+            args: values
+                .iter()
+                .map(json_to_expression)
+                .collect::<Result<_>>()?,
+        }),
+        serde_json::Value::Object(values) => Ok(ValueExpression::Map(
+            values
+                .iter()
+                .map(|(key, value)| Ok((key.clone(), json_to_expression(value)?)))
+                .collect::<Result<_>>()?,
+        )),
+        _ => Ok(ValueExpression::Literal(json_to_property_value(value)?)),
+    }
+}
+
 fn json_to_property_value(value: &serde_json::Value) -> Result<PropertyValue> {
     match value {
         serde_json::Value::Null => Ok(PropertyValue::Null),
@@ -324,21 +322,57 @@ fn json_to_property_value(value: &serde_json::Value) -> Result<PropertyValue> {
         serde_json::Value::Number(n) => {
             if let Some(i) = n.as_i64() {
                 Ok(PropertyValue::Integer(i))
+            } else if n.is_u64() {
+                Err(GraphError::PlanError {
+                    message: "Integer parameters must fit signed 64-bit values".to_string(),
+                    location: snafu::Location::new(file!(), line!(), column!()),
+                })
             } else if let Some(f) = n.as_f64() {
                 Ok(PropertyValue::Float(f))
             } else {
                 Err(GraphError::PlanError {
-                    message: format!("Number parameter could not be converted to i64 or f64: {}", n),
+                    message: format!(
+                        "Number parameter could not be converted to i64 or f64: {}",
+                        n
+                    ),
                     location: snafu::Location::new(file!(), line!(), column!()),
                 })
             }
         }
         serde_json::Value::String(s) => Ok(PropertyValue::String(s.clone())),
-        serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
-            Err(GraphError::PlanError {
-                message: "Complex types (List, Map) are not fully supported as parameters yet (except float vectors).".to_string(),
-                location: snafu::Location::new(file!(), line!(), column!()),
-            })
-        }
+        serde_json::Value::Array(_) | serde_json::Value::Object(_) => Err(GraphError::PlanError {
+            message:
+                "List and map parameters must be used as expressions, not inline property values."
+                    .to_string(),
+            location: snafu::Location::new(file!(), line!(), column!()),
+        }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn container_expressions_preserve_ids_and_nesting() {
+        let list = json_to_expression(&json!([19791209300775_i64, null])).unwrap();
+        assert_eq!(
+            list,
+            ValueExpression::ScalarFunction {
+                name: "__list".to_string(),
+                args: vec![
+                    ValueExpression::Literal(PropertyValue::Integer(19791209300775)),
+                    ValueExpression::Literal(PropertyValue::Null)
+                ],
+            }
+        );
+        let map = json_to_expression(&json!({"ids": [19791209300775_i64]})).unwrap();
+        assert!(
+            matches!(map, ValueExpression::Map(entries) if entries.len() == 1 && entries[0].0 == "ids")
+        );
+        assert!(json_to_expression(&json!([])).is_ok());
+        assert!(json_to_expression(&json!({})).is_ok());
+        assert!(json_to_expression(&json!(u64::MAX)).is_err());
     }
 }
