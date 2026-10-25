@@ -185,7 +185,7 @@ impl ExecutionPlan for ApplyExec {
             input,
             batch: None,
             next_row: 0,
-            rows_since_yield: 0,
+            iterations_since_yield: 0,
             current: vec![],
             child: None,
             inner: self.inner.clone(),
@@ -196,6 +196,12 @@ impl ExecutionPlan for ApplyExec {
         };
         let stream = futures::stream::try_unfold(state, |mut state| async move {
             loop {
+                // Bound all ready work, including empty outer and child batches.
+                if state.iterations_since_yield == 64 {
+                    crate::csr_expand::cooperative_yield().await;
+                    state.iterations_since_yield = 0;
+                }
+                state.iterations_since_yield += 1;
                 if let Some(child) = &mut state.child {
                     if let Some(batch) = child.next().await {
                         let batch = batch?;
@@ -231,13 +237,6 @@ impl ExecutionPlan for ApplyExec {
                         continue;
                     }
                 }
-                // Empty children can complete synchronously for many outer rows.
-                // Bound that work so cancellation and other tasks can be polled.
-                if state.rows_since_yield == 64 {
-                    crate::csr_expand::cooperative_yield().await;
-                    state.rows_since_yield = 0;
-                }
-                state.rows_since_yield += 1;
                 let batch = state.batch.as_ref().expect("a nonempty outer batch");
                 state.current = batch
                     .columns()
@@ -266,7 +265,7 @@ struct ApplyStreamState {
     input: SendableRecordBatchStream,
     batch: Option<RecordBatch>,
     next_row: usize,
-    rows_since_yield: usize,
+    iterations_since_yield: usize,
     current: Vec<ScalarValue>,
     child: Option<SendableRecordBatchStream>,
     inner: LogicalPlan,
@@ -345,6 +344,43 @@ mod tests {
             .unwrap()
             .values()
             .to_vec()
+    }
+
+    #[tokio::test]
+    async fn call_empty_memory_batches_yield_before_reaching_the_result() {
+        use datafusion::datasource::{MemTable, TableProvider};
+        use datafusion::execution::context::SessionContext;
+        use datafusion::logical_expr::{lit, LogicalPlanBuilder};
+        use futures::TryStreamExt;
+        use std::task::{Context, Poll};
+
+        let batch = RecordBatch::try_from_iter(vec![(
+            "x",
+            Arc::new(Int64Array::from(vec![7])) as arrow_array::ArrayRef,
+        )])
+        .unwrap();
+        let mut batches = vec![RecordBatch::new_empty(batch.schema()); 10_000];
+        batches.push(batch.clone());
+        let table = MemTable::try_new(batch.schema(), vec![batches]).unwrap();
+        let state = SessionContext::new().state();
+        let input = table.scan(&state, None, &[], None).await.unwrap();
+        let inner = LogicalPlanBuilder::empty(true)
+            .project(vec![lit(1_i64).alias("n")])
+            .unwrap()
+            .build()
+            .unwrap();
+        let schema = Arc::new(arrow_schema::Schema::new(vec![
+            batch.schema().field(0).clone(),
+            inner.schema().as_arrow().field(0).clone(),
+        ]));
+        let plan = ApplyExec::new(input, inner, vec![], Arc::new(state.clone()), schema);
+        let mut stream = plan.execute(0, state.task_ctx()).unwrap();
+        let mut cx = Context::from_waker(futures::task::noop_waker_ref());
+        assert!(matches!(stream.poll_next_unpin(&mut cx), Poll::Pending));
+        let batches: Vec<_> = stream.try_collect().await.unwrap();
+        assert_eq!(batches.len(), 1);
+        assert_eq!(ints(&batches[0], "x"), [7]);
+        assert_eq!(ints(&batches[0], "n"), [1]);
     }
 
     #[tokio::test]

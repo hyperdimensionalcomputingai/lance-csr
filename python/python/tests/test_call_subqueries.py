@@ -332,7 +332,8 @@ def test_call_imported_shortest_path_keeps_relationship_records(graph):
         "MATCH path = allShortestPaths((a:Person {id: 10})-[:KNOWS*..3]->"
         "(b:Person {id: 40})) CALL { WITH path "
         "RETURN [edge IN relationships(path) | endNode(edge).id] AS targets, "
-        "reduce(total = 0, edge IN relationships(path) | total + endNode(edge).id) AS total } "
+        "reduce(total = 0, edge IN relationships(path) | "
+        "total + endNode(edge).id) AS total } "
         "RETURN targets, total ORDER BY targets"
     )
     assert engine.execute(query).to_pylist() == [
@@ -374,7 +375,8 @@ def test_call_empty_children_respect_query_deadline(graph):
     engine, _, _ = graph
     with pytest.raises(TimeoutError):
         engine.execute(
-            "UNWIND range(1, 1000000) AS x CALL { WITH x UNWIND [] AS n RETURN n } RETURN n",
+            "UNWIND range(1, 1000000) AS x "
+            "CALL { WITH x UNWIND [] AS n RETURN n } RETURN n",
             timeout=0.02,
         )
     assert engine.execute("RETURN 1 AS ok").to_pylist() == [{"ok": 1}]
@@ -441,3 +443,17 @@ def test_lambda_types_shadow_and_restore_outer_bindings(graph):
         engine.execute(
             "RETURN reduce(total = 0, item IN ['text'] | total + item) AS value"
         )
+
+
+def test_shortest_path_alias_import_demands_relationship_values(graph):
+    engine, _, _ = graph
+    query = (
+        "MATCH path = allShortestPaths((a:Person {id: 10})-[:KNOWS*..3]->"
+        "(b:Person {id: 40})) WITH path AS carried "
+        "CALL { WITH carried RETURN relationships(carried) AS edges } "
+        "RETURN [edge IN edges | endNode(edge).id] AS targets ORDER BY targets"
+    )
+    assert engine.execute(query).to_pylist() == [
+        {"targets": [20, 40]},
+        {"targets": [20, 40]},
+    ]
