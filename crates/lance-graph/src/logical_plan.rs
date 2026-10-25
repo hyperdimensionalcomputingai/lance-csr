@@ -137,14 +137,14 @@ pub enum LogicalOperator {
     /// same variables, possibly with different labels; columns a branch lacks are null.
     Union { inputs: Vec<LogicalOperator> },
 
-    /// `shortestPath` / `allShortestPaths` between two variables bound in `input`; adds
-    /// `<path_variable>__length` and `<path_variable>__nodes` (node ids, source first).
     /// A named path retaining actual relationship occurrences and typed node records.
     PathMatch {
         input: Box<LogicalOperator>,
         path: PathPattern,
     },
 
+    /// `shortestPath` / `allShortestPaths` between two variables bound in `input`; adds
+    /// `<path_variable>__length` and `<path_variable>__nodes` (node ids, source first).
     ShortestPath {
         input: Box<LogicalOperator>,
         source_variable: String,
@@ -538,10 +538,9 @@ impl<'a> LogicalPlanner<'a> {
         })
     }
 
-    /// Node and path variables used as values: a node is its id (so `a = b`, `a IN list`,
-    /// `collect(a)`, `count(DISTINCT a)` and `a IS NULL` work on ids) and a path is its
-    /// length (so `path IS NULL` is true when no path was found). Bare items of WITH and
-    /// RETURN, which carry whole nodes, are not resolved.
+    /// Resolve node variables to ids in scalar expressions while retaining path values.
+    /// Path functions and null checks are lowered according to the path representation.
+    /// Bare WITH and RETURN items, which carry whole nodes, are not resolved.
     fn resolve_value(&self, expr: &mut ValueExpression) {
         match expr {
             ValueExpression::Variable(var) => {
