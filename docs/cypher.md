@@ -181,8 +181,8 @@ implemented; `ExecutionStrategy.LanceNative` is reserved and raises an error.
 
 The Graph Data Council (GDC), formerly known as the Linked Data Benchmark Council (LDBC), maintains the
 [GDC SNB Interactive](https://ldbcouncil.org/benchmarks/snb/) complex queries. lance-csr implements a large
-read-only subset of openCypher. The tables below specify its supported surface; relationship-path
-operations needed by the unchanged IC14 query are not yet supported.
+read-only subset of openCypher, including named path values and the relationship-path operations
+used by IC14. The tables below specify its supported surface.
 
 ### Clauses
 

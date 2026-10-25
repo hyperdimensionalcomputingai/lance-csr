@@ -63,7 +63,7 @@ pub(crate) struct PathSpec {
     pub shortest: Option<bool>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(crate) struct PathMatchNode {
     inputs: Vec<LogicalPlan>,
     spec: Arc<PathSpec>,
@@ -76,6 +76,16 @@ enum Output {
     RelationshipValue { step: usize },
     Node { boundary: usize, property: usize },
     Relationship { step: usize, property: usize },
+}
+
+// DataFusion formats extension nodes during planning; never print cached graph batches.
+impl fmt::Debug for PathMatchNode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("PathMatchNode")
+            .field("variable", &self.spec.variable)
+            .field("sources", &(self.inputs.len() - 1))
+            .finish()
+    }
 }
 
 impl PathMatchNode {
@@ -207,7 +217,6 @@ struct Ready {
     shortest: Option<(Neighbors, Neighbors)>,
 }
 
-#[derive(Debug)]
 struct PathMatchExec {
     inputs: Vec<Arc<dyn ExecutionPlan>>,
     spec: Arc<PathSpec>,
@@ -276,6 +285,15 @@ pub(crate) fn plan_path_match(
     }))
 }
 
+impl fmt::Debug for PathMatchExec {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("PathMatchExec")
+            .field("variable", &self.spec.variable)
+            .field("sources", &(self.inputs.len() - 1))
+            .finish()
+    }
+}
+
 impl DisplayAs for PathMatchExec {
     fn fmt_as(&self, _: DisplayFormatType, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "PathMatchExec: {} edge inventory", self.spec.variable)
@@ -291,16 +309,30 @@ impl ExecutionPlan for PathMatchExec {
     fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
         self.inputs.iter().collect()
     }
+    // Inventory builds consume one stream per source; keep the coalescers through optimization.
+    fn required_input_distribution(&self) -> Vec<datafusion::physical_plan::Distribution> {
+        use datafusion::physical_plan::Distribution;
+        std::iter::once(Distribution::UnspecifiedDistribution)
+            .chain((1..self.inputs.len()).map(|_| Distribution::SinglePartition))
+            .collect()
+    }
+
     fn with_new_children(
         self: Arc<Self>,
         inputs: Vec<Arc<dyn ExecutionPlan>>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
+        let properties = Arc::new(PlanProperties::new(
+            EquivalenceProperties::new(self.schema.clone()),
+            inputs[0].output_partitioning().clone(),
+            EmissionType::Incremental,
+            Boundedness::Bounded,
+        ));
         Ok(Arc::new(Self {
             inputs,
             spec: self.spec.clone(),
             outputs: self.outputs.clone(),
             schema: self.schema.clone(),
-            properties: self.properties.clone(),
+            properties,
             predicates: self.predicates.clone(),
             ready: self.ready.clone(),
         }))

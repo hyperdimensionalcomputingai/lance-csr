@@ -348,3 +348,81 @@ def test_multiple_path_operators_share_occurrence_identity(engine):
             identity = edge["__lance_graph_identity"]
             assert ids.setdefault(weight, identity) == identity
     assert ids[5] != ids[7]
+
+
+@pytest.mark.parametrize("use_csr", [False, True])
+def test_unmodified_ic14_with_real_relationship_values(use_csr):
+    from pathlib import Path
+
+    # Exact query text from the benchmark's Neo4j IC14, including collect(path),
+    # relationship endpoints, nested correlated pattern comprehensions, and reduce.
+    query = (Path(__file__).parent / "queries" / "ic14.cypher").read_text()
+    config = (
+        GraphConfig.builder()
+        .node_table("Person", "id")
+        .node_table("Comment", "id")
+        .node_table("Post", "id")
+        .rel_table("knows", "Person", "Person", "src", "dst")
+        .rel_table("commentHasCreator", "Comment", "Person", "src", "dst")
+        .rel_table("postHasCreator", "Post", "Person", "src", "dst")
+        .rel_table("replyOfPost", "Comment", "Post", "src", "dst")
+        .rel_table("replyOfComment", "Comment", "Comment", "src", "dst")
+        .build()
+    )
+    engine = CypherEngine(
+        config,
+        {
+            "Person": pa.table({"id": [1, 2, 3, 4]}),
+            "Comment": pa.table({"id": [10, 11, 12, 13]}),
+            "Post": pa.table({"id": [20, 21]}),
+            "knows": pa.table({"src": [1, 1, 2, 1, 4], "dst": [2, 2, 3, 4, 3]}),
+            "commentHasCreator": pa.table(
+                {"src": [10, 11, 12, 13], "dst": [1, 2, 2, 4]}
+            ),
+            "postHasCreator": pa.table({"src": [20, 21], "dst": [2, 3]}),
+            "replyOfPost": pa.table({"src": [10, 11, 13], "dst": [20, 21, 21]}),
+            "replyOfComment": pa.table({"src": [12], "dst": [10]}),
+        },
+        use_csr=use_csr,
+    )
+    rows = engine.execute(query, {"person1Id": 1, "person2Id": 3}).to_pylist()
+    assert [(r["personidsinpath"], r["pathweight"]) for r in rows] == [
+        ([1, 2, 3], 2.5),
+        ([1, 2, 3], 2.5),
+        ([1, 4, 3], 1.0),
+    ]
+
+
+@pytest.mark.parametrize("storage", ["arrow", "lance"])
+@pytest.mark.parametrize("shortest", [False, True])
+def test_rich_inventory_reads_every_partition(tmp_path, storage, shortest):
+    import lance
+
+    n = 20_000
+    people = pa.table({"id": pa.array(range(n + 1), pa.int64())})
+    edges = pa.table(
+        {
+            "src": pa.array(range(n), pa.int64()),
+            "dst": pa.array(range(1, n + 1), pa.int64()),
+        }
+    )
+    datasets = {"Person": people, "R": edges}
+    if storage == "lance":
+        datasets = {
+            name: lance.write_dataset(table, tmp_path / f"{name}.lance")
+            for name, table in datasets.items()
+        }
+    config = (
+        GraphConfig.builder()
+        .node_table("Person", "id")
+        .rel_table("R", "Person", "Person", "src", "dst")
+        .build()
+    )
+    engine = CypherEngine(config, datasets, use_csr=True)
+    pattern = f"(a:Person {{id: {n - 10}}})-[:R*1..5]->(b:Person {{id: {n - 5}}})"
+    if shortest:
+        pattern = f"allShortestPaths({pattern})"
+    rows = engine.execute(f"MATCH p = {pattern} RETURN p").to_pylist()
+    assert len(rows) == 1
+    assert rows[0]["p"]["nodes"] == list(range(n - 10, n - 4))
+    assert len(rows[0]["p"]["relationships"]) == 5
