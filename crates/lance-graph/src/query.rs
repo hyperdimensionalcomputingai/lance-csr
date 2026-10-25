@@ -539,7 +539,7 @@ impl CypherQuery {
         let mut catalog = InMemoryCatalog::new();
 
         // Register node sources
-        for label in config.node_mappings.keys() {
+        for (label, _) in config.iter_node_mappings() {
             let table_provider =
                 ctx.table_provider(label)
                     .await
@@ -556,7 +556,7 @@ impl CypherQuery {
         }
 
         // Register relationship sources
-        for rel_type in config.relationship_mappings.keys() {
+        for (rel_type, _) in config.iter_relationship_mappings() {
             let table_provider =
                 ctx.table_provider(rel_type)
                     .await
@@ -814,12 +814,15 @@ impl CypherQuery {
         let mut required_tables: HashSet<String> = HashSet::new();
         // Use original label/type names (not lowercase keys) for namespace resolution
         // The namespace needs the original casing to find files on disk
-        required_tables.extend(config.node_mappings.values().map(|m| m.label.clone()));
         required_tables.extend(
             config
-                .relationship_mappings
-                .values()
-                .map(|m| m.relationship_type.clone()),
+                .iter_node_mappings()
+                .map(|(_, mapping)| mapping.label.clone()),
+        );
+        required_tables.extend(
+            config
+                .iter_relationship_mappings()
+                .map(|(_, mapping)| mapping.relationship_type.clone()),
         );
 
         if required_tables.is_empty() {
@@ -885,7 +888,7 @@ impl CypherQuery {
             providers.insert(normalized_table_name.clone(), provider);
         }
 
-        for label in config.node_mappings.keys() {
+        for (label, _) in config.iter_node_mappings() {
             let provider = providers
                 .get(label)
                 .ok_or_else(|| GraphError::ConfigError {
@@ -900,7 +903,7 @@ impl CypherQuery {
             catalog = catalog.with_node_source(label, table_source);
         }
 
-        for rel_type in config.relationship_mappings.keys() {
+        for (rel_type, _) in config.iter_relationship_mappings() {
             let provider = providers
                 .get(rel_type)
                 .ok_or_else(|| GraphError::ConfigError {
