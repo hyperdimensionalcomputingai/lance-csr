@@ -260,6 +260,7 @@ RETURN length(p), nodes(p)
 | Aggregates | `count` (including `count(*)` and `count(DISTINCT x)`), `sum`, `avg`, `min`, `max`, `collect` (including `DISTINCT`; skips nulls) |
 | Strings | `toLower` / `lower`, `toUpper` / `upper`, `toString`, `left`, `right`, `substring`, `replace`, `split`, `trim`, `lTrim`, `rTrim`, `reverse`, `size` |
 | Conversion | `toInteger`, `toFloat`, `coalesce` |
+| Properties | `keys(map)`, `keys(node)`, `keys(relationship)`, `labels(node)` |
 | Lists | `size`, `head`, `last`, `tail`, `reverse`, `range(start, end [, step])` (inclusive) |
 | Math | `abs`, `round`, `floor`, `ceil`, `sqrt` |
 | Temporal | `date`, `datetime`, `date_part('month', d)`, `to_epoch_ms`, `duration.inSeconds(a, b).seconds` |
@@ -303,9 +304,31 @@ result = engine.execute("RETURN abs(-5) AS magnitude, round(-1.5) AS rounded, sq
 print(result.to_pylist())  # [{'magnitude': 5, 'rounded': -1.0, 'root': 3.0}]
 ```
 
+`keys` returns the field names in a map, including keys with null values. For a node or relationship,
+it returns its exposed, non-null property names, including the ID or endpoint columns already exposed
+by the engine. Property names use the engine's normalized column spelling. Key order is not guaranteed.
+`keys({})` returns an empty list. `labels(node)` returns the canonical label configured for that node,
+even if the query spells it differently. Both functions preserve aliases carried through `WITH` and
+return null for a missing entity from `OPTIONAL MATCH`.
+
+!!! note "Labels on mixed-label bindings"
+
+    `labels(p)` supports a binding with one configured label. A pattern such as
+    `(p:Person:City)` is rejected with a mixed-label error, including after `WITH p AS x`.
+    The engine does not retain each row's label after this union. It never guesses a label from an ID
+    that might occur in both tables.
+
+```python
+result = engine.execute("""
+    MATCH (p:Person {name: 'Alice'}) WITH p AS person
+    RETURN labels(person) AS labels, size(keys(person)) AS properties
+""")
+print(result.to_pylist())  # [{'labels': ['Person'], 'properties': 3}]
+```
+
 Any other function raises `ValueError` with `Cypher function 'name' is not implemented`. This is a
-bounded function set, not a claim of full Cypher conformance. Remaining functions include `keys`,
-`labels`, `reduce`, the list predicates `any` / `all` / `none` / `single`, and `relationships(p)`.
+bounded function set, not a claim of full Cypher conformance. Remaining functions include `reduce`,
+the list predicates `any` / `all` / `none` / `single`, and `relationships(p)`.
 
 ### Example: a little of everything
 

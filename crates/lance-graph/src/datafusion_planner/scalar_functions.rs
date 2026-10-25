@@ -48,6 +48,8 @@ impl ScalarUDFImpl for CypherScalar {
         for (i, t) in types.iter().enumerate() {
             let valid = match self.name.as_str() {
                 "range" => t.is_integer(),
+                "keys" | "__entity_keys" => matches!(t, DataType::Struct(_)),
+                "labels" => false,
                 "size" | "reverse" => is_string(t) || list_field(t).is_some(),
                 "last" | "tail" => list_field(t).is_some(),
                 "left" | "right" | "substring" if i > 0 => t.is_integer(),
@@ -60,7 +62,9 @@ impl ScalarUDFImpl for CypherScalar {
         Ok(match self.name.as_str() {
             "size" => DataType::Int64,
             "range" => DataType::List(Arc::new(Field::new("item", DataType::Int64, true))),
-            "split" => DataType::List(Arc::new(Field::new("item", DataType::Utf8, true))),
+            "split" | "keys" | "__entity_keys" | "labels" => {
+                DataType::List(Arc::new(Field::new("item", DataType::Utf8, true)))
+            }
             "last" => list_field(&types[0])
                 .map(|f| f.data_type().clone())
                 .unwrap_or(DataType::Null),
@@ -80,6 +84,31 @@ impl ScalarUDFImpl for CypherScalar {
                 &output_type,
                 args.number_rows,
             )));
+        }
+        if matches!(self.name.as_str(), "keys" | "__entity_keys") {
+            let input = args.args[0].to_array(args.number_rows)?;
+            let map = input.as_struct();
+            let nulls: Vec<_> = map
+                .columns()
+                .iter()
+                .map(|column| column.logical_nulls())
+                .collect();
+            let entity = self.name == "__entity_keys";
+            let mut result = ListBuilder::new(StringBuilder::new());
+            for row in 0..input.len() {
+                let missing = |i: usize| nulls[i].as_ref().is_some_and(|nulls| nulls.is_null(row));
+                if input.is_null(row) || (entity && (0..map.num_columns()).all(missing)) {
+                    result.append(false);
+                    continue;
+                }
+                for (i, field) in map.fields().iter().enumerate() {
+                    if !entity || !missing(i) {
+                        result.values().append_value(field.name());
+                    }
+                }
+                result.append(true);
+            }
+            return Ok(ColumnarValue::Array(Arc::new(result.finish())));
         }
         if self.name == "range" {
             for arg in &mut args.args {
@@ -343,6 +372,37 @@ mod tests {
             )
             .execute(HashMap::from([("Person".to_string(), batch)]), None)
             .await
+    }
+
+    #[tokio::test]
+    async fn cypher_entity_map_keys() {
+        for (expression, expected) in [
+            ("keys({x: null, y: 1})", vec!["x", "y"]),
+            ("keys({})", vec![]),
+        ] {
+            let out = run(expression).await.unwrap();
+            let keys = out.column(0).as_list::<i32>().value(0);
+            assert_eq!(
+                keys.as_string::<i32>()
+                    .iter()
+                    .map(Option::unwrap)
+                    .collect::<Vec<_>>(),
+                expected
+            );
+        }
+        for expression in ["keys(null)", "labels(null)"] {
+            assert_eq!(
+                run(expression)
+                    .await
+                    .unwrap()
+                    .column(0)
+                    .logical_null_count(),
+                1
+            );
+        }
+        for expression in ["keys(1)", "labels(1)"] {
+            assert!(run(expression).await.is_err());
+        }
     }
 
     #[tokio::test]

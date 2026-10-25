@@ -470,6 +470,39 @@ impl<'a> LogicalPlanner<'a> {
                     });
                 }
             }
+            ValueExpression::ScalarFunction { name, args }
+                if name.eq_ignore_ascii_case("labels") =>
+            {
+                if let ValueExpression::Variable(var) = &args[0] {
+                    if let Some(mapping) = self
+                        .variables
+                        .get(var)
+                        .and_then(|label| self.config.get_node_mapping(label))
+                    {
+                        *expr = ValueExpression::Case {
+                            whens: vec![(
+                                BooleanExpression::IsNull(ValueExpression::Property(PropertyRef {
+                                    variable: var.clone(),
+                                    property: mapping.id_field.clone(),
+                                })),
+                                ValueExpression::Literal(PropertyValue::Null),
+                            )],
+                            otherwise: Some(Box::new(ValueExpression::ScalarFunction {
+                                name: "__list".to_string(),
+                                args: vec![ValueExpression::Literal(PropertyValue::String(
+                                    mapping.label.clone(),
+                                ))],
+                            })),
+                        };
+                        return;
+                    }
+                }
+                args.iter_mut().for_each(|arg| self.resolve_value(arg));
+            }
+            // keys(node/relationship) binds the entity's property columns, not its ID.
+            ValueExpression::ScalarFunction { name, args }
+                if name.eq_ignore_ascii_case("keys")
+                    && matches!(args.as_slice(), [ValueExpression::Variable(_)]) => {}
             // Path functions take the path variable itself.
             ValueExpression::ScalarFunction { name, args }
                 if matches!(name.to_lowercase().as_str(), "length" | "nodes") => {}
@@ -744,6 +777,15 @@ impl<'a> LogicalPlanner<'a> {
         expr: &mut ValueExpression,
     ) -> Result<LogicalOperator> {
         match expr {
+            ValueExpression::ScalarFunction { name, args }
+                if name.eq_ignore_ascii_case("labels")
+                    && matches!(args.as_slice(), [ValueExpression::Variable(var)] if self.variables.get(var).is_some_and(|label| label.contains('|'))) =>
+            {
+                Err(GraphError::UnsupportedFeature {
+                    feature: "labels() on a mixed-label binding is not supported".to_string(),
+                    location: Location::new(file!(), line!(), column!()),
+                })
+            }
             ValueExpression::Case { whens, otherwise } => {
                 for (condition, then) in whens.iter_mut() {
                     input = self.rewrite_exists(input, condition)?;
