@@ -267,7 +267,9 @@ RETURN length(p), nodes(p)
 | Vectors | `vector_distance(a, b, metric)`, `vector_similarity(a, b, metric)`; see [Vector search](vector-search.md) |
 
 `abs` preserves integer results; the other math functions return floating point values. Integer
-absolute-value overflow and unsigned inputs outside Int64 range raise an error. `round` accepts one argument, with ties toward positive
+`abs` raises an error on absolute-value overflow or unsigned inputs outside Int64 range. The other
+math functions convert numeric inputs, including UInt64, to Float64. `round` accepts one argument,
+with ties toward positive
 infinity (`round(-1.5)` is `-1.0`), as specified in the
 [Neo4j 4.4 numeric reference](https://neo4j.com/docs/cypher-manual/4.4/functions/mathematical-numeric/).
 `sqrt` of a negative number returns NaN. These functions return null for null input and reject
