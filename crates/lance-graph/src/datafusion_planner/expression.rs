@@ -417,6 +417,9 @@ pub(crate) fn to_df_value_expr(expr: &ValueExpression) -> Expr {
             );
         }
         VE::Boolean(b) => to_df_boolean_expr(b),
+        VE::Map(entries) if entries.is_empty() => lit(datafusion::common::ScalarValue::Struct(
+            std::sync::Arc::new(arrow::array::StructArray::new_empty_fields(1, None)),
+        )),
         VE::Map(entries) => datafusion::functions::core::expr_fn::named_struct(
             entries
                 .iter()
