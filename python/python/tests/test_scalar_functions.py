@@ -10,6 +10,26 @@ import pytest
 from lance_csr import CypherEngine, GraphConfig
 
 
+@pytest.mark.parametrize("use_csr", [False, True])
+@pytest.mark.parametrize(
+    "expression", ["range(p.value, 1)", "range(1, p.value)", "range(1, 2, p.value)"]
+)
+def test_range_unsigned_overflow_and_null(use_csr, expression):
+    config = GraphConfig.builder().node_table("Person", "id").build()
+    query = f"MATCH (p:Person) RETURN {expression} AS value"
+    for value in (None, 2**63):
+        engine = CypherEngine(
+            config,
+            {"Person": pa.table({"id": [1], "value": pa.array([value], pa.uint64())})},
+            use_csr=use_csr,
+        )
+        if value is None:
+            assert engine.execute(query).to_pylist() == [{"value": None}]
+        else:
+            with pytest.raises((ValueError, RuntimeError), match="cast|Cast"):
+                engine.execute(query)
+
+
 @pytest.fixture(params=[False, True], ids=["join", "csr"])
 def engine(request):
     config = GraphConfig.builder().node_table("Person", "id").build()
