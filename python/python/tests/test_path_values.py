@@ -492,3 +492,116 @@ def test_rich_path_rejects_ambiguous_node_ids(tmp_path, storage):
         Exception, match="unique node IDs within label 'Person'; duplicate ID 1"
     ):
         engine.execute("MATCH p = (a:Person)-[:R]->(b:Person) RETURN p")
+
+
+@pytest.mark.parametrize("use_csr", [False, True])
+@pytest.mark.parametrize("search", ["shortestPath", "allShortestPaths"])
+@pytest.mark.parametrize("minimum", [0, 1])
+def test_shortest_scalar_consumers_preserve_cross_label_identity(
+    use_csr, search, minimum
+):
+    config = (
+        GraphConfig.builder()
+        .node_table("Person", "id")
+        .node_table("Place", "id")
+        .rel_table("LIVES", "Person", "Place", "src", "dst")
+        .build()
+    )
+    engine = CypherEngine(
+        config,
+        {
+            "Person": pa.table({"id": [1, 2], "name": ["one", "two"]}),
+            "Place": pa.table({"id": [1], "name": ["place"]}),
+            "LIVES": pa.table({"src": [1, 2], "dst": [1, 1]}),
+        },
+        use_csr=use_csr,
+    )
+    query = (
+        f"MATCH p = {search}((a:Person {{id: 1}})-[:LIVES*{minimum}..]->(b:Place)) "
+        "WITH p AS q RETURN length(q) AS hops, nodes(q) AS ids, "
+        "[n IN nodes(q) | n.name] AS names, [n IN nodes(q) | labels(n)] AS labels"
+    )
+    assert engine.execute(query).to_pylist() == [
+        {
+            "hops": 1,
+            "ids": [1, 1],
+            "names": ["one", "place"],
+            "labels": [["Person"], ["Place"]],
+        }
+    ]
+    assert "PathMatchExec" in engine.explain(query)
+    # Equal endpoint labels do not make Place 1 interchangeable with Person 1.
+    rows = engine.execute(
+        f"MATCH p = {search}((a:Person {{id: 1}})"
+        f"-[:LIVES*{minimum}..]-(b:Person {{id: 2}})) "
+        "RETURN length(p) AS hops, nodes(p) AS ids, [n IN nodes(p) | n.name] AS names"
+    ).to_pylist()
+    assert rows == [{"hops": 2, "ids": [1, 1, 2], "names": ["one", "place", "two"]}]
+
+
+@pytest.fixture(params=[False, True])
+def cross_label_graph(request):
+    config = (
+        GraphConfig.builder()
+        .node_table("Person", "id")
+        .node_table("Place", "id")
+        .rel_table("LIVES", "Person", "Place", "src", "dst")
+        .build()
+    )
+    tables = {
+        "Person": pa.table({"id": [1, 2]}),
+        "Place": pa.table({"id": [1, 2]}),
+        "LIVES": pa.table({"src": [1, 2], "dst": [1, 1]}),
+    }
+    return config, tables, request.param
+
+
+@pytest.mark.parametrize("scope", ["direct", "alias", "call", "union", "call_union"])
+def test_cross_label_shortest_scopes_rebind_each_parameter(cross_label_graph, scope):
+    config, tables, use_csr = cross_label_graph
+    engine = CypherEngine(config, tables, use_csr=use_csr)
+    prefix = "MATCH p = shortestPath((a:Person {id: $start})-[:LIVES*0..]->(b:Place)) "
+    body = prefix + "RETURN length(p) AS hops, nodes(p) AS ids"
+    queries = {
+        "direct": body,
+        "alias": prefix + "WITH p AS q RETURN length(q) AS hops, nodes(q) AS ids",
+        "call": "CALL { " + body + " } RETURN hops, ids",
+        "union": body + " UNION ALL " + body,
+        "call_union": "CALL { " + body + " UNION ALL " + body + " } RETURN hops, ids",
+    }
+    query = queries[scope]
+    copies = 2 if "union" in scope else 1
+    for start in [1, 2, None, 1]:
+        expected = [] if start is None else [{"hops": 1, "ids": [start, 1]}] * copies
+        params = {"start": start}
+        assert engine.execute(query, params).to_pylist() == expected
+        assert engine.execute_batches(query, params).read_all().to_pylist() == expected
+
+
+def test_cross_label_shortest_inventory_isolates_refresh(cross_label_graph, tmp_path):
+    import lance
+
+    config, tables, use_csr = cross_label_graph
+    paths = {name: str(tmp_path / f"{name}.lance") for name in tables}
+    datasets = {
+        name: lance.write_dataset(table, paths[name]) for name, table in tables.items()
+    }
+    engine = CypherEngine(config, datasets, use_csr=use_csr)
+    query = (
+        "MATCH p = shortestPath((a:Person {id: $start})-[:LIVES*0..]->(b:Place)) "
+        "WITH p AS q RETURN nodes(q) AS ids"
+    )
+    for start in [1, 2, 1]:
+        assert engine.execute(query, {"start": start}).to_pylist() == [
+            {"ids": [start, 1]}
+        ]
+    reader = engine.execute_batches(query, {"start": 1})
+    lance.write_dataset(
+        pa.table({"src": [1], "dst": [2]}), paths["LIVES"], mode="overwrite"
+    )
+    engine.refresh()
+    assert reader.read_all().to_pylist() == [{"ids": [1, 1]}]
+    for start in [1, 2, 1]:
+        assert engine.execute(query, {"start": start}).to_pylist() == (
+            [{"ids": [1, 2]}] if start == 1 else []
+        )

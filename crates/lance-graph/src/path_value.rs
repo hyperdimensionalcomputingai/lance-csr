@@ -123,9 +123,12 @@ pub(crate) fn paths_array(
     )))
 }
 
-/// Length/nodes queries, including WITH pass-through aliases, keep their CSR plan.
+/// Homogeneous length/nodes queries, including WITH aliases, keep their CSR plan.
 /// Returned path values, relationship access and containers need actual path records.
-pub(crate) fn needs_values(query: &crate::ast::CypherQuery) -> bool {
+pub(crate) fn needs_values(
+    query: &crate::ast::CypherQuery,
+    config: &crate::config::GraphConfig,
+) -> bool {
     use crate::ast::{GraphPattern, ReadingClause, ValueExpression as V};
     let clauses: Vec<_> = query
         .reading_clauses
@@ -146,8 +149,37 @@ pub(crate) fn needs_values(query: &crate::ast::CypherQuery) -> bool {
                     if path.variable.is_some() {
                         return true;
                     }
-                    if let Some(name) = path.shortest.as_ref().and_then(|s| s.variable.as_ref()) {
-                        names.insert(name.to_lowercase());
+                    if path.shortest.is_some() {
+                        // Numeric keys alone cannot distinguish nodes in different labels,
+                        // even when both endpoints have the same label on an undirected path.
+                        let crosses_labels = path.segments.iter().any(|segment| {
+                            segment.relationship.types.iter().any(|kind| {
+                                config
+                                    .get_relationship_mapping(kind)
+                                    .is_some_and(|mapping| {
+                                        mapping
+                                            .source_label
+                                            .as_deref()
+                                            .zip(mapping.target_label.as_deref())
+                                            .is_some_and(|(source, target)| {
+                                                !source.eq_ignore_ascii_case(target)
+                                            })
+                                    })
+                            })
+                        });
+                        let different_ends = path
+                            .start_node
+                            .labels
+                            .first()
+                            .zip(path.segments.last().and_then(|s| s.end_node.labels.first()))
+                            .is_some_and(|(source, target)| !source.eq_ignore_ascii_case(target));
+                        if crosses_labels || different_ends {
+                            return true;
+                        }
+                        if let Some(name) = path.shortest.as_ref().and_then(|s| s.variable.as_ref())
+                        {
+                            names.insert(name.to_lowercase());
+                        }
                     }
                 }
             }
@@ -170,10 +202,10 @@ pub(crate) fn needs_values(query: &crate::ast::CypherQuery) -> bool {
     let mut needed = query
         .union_branches
         .iter()
-        .any(|branch| needs_values(&branch.query))
+        .any(|branch| needs_values(&branch.query, config))
         || clauses.iter().any(|clause| match clause {
             ReadingClause::Call(inner) => {
-                needs_values(inner)
+                needs_values(inner, config)
                     || inner
                         .call_union_imports()
                         .unwrap_or_default()
@@ -274,6 +306,13 @@ mod tests {
 
     #[test]
     fn direct_shortest_queries_keep_the_csr_route() {
+        let config = crate::config::GraphConfig::builder()
+            .node_table("Person", "id")
+            .node_table("Place", "id")
+            .rel_table("R", "Person", "Person", "src", "dst")
+            .rel_table("LIVES", "Person", "Place", "src", "dst")
+            .build()
+            .unwrap();
         let prefix = "MATCH p = shortestPath((a:Person)-[:R*]-(b:Person)) ";
         for (suffix, rich) in [
             ("RETURN length(p), nodes(p)", false),
@@ -303,7 +342,32 @@ mod tests {
             ("WITH collect(p) AS ps UNWIND ps AS p RETURN nodes(p)", true),
         ] {
             let query = crate::parser::parse_cypher_query(&format!("{prefix}{suffix}")).unwrap();
-            assert_eq!(needs_values(&query), rich, "{suffix}");
+            assert_eq!(needs_values(&query, &config), rich, "{suffix}");
+        }
+    }
+
+    #[test]
+    fn cross_label_shortest_paths_need_typed_identity() {
+        let config = crate::config::GraphConfig::builder()
+            .node_table("Person", "id")
+            .node_table("Place", "id")
+            .rel_table("LIVES", "Person", "Place", "src", "dst")
+            .build()
+            .unwrap();
+        for ends in ["(b:Place)", "(b:Person)", "(b)"] {
+            let query = crate::parser::parse_cypher_query(&format!(
+                "MATCH p = shortestPath((a:Person)-[:LIVES*0..]-{ends}) RETURN nodes(p)"
+            ))
+            .unwrap();
+            assert!(needs_values(&query, &config));
+        }
+        for text in [
+            "CALL { MATCH p = shortestPath((a:Person)-[:LIVES*0..]->(b:Place)) RETURN length(p) AS n } RETURN n",
+            "RETURN 0 AS n UNION MATCH p = shortestPath((a:Person)-[:LIVES*0..]->(b:Place)) RETURN length(p) AS n",
+            "CALL { RETURN 0 AS n UNION MATCH p = shortestPath((a:Person)-[:LIVES*0..]-(b:Person)) RETURN length(p) AS n } RETURN n",
+        ] {
+            let query = crate::parser::parse_cypher_query(text).unwrap();
+            assert!(needs_values(&query, &config), "{text}");
         }
     }
 }

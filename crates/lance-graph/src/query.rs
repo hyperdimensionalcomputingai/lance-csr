@@ -237,7 +237,7 @@ impl CypherQuery {
     ) -> Result<bool> {
         // Rich path properties live in an extension-owned spec, and its inventory is
         // query-local. Keep ordinary substitution and a fresh inventory for each query.
-        let mut shape_sensitive = crate::path_value::needs_values(&self.ast);
+        let mut shape_sensitive = false;
         self.ast.for_each_query(&mut |query| {
             shape_sensitive |= query
                 .limit
@@ -260,7 +260,10 @@ impl CypherQuery {
                     .all_reading_clauses()
                     .any(|clause| matches!(clause, ReadingClause::Call(_)));
         });
-        if shape_sensitive || self.scalar_parameters().is_none() {
+        if shape_sensitive
+            || self.scalar_parameters().is_none()
+            || crate::path_value::needs_values(&self.ast, self.require_config()?)
+        {
             // CALL binds its own child templates; row counts alter plan shape.
             return Ok(false);
         }
@@ -1729,6 +1732,30 @@ mod tests {
                 "{text}"
             );
             assert!(query.cached_plan.is_none());
+        }
+    }
+
+    #[test]
+    fn cross_label_shortest_queries_bypass_cached_inventories() {
+        let config = GraphConfig::builder()
+            .node_table("Person", "id")
+            .node_table("Place", "id")
+            .rel_table("LIVES", "Person", "Place", "src", "dst")
+            .build()
+            .unwrap();
+        for text in [
+            "MATCH p = shortestPath((a:Person {id: $id})-[:LIVES*0..]->(b:Place)) RETURN length(p)",
+            "MATCH p = shortestPath((a:Person {id: $id})-[:LIVES*0..]-(b:Person)) WITH p AS q RETURN nodes(q)",
+            "RETURN 0 AS n UNION MATCH p = shortestPath((a:Person {id: $id})-[:LIVES*0..]->(b:Place)) RETURN length(p) AS n",
+        ] {
+            let mut query = CypherQuery::new(text)
+                .unwrap()
+                .with_config(config.clone())
+                .with_parameter("id", 1);
+            assert!(!query
+                .prepare_cached_plan(Arc::new(crate::InMemoryCatalog::new()))
+                .unwrap());
+            assert!(query.cached_plan.is_none(), "{text}");
         }
     }
 

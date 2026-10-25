@@ -362,7 +362,10 @@ in batches and named ordinary paths keep a cursor per hop, but inventory memory 
 Rich path queries bypass the query-template cache: each execution binds its current parameters and
 creates an inventory from its own snapshot. A reader opened before `refresh()` retains the old snapshot.
 Queries asking only for shortest-path length or node keys, including homogeneous node-property
-comprehensions and paths carried through `WITH` aliases, retain the usual CSR execution route.
+comprehensions and paths carried through `WITH` aliases, retain the usual CSR execution route when
+the relationship joins the same node label. Cross-label shortest paths use typed identities even for
+length or node keys, so equal numeric keys from different labels cannot become a false zero-hop path.
+This also applies inside `CALL` and `UNION`, and when equal-label endpoints pass through another label.
 
 ### Expressions and predicates
 

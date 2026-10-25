@@ -424,7 +424,7 @@ impl<'a> LogicalPlanner<'a> {
 
     /// Convert a Cypher AST to a logical plan
     pub fn plan(&mut self, query: &CypherQuery) -> Result<LogicalOperator> {
-        self.rich_paths = crate::path_value::needs_values(query);
+        self.rich_paths = crate::path_value::needs_values(query, self.config);
         self.plan_query(query, None, false)
     }
 
