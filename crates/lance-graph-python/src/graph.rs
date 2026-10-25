@@ -2007,7 +2007,7 @@ impl Iterator for DeadlineBatchReader {
                         state.expired = true;
                         return Some(Err(stream_timeout_error()));
                     }
-                    if result.is_none() {
+                    if result.as_ref().is_none_or(|result| result.is_err()) {
                         state.stream.take();
                     }
                     result.map(|r| {
@@ -2920,6 +2920,49 @@ mod tests {
         let reader = reader_with_deadline(stream, QueryDeadline::new(Some(10.0)).unwrap());
         drop(reader);
         assert!(retained.upgrade().is_none());
+    }
+
+    #[test]
+    fn timed_reader_releases_stream_after_an_execution_error() {
+        let (stream, retained) = RT.runtime.block_on(async {
+            let values = Arc::new(arrow_array::StringArray::from(vec!["2"]));
+            let retained = Arc::downgrade(&values);
+            let schema = Arc::new(Schema::new(vec![arrow_schema::Field::new(
+                "value",
+                arrow_schema::DataType::Utf8,
+                false,
+            )]));
+            let bad = RecordBatch::try_new(
+                schema.clone(),
+                vec![Arc::new(arrow_array::StringArray::from(vec!["invalid"]))],
+            )
+            .unwrap();
+            let remaining = RecordBatch::try_new(schema.clone(), vec![values]).unwrap();
+            let ctx = SessionContext::new();
+            ctx.register_table(
+                "input",
+                Arc::new(MemTable::try_new(schema, vec![vec![bad, remaining]]).unwrap()),
+            )
+            .unwrap();
+            let stream = ctx
+                .sql("SELECT CAST(value AS BIGINT) AS value FROM input")
+                .await
+                .unwrap()
+                .execute_stream()
+                .await
+                .unwrap();
+            (stream, retained)
+        });
+        let mut reader = reader_with_deadline(stream, QueryDeadline::new(Some(10.0)).unwrap());
+        assert!(retained.upgrade().is_some());
+        let error = reader.next().unwrap().unwrap_err().to_string();
+        assert!(error.contains("invalid"), "{error}");
+        assert!(!error.contains(QUERY_TIMEOUT_MESSAGE), "{error}");
+        assert!(
+            retained.upgrade().is_none(),
+            "error must release the owned stream"
+        );
+        assert!(reader.next().is_none());
     }
 
     #[test]
