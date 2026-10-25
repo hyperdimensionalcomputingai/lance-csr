@@ -50,11 +50,13 @@ impl DataFusionPlanner {
             .project(right_exprs)
             .and_then(|right| right.build())
             .and_then(|right| {
-                LogicalPlanBuilder::from(left).join(
+                LogicalPlanBuilder::from(left).join_detailed(
                     right,
                     datafusion::logical_expr::JoinType::Left,
                     (keys.to_vec(), right_keys),
                     None,
+                    // Captured scalar nulls identify the same correlation binding.
+                    datafusion::common::NullEquality::NullEqualsNull,
                 )
             })
             .and_then(|b| b.build())

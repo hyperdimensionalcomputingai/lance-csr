@@ -259,7 +259,24 @@ fn value_variables<'a>(expr: &'a ValueExpression, out: &mut HashSet<&'a str>) {
                 value_variables(m, out);
             }
         }
-        ValueExpression::Literal(_)
+        ValueExpression::Reduce {
+            initial,
+            list,
+            expression,
+            ..
+        } => {
+            value_variables(initial, out);
+            value_variables(list, out);
+            value_variables(expression, out);
+        }
+        ValueExpression::ListPredicate {
+            list, predicate, ..
+        } => {
+            value_variables(list, out);
+            value_variables(predicate, out);
+        }
+        ValueExpression::LocalVariable(_)
+        | ValueExpression::Literal(_)
         | ValueExpression::Parameter(_)
         | ValueExpression::VectorLiteral(_) => {}
     }

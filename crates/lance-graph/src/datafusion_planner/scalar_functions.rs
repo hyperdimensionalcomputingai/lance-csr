@@ -50,6 +50,9 @@ impl ScalarUDFImpl for CypherScalar {
             let valid = match self.name.as_str() {
                 "abs" | "round" | "floor" | "ceil" | "sqrt" => t.is_integer() || t.is_floating(),
                 "range" => t.is_integer(),
+                "__predicate_all" | "__predicate_any" | "__predicate_none"
+                | "__predicate_single" => list_field(t)
+                    .is_some_and(|f| matches!(f.data_type(), DataType::Boolean | DataType::Null)),
                 "keys" | "__entity_keys" => matches!(t, DataType::Struct(_)),
                 "labels" => crate::path_value::entity_kind(t) == Some("node"),
                 "startnode" | "endnode" => {
@@ -69,6 +72,9 @@ impl ScalarUDFImpl for CypherScalar {
                 DataType::Struct(fields) => fields[2].data_type().clone(),
                 _ => DataType::Null,
             },
+            "__predicate_all" | "__predicate_any" | "__predicate_none" | "__predicate_single" => {
+                DataType::Boolean
+            }
             "size" => DataType::Int64,
             "abs" if types[0].is_integer() => DataType::Int64,
             "abs" | "round" | "floor" | "ceil" | "sqrt" => DataType::Float64,
@@ -123,6 +129,30 @@ impl ScalarUDFImpl for CypherScalar {
                     result.values().append_value(labels.value(row));
                 }
                 result.append(input.is_valid(row));
+            }
+            return Ok(ColumnarValue::Array(Arc::new(result.finish())));
+        }
+        if let Some(kind) = self.name.strip_prefix("__predicate_") {
+            let input = args.args[0].to_array(args.number_rows)?;
+            let mut result = arrow::array::BooleanBuilder::with_capacity(input.len());
+            for row in 0..input.len() {
+                if input.is_null(row) {
+                    result.append_null();
+                    continue;
+                }
+                let values = match input.data_type() {
+                    DataType::List(_) => input.as_list::<i32>().value(row),
+                    DataType::LargeList(_) => input.as_list::<i64>().value(row),
+                    DataType::FixedSizeList(_, _) => input.as_fixed_size_list().value(row),
+                    _ => unreachable!("validated list predicate input"),
+                };
+                let values = cast(&values, &DataType::Boolean)?;
+                result.append_option(super::list_folds::predicate_result(
+                    kind,
+                    values.as_boolean(),
+                    0,
+                    values.len(),
+                ));
             }
             return Ok(ColumnarValue::Array(Arc::new(result.finish())));
         }

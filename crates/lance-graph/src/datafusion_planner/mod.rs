@@ -20,6 +20,7 @@ mod config_helpers;
 mod cypher_udf;
 pub(crate) mod expression;
 mod join_ops;
+mod list_folds;
 mod scalar_functions;
 mod scan_ops;
 mod udf;

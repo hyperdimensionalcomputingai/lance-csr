@@ -10,14 +10,13 @@ use datafusion::common::Column;
 use datafusion::functions::core::expr_fn::coalesce;
 use datafusion::functions_aggregate::array_agg::array_agg;
 use datafusion::functions_aggregate::count::count;
-use datafusion::functions_nested::expr_fn::{array_element, cardinality, gen_series, make_array};
+use datafusion::functions_nested::expr_fn::{array_element, array_length, gen_series, make_array};
 use datafusion::functions_window::expr_fn::row_number;
 use datafusion::logical_expr::{
-    col, lit, Cast, Expr, ExprFunctionExt, JoinType, LogicalPlan, LogicalPlanBuilder,
+    col, lit, Cast, Expr, ExprFunctionExt, ExprSchemable, JoinType, LogicalPlan, LogicalPlanBuilder,
 };
 
 use super::super::analysis::PlanningContext;
-use super::super::expression::{bind_boolean, bind_value};
 use crate::ast::{BooleanExpression, ValueExpression};
 use crate::case_insensitive::qualify_column;
 use crate::datafusion_planner::DataFusionPlanner;
@@ -56,8 +55,17 @@ impl DataFusionPlanner {
             .map_err(error("Failed to number comprehension rows"))?
             .build()
             .map_err(error("Failed to number comprehension rows"))?;
-        let list = self.value_expr(&bind_value(list, numbered.schema()));
-        let length = int64(coalesce(vec![cardinality(list.clone()), lit(0_u64)]));
+        let list = self.value_expr(list, numbered.schema())?;
+        let list = if list
+            .get_type(numbered.schema())
+            .map_err(error("Failed to type comprehension list"))?
+            == DataType::Null
+        {
+            datafusion::logical_expr::cast(list, DataType::new_list(DataType::Null, true))
+        } else {
+            list
+        };
+        let length = int64(coalesce(vec![array_length(list.clone()), lit(0_u64)]));
         let last = datafusion::functions::core::expr_fn::greatest(vec![length.clone(), lit(1_i64)]);
         let positions = gen_series(lit(1_i64), last, lit(1_i64));
         let exploded = LogicalPlanBuilder::from(numbered.clone())
@@ -132,13 +140,13 @@ impl DataFusionPlanner {
         // Padding rows (position past the list's end) are never collected.
         let mut kept = col(&pos).lt_eq(length);
         if let Some(keep) = keep {
-            kept = kept.and(self.boolean_expr(&bind_boolean(keep, elements.schema())));
+            kept = kept.and(self.boolean_expr(keep, elements.schema())?);
         }
         let aggregate = if count_only {
             // Count rows, not the mapped value: null elements still occupy a slot.
             count(lit(1_i64)).filter(kept).build()
         } else {
-            let value = self.value_expr(&bind_value(map, elements.schema()));
+            let value = self.value_expr(map, elements.schema())?;
             array_agg(value)
                 .filter(kept)
                 .order_by(vec![col(&pos).sort(true, false)])
