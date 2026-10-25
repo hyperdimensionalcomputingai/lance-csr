@@ -13,7 +13,54 @@
 // limitations under the License.
 
 use futures::Future;
-use pyo3::{PyResult, Python};
+use pyo3::{
+    exceptions::{PyTimeoutError, PyValueError},
+    PyResult, Python,
+};
+use std::time::Duration;
+
+pub(crate) const QUERY_TIMEOUT_MESSAGE: &str = "Query timeout exceeded";
+
+/// One absolute deadline shared by planning, execution and all streamed reads.
+#[derive(Clone, Copy)]
+pub(crate) struct QueryDeadline(Option<tokio::time::Instant>);
+
+impl QueryDeadline {
+    pub(crate) fn new(timeout: Option<f64>) -> PyResult<Self> {
+        let Some(seconds) = timeout else {
+            return Ok(Self(None));
+        };
+        let duration = Duration::try_from_secs_f64(seconds).map_err(|_| {
+            PyValueError::new_err("timeout must be a finite nonnegative number of seconds")
+        })?;
+        let instant = tokio::time::Instant::now()
+            .checked_add(duration)
+            .ok_or_else(|| PyValueError::new_err("timeout exceeds the supported deadline range"))?;
+        Ok(Self(Some(instant)))
+    }
+
+    pub(crate) fn instant(self) -> Option<tokio::time::Instant> {
+        self.0
+    }
+
+    pub(crate) fn check(self) -> PyResult<()> {
+        if self
+            .0
+            .is_some_and(|deadline| tokio::time::Instant::now() >= deadline)
+        {
+            Err(PyTimeoutError::new_err(QUERY_TIMEOUT_MESSAGE))
+        } else {
+            Ok(())
+        }
+    }
+
+    async fn expired(self) {
+        match self.0 {
+            Some(deadline) => tokio::time::sleep_until(deadline).await,
+            None => std::future::pending::<()>().await,
+        }
+    }
+}
 
 pub const SIGNAL_CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
 
@@ -56,7 +103,21 @@ impl BackgroundExecutor {
     where
         F::Output: Send,
     {
-        let future = Self::result_or_interrupt(future);
+        self.block_on_until(py, QueryDeadline(None), future)
+    }
+
+    /// Apply a query deadline without changing unrelated executor callers.
+    pub(crate) fn block_on_until<F: Future + Send>(
+        &self,
+        py: Option<Python<'_>>,
+        deadline: QueryDeadline,
+        future: F,
+    ) -> PyResult<F::Output>
+    where
+        F::Output: Send,
+    {
+        deadline.check()?;
+        let future = Self::result_or_interrupt(future, deadline);
         if let Some(py) = py {
             py.detach(move || self.runtime.block_on(future))
         } else {
@@ -65,7 +126,7 @@ impl BackgroundExecutor {
         }
     }
 
-    async fn result_or_interrupt<F>(future: F) -> PyResult<F::Output>
+    async fn result_or_interrupt<F>(future: F, deadline: QueryDeadline) -> PyResult<F::Output>
     where
         F: Future + Send,
         F::Output: Send,
@@ -84,7 +145,9 @@ impl BackgroundExecutor {
         };
 
         tokio::select! {
-            result = future => Ok(result),
+            biased;
+            _ = deadline.expired() => Err(PyTimeoutError::new_err(QUERY_TIMEOUT_MESSAGE)),
+            result = future => { deadline.check()?; Ok(result) },
             err = interrupt_future => err,
         }
     }

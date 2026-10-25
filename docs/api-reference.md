@@ -68,6 +68,17 @@ Keys match labels case-insensitively.
 
 ---
 
+`CypherEngine.execute`, `CypherEngine.execute_batches` and `CypherQuery.execute` accept keyword-only
+`timeout` in seconds (`None` means no deadline). Zero expires immediately; negative, nonfinite or
+unrepresentable durations raise `ValueError`. One deadline includes planning, every batch and pauses
+between reads. Before returning a reader, expiry raises `TimeoutError`. Reading an expired native Arrow
+reader raises `pyarrow.ArrowInvalid` containing `Query timeout exceeded`. Earlier batches remain valid.
+Expiry or reader close releases the stream even while the caller is idle; the engine remains usable.
+
+Cancellation is cooperative. Traversal loops yield at bounded work intervals, but synchronous parsing,
+Python data providers and foreign blocking calls cannot be forcibly preempted. Deadlines are checked
+between planning stages and before accepting completed results; this is not a hard real-time limit.
+
 ## `GraphConfig`
 
 An immutable mapping from tables to a property graph. Create one with `GraphConfig.builder()`.
@@ -128,12 +139,12 @@ Raises `ValueError` if `datasets` is empty, a configured key or endpoint column 
 was opened through a namespace client and can't be reopened by URI. Raises `RuntimeError` if a dataset can't
 be opened.
 
-`#!python execute(query: str, params: dict | None = None) -> pyarrow.Table`
+`#!python execute(query: str, params: dict | None = None, *, timeout: float | None = None) -> pyarrow.Table`
 :   Runs `query` and returns the whole result. `params` binds `$name` parameters: `int`, `float`, `str`,
     `bool`, `None`, lists, string-keyed nested maps, `datetime.datetime` and `datetime.date`.
     Integers must fit signed 64-bit values; nesting beyond 128 levels, cycles and unsupported values raise `ValueError`.
 
-`#!python execute_batches(query: str, params: dict | None = None) -> pyarrow.RecordBatchReader`
+`#!python execute_batches(query: str, params: dict | None = None, *, timeout: float | None = None) -> pyarrow.RecordBatchReader`
 :   Streams the result. Planning errors raise immediately; execution errors raise while reading. The reader
     keeps its snapshot alive across `refresh()`.
 
@@ -178,7 +189,7 @@ A parsed Cypher query. Raises `ValueError` if `query_text` doesn't parse. Builde
 `#!python with_parameter(key: str, value: object) -> CypherQuery`
 :   Binds `$key` to `value`.
 
-`#!python execute(datasets: dict, strategy: ExecutionStrategy | None = None) -> pyarrow.Table`
+`#!python execute(datasets: dict, strategy: ExecutionStrategy | None = None, *, timeout: float | None = None) -> pyarrow.Table`
 :   Runs the query. Datasets are read into memory for this call.
 
 `#!python execute_with_namespace(namespace: DirNamespace, strategy: ExecutionStrategy | None = None) -> pyarrow.Table`

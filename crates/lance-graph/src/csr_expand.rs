@@ -61,6 +61,21 @@ use futures::StreamExt;
 use lance::dataset::{Dataset, ProjectionRequest};
 use lance_table::format::Fragment;
 
+/// Yield after bounded CPU work without requiring a particular async runtime.
+pub(crate) async fn cooperative_yield() {
+    let mut yielded = false;
+    std::future::poll_fn(|cx| {
+        if yielded {
+            std::task::Poll::Ready(())
+        } else {
+            yielded = true;
+            cx.waker().wake_by_ref();
+            std::task::Poll::Pending
+        }
+    })
+    .await
+}
+
 /// Lance's row-address column (`lance_core::ROW_ADDR`, not re-exported by `lance`).
 const ROW_ADDR: &str = "_rowaddr";
 
@@ -245,6 +260,23 @@ impl Adjacency {
                     Some(neighbor)
                 }
             })
+    }
+
+    /// Inspect one occurrence so cancelled work also stops through long tombstone runs.
+    fn next_candidate(&self, key: i64, offset: &mut usize) -> Option<Option<u64>> {
+        let base = self.base_neighbors(key);
+        let position = *offset;
+        let neighbor = if position < base.len() {
+            base[position]
+        } else {
+            *self.added.get(&key)?.get(position - base.len())?
+        };
+        *offset += 1;
+        let removed = self
+            .removed
+            .get(&key)
+            .is_some_and(|r| r.binary_search(&position).is_ok());
+        Some((!removed).then_some(neighbor))
     }
 
     /// Live edges: base + appended - removed.
@@ -773,7 +805,7 @@ pub struct Neighbors {
 
 /// Occurrence offsets are sufficient to pause even a high-degree source row.
 #[derive(Default)]
-struct NeighborPosition {
+pub(crate) struct NeighborPosition {
     forward: usize,
     reverse: usize,
 }
@@ -814,6 +846,21 @@ impl Neighbors {
                 .flatten()
                 .filter(move |&n| n as i64 != key),
         )
+    }
+
+    /// Inspect one raw edge, including tombstones and suppressed reverse self-loops.
+    pub(crate) fn next_candidate(
+        &self,
+        key: i64,
+        position: &mut NeighborPosition,
+    ) -> Option<Option<u64>> {
+        if let Some(candidate) = self.forward.next_candidate(key, &mut position.forward) {
+            return Some(candidate);
+        }
+        self.reverse
+            .as_ref()?
+            .next_candidate(key, &mut position.reverse)
+            .map(|candidate| candidate.filter(|&n| n as i64 != key))
     }
 
     /// Edges visited over all keys (self-loops count once per direction in this estimate).
@@ -1155,19 +1202,27 @@ impl BatchExpansion {
     }
 
     /// Collect only the next chunk; target properties are fetched after this returns.
-    fn next_chunk(
+    async fn next_chunk(
         &mut self,
         adjacency: &Neighbors,
         target: Option<&TargetLookup>,
         batch_size: usize,
     ) -> ExpandedRows {
         let mut chunk = ExpandedRows::default();
+        let mut work = 0_usize;
         while self.row < self.keys.len() {
             let i = self.row;
             if self.keys.is_valid(i) && self.bound.as_ref().is_none_or(|b| b.is_valid(i)) {
                 let key = self.keys.value(i);
                 let required = self.bound.as_ref().map(|b| b.value(i));
-                for neighbor in adjacency.neighbors_from(key, &mut self.position) {
+                while let Some(candidate) = adjacency.next_candidate(key, &mut self.position) {
+                    work += 1;
+                    if work.is_multiple_of(1024) {
+                        cooperative_yield().await;
+                    }
+                    let Some(neighbor) = candidate else {
+                        continue;
+                    };
                     let neighbor = neighbor as i64;
                     if required.is_some_and(|r| r != neighbor) {
                         continue;
@@ -1397,7 +1452,9 @@ impl ExecutionPlan for CsrExpandExec {
                         pending = Some(BatchExpansion::try_new(batch?, key_index, closing_index)?);
                     }
                     let expansion = pending.as_mut().expect("input batch just set");
-                    let chunk = expansion.next_chunk(&adjacency, target.as_deref(), batch_size);
+                    let chunk = expansion
+                        .next_chunk(&adjacency, target.as_deref(), batch_size)
+                        .await;
                     if chunk.rows.is_empty() {
                         pending = None;
                         continue;
@@ -1837,21 +1894,58 @@ mod tests {
         ]));
         let adj = Neighbors::directed(Arc::new(adj));
         let mut expansion = BatchExpansion::try_new(input.clone(), 0, None).unwrap();
-        let chunk = expansion.next_chunk(&adj, None, 8192);
+        let chunk = expansion.next_chunk(&adj, None, 8192).await;
         let out = materialize(&input, chunk, None, None, &out_schema)
             .await
             .unwrap();
         assert_eq!(out.num_rows(), 2);
         let dst = out.column(2).as_primitive::<arrow::datatypes::Int32Type>();
         assert_eq!(dst.values().to_vec(), vec![2, 3]);
-        assert!(expansion.next_chunk(&adj, None, 8192).rows.is_empty());
+        assert!(expansion.next_chunk(&adj, None, 8192).await.rows.is_empty());
         // Output is split at `batch_size` rows.
         let mut expansion = BatchExpansion::try_new(input, 0, None).unwrap();
-        assert_eq!(expansion.next_chunk(&adj, None, 1).neighbor_values, vec![2]);
+        assert_eq!(
+            expansion.next_chunk(&adj, None, 1).await.neighbor_values,
+            vec![2]
+        );
         assert_eq!(expansion.row, 0);
         assert_eq!(expansion.position.forward, 1);
-        assert_eq!(expansion.next_chunk(&adj, None, 1).neighbor_values, vec![3]);
-        assert!(expansion.next_chunk(&adj, None, 1).rows.is_empty());
+        assert_eq!(
+            expansion.next_chunk(&adj, None, 1).await.neighbor_values,
+            vec![3]
+        );
+        assert!(expansion.next_chunk(&adj, None, 1).await.rows.is_empty());
+    }
+
+    #[tokio::test]
+    async fn expansion_yields_before_scanning_all_rejected_neighbors() {
+        let adj = Neighbors::directed(Arc::new(
+            Adjacency::build(
+                edge_stream(vec![Some(1); 100_000], (2..100_002).map(Some).collect()),
+                "src",
+                "dst",
+            )
+            .await
+            .unwrap(),
+        ));
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Int64, false),
+            Field::new("bound", DataType::Int64, false),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(Int64Array::from(vec![1])),
+                Arc::new(Int64Array::from(vec![-1])),
+            ],
+        )
+        .unwrap();
+        let mut expansion = BatchExpansion::try_new(batch, 0, Some(1)).unwrap();
+        let mut next = Box::pin(expansion.next_chunk(&adj, None, 1));
+        assert!(futures::poll!(next.as_mut()).is_pending());
+        drop(next);
+        assert!(expansion.position.forward <= 1024);
+        assert!(expansion.position.forward > 0);
     }
 
     #[tokio::test]
@@ -1870,7 +1964,7 @@ mod tests {
             RecordBatch::try_from_iter([("id", Arc::new(Int64Array::from(vec![0])) as ArrayRef)])
                 .unwrap();
         let mut expansion = BatchExpansion::try_new(input, 0, None).unwrap();
-        let chunk = expansion.next_chunk(&adj, None, 32);
+        let chunk = expansion.next_chunk(&adj, None, 32).await;
         assert_eq!(
             chunk.neighbor_values,
             (2..=64).step_by(2).collect::<Vec<_>>()
@@ -1879,7 +1973,10 @@ mod tests {
         // The rest of the hub, including its tombstones, has not been visited.
         assert_eq!(expansion.row, 0);
         assert_eq!(expansion.position.forward, 64);
-        assert_eq!(expansion.next_chunk(&adj, None, 32).neighbor_values[0], 66);
+        assert_eq!(
+            expansion.next_chunk(&adj, None, 32).await.neighbor_values[0],
+            66
+        );
         assert_eq!(neighbors(&base, 0).len(), n);
     }
 
@@ -1914,13 +2011,14 @@ mod tests {
         );
         let mut expansion = BatchExpansion::try_new(input, 0, Some(1)).unwrap();
         for _ in 0..2 {
-            let chunk = expansion.next_chunk(&adjacency, Some(&target), 1);
+            let chunk = expansion.next_chunk(&adjacency, Some(&target), 1).await;
             assert_eq!(chunk.rows, vec![0]);
             assert_eq!(chunk.neighbor_values, vec![2]);
             assert_eq!(chunk.target_positions, vec![0]);
         }
         assert!(expansion
             .next_chunk(&adjacency, Some(&target), 1)
+            .await
             .rows
             .is_empty());
     }
