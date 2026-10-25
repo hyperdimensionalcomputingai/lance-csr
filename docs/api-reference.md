@@ -61,7 +61,7 @@ Keys match labels case-insensitively.
 
 | Exception | When |
 | --- | --- |
-| `ValueError` | Invalid query, unknown label, missing dataset or column, unsupported parameter type, empty `datasets` |
+| `ValueError` | Invalid query, incompatible known operand types (with expression and type details), unknown label, missing dataset or column, unsupported parameter type, empty `datasets` |
 | `NotImplementedError` | A Cypher feature that parses but isn't supported |
 | `RuntimeError` | Execution or I/O failures |
 | `TypeError` | A dataset value of an unsupported type, such as a LanceDB `Table` |

@@ -952,7 +952,7 @@ impl CypherQuery {
         let config = self.require_config()?;
 
         // Phase 1: Semantic Analysis
-        let mut analyzer = SemanticAnalyzer::new(config.clone());
+        let mut analyzer = SemanticAnalyzer::new(config.clone()).with_catalog(catalog.clone());
         let semantic = analyzer.analyze(&self.ast, &self.parameters)?;
         if !semantic.errors.is_empty() {
             return Err(GraphError::PlanError {
