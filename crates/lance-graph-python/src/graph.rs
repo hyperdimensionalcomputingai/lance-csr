@@ -42,7 +42,7 @@ use lance_graph::{
 use pyo3::{
     exceptions::{PyNotImplementedError, PyRuntimeError, PyValueError},
     prelude::*,
-    types::PyDict,
+    types::{PyDict, PyInt, PyList},
     IntoPyObject,
 };
 use serde_json::Value as JsonValue;
@@ -849,10 +849,25 @@ impl CypherQuery {
 
 // Helper functions to convert between Python and JSON values
 fn python_to_json(value: &Bound<'_, PyAny>) -> PyResult<JsonValue> {
+    python_to_json_value(value, 0)
+}
+
+/// Match serde_json's nesting bound and reject cycles before exhausting the Rust stack.
+fn python_to_json_value(value: &Bound<'_, PyAny>, depth: usize) -> PyResult<JsonValue> {
+    if depth >= 128 {
+        return Err(PyValueError::new_err(
+            "Parameter nesting exceeds 128 levels (possibly a cyclic container)",
+        ));
+    }
     if value.is_none() {
         Ok(JsonValue::Null)
     } else if let Ok(b) = value.extract::<bool>() {
         Ok(JsonValue::Bool(b))
+    } else if value.is_instance_of::<PyInt>() {
+        let i = value.extract::<i64>().map_err(|_| {
+            PyValueError::new_err("Integer parameters must fit signed 64-bit values")
+        })?;
+        Ok(JsonValue::Number(i.into()))
     } else if let Ok(i) = value.extract::<i64>() {
         Ok(JsonValue::Number(i.into()))
     } else if let Ok(f) = value.extract::<f64>() {
@@ -862,6 +877,21 @@ fn python_to_json(value: &Bound<'_, PyAny>) -> PyResult<JsonValue> {
         ))
     } else if let Ok(s) = value.extract::<String>() {
         Ok(JsonValue::String(s))
+    } else if let Ok(values) = value.cast::<PyList>() {
+        let values = values
+            .iter()
+            .map(|v| python_to_json_value(&v, depth + 1))
+            .collect::<PyResult<Vec<_>>>()?;
+        Ok(JsonValue::Array(values))
+    } else if let Ok(values) = value.cast::<PyDict>() {
+        let mut map = serde_json::Map::new();
+        for (key, value) in values.iter() {
+            let key = key
+                .extract::<String>()
+                .map_err(|_| PyValueError::new_err("Map parameter keys must be strings"))?;
+            map.insert(key, python_to_json_value(&value, depth + 1)?);
+        }
+        Ok(JsonValue::Object(map))
     } else if value.hasattr("isoformat")? {
         // datetime and date: ISO 8601 text, which DataFusion casts when comparing with
         // timestamp and date columns.
@@ -890,9 +920,19 @@ fn json_to_python(py: Python, value: &JsonValue) -> PyResult<Py<PyAny>> {
             }
         }
         JsonValue::String(s) => Ok(s.as_str().into_pyobject(py)?.unbind().into()),
-        JsonValue::Array(_) | JsonValue::Object(_) => {
-            // For complex types, convert to string representation
-            Ok(value.to_string().into_pyobject(py)?.unbind().into())
+        JsonValue::Array(values) => {
+            let values = values
+                .iter()
+                .map(|v| json_to_python(py, v))
+                .collect::<PyResult<Vec<_>>>()?;
+            Ok(PyList::new(py, values)?.into_any().unbind())
+        }
+        JsonValue::Object(values) => {
+            let map = PyDict::new(py);
+            for (key, value) in values {
+                map.set_item(key, json_to_python(py, value)?)?;
+            }
+            Ok(map.into_any().unbind())
         }
     }
 }
@@ -1999,7 +2039,7 @@ impl CypherEngine {
     ///     The Cypher query
     /// params : dict, optional
     ///     Values for ``$name`` parameters in the query: numbers, strings, booleans,
-    ///     ``None``, and ``datetime``/``date`` values (compared as timestamps and dates).
+    ///     ``None``, lists, string-keyed maps, and ``datetime``/``date`` values (compared as timestamps and dates).
     ///     ``execute_batches`` and ``explain`` take the same argument.
     ///
     /// Raises

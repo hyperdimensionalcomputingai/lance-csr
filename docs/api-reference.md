@@ -130,7 +130,8 @@ be opened.
 
 `#!python execute(query: str, params: dict | None = None) -> pyarrow.Table`
 :   Runs `query` and returns the whole result. `params` binds `$name` parameters: `int`, `float`, `str`,
-    `bool`, `None`, `datetime.datetime` and `datetime.date`.
+    `bool`, `None`, lists, string-keyed nested maps, `datetime.datetime` and `datetime.date`.
+    Integers must fit signed 64-bit values; nesting beyond 128 levels, cycles and unsupported values raise `ValueError`.
 
 `#!python execute_batches(query: str, params: dict | None = None) -> pyarrow.RecordBatchReader`
 :   Streams the result. Planning errors raise immediately; execution errors raise while reading. The reader

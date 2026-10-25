@@ -72,7 +72,7 @@ Output columns are named by their `AS` alias, or by the expression text (`p.name
 ### Parameters
 
 Write `$name` in the query and pass a dict as the second argument. Parameter values can be numbers,
-strings, booleans, `None`, and `datetime.datetime` or `datetime.date` values:
+strings, booleans, `None`, lists, string-keyed maps, and `datetime.datetime` or `datetime.date` values:
 
 ```python
 import datetime
@@ -83,10 +83,19 @@ engine.execute(
 ).to_pylist()  # [{'name': 'David'}]
 ```
 
-!!! warning "No list or map parameters"
+Lists retain integer IDs, and maps can contain nested lists/maps and nulls:
 
-    `$ids` bound to `[1, 2, 3]` raises `ValueError: Unsupported parameter type` on `CypherEngine`. Write the
-    list literally in the query (`WHERE p.id IN [1, 2, 3]`) for now.
+```python
+engine.execute(
+    "MATCH (p:Person) WHERE p.id IN $ids RETURN p.name AS name ORDER BY name",
+    {"ids": [1, 3]},
+).to_pylist()  # [{'name': 'Alice'}, {'name': 'Carol'}]
+```
+
+Map keys must be strings, integer parameters must fit signed 64-bit values, and nesting is limited to 128
+levels. Cyclic containers and unsupported Python objects raise `ValueError`. Lists follow literal-list
+coercion: mixed string/numeric values become strings because Arrow lists have one element type. Containers
+are expression values; inline node/relationship property filters still require scalar parameters.
 
 Datetimes compare against timestamp columns, and dates against date columns. Parameters are substituted
 before planning, so they are also allowed in inline property maps: `(p:Person {id: $id})`.
