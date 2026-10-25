@@ -179,6 +179,9 @@ pub struct NodePattern {
 /// A path pattern connecting nodes through relationships
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PathPattern {
+    /// Named ordinary path (`p = (a)-[:R]->(b)`).
+    #[serde(default)]
+    pub variable: Option<String>,
     /// Starting node
     pub start_node: NodePattern,
     /// Relationships and intermediate nodes

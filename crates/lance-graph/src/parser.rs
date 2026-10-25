@@ -204,6 +204,7 @@ fn unwind_clause(input: &str) -> IResult<&str, UnwindClause> {
 fn graph_pattern(input: &str) -> IResult<&str, GraphPattern> {
     alt((
         map(shortest_path_pattern, GraphPattern::Path),
+        map(named_path_pattern, GraphPattern::Path),
         map(path_pattern, GraphPattern::Path),
         map(node_pattern, GraphPattern::Node),
     ))(input)
@@ -232,6 +233,18 @@ fn shortest_path_pattern(input: &str) -> IResult<&str, PathPattern> {
     Ok((input, path))
 }
 
+// Named ordinary paths retain their textual node and relationship order.
+fn named_path_pattern(input: &str) -> IResult<&str, PathPattern> {
+    let (input, variable) = delimited(
+        multispace0,
+        identifier,
+        tuple((multispace0, char('='), multispace0)),
+    )(input)?;
+    let (input, mut path) = path_pattern(input)?;
+    path.variable = Some(variable.to_string());
+    Ok((input, path))
+}
+
 // Parse a path pattern (only if there are segments)
 fn path_pattern(input: &str) -> IResult<&str, PathPattern> {
     let (input, start_node) = node_pattern(input)?;
@@ -251,6 +264,7 @@ fn path_pattern(input: &str) -> IResult<&str, PathPattern> {
             start_node,
             segments,
             shortest: None,
+            variable: None,
         },
     ))
 }

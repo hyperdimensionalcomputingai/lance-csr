@@ -247,6 +247,23 @@ impl Adjacency {
             })
     }
 
+    /// Inspect one occurrence so cancelled work also stops through long tombstone runs.
+    fn next_candidate(&self, key: i64, offset: &mut usize) -> Option<Option<u64>> {
+        let base = self.base_neighbors(key);
+        let position = *offset;
+        let neighbor = if position < base.len() {
+            base[position]
+        } else {
+            *self.added.get(&key)?.get(position - base.len())?
+        };
+        *offset += 1;
+        let removed = self
+            .removed
+            .get(&key)
+            .is_some_and(|r| r.binary_search(&position).is_ok());
+        Some((!removed).then_some(neighbor))
+    }
+
     /// Live edges: base + appended - removed.
     pub fn num_edges(&self) -> u64 {
         self.base.csr.num_edges() + self.added_count - self.removed_count
@@ -825,6 +842,21 @@ impl Neighbors {
                 .flatten()
                 .filter(move |&n| n as i64 != key),
         )
+    }
+
+    /// Inspect one raw edge, including tombstones and suppressed reverse self-loops.
+    pub(crate) fn next_candidate(
+        &self,
+        key: i64,
+        position: &mut NeighborPosition,
+    ) -> Option<Option<u64>> {
+        if let Some(candidate) = self.forward.next_candidate(key, &mut position.forward) {
+            return Some(candidate);
+        }
+        self.reverse
+            .as_ref()?
+            .next_candidate(key, &mut position.reverse)
+            .map(|candidate| candidate.filter(|&n| n as i64 != key))
     }
 
     /// Edges visited over all keys (self-loops count once per direction in this estimate).
@@ -1569,6 +1601,13 @@ impl ExtensionPlanner for CsrExtensionPlanner {
         physical_inputs: &[Arc<dyn ExecutionPlan>],
         session_state: &SessionState,
     ) -> datafusion::common::Result<Option<Arc<dyn ExecutionPlan>>> {
+        if let Some(node) = node
+            .as_any()
+            .downcast_ref::<crate::path_match::PathMatchNode>()
+        {
+            return crate::path_match::plan_path_match(node, physical_inputs, session_state)
+                .map(Some);
+        }
         if let Some(node) = node
             .as_any()
             .downcast_ref::<crate::shortest_path::ShortestPathNode>()

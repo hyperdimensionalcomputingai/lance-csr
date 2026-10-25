@@ -162,6 +162,12 @@ be opened.
 
 ---
 
+Cypher named paths can be returned as Arrow structs containing `length`, `nodes`, `node_records` and
+`relationships`. They retain their values through `collect()` and `UNWIND`; `nodes(path)` returns integer
+keys, and `relationships(path)` returns typed relationship records. `startNode(r)` and `endNode(r)` return
+the stored endpoint node records. Their occurrence identities are query-local. See
+[path values and their memory cost](cypher.md#path-values).
+
 ## `CypherQuery`
 
 <!-- skip-check -->

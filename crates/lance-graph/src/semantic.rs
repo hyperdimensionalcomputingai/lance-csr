@@ -263,7 +263,11 @@ impl SemanticAnalyzer {
                     // Register end node
                     self.register_node_variable(&segment.end_node)?;
                 }
-                if let Some(path_var) = path.shortest.as_ref().and_then(|s| s.variable.as_ref()) {
+                if let Some(path_var) = path
+                    .variable
+                    .as_ref()
+                    .or_else(|| path.shortest.as_ref().and_then(|s| s.variable.as_ref()))
+                {
                     self.register_projection_alias(path_var);
                     if let Some(info) = self.variables.get_mut(&path_var.to_lowercase()) {
                         info.variable_type = VariableType::Path;
@@ -440,7 +444,7 @@ impl SemanticAnalyzer {
                 match function_name.as_str() {
                     "tolower" | "lower" | "toupper" | "upper" | "abs" | "round" | "floor"
                     | "ceil" | "sqrt" | "trim" | "ltrim" | "rtrim" | "reverse" | "last"
-                    | "tail" | "keys" | "labels" => {
+                    | "tail" | "keys" | "labels" | "relationships" | "startnode" | "endnode" => {
                         if args.len() != 1 {
                             return Err(GraphError::PlanError {
                                 message: format!(
@@ -1193,6 +1197,7 @@ mod tests {
                 end_node: end,
             }],
             shortest: None,
+            variable: None,
         };
 
         let query = CypherQuery {
@@ -1274,6 +1279,7 @@ mod tests {
                 end_node: end,
             }],
             shortest: None,
+            variable: None,
         };
 
         let query = CypherQuery {
@@ -1398,6 +1404,7 @@ mod tests {
                 end_node: end,
             }],
             shortest: None,
+            variable: None,
         };
 
         let query = CypherQuery {
@@ -1461,6 +1468,7 @@ mod tests {
                 },
             ],
             shortest: None,
+            variable: None,
         };
 
         // Custom config that knows both relationship types to avoid warnings muddying the assertion

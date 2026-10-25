@@ -349,6 +349,7 @@ impl ExecutionPlan for ShortestPathExec {
                     &spec,
                     &schema,
                 )
+                .await
             }
         });
         Ok(Box::pin(RecordBatchStreamAdapter::new(out_schema, stream)))
@@ -386,7 +387,7 @@ async fn build_adjacency(
 /// Breadth-first search from `source` until every node in `targets` is reached (or the
 /// frontier empties, or `max_hops`). Returns each reached node's depth and, for every node
 /// at depth d > 0, its predecessors at depth d - 1.
-fn search(
+async fn search(
     adjacency: &Neighbors,
     source: i64,
     targets: &HashSet<i64>,
@@ -400,7 +401,7 @@ fn search(
     let mut level = 0;
     while !frontier.is_empty() && !remaining.is_empty() && level < max_hops {
         level += 1;
-        let next = expand_level(adjacency, &frontier, level, &mut depth, &mut parents);
+        let next = expand_level(adjacency, &frontier, level, &mut depth, &mut parents).await;
         // Finish the level before stopping, so every shortest path is recorded.
         for n in &next {
             remaining.remove(n);
@@ -411,7 +412,7 @@ fn search(
 }
 
 /// Finish the whole level so parallel edges and alternative shortest paths survive.
-fn expand_level(
+async fn expand_level(
     adjacency: &Neighbors,
     frontier: &[i64],
     level: u32,
@@ -419,8 +420,17 @@ fn expand_level(
     parents: &mut FastMap<i64, Vec<i64>>,
 ) -> Vec<i64> {
     let mut next = Vec::new();
+    let mut work = 0_usize;
     for &node in frontier {
-        adjacency.for_each_neighbor(node, |n| {
+        let mut position = crate::csr_expand::NeighborPosition::default();
+        while let Some(candidate) = adjacency.next_candidate(node, &mut position) {
+            work += 1;
+            if work.is_multiple_of(1024) {
+                crate::csr_expand::cooperative_yield().await;
+            }
+            let Some(n) = candidate else {
+                continue;
+            };
             let n = n as i64;
             match depth.get(&n) {
                 Some(&d) if d == level => parents.entry(n).or_default().push(node),
@@ -431,14 +441,14 @@ fn expand_level(
                     next.push(n);
                 }
             }
-        });
+        }
     }
     next
 }
 
 /// Search a single pair using complete layers from the smaller frontier. At the
 /// first intersection every meeting node lies on the same depth cut of a shortest path.
-fn search_bidirectional(
+pub(crate) async fn search_bidirectional(
     forward: &Neighbors,
     reverse: &Neighbors,
     source: i64,
@@ -459,7 +469,7 @@ fn search_bidirectional(
     while !frontier.is_empty() && !reverse_frontier.is_empty() && level + reverse_level < max_hops {
         if frontier.len() <= reverse_frontier.len() {
             level += 1;
-            frontier = expand_level(forward, &frontier, level, &mut depth, &mut parents);
+            frontier = expand_level(forward, &frontier, level, &mut depth, &mut parents).await;
         } else {
             reverse_level += 1;
             reverse_frontier = expand_level(
@@ -468,7 +478,8 @@ fn search_bidirectional(
                 reverse_level,
                 &mut reverse_depth,
                 &mut reverse_parents,
-            );
+            )
+            .await;
         }
         let mut pending: Vec<_> = frontier
             .iter()
@@ -480,7 +491,12 @@ fn search_bidirectional(
         }
         // Reverse only the DAG beyond this cut; stitching at several depths duplicates paths.
         let mut visited = HashSet::new();
+        let mut work = 0_usize;
         while let Some(node) = pending.pop() {
+            work += 1;
+            if work.is_multiple_of(1024) {
+                crate::csr_expand::cooperative_yield().await;
+            }
             if !visited.insert(node) {
                 continue;
             }
@@ -499,10 +515,15 @@ fn search_bidirectional(
 
 /// Shortest paths from the search source to `target`, as node ids from source to target:
 /// all of them, or the first found.
-fn paths_to(target: i64, parents: &FastMap<i64, Vec<i64>>, all: bool) -> Vec<Vec<i64>> {
+async fn paths_to(target: i64, parents: &FastMap<i64, Vec<i64>>, all: bool) -> Vec<Vec<i64>> {
     let mut out = Vec::new();
     let mut stack = vec![vec![target]];
+    let mut work = 0_usize;
     while let Some(path) = stack.pop() {
+        work += 1;
+        if work.is_multiple_of(1024) {
+            crate::csr_expand::cooperative_yield().await;
+        }
         let head = *path.last().expect("non-empty");
         match parents.get(&head) {
             None => {
@@ -526,7 +547,7 @@ fn paths_to(target: i64, parents: &FastMap<i64, Vec<i64>>, all: bool) -> Vec<Vec
     out
 }
 
-fn search_batch(
+async fn search_batch(
     batch: &RecordBatch,
     source_index: usize,
     target_index: usize,
@@ -549,22 +570,23 @@ fn search_batch(
                 .insert(targets.value(i));
         }
     }
-    let searches: FastMap<i64, _> = by_source
-        .iter()
-        .map(|(&s, ts)| {
-            let result = match reverse_adjacency.filter(|_| ts.len() == 1) {
-                Some(reverse) => search_bidirectional(
+    let mut searches = FastMap::default();
+    for (&source, targets) in &by_source {
+        let result = match reverse_adjacency.filter(|_| targets.len() == 1) {
+            Some(reverse) => {
+                search_bidirectional(
                     adjacency,
                     reverse,
-                    s,
-                    *ts.iter().next().expect("one target"),
+                    source,
+                    *targets.iter().next().unwrap(),
                     spec.max_hops,
-                ),
-                None => search(adjacency, s, ts, spec.max_hops),
-            };
-            (s, result)
-        })
-        .collect();
+                )
+                .await
+            }
+            None => search(adjacency, source, targets, spec.max_hops).await,
+        };
+        searches.insert(source, result);
+    }
     let mut rows = Vec::new();
     let mut lengths = Vec::new();
     let mut nodes = ListBuilder::new(Int64Builder::new());
@@ -580,7 +602,7 @@ fn search_batch(
         if d < spec.min_hops || d > spec.max_hops {
             continue;
         }
-        for path in paths_to(t, parents, spec.all) {
+        for path in paths_to(t, parents, spec.all).await {
             rows.push(i as u32);
             lengths.push(d as i64);
             nodes.values().append_slice(&path);
@@ -628,7 +650,7 @@ fn plan_error(message: &str) -> GraphError {
 mod tests {
     use super::*;
 
-    fn adjacencies(edges: &[(i64, i64)]) -> (Arc<Adjacency>, Arc<Adjacency>) {
+    async fn adjacencies(edges: &[(i64, i64)]) -> (Arc<Adjacency>, Arc<Adjacency>) {
         let schema = Arc::new(Schema::new(vec![
             Field::new("src", DataType::Int64, false),
             Field::new("dst", DataType::Int64, false),
@@ -652,40 +674,33 @@ mod tests {
                 futures::stream::once(async move { Ok(batch) }),
             )) as SendableRecordBatchStream
         };
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .build()
-            .unwrap();
-        let out = rt
-            .block_on(Adjacency::build(stream(), "src", "dst"))
-            .unwrap();
-        let inc = rt
-            .block_on(Adjacency::build(stream(), "dst", "src"))
-            .unwrap();
+        let out = Adjacency::build(stream(), "src", "dst").await.unwrap();
+        let inc = Adjacency::build(stream(), "dst", "src").await.unwrap();
         (Arc::new(out), Arc::new(inc))
     }
 
-    fn neighbors(edges: &[(i64, i64)]) -> Neighbors {
-        let (out, inc) = adjacencies(edges);
+    async fn neighbors(edges: &[(i64, i64)]) -> Neighbors {
+        let (out, inc) = adjacencies(edges).await;
         Neighbors::undirected(out, inc)
     }
 
-    #[test]
-    fn finds_every_shortest_path_and_only_shortest_ones() {
+    #[tokio::test]
+    async fn finds_every_shortest_path_and_only_shortest_ones() {
         // Two 2-hop routes 1-2-4 and 1-3-4, and a longer 1-5-6-4.
-        let adj = neighbors(&[(1, 2), (2, 4), (1, 3), (3, 4), (1, 5), (5, 6), (6, 4)]);
-        let (depth, parents) = search(&adj, 1, &HashSet::from([4]), 10);
+        let adj = neighbors(&[(1, 2), (2, 4), (1, 3), (3, 4), (1, 5), (5, 6), (6, 4)]).await;
+        let (depth, parents) = search(&adj, 1, &HashSet::from([4]), 10).await;
         assert_eq!(depth[&4], 2);
-        let mut all = paths_to(4, &parents, true);
+        let mut all = paths_to(4, &parents, true).await;
         all.sort();
         assert_eq!(all, vec![vec![1, 2, 4], vec![1, 3, 4]]);
-        assert_eq!(paths_to(4, &parents, false).len(), 1);
+        assert_eq!(paths_to(4, &parents, false).await.len(), 1);
         // Beyond the hop limit, nothing is reached.
-        let (depth, _) = search(&adj, 1, &HashSet::from([4]), 1);
+        let (depth, _) = search(&adj, 1, &HashSet::from([4]), 1).await;
         assert!(!depth.contains_key(&4));
     }
 
-    #[test]
-    fn bidirectional_keeps_every_meeting_node_and_parallel_edge() {
+    #[tokio::test]
+    async fn bidirectional_keeps_every_meeting_node_and_parallel_edge() {
         // A wide first layer makes the target's side expand. Two meeting nodes,
         // including parallel edges on both sides of the cut, yield six paths.
         let (out, inc) = adjacencies(&[
@@ -700,11 +715,12 @@ mod tests {
             (4, 5),
             (5, 5),
             (5, 1),
-        ]);
+        ])
+        .await;
         let (forward, reverse) = (Neighbors::directed(out), Neighbors::directed(inc));
-        let (depth, parents) = search_bidirectional(&forward, &reverse, 1, 5, 3);
+        let (depth, parents) = search_bidirectional(&forward, &reverse, 1, 5, 3).await;
         assert_eq!(depth[&5], 3);
-        let mut all = paths_to(5, &parents, true);
+        let mut all = paths_to(5, &parents, true).await;
         all.sort();
         assert_eq!(
             all,
@@ -713,16 +729,17 @@ mod tests {
                 .chain(vec![vec![1, 3, 4, 5]; 2])
                 .collect::<Vec<_>>()
         );
-        let one = paths_to(5, &parents, false);
+        let one = paths_to(5, &parents, false).await;
         assert_eq!(one.len(), 1);
         assert!(all.contains(&one[0]));
         assert!(!search_bidirectional(&forward, &reverse, 1, 5, 2)
+            .await
             .0
             .contains_key(&5));
     }
 
-    #[test]
-    fn bidirectional_matches_forward_search_for_small_graphs() {
+    #[tokio::test]
+    async fn bidirectional_matches_forward_search_for_small_graphs() {
         // All directed graphs on three nodes, including disconnected pairs and cycles.
         let edges = [(0, 1), (0, 2), (1, 0), (1, 2), (2, 0), (2, 1)];
         for mask in 0..(1 << edges.len()) {
@@ -731,7 +748,7 @@ mod tests {
                 .enumerate()
                 .filter_map(|(bit, &edge)| (mask & (1 << bit) != 0).then_some(edge))
                 .collect();
-            let (out, inc) = adjacencies(&selected);
+            let (out, inc) = adjacencies(&selected).await;
             let directed = Neighbors::directed(out.clone());
             let reverse = Neighbors::directed(inc.clone());
             let undirected = Neighbors::undirected(out, inc);
@@ -740,17 +757,18 @@ mod tests {
                     for target in 0..3 {
                         for max_hops in 0..=3 {
                             let (expected_depth, expected_parents) =
-                                search(forward, source, &HashSet::from([target]), max_hops);
+                                search(forward, source, &HashSet::from([target]), max_hops).await;
                             let (depth, parents) =
-                                search_bidirectional(forward, reverse, source, target, max_hops);
+                                search_bidirectional(forward, reverse, source, target, max_hops)
+                                    .await;
                             assert_eq!(
                                 depth.get(&target),
                                 expected_depth.get(&target),
                                 "graph {mask}, {source}->{target}, max {max_hops}"
                             );
                             if depth.contains_key(&target) {
-                                let mut expected = paths_to(target, &expected_parents, true);
-                                let mut actual = paths_to(target, &parents, true);
+                                let mut expected = paths_to(target, &expected_parents, true).await;
+                                let mut actual = paths_to(target, &parents, true).await;
                                 expected.sort();
                                 actual.sort();
                                 assert_eq!(
@@ -765,8 +783,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn bidirectional_avoids_expanding_the_wide_middle_layer() {
+    #[tokio::test]
+    async fn bidirectional_avoids_expanding_the_wide_middle_layer() {
         let mut edges = Vec::new();
         for branch in 1..=100 {
             edges.push((0, branch));
@@ -774,13 +792,13 @@ mod tests {
                 edges.push((branch, 101 + (branch - 1) * 100 + leaf));
             }
         }
-        let (out, inc) = adjacencies(&edges);
+        let (out, inc) = adjacencies(&edges).await;
         let (forward, reverse) = (Neighbors::directed(out), Neighbors::directed(inc));
-        let (depth, parents) = search_bidirectional(&forward, &reverse, 0, 101, 2);
-        assert_eq!(paths_to(101, &parents, true), vec![vec![0, 1, 101]]);
+        let (depth, parents) = search_bidirectional(&forward, &reverse, 0, 101, 2).await;
+        assert_eq!(paths_to(101, &parents, true).await, vec![vec![0, 1, 101]]);
         assert_eq!(depth.len(), 102); // Root, first layer and stitched target.
         assert_eq!(
-            search(&forward, 0, &HashSet::from([101]), 2).0.len(),
+            search(&forward, 0, &HashSet::from([101]), 2).await.0.len(),
             10_101
         );
     }
