@@ -124,6 +124,22 @@ print(rows)  # 4
 - The reader keeps its snapshot alive, so a concurrent [`refresh()`](lance.md#refresh) doesn't affect it.
 - Dropping the reader cancels the remaining work.
 
+### Query deadlines
+
+Pass `timeout=5.0` to `execute`, `execute_batches` or `CypherQuery.execute` to allow five seconds from the
+call's start. Streams keep that same deadline while you pause between reads. The default is `None`.
+
+```python
+try:
+    engine.execute("RETURN 1 AS n", timeout=0)
+except TimeoutError:
+    print("Query timeout exceeded")  # Query timeout exceeded
+```
+
+Initial expiry raises `TimeoutError`. Reading an expired native Arrow reader raises `pyarrow.ArrowInvalid`
+with `Query timeout exceeded`; partial output already read remains valid. Close readers when you stop
+consuming them. See the [API reference](api-reference.md) for validation and cooperative cancellation limits.
+
 ### `explain(query, params=None)`
 
 Returns the plan as text: the graph logical plan, DataFusion's logical plan and the physical plan.

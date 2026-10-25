@@ -98,6 +98,8 @@ class CypherQuery:
         self,
         datasets: dict[str, _DatasetT],
         strategy: ExecutionStrategy | None = None,
+        *,
+        timeout: float | None = None,
     ) -> Table: ...
     def execute_with_namespace(
         self, namespace: DirNamespace, strategy: ExecutionStrategy | None = None
@@ -119,11 +121,15 @@ class CypherEngine:
         self,
         query: str,
         params: dict[str, _ParameterT] | None = None,
+        *,
+        timeout: float | None = None,
     ) -> Table: ...
     def execute_batches(
         self,
         query: str,
         params: dict[str, _ParameterT] | None = None,
+        *,
+        timeout: float | None = None,
     ) -> RecordBatchReader: ...
     def explain(
         self, query: str, params: dict[str, _ParameterT] | None = None

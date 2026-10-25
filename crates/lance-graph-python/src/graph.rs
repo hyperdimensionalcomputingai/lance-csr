@@ -47,6 +47,7 @@ use pyo3::{
 };
 use serde_json::Value as JsonValue;
 
+use crate::executor::{QueryDeadline, QUERY_TIMEOUT_MESSAGE};
 use crate::namespace::PyDirNamespace;
 use crate::RT;
 
@@ -665,13 +666,16 @@ impl CypherQuery {
     /// >>> # Explicit strategy
     /// >>> from lance.graph import ExecutionStrategy
     /// >>> result = query.execute(datasets, strategy=ExecutionStrategy.DataFusion)
-    #[pyo3(signature = (datasets, strategy=None))]
+    #[pyo3(signature = (datasets, strategy=None, *, timeout=None))]
     fn execute(
         &self,
         py: Python,
         datasets: &Bound<'_, PyDict>,
         strategy: Option<ExecutionStrategy>,
+        timeout: Option<f64>,
     ) -> PyResult<Py<PyAny>> {
+        let deadline = QueryDeadline::new(timeout)?;
+        deadline.check()?;
         // Convert datasets to Arrow batches while holding the GIL
         let arrow_datasets = python_datasets_to_batches(datasets)?;
 
@@ -683,7 +687,11 @@ impl CypherQuery {
 
         // Use RT.block_on with Some(py) like the scanner to_pyarrow method
         let result_batch = RT
-            .block_on(Some(py), inner_query.execute(arrow_datasets, rust_strategy))?
+            .block_on_until(
+                Some(py),
+                deadline,
+                inner_query.execute(arrow_datasets, rust_strategy),
+            )?
             .map_err(graph_error_to_pyerr)?;
 
         record_batch_to_python_table(py, &result_batch)
@@ -1949,6 +1957,120 @@ impl RecordBatchReader for BlockingBatchReader {
     }
 }
 
+/// A timed reader owns its stream independently of calls into Arrow's C interface.
+struct TimedBatchState {
+    stream: Option<datafusion::physical_plan::SendableRecordBatchStream>,
+    expired: bool,
+}
+
+struct DeadlineBatchReader {
+    schema: arrow_schema::SchemaRef,
+    state: Arc<tokio::sync::Mutex<TimedBatchState>>,
+    deadline: tokio::time::Instant,
+    watchdog: tokio::task::JoinHandle<()>,
+    finished: bool,
+}
+
+fn stream_timeout_error() -> arrow_schema::ArrowError {
+    arrow_schema::ArrowError::ExternalError(Box::new(std::io::Error::new(
+        std::io::ErrorKind::TimedOut,
+        QUERY_TIMEOUT_MESSAGE,
+    )))
+}
+
+impl Iterator for DeadlineBatchReader {
+    type Item = Result<RecordBatch, arrow_schema::ArrowError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.finished {
+            return None;
+        }
+        let result = RT.runtime.block_on(async {
+            let mut state = self.state.lock().await;
+            if state.expired || tokio::time::Instant::now() >= self.deadline {
+                state.stream.take();
+                state.expired = true;
+                return Some(Err(stream_timeout_error()));
+            }
+            let stream = state.stream.as_mut()?;
+            let result = tokio::select! {
+                biased;
+                _ = tokio::time::sleep_until(self.deadline) => None,
+                result = stream.next() => Some(result),
+            };
+            match result {
+                None => {
+                    state.stream.take();
+                    state.expired = true;
+                    Some(Err(stream_timeout_error()))
+                }
+                Some(result) => {
+                    if tokio::time::Instant::now() >= self.deadline {
+                        state.stream.take();
+                        state.expired = true;
+                        return Some(Err(stream_timeout_error()));
+                    }
+                    if result.is_none() {
+                        state.stream.take();
+                    }
+                    result.map(|r| {
+                        r.map_err(|e| arrow_schema::ArrowError::ExternalError(Box::new(e)))
+                    })
+                }
+            }
+        });
+        if result.as_ref().is_none_or(|r| r.is_err()) {
+            self.finished = true;
+            self.watchdog.abort();
+        }
+        result
+    }
+}
+
+impl RecordBatchReader for DeadlineBatchReader {
+    fn schema(&self) -> arrow_schema::SchemaRef {
+        self.schema.clone()
+    }
+}
+
+impl Drop for DeadlineBatchReader {
+    fn drop(&mut self) {
+        self.watchdog.abort();
+        if let Ok(mut state) = self.state.try_lock() {
+            state.stream.take();
+        }
+    }
+}
+
+fn reader_with_deadline(
+    stream: datafusion::physical_plan::SendableRecordBatchStream,
+    deadline: QueryDeadline,
+) -> Box<dyn RecordBatchReader + Send> {
+    let schema = stream.schema();
+    let Some(deadline) = deadline.instant() else {
+        return Box::new(BlockingBatchReader { schema, stream });
+    };
+    let state = Arc::new(tokio::sync::Mutex::new(TimedBatchState {
+        stream: Some(stream),
+        expired: false,
+    }));
+    let watched = state.clone();
+    let watchdog = RT.runtime.spawn(async move {
+        tokio::time::sleep_until(deadline).await;
+        let mut state = watched.lock().await;
+        if state.stream.take().is_some() {
+            state.expired = true;
+        }
+    });
+    Box::new(DeadlineBatchReader {
+        schema,
+        state,
+        deadline,
+        watchdog,
+        finished: false,
+    })
+}
+
 /// Cypher query engine with cached catalog for efficient multi-query execution
 ///
 /// The engine registers each dataset once and reuses the catalog and DataFusion
@@ -2129,6 +2251,8 @@ impl CypherEngine {
     /// Execute a Cypher query and return the full result as a ``pyarrow.Table``.
     ///
     /// The whole result is held in memory; use ``execute_batches`` for large outputs.
+    /// ``timeout`` is an optional nonnegative number of seconds for the whole query;
+    /// expiry raises ``TimeoutError``. Cancellation is cooperative.
     ///
     /// Parameters
     /// ----------
@@ -2145,18 +2269,22 @@ impl CypherEngine {
     ///     If the query is invalid
     /// RuntimeError
     ///     If query execution fails
-    #[pyo3(signature = (query, params = None))]
+    #[pyo3(signature = (query, params = None, *, timeout=None))]
     fn execute(
         &self,
         py: Python,
         query: &str,
         params: Option<&Bound<'_, PyDict>>,
+        timeout: Option<f64>,
     ) -> PyResult<Py<PyAny>> {
+        let deadline = QueryDeadline::new(timeout)?;
+        deadline.check()?;
         let state = self.snapshot();
         let cypher_query = self.parse(py, query, params, &state, true)?;
         let result_batch = RT
-            .block_on(
+            .block_on_until(
                 Some(py),
+                deadline,
                 cypher_query
                     .execute_with_catalog_and_context(state.catalog.clone(), state.context.clone()),
             )?
@@ -2171,30 +2299,34 @@ impl CypherEngine {
     /// stream with bounded memory; joins, sorts and aggregations may still buffer.
     /// The reader keeps its snapshot alive, so a concurrent ``refresh()`` does not
     /// affect it. Planning errors raise immediately; execution errors raise while reading.
-    #[pyo3(signature = (query, params = None))]
+    /// ``timeout`` keeps one deadline including pauses. Initial expiry raises
+    /// ``TimeoutError``; expired reads raise ArrowInvalid: Query timeout exceeded.
+    #[pyo3(signature = (query, params = None, *, timeout=None))]
     fn execute_batches(
         &self,
         py: Python,
         query: &str,
         params: Option<&Bound<'_, PyDict>>,
+        timeout: Option<f64>,
     ) -> PyResult<Py<PyAny>> {
         use arrow::pyarrow::IntoPyArrow;
 
+        let deadline = QueryDeadline::new(timeout)?;
+        deadline.check()?;
         let state = self.snapshot();
         let cypher_query = self.parse(py, query, params, &state, true)?;
         let stream = RT
-            .block_on(
+            .block_on_until(
                 Some(py),
+                deadline,
                 cypher_query.execute_stream_with_catalog_and_context(
                     state.catalog.clone(),
                     state.context.clone(),
                 ),
             )?
             .map_err(graph_error_to_pyerr)?;
-        let reader: Box<dyn RecordBatchReader + Send> = Box::new(BlockingBatchReader {
-            schema: stream.schema(),
-            stream,
-        });
+        deadline.check()?;
+        let reader = reader_with_deadline(stream, deadline);
         Ok(reader.into_pyarrow(py)?.unbind())
     }
 
@@ -2743,6 +2875,54 @@ mod tests {
                 expected
             );
         }
+    }
+
+    fn retained_stream() -> (
+        datafusion::physical_plan::SendableRecordBatchStream,
+        std::sync::Weak<arrow_array::Int64Array>,
+    ) {
+        let values = Arc::new(arrow_array::Int64Array::from(vec![1_i64]));
+        let retained = Arc::downgrade(&values);
+        let schema = Arc::new(Schema::new(vec![arrow_schema::Field::new(
+            "id",
+            arrow_schema::DataType::Int64,
+            false,
+        )]));
+        let batch = RecordBatch::try_new(schema.clone(), vec![values]).unwrap();
+        let stream = datafusion::physical_plan::stream::RecordBatchStreamAdapter::new(
+            schema,
+            futures::stream::iter(vec![Ok(batch)]),
+        );
+        (Box::pin(stream), retained)
+    }
+
+    #[test]
+    fn timed_reader_releases_unconsumed_stream_at_deadline() {
+        let (stream, retained) = retained_stream();
+        let mut reader = reader_with_deadline(stream, QueryDeadline::new(Some(0.02)).unwrap());
+        let stop = std::time::Instant::now() + std::time::Duration::from_secs(1);
+        while retained.upgrade().is_some() && std::time::Instant::now() < stop {
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        assert!(
+            retained.upgrade().is_none(),
+            "idle deadline must drop the owned stream"
+        );
+        assert!(reader
+            .next()
+            .unwrap()
+            .unwrap_err()
+            .to_string()
+            .contains(QUERY_TIMEOUT_MESSAGE));
+        assert!(reader.next().is_none());
+    }
+
+    #[test]
+    fn closing_timed_reader_releases_stream_before_deadline() {
+        let (stream, retained) = retained_stream();
+        let reader = reader_with_deadline(stream, QueryDeadline::new(Some(10.0)).unwrap());
+        drop(reader);
+        assert!(retained.upgrade().is_none());
     }
 
     #[test]
