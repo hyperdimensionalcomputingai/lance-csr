@@ -358,6 +358,19 @@ impl DataFusionPlanner {
                 .zip(cat.get(rel_type, false))
                 .map(|(out, inc)| Neighbors::undirected(out.clone(), inc.clone())),
         });
+        let reverse_adjacency = self
+            .adjacency
+            .as_ref()
+            .filter(|_| adjacency.is_some())
+            .and_then(|cat| match search {
+                SearchDirection::Outgoing => {
+                    cat.get(rel_type, false).cloned().map(Neighbors::directed)
+                }
+                SearchDirection::Incoming => {
+                    cat.get(rel_type, true).cloned().map(Neighbors::directed)
+                }
+                SearchDirection::Undirected => None, // Forward neighbours already visit both ends.
+            });
         let source = self
             .get_catalog()?
             .relationship_source(&rel_map.relationship_type)
@@ -400,7 +413,8 @@ impl DataFusionPlanner {
             edge_source: schema.field(src).name().clone(),
             edge_target: schema.field(dst).name().clone(),
         };
-        let node = ShortestPathNode::try_new(input_plan, edges, adjacency, spec)?;
+        let node = ShortestPathNode::try_new(input_plan, edges, adjacency, spec)?
+            .with_reverse_adjacency(reverse_adjacency);
         Ok(LogicalPlan::Extension(Extension {
             node: Arc::new(node),
         }))

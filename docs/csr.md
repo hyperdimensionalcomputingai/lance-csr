@@ -132,6 +132,12 @@ When those hold, it covers:
 Everything else in the query (filters, aggregations, sorts and any hop the CSR can't take) is planned by
 DataFusion as usual. You can mix: a three-hop query might run two hops on the CSR and one as a join.
 
+For `shortestPath` and `allShortestPaths`, a source with one target in an input batch searches from both
+ends using the outgoing and incoming CSR. It expands the smaller frontier and finishes the whole layer
+before joining paths, so it keeps all shortest alternatives. Several targets for the same source share
+one forward search. Undirected searches can use both ends without a persistent CSR too; directed searches
+without a CSR keep their forward search over the adjacency built for that query.
+
 ### Variable-length traversal
 
 An eligible variable-length path keeps one cursor per hop and yields bounded output batches. Its plan

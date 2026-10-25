@@ -238,7 +238,11 @@ RETURN length(p), nodes(p)
 - **Undirected variable-length paths** skip immediate backtracking (`a-b-a`).
 - **`shortestPath` and `allShortestPaths`** need exactly one relationship type, no relationship variable,
   and named end nodes. Their length is unbounded unless you give a maximum. `nodes(p)` returns the node keys.
-  With no path, `MATCH` drops the row and `OPTIONAL MATCH` returns `null`.
+  With no path, `MATCH` drops the row and `OPTIONAL MATCH` returns `null`. `shortestPath` chooses one path
+  when several have the same minimum length; `allShortestPaths` returns every shortest path, including
+  duplicate node sequences that use different parallel edges. A single source-target pair searches from
+  both ends when reverse adjacency is available. Several targets for the same source in an input batch
+  share one forward search.
 - **Named paths** (`p = ...`) are only supported with `shortestPath` and `allShortestPaths`.
 
 ### Expressions and predicates
