@@ -1,41 +1,34 @@
 # lance-csr brand assets
 
-Option A: a sparse matrix extends into a compact lance. Light and dark variants share exactly the same geometry. These are clean vector interpretations of the approved imagegen concept, with original outlined lettering rather than a font dependency.
+The approved cube logo: an isometric sparse matrix of ivory and charcoal cubes, an orange chevron, and the original squared wordmark. The small organization name beneath the wordmark has been removed.
 
 ## Files
 
-| Use | Light background | Dark background | PNG sizes |
+| Use | Light background | Dark background | PNG widths |
 | --- | --- | --- | --- |
-| Desktop wordmark | `desktop-light.svg` | `desktop-dark.svg` | 508 × 96, 1016 × 192 |
-| Mobile emblem | `mobile-light.svg` | `mobile-dark.svg` | 128 × 96, 256 × 192 |
-| Favicon | `favicon-light.svg` | `favicon-dark.svg` | 16, 32, 48 px square |
+| Desktop wordmark | `desktop-light.svg` | `desktop-dark.svg` | 508, 1016 px |
+| Mobile emblem | `mobile-light.svg` | `mobile-dark.svg` | 128, 256 px |
+| Favicon | `favicon-light.svg` | `favicon-dark.svg` | 16, 32, 48 px |
 
-All SVG and PNG assets have transparent backgrounds. PNG filenames include their width. ICO files contain 16, 32 and 48 px versions; `favicon.ico` is the light-background fallback. `favicon.svg` follows the operating system's preferred colour scheme automatically. For a manually selected site theme, choose the matching explicit variant instead.
+SVG files embed PNG artwork to preserve the approved shading and lettering; they are **not vector outlines**. All asset PNG files have transparent backgrounds. Keep the aspect ratio when resizing. The desktop master is 1996 × 424 px, the mobile master is 540 × 424 px, and favicon canvases are square. `source-light.png` and `source-dark.png` retain the full-resolution imagegen edits.
 
-Use the desktop logo around 254–300 px wide, and the mobile emblem around 64 px wide. Preserve the aspect ratio and built-in clear space. The favicon reduces the matrix to three columns and four rows to preserve separation at tiny sizes; it is not a diagram of a specific dataset.
+ICO files contain 16, 32 and 48 px variants. `favicon.ico` is the light-background fallback; `favicon.svg` follows the operating system's colour scheme. The site uses explicit light/dark header and home-page images to follow its manual theme toggle. The cube emblem is retained in the favicon; individual cubes are naturally less distinct at 16 px.
 
-## Colours
+## Colours and usage
 
 | Role | Light | Dark |
 | --- | --- | --- |
-| Filled cells and lance | `#2455A4` | `#82AEFF` |
-| Empty cell outlines | `#6086BF` | `#6F92C8` |
-| Lettering | `#172C48` | `#EDF3FF` |
-| Preview background | `#FFFFFF` | `#101B2D` |
+| Wordmark | Charcoal, approximately `#292929` | Warm white, approximately `#F2EFE8` |
+| Cubes | Ivory, charcoal and orange | Ivory, charcoal and orange |
+| Docs link colour | `#B44700` | `#FFA252` |
+| Preview background | `#FFFFFF` | `#171717` |
 
-## Usage
+Use the full wordmark around 300–360 px wide and the mobile emblem around 64 px wide. At smaller header sizes, use the emblem without lettering. Give linked header images `alt="lance-csr home"` and decorative duplicates `alt=""`.
 
-Use SVG for headers; PNG files are fallbacks for tools that do not accept SVG. Give linked header images `alt="lance-csr home"` and decorative duplicates `alt=""`.
+`preview.html` shows both modes at desktop, mobile and favicon sizes; `preview.png` is its rendered export. Raster dimensions and transparency are checked during packaging.
 
-```html
-<link rel="icon" href="/assets/brand/favicon.ico" sizes="any">
-<link rel="icon" href="/assets/brand/favicon.svg" type="image/svg+xml">
-```
+## Provenance
 
-Adjust URL paths to the site's actual asset location. No site configuration has been changed.
+Source supplied by the user: `lance-csr-logo.png`. Built-in imagegen removed the bottom line and adapted wordmark contrast for light and dark backgrounds. The cube arrangement and letter shapes were preserved rather than replaced with a new design. The generation prompt is saved at `../../../output/imagegen/cube-logo-prompts.txt`.
 
-## Source and review
-
-`preview.html` contains the vector masters and a side-by-side size preview; `preview.png` is its rendered export. The SVGs have accessible titles and descriptions, contain no external resources, and use path outlines for lettering. Raster sizes and alpha channels were checked, and both colour modes were visually reviewed.
-
-The approved source concept and generation prompt are in `../../../output/imagegen/lance-matrix-options.png` and `../../../output/imagegen/lance-matrix-options-prompt.txt`. The production artwork was redrawn as vectors; it is not an automatic raster trace. Browser-tab favicon selection has not been tested in a deployed docs site.
+The docs header, home-page wordmarks and favicon use these assets. The ZIP package is at `../lance-csr-brand-assets.zip`.
