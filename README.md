@@ -5,6 +5,9 @@ Apache DataFusion, with Python bindings. It is a fork of [lance-graph](https://g
 and a research test bed: it pushes the limits of CSR indexes and DataFusion on top of the Lance format, with the
 goal of making multi-hop path traversal fast.
 
+**Documentation:** Visit the [lance-csr documentation site](https://lance-csr.pages.dev/) for getting started,
+Cypher guides, the CSR index, the Python API reference, and benchmarks.
+
 ## Goals
 
 lance-csr is built for single-machine execution. It aims to:
