@@ -31,6 +31,7 @@ mod test_fixtures;
 
 // Re-export public types
 pub use analysis::{PlanningContext, QueryAnalysis, RelationshipInstance};
+pub(crate) use scalar_functions::sql_expr;
 
 use crate::config::GraphConfig;
 use crate::error::Result;

@@ -266,6 +266,34 @@ pub(super) fn call(name: &str, args: Vec<Expr>) -> Expr {
     .call(args)
 }
 
+/// SQL equivalents for the list operations supported before Cypher-specific wrappers.
+pub(crate) fn sql_expr(
+    function: &datafusion::logical_expr::expr::ScalarFunction,
+    schema: &datafusion::common::DFSchema,
+) -> Result<Option<Expr>> {
+    use datafusion::logical_expr::{expr_fn::cast, ExprSchemable};
+
+    if !function.func.inner().is::<CypherScalar>() {
+        return Ok(None);
+    }
+    let args = &function.args;
+    Ok(match function.name() {
+        "size" if list_field(&args[0].get_type(schema)?).is_some() => Some(cast(
+            length::array_length_udf().call(args.clone()),
+            DataType::Int64,
+        )),
+        "range" => Some(
+            range::gen_series_udf().call(
+                args.iter()
+                    .cloned()
+                    .map(|arg| cast(arg, DataType::Int64))
+                    .collect(),
+            ),
+        ),
+        _ => None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

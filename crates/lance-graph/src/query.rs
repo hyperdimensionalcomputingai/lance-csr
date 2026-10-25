@@ -388,10 +388,10 @@ impl CypherQuery {
         dialect: Option<SqlDialect>,
     ) -> Result<String> {
         use datafusion::common::tree_node::{Transformed, TreeNode};
-        use datafusion::common::{not_impl_err, ScalarValue};
+        use datafusion::common::{not_impl_err, DFSchema, ScalarValue};
         use datafusion::logical_expr::expr_rewriter::NamePreserver;
         use datafusion::logical_expr::registry::FunctionRegistry;
-        use datafusion::logical_expr::{lit, Expr};
+        use datafusion::logical_expr::{lit, utils::merge_schema, Expr, LogicalPlan};
         use std::sync::Arc;
 
         let dialect = dialect.unwrap_or_default();
@@ -418,11 +418,19 @@ impl CypherQuery {
         // An SQL function with the same name need not implement Cypher semantics.
         let optimized_plan = optimized_plan
             .transform_up_with_subqueries(|plan| {
+                let schema = if let LogicalPlan::TableScan(scan) = &plan {
+                    DFSchema::try_from_qualified_schema(scan.table_name.clone(), &scan.source.schema())?
+                } else {
+                    merge_schema(&plan.inputs())
+                };
                 let names = NamePreserver::new(&plan);
                 plan.map_expressions(|expr| {
                     let name = names.save(&expr);
                     let rewritten = expr.transform_up(|expr| {
                         if let Expr::ScalarFunction(function) = &expr {
+                            if let Some(native) = crate::datafusion_planner::sql_expr(function, &schema)? {
+                                return Ok(Transformed::yes(native));
+                            }
                             if !ctx.udf(function.name()).is_ok_and(|registered| registered == function.func) {
                                 return not_impl_err!(
                                     "SQL export of Cypher function '{}' is unsupported; execute the Cypher query directly",

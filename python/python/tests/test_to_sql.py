@@ -18,6 +18,15 @@ def scalar_export_env():
                 "number": pa.array([-1.5, None, 2.0], pa.float32()),
                 "integer": pa.array([-100, None, 2], pa.int8()),
                 "text": pa.array(["a猫😀z", None, ""], pa.large_string()),
+                "items": pa.array([[1, None], None, []], pa.list_(pa.int64())),
+                "nested": pa.array(
+                    [[[1, 2], [3]], None, []], pa.list_(pa.list_(pa.int64()))
+                ),
+                "large_items": pa.array(
+                    [[1, None], None, []], pa.large_list(pa.int64())
+                ),
+                "pair": pa.array([[1, 2], None, [3, 4]], pa.list_(pa.int64(), 2)),
+                "end": pa.array([3, None, -1], pa.int8()),
             }
         )
     }
@@ -27,6 +36,13 @@ def scalar_export_env():
 @pytest.mark.parametrize(
     "expression",
     [
+        "size(p.items)",
+        "size(p.large_items)",
+        "size(p.pair)",
+        "size(p.nested)",
+        "range(1, p.end)",
+        "range(p.end, 1, -1)",
+        "size(range(1, p.end))",
         "toUpper(p.text)",
         "round(-1.5)",
         "abs(-100)",
@@ -38,6 +54,7 @@ def scalar_export_env():
         "ceil(null)",
         "toUpper(null)",
         "null",
+        "left('a猫😀z', 3)",
     ],
 )
 def test_sql_export_preserves_scalar_values_and_types(scalar_export_env, expression):
@@ -56,6 +73,9 @@ def test_sql_export_preserves_scalar_values_and_types(scalar_export_env, express
     [
         ("round(p.number)", "round", [-1.0, None, 2.0]),
         ("abs(p.integer)", "abs", [100, None, 2]),
+        ("left(p.text, 3)", "left", ["a猫😀", None, ""]),
+        ("size(p.text)", "size", [4, None, 0]),
+        ("reverse(p.text)", "reverse", ["z😀猫a", None, ""]),
     ],
 )
 def test_sql_export_rejects_runtime_only_cypher_functions(
