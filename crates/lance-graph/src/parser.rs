@@ -1119,6 +1119,7 @@ fn float32_literal(input: &str) -> IResult<&str, f32> {
 
 // Parse vector literal: [0.1, 0.2, 0.3]
 fn parse_vector_literal(input: &str) -> IResult<&str, ValueExpression> {
+    let literal = input;
     let (input, _) = char('[')(input)?;
     let (input, _) = multispace0(input)?;
 
@@ -1129,6 +1130,17 @@ fn parse_vector_literal(input: &str) -> IResult<&str, ValueExpression> {
 
     let (input, _) = multispace0(input)?;
     let (input, _) = char(']')(input)?;
+
+    // Integer lists must retain Int64 precision outside vector operations.
+    if !literal[..literal.len() - input.len()]
+        .chars()
+        .any(|c| matches!(c, '.' | 'e' | 'E'))
+    {
+        return Err(nom::Err::Error(nom::error::Error::new(
+            literal,
+            nom::error::ErrorKind::Verify,
+        )));
+    }
 
     Ok((input, ValueExpression::VectorLiteral(values)))
 }
@@ -2278,6 +2290,38 @@ mod tests {
                 }
             }
             _ => panic!("Expected AND expression"),
+        }
+    }
+
+    #[test]
+    fn test_integer_lists_preserve_precision() {
+        for literal in ["[1, 2, 3]", "[-19791209300775, 16777217]", "[]"] {
+            assert!(parse_vector_literal(literal).is_err());
+            let (remaining, expression) = value_expression(literal).unwrap();
+            assert!(remaining.is_empty());
+            let ValueExpression::ScalarFunction { name, args } = expression else {
+                panic!("expected an ordinary list");
+            };
+            assert_eq!(name, "__list");
+            assert!(args
+                .iter()
+                .all(|v| matches!(v, ValueExpression::Literal(PropertyValue::Integer(_)))));
+        }
+        let (_, expression) = value_expression("[19791209300775]").unwrap();
+        assert_eq!(
+            expression,
+            ValueExpression::ScalarFunction {
+                name: "__list".to_string(),
+                args: vec![ValueExpression::Literal(PropertyValue::Integer(
+                    19791209300775
+                ))],
+            }
+        );
+        for literal in ["[1, 2.0]", "[1e-3, 2]", "[-1.0, 2]"] {
+            assert!(matches!(
+                value_expression(literal).unwrap().1,
+                ValueExpression::VectorLiteral(_)
+            ));
         }
     }
 

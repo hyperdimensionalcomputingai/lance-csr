@@ -32,6 +32,10 @@ vector_similarity(a, b, metric)
 `metric` is a bare keyword (not a string): `cosine`, `l2` or `dot`. One argument must be a property; the
 other can be a property or a vector literal.
 
+Whole-number query vectors such as `[1, 0]` also work. They remain integer lists until the vector function
+converts their elements to float32. Outside vector functions, integer lists preserve signed 64-bit precision.
+Vector elements must be non-null numbers.
+
 ```python
 result = engine.execute("""
     MATCH (d:Document)
