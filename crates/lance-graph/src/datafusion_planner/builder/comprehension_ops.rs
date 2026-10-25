@@ -16,7 +16,7 @@ use datafusion::logical_expr::{
 };
 
 use super::super::analysis::PlanningContext;
-use super::super::expression::{bind_boolean, bind_value, to_df_boolean_expr, to_df_value_expr};
+use super::super::expression::{bind_boolean, bind_value};
 use crate::ast::{BooleanExpression, ValueExpression};
 use crate::case_insensitive::qualify_column;
 use crate::datafusion_planner::DataFusionPlanner;
@@ -54,7 +54,7 @@ impl DataFusionPlanner {
             .map_err(error("Failed to number comprehension rows"))?
             .build()
             .map_err(error("Failed to number comprehension rows"))?;
-        let list = to_df_value_expr(&bind_value(list, numbered.schema()));
+        let list = self.value_expr(&bind_value(list, numbered.schema()));
         let length = int64(coalesce(vec![cardinality(list.clone()), lit(0_u64)]));
         let last = datafusion::functions::core::expr_fn::greatest(vec![length.clone(), lit(1_i64)]);
         let positions = gen_series(lit(1_i64), last, lit(1_i64));
@@ -130,9 +130,9 @@ impl DataFusionPlanner {
         // Padding rows (position past the list's end) are never collected.
         let mut kept = col(&pos).lt_eq(length);
         if let Some(keep) = keep {
-            kept = kept.and(to_df_boolean_expr(&bind_boolean(keep, elements.schema())));
+            kept = kept.and(self.boolean_expr(&bind_boolean(keep, elements.schema())));
         }
-        let value = to_df_value_expr(&bind_value(map, elements.schema()));
+        let value = self.value_expr(&bind_value(map, elements.schema()));
         let collected = array_agg(value)
             .filter(kept)
             .order_by(vec![col(&pos).sort(true, false)])

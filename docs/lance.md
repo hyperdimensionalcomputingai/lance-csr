@@ -82,6 +82,21 @@ What `refresh()` guarantees:
 A refresh reopens each dataset by its URI with the same `storage_options` it was opened with, so object-store
 credentials carry over.
 
+## Repeated queries
+
+`execute()` and `execute_batches()` keep up to 128 query templates per engine snapshot. Reuse the exact
+query text with `$name` parameters to reuse parsing, semantic analysis, graph logical planning and
+DataFusion logical planning. Every execution binds its own values before optimization and physical planning;
+rows and results are never cached. Query text and parameter names/types identify each template, with nulls
+separate from non-null values. Least recently used templates are evicted at the limit.
+
+Lists and maps use ordinary planning because their shape can change the plan. Unaliased parameter expressions
+also use ordinary planning to preserve their value-dependent column names; use `RETURN $value AS value`
+when you want a stable name. Queries whose operators cannot produce a reusable template fall back to ordinary
+planning. `explain()` plans the current values directly. A successful `refresh()` starts an empty cache for the
+new snapshot, including a refresh whose datasets did not change; active readers retain their existing plans.
+These rules apply with and without CSR. They do not promise a speedup for a particular workload.
+
 ## Streaming large results
 
 `execute()` returns one table, held in memory. For big outputs, stream:

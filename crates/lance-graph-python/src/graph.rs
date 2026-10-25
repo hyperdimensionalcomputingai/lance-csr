@@ -14,8 +14,8 @@
 
 //! Graph query functionality for Lance datasets
 
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::collections::{HashMap, VecDeque};
+use std::sync::{Arc, Mutex, RwLock};
 
 use arrow::compute::concat_batches;
 use arrow::ffi_stream::ArrowArrayStreamReader;
@@ -1234,6 +1234,7 @@ enum EngineSource {
 /// keep the `Arc` they started with, so they finish on their original snapshot.
 struct EngineState {
     sources: HashMap<String, EngineSource>,
+    plans: Mutex<VecDeque<CachedQuery>>,
     catalog: Arc<dyn lance_graph::GraphSourceCatalog>,
     context: SessionContext,
     /// CSR adjacencies by relationship type; empty unless the engine uses CSR.
@@ -1242,6 +1243,33 @@ struct EngineState {
     node_index: HashMap<String, NodeIndexEntry>,
     /// Join-key distinct counts by dataset name, reported to DataFusion's join planner.
     key_stats: HashMap<String, KeyStatsEntry>,
+}
+
+/// A small LRU of unoptimized plans. Values are bound after lookup, before optimization.
+struct CachedQuery {
+    text: String,
+    parameter_types: Vec<(String, u8)>,
+    query: RustCypherQuery,
+}
+
+// Containers change expression shape; keep them on the uncached path.
+fn parameter_types(parameters: &HashMap<String, JsonValue>) -> Option<Vec<(String, u8)>> {
+    let mut types = parameters
+        .iter()
+        .map(|(name, value)| {
+            let kind = match value {
+                JsonValue::Null => 0,
+                JsonValue::Bool(_) => 1,
+                JsonValue::String(_) => 2,
+                JsonValue::Number(value) if value.is_i64() => 3,
+                JsonValue::Number(value) if value.is_f64() => 4,
+                _ => return None,
+            };
+            Some((name.clone(), kind))
+        })
+        .collect::<Option<Vec<_>>>()?;
+    types.sort_unstable();
+    Some(types)
 }
 
 /// Distinct counts for one dataset's node-id and edge-endpoint columns.
@@ -1573,6 +1601,7 @@ fn build_engine_state(
     }
     Ok(EngineState {
         sources,
+        plans: Mutex::default(),
         catalog: Arc::new(catalog),
         context: ctx,
         csr,
@@ -1982,21 +2011,69 @@ impl CypherEngine {
         query: &str,
         params: Option<&Bound<'_, PyDict>>,
         state: &EngineState,
+        use_cache: bool,
     ) -> PyResult<RustCypherQuery> {
         let mut parameters = HashMap::new();
         for (key, value) in params.into_iter().flat_map(|p| p.iter()) {
-            parameters.insert(key.extract::<String>()?, python_to_json(&value)?);
+            parameters.insert(
+                key.extract::<String>()?.to_lowercase(),
+                python_to_json(&value)?,
+            );
         }
-        let query = RustCypherQuery::new(query)
-            .map_err(graph_error_to_pyerr)?
+        self.plan_query(query, parameters, state, use_cache)
+            .map_err(graph_error_to_pyerr)
+    }
+
+    fn plan_query(
+        &self,
+        text: &str,
+        parameters: HashMap<String, JsonValue>,
+        state: &EngineState,
+        use_cache: bool,
+    ) -> Result<RustCypherQuery, RustGraphError> {
+        let key = use_cache.then(|| parameter_types(&parameters)).flatten();
+        if let Some(key) = &key {
+            let mut plans = state.plans.lock().unwrap();
+            if let Some(index) = plans
+                .iter()
+                .position(|entry| entry.text == text && entry.parameter_types == *key)
+            {
+                let entry = plans.remove(index).unwrap();
+                let query = entry.query.clone().with_parameters(parameters);
+                plans.push_back(entry);
+                return Ok(query);
+            }
+        }
+        let query = RustCypherQuery::new(text)?
             .with_parameters(parameters)
             .with_config(self.config.clone())
             .with_fan_out(state.fan_out());
-        Ok(if self.use_csr {
+        let mut query = if self.use_csr {
             query.with_adjacency(state.adjacency_catalog())
         } else {
             query
-        })
+        };
+        if let Some(parameter_types) = key {
+            // Some operators require literal values during planning. If a template
+            // cannot be built, ordinary planning preserves their existing behavior.
+            if query
+                .prepare_cached_plan(state.catalog.clone())
+                .unwrap_or(false)
+            {
+                let mut plans = state.plans.lock().unwrap();
+                plans
+                    .retain(|entry| entry.text != text || entry.parameter_types != parameter_types);
+                if plans.len() == 128 {
+                    plans.pop_front();
+                }
+                plans.push_back(CachedQuery {
+                    text: text.to_string(),
+                    parameter_types,
+                    query: query.clone(),
+                });
+            }
+        }
+        Ok(query)
     }
 }
 
@@ -2072,7 +2149,7 @@ impl CypherEngine {
         params: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<Py<PyAny>> {
         let state = self.snapshot();
-        let cypher_query = self.parse(query, params, &state)?;
+        let cypher_query = self.parse(query, params, &state, true)?;
         let result_batch = RT
             .block_on(
                 Some(py),
@@ -2100,7 +2177,7 @@ impl CypherEngine {
         use arrow::pyarrow::IntoPyArrow;
 
         let state = self.snapshot();
-        let cypher_query = self.parse(query, params, &state)?;
+        let cypher_query = self.parse(query, params, &state, true)?;
         let stream = RT
             .block_on(
                 Some(py),
@@ -2126,7 +2203,7 @@ impl CypherEngine {
         params: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<String> {
         let state = self.snapshot();
-        let cypher_query = self.parse(query, params, &state)?;
+        let cypher_query = self.parse(query, params, &state, false)?;
         RT.block_on(
             Some(py),
             cypher_query
@@ -2254,7 +2331,7 @@ impl CypherEngine {
         vector_search: &VectorSearch,
     ) -> PyResult<Py<PyAny>> {
         let state = self.snapshot();
-        let cypher_query = self.parse(query, None, &state)?;
+        let cypher_query = self.parse(query, None, &state, false)?;
         let vs = vector_search.inner.clone();
 
         // Execute query to get candidates, then apply vector reranking
@@ -2515,41 +2592,112 @@ pub fn register_graph_module(py: Python, parent_module: &Bound<'_, PyModule>) ->
 mod tests {
     use super::*;
 
+    fn test_state(id: i64) -> EngineState {
+        let batch = RecordBatch::try_from_iter([(
+            "id",
+            Arc::new(arrow_array::Int64Array::from(vec![id])) as arrow_array::ArrayRef,
+        )])
+        .unwrap();
+        let provider =
+            Arc::new(MemTable::try_new(batch.schema(), vec![vec![batch.clone()]]).unwrap());
+        let context = SessionContext::new();
+        context.register_table("person", provider.clone()).unwrap();
+        EngineState {
+            sources: HashMap::from([("Person".to_string(), EngineSource::Arrow(batch))]),
+            plans: Mutex::default(),
+            catalog: Arc::new(
+                InMemoryCatalog::new()
+                    .with_node_source("Person", Arc::new(DefaultTableSource::new(provider))),
+            ),
+            context,
+            csr: HashMap::new(),
+            node_index: HashMap::new(),
+            key_stats: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn test_plan_cache_reuses_bounds_and_refreshes() {
+        let engine = CypherEngine {
+            config: RustGraphConfig::builder()
+                .node_table("Person", "id")
+                .build()
+                .unwrap(),
+            state: RwLock::new(Arc::new(test_state(1))),
+            use_csr: false,
+        };
+        let snapshot = engine.snapshot();
+        let text = "MATCH (p:Person) WHERE p.id = $value RETURN p.id";
+        for value in [1, 2, 3] {
+            engine
+                .plan_query(
+                    text,
+                    HashMap::from([("value".into(), value.into())]),
+                    &snapshot,
+                    true,
+                )
+                .unwrap();
+            assert_eq!(snapshot.plans.lock().unwrap().len(), 1);
+            // The retained template still has its first parameters: later calls
+            // really used lookup and rebinding rather than replacing the entry.
+            assert_eq!(
+                snapshot.plans.lock().unwrap()[0].query.parameters()["value"],
+                JsonValue::from(1)
+            );
+        }
+        for value in [JsonValue::Null, JsonValue::from(1.5)] {
+            engine
+                .plan_query(
+                    text,
+                    HashMap::from([("value".into(), value)]),
+                    &snapshot,
+                    true,
+                )
+                .unwrap();
+        }
+        assert_eq!(snapshot.plans.lock().unwrap().len(), 3);
+        engine
+            .plan_query(
+                "MATCH (p:Person) WHERE p.id IN $ids RETURN p.id",
+                HashMap::from([("ids".into(), serde_json::json!([1, 2]))]),
+                &snapshot,
+                true,
+            )
+            .unwrap();
+        assert_eq!(snapshot.plans.lock().unwrap().len(), 3);
+        for value in 0..130 {
+            engine
+                .plan_query(
+                    &format!("MATCH (p:Person) RETURN p.id AS id LIMIT {value}"),
+                    HashMap::new(),
+                    &snapshot,
+                    true,
+                )
+                .unwrap();
+        }
+        assert_eq!(snapshot.plans.lock().unwrap().len(), 128);
+        assert!(snapshot
+            .plans
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|entry| entry.text != text));
+        assert!(engine.try_publish_refresh(&snapshot, test_state(2)));
+        assert!(engine.snapshot().plans.lock().unwrap().is_empty());
+        assert_eq!(snapshot.plans.lock().unwrap().len(), 128);
+    }
+
     #[test]
     fn test_refresh_rejects_stale_snapshot() {
-        use arrow_array::Int64Array;
         use std::sync::mpsc;
         use std::time::Duration;
-
-        fn state(id: i64) -> EngineState {
-            let batch = RecordBatch::try_from_iter([(
-                "id",
-                Arc::new(Int64Array::from(vec![id])) as arrow_array::ArrayRef,
-            )])
-            .unwrap();
-            let provider =
-                Arc::new(MemTable::try_new(batch.schema(), vec![vec![batch.clone()]]).unwrap());
-            let context = SessionContext::new();
-            context.register_table("person", provider.clone()).unwrap();
-            EngineState {
-                sources: HashMap::from([("Person".to_string(), EngineSource::Arrow(batch))]),
-                catalog: Arc::new(
-                    InMemoryCatalog::new()
-                        .with_node_source("Person", Arc::new(DefaultTableSource::new(provider))),
-                ),
-                context,
-                csr: HashMap::new(),
-                node_index: HashMap::new(),
-                key_stats: HashMap::new(),
-            }
-        }
 
         let engine = CypherEngine {
             config: RustGraphConfig::builder()
                 .node_table("Person", "id")
                 .build()
                 .unwrap(),
-            state: RwLock::new(Arc::new(state(1))),
+            state: RwLock::new(Arc::new(test_state(1))),
             use_csr: false,
         };
         let reader_snapshot = engine.snapshot();
@@ -2561,10 +2709,10 @@ mod tests {
                 let starting_snapshot = engine.snapshot();
                 started_tx.send(()).unwrap();
                 published_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-                engine.try_publish_refresh(&starting_snapshot, state(2))
+                engine.try_publish_refresh(&starting_snapshot, test_state(2))
             });
             started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-            assert!(engine.try_publish_refresh(&engine.snapshot(), state(3)));
+            assert!(engine.try_publish_refresh(&engine.snapshot(), test_state(3)));
             published_tx.send(()).unwrap();
             assert!(!older.join().unwrap());
         });

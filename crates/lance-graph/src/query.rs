@@ -129,7 +129,24 @@ pub struct CypherQuery {
     adjacency: Option<crate::csr_expand::AdjacencyCatalog>,
     /// Optional mean fan-out per relationship type and direction; see [`FanOut`]
     fan_out: Option<crate::logical_plan::FanOut>,
+    /// An unoptimized template belonging to the caller's catalog snapshot.
+    cached_plan: Option<Arc<CachedPlan>>,
 }
+struct CachedPlan {
+    graph: crate::logical_plan::LogicalOperator,
+    datafusion: datafusion::logical_expr::LogicalPlan,
+    catalog: Arc<dyn lance_graph_catalog::GraphSourceCatalog>,
+    parameter_types: HashMap<String, arrow_schema::DataType>,
+}
+
+impl std::fmt::Debug for CachedPlan {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CachedPlan")
+            .field("parameter_types", &self.parameter_types)
+            .finish_non_exhaustive()
+    }
+}
+
 impl CypherQuery {
     /// Create a new Cypher query from a query string
     pub fn new(query: &str) -> Result<Self> {
@@ -142,11 +159,13 @@ impl CypherQuery {
             parameters: HashMap::new(),
             adjacency: None,
             fan_out: None,
+            cached_plan: None,
         })
     }
 
     /// Set the graph configuration for this query
     pub fn with_config(mut self, config: GraphConfig) -> Self {
+        self.cached_plan = None;
         self.config = Some(config);
         self
     }
@@ -157,6 +176,7 @@ impl CypherQuery {
     /// [`crate::csr_expand::CsrQueryPlanner`]. Each adjacency must be built from the
     /// same relationship data the context serves, or results will be wrong.
     pub fn with_adjacency(mut self, adjacency: crate::csr_expand::AdjacencyCatalog) -> Self {
+        self.cached_plan = None;
         self.adjacency = Some(adjacency);
         self
     }
@@ -164,6 +184,7 @@ impl CypherQuery {
     /// Mean fan-out per relationship type and direction, so a pattern that continues
     /// earlier rows can start from its cheaper bound end (see [`crate::logical_plan::FanOut`]).
     pub fn with_fan_out(mut self, fan_out: crate::logical_plan::FanOut) -> Self {
+        self.cached_plan = None;
         self.fan_out = Some(fan_out);
         self
     }
@@ -205,6 +226,85 @@ impl CypherQuery {
     /// Get query parameters
     pub fn parameters(&self) -> &HashMap<String, serde_json::Value> {
         &self.parameters
+    }
+
+    /// Build a snapshot-local scalar-parameter template for the Python engine's cache.
+    /// Binding must precede optimization so pushed CSR filters never retain old values.
+    #[doc(hidden)]
+    pub fn prepare_cached_plan(
+        &mut self,
+        catalog: Arc<dyn lance_graph_catalog::GraphSourceCatalog>,
+    ) -> Result<bool> {
+        if self.scalar_parameters().is_none() || self.has_parameter_named_columns() {
+            return Ok(false);
+        }
+        let (graph, datafusion) = self.build_logical_plans(catalog.clone(), true)?;
+        self.cached_plan = Some(Arc::new(CachedPlan {
+            graph,
+            datafusion,
+            catalog,
+            parameter_types: self
+                .scalar_parameters()
+                .unwrap()
+                .into_iter()
+                .map(|(name, value)| (name, value.data_type()))
+                .collect(),
+        }));
+        Ok(true)
+    }
+
+    // Unaliased expressions use their bound values as column names. Reusing a
+    // placeholder-named projection would change the observable Arrow schema.
+    fn has_parameter_named_columns(&self) -> bool {
+        self.ast
+            .return_clause
+            .items
+            .iter()
+            .chain(self.ast.with_clause.iter().flat_map(|clause| &clause.items))
+            .chain(
+                self.ast
+                    .further_with_stages
+                    .iter()
+                    .flat_map(|stage| &stage.with_clause.items),
+            )
+            .any(|item| {
+                if item.alias.is_some() {
+                    return false;
+                }
+                let mut found = false;
+                crate::ast::transform_value(&mut item.expression.clone(), &mut |value| {
+                    found |= matches!(
+                        value,
+                        crate::ast::ValueExpression::Parameter(_)
+                            | crate::ast::ValueExpression::Literal(
+                                crate::ast::PropertyValue::Parameter(_)
+                            )
+                    );
+                });
+                found
+            })
+    }
+
+    fn scalar_parameters(&self) -> Option<HashMap<String, datafusion::common::ScalarValue>> {
+        use datafusion::common::ScalarValue;
+        self.parameters
+            .iter()
+            .map(|(name, value)| {
+                let value = match value {
+                    serde_json::Value::Null => ScalarValue::Null,
+                    serde_json::Value::Bool(value) => ScalarValue::Boolean(Some(*value)),
+                    serde_json::Value::String(value) => ScalarValue::Utf8(Some(value.clone())),
+                    serde_json::Value::Number(value) if value.is_i64() => {
+                        ScalarValue::Int64(value.as_i64())
+                    }
+                    serde_json::Value::Number(value) if value.is_f64() => {
+                        ScalarValue::Float64(value.as_f64())
+                    }
+                    _ => return None,
+                };
+                Some((name.clone(), value))
+            })
+            .collect()
     }
 
     /// Get the required config, returning an error if not set
@@ -877,6 +977,37 @@ impl CypherQuery {
         crate::logical_plan::LogicalOperator,
         datafusion::logical_expr::LogicalPlan,
     )> {
+        if let Some(template) = &self.cached_plan {
+            if let Some(parameters) = self.scalar_parameters() {
+                let same_types = parameters.len() == template.parameter_types.len()
+                    && parameters.iter().all(|(name, value)| {
+                        template.parameter_types.get(name) == Some(&value.data_type())
+                    });
+                if !Arc::ptr_eq(&catalog, &template.catalog) || !same_types {
+                    return self.build_logical_plans(catalog, false);
+                }
+                let plan = template
+                    .datafusion
+                    .clone()
+                    .with_param_values(parameters)
+                    .map_err(|error| GraphError::PlanError {
+                        message: format!("Failed to bind query parameters: {error}"),
+                        location: snafu::Location::new(file!(), line!(), column!()),
+                    })?;
+                return Ok((template.graph.clone(), plan));
+            }
+        }
+        self.build_logical_plans(catalog, false)
+    }
+
+    fn build_logical_plans(
+        &self,
+        catalog: Arc<dyn lance_graph_catalog::GraphSourceCatalog>,
+        parameterized: bool,
+    ) -> Result<(
+        crate::logical_plan::LogicalOperator,
+        datafusion::logical_expr::LogicalPlan,
+    )> {
         use crate::datafusion_planner::{DataFusionPlanner, GraphPhysicalPlanner};
         use crate::semantic::SemanticAnalyzer;
 
@@ -894,12 +1025,24 @@ impl CypherQuery {
 
         // Phase 2: Graph Logical Plan
         let mut logical_planner = LogicalPlanner::new(config).with_fan_out(self.fan_out.as_ref());
-        // Use the transformed AST (with parameters substituted)
-        let logical_plan = logical_planner.plan(&semantic.ast)?;
+        let ast = if parameterized {
+            &self.ast
+        } else {
+            &semantic.ast
+        };
+        let logical_plan = logical_planner.plan(ast)?;
 
         // Phase 3: DataFusion Logical Plan
         let mut df_planner = DataFusionPlanner::with_catalog(config.clone(), catalog);
         df_planner.adjacency = self.adjacency.clone();
+        if parameterized {
+            df_planner.parameter_types = self
+                .scalar_parameters()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|(name, value)| (name, value.data_type()))
+                .collect();
+        }
         let df_logical_plan = df_planner.plan(&logical_plan)?;
 
         Ok((logical_plan, df_logical_plan))
@@ -1325,6 +1468,7 @@ impl CypherQueryBuilder {
             parameters: self.parameters,
             adjacency: None,
             fan_out: None,
+            cached_plan: None,
         };
 
         Ok(query)
@@ -1358,6 +1502,245 @@ mod tests {
 
         assert!(query.parameters().contains_key("minage"));
         assert!(query.parameters().contains_key("maxage"));
+    }
+
+    #[tokio::test]
+    async fn cached_templates_rebind_scalars_and_preserve_schema() {
+        use arrow_array::{ArrayRef, Int64Array, StringArray};
+        let config = GraphConfig::builder()
+            .node_table("Person", "id")
+            .build()
+            .unwrap();
+        let datasets = HashMap::from([(
+            "Person".into(),
+            RecordBatch::try_from_iter([
+                ("id", Arc::new(Int64Array::from(vec![1, 2, 3])) as ArrayRef),
+                (
+                    "name",
+                    Arc::new(StringArray::from(vec!["Ada", "Bob", "Cam"])) as ArrayRef,
+                ),
+            ])
+            .unwrap(),
+        )]);
+        let cases = [
+            (
+                "MATCH (p:Person) WHERE p.id >= $value RETURN p.id ORDER BY p.id",
+                vec![serde_json::json!(1), serde_json::json!(3)],
+            ),
+            (
+                "MATCH (p:Person) RETURN p.id + $value AS adjusted ORDER BY adjusted",
+                vec![serde_json::json!(1.5), serde_json::json!(8.5)],
+            ),
+            (
+                "MATCH (p:Person) WHERE p.name = $value RETURN p.id",
+                vec![serde_json::json!("Ada"), serde_json::json!("Cam")],
+            ),
+            (
+                "MATCH (p:Person) RETURN $value AS value",
+                vec![serde_json::json!(true), serde_json::json!(false)],
+            ),
+            (
+                "MATCH (p:Person) RETURN $value AS value",
+                vec![serde_json::Value::Null],
+            ),
+            (
+                "MATCH (p:Person) RETURN $value",
+                vec![serde_json::json!(1), serde_json::json!(2)],
+            ),
+            (
+                "MATCH (p:Person) RETURN p.id + $value",
+                vec![serde_json::json!(1), serde_json::json!(2)],
+            ),
+            (
+                "MATCH (p:Person) RETURN p.id AS id, [x IN range(1, $value) | x + p.id] AS values ORDER BY id",
+                vec![serde_json::json!(1), serde_json::json!(3)],
+            ),
+        ];
+        for (text, values) in cases {
+            let mut template = CypherQuery::new(text)
+                .unwrap()
+                .with_config(config.clone())
+                .with_parameter("value", values[0].clone());
+            let (catalog, context) = template
+                .build_catalog_and_context_from_datasets(datasets.clone())
+                .await
+                .unwrap();
+            let catalog: Arc<dyn lance_graph_catalog::GraphSourceCatalog> = Arc::new(catalog);
+            let cached = template.prepare_cached_plan(catalog.clone()).unwrap();
+            assert_eq!(cached, !template.has_parameter_named_columns(), "{text}");
+            for value in values {
+                let cached = template.clone().with_parameter("value", value.clone());
+                let fresh = CypherQuery::new(text)
+                    .unwrap()
+                    .with_config(config.clone())
+                    .with_parameter("value", value);
+                let actual = cached
+                    .execute_with_catalog_and_context(catalog.clone(), context.clone())
+                    .await
+                    .unwrap();
+                let expected = fresh
+                    .execute_with_catalog_and_context(catalog.clone(), context.clone())
+                    .await
+                    .unwrap();
+                assert_eq!(actual, expected, "{text}");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn cached_templates_respect_catalog_and_parameter_types() {
+        use arrow_array::{ArrayRef, Int64Array};
+        let config = GraphConfig::builder()
+            .node_table("Person", "id")
+            .build()
+            .unwrap();
+        let data = |id| {
+            HashMap::from([(
+                "Person".into(),
+                RecordBatch::try_from_iter([(
+                    "id",
+                    Arc::new(Int64Array::from(vec![id])) as ArrayRef,
+                )])
+                .unwrap(),
+            )])
+        };
+        let mut query = CypherQuery::new("MATCH (p:Person) WHERE p.id = $value RETURN p.id")
+            .unwrap()
+            .with_config(config.clone())
+            .with_parameter("value", 1);
+        let (catalog, _) = query
+            .build_catalog_and_context_from_datasets(data(1))
+            .await
+            .unwrap();
+        assert!(query.prepare_cached_plan(Arc::new(catalog)).unwrap());
+        // A different catalog must never serve rows from the prepared snapshot.
+        assert_eq!(query.execute(data(2), None).await.unwrap().num_rows(), 0);
+        assert!(query
+            .clone()
+            .with_parameter("value", "wrong")
+            .execute(data(1), None)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("Type mismatch"));
+        assert!(query.with_config(config).cached_plan.is_none());
+        let mut containers = CypherQuery::new("MATCH (p:Person) WHERE p.id IN $ids RETURN p.id")
+            .unwrap()
+            .with_parameter("ids", serde_json::json!([1, 2]));
+        assert!(!containers
+            .prepare_cached_plan(Arc::new(crate::InMemoryCatalog::new()))
+            .unwrap());
+    }
+
+    // Opt-in diagnostic: reports stage means for a fixed local scan, with no timing
+    // assertions. Physical planning calls the query planner directly, avoiding the
+    // extra optimize() performed by SessionState::create_physical_plan().
+    #[tokio::test]
+    #[ignore = "local stage timing; run with --ignored --nocapture"]
+    async fn profile_query_planning_stages() {
+        use crate::datafusion_planner::{DataFusionPlanner, GraphPhysicalPlanner};
+        use crate::semantic::SemanticAnalyzer;
+        use arrow_array::{ArrayRef, Int64Array};
+        use std::time::Instant;
+        let text = "MATCH (p:Person) WHERE p.id >= $minimum RETURN p.id AS id ORDER BY id";
+        let config = GraphConfig::builder()
+            .node_table("Person", "id")
+            .build()
+            .unwrap();
+        let parameters = HashMap::from([("minimum".into(), serde_json::json!(10))]);
+        let mut template = CypherQuery::new(text)
+            .unwrap()
+            .with_config(config.clone())
+            .with_parameters(parameters.clone());
+        let data = HashMap::from([(
+            "Person".into(),
+            RecordBatch::try_from_iter([(
+                "id",
+                Arc::new(Int64Array::from_iter_values(0..1000)) as ArrayRef,
+            )])
+            .unwrap(),
+        )]);
+        let (catalog, context) = template
+            .build_catalog_and_context_from_datasets(data)
+            .await
+            .unwrap();
+        let catalog: Arc<dyn lance_graph_catalog::GraphSourceCatalog> = Arc::new(catalog);
+        template.prepare_cached_plan(catalog.clone()).unwrap();
+        let state = context.state();
+        let mut totals = [std::time::Duration::ZERO; 8];
+        for _ in 0..100 {
+            let start = Instant::now();
+            let ast = parse_cypher_query(text).unwrap();
+            totals[0] += start.elapsed();
+            let start = Instant::now();
+            let semantic = SemanticAnalyzer::new(config.clone())
+                .with_catalog(catalog.clone())
+                .analyze(&ast, &parameters)
+                .unwrap();
+            assert!(semantic.errors.is_empty());
+            totals[1] += start.elapsed();
+            let start = Instant::now();
+            let graph = LogicalPlanner::new(&config).plan(&semantic.ast).unwrap();
+            totals[2] += start.elapsed();
+            let start = Instant::now();
+            let logical = DataFusionPlanner::with_catalog(config.clone(), catalog.clone())
+                .plan(&graph)
+                .unwrap();
+            totals[3] += start.elapsed();
+            let start = Instant::now();
+            let optimized = state.optimize(&logical).unwrap();
+            totals[4] += start.elapsed();
+            let start = Instant::now();
+            let physical = state
+                .query_planner()
+                .create_physical_plan(&optimized, &state)
+                .await
+                .unwrap();
+            totals[5] += start.elapsed();
+            let start = Instant::now();
+            let batches = datafusion::physical_plan::collect(physical, context.task_ctx())
+                .await
+                .unwrap();
+            totals[6] += start.elapsed();
+            assert_eq!(
+                batches.iter().map(RecordBatch::num_rows).sum::<usize>(),
+                990
+            );
+            let checksum: i64 = batches
+                .iter()
+                .flat_map(|batch| {
+                    batch
+                        .column(0)
+                        .as_any()
+                        .downcast_ref::<Int64Array>()
+                        .unwrap()
+                        .values()
+                        .iter()
+                })
+                .sum();
+            assert_eq!(checksum, (10 + 999) * 990 / 2);
+            let start = Instant::now();
+            let _ = template.create_logical_plans(catalog.clone()).unwrap();
+            totals[7] += start.elapsed();
+        }
+        for (name, duration) in [
+            "parse",
+            "semantic",
+            "graph_logical",
+            "datafusion_logical",
+            "optimize",
+            "physical",
+            "execute",
+            "cached_bind",
+        ]
+        .into_iter()
+        .zip(totals)
+        {
+            println!(
+                "{name}: {:.3} us mean (100 iterations, 1000 input rows, 990 result rows)",
+                duration.as_secs_f64() * 1_000_000.0 / 100.0
+            );
+        }
     }
 
     #[test]

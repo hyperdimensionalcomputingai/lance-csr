@@ -87,7 +87,7 @@ impl DataFusionPlanner {
     ) -> Result<LogicalPlan> {
         let input_plan = self.build_operator(ctx, input)?;
         let predicate = super::super::expression::bind_boolean(predicate, input_plan.schema());
-        let expr = super::super::expression::to_df_boolean_expr(&predicate);
+        let expr = self.boolean_expr(&predicate);
         LogicalPlanBuilder::from(input_plan)
             .filter(expr)
             .map_err(|e| self.plan_error("Failed to build filter", e))?
@@ -175,7 +175,7 @@ impl DataFusionPlanner {
                 continue;
             }
             let bound = super::super::expression::bind_value(&p.expression, &schema);
-            let expr = super::super::expression::to_df_value_expr(&bound);
+            let expr = self.value_expr(&bound);
             // Apply alias if provided, otherwise use Cypher dot notation
             // Normalize alias to lowercase for case-insensitive behavior
             exprs.push(if let Some(alias) = &p.alias {
@@ -234,7 +234,7 @@ impl DataFusionPlanner {
                 let bound =
                     super::super::expression::bind_value(&item.expression, input_plan.schema());
                 SortExpr {
-                    expr: super::super::expression::to_df_value_expr(&bound),
+                    expr: self.value_expr(&bound),
                     asc: matches!(item.direction, crate::ast::SortDirection::Ascending),
                     nulls_first: true,
                 }
@@ -289,7 +289,7 @@ impl DataFusionPlanner {
 
         // Convert expression to DataFusion Expr
         let bound = super::super::expression::bind_value(expression, input_plan.schema());
-        let df_expr = super::super::expression::to_df_value_expr(&bound);
+        let df_expr = self.value_expr(&bound);
         // A list of node ids: unnest under a temporary name, then join each id back to the
         // node table so the alias carries the node's columns like any matched node.
         let unnested = match label {
