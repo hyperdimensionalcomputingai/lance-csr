@@ -287,7 +287,8 @@ RETURN length(p), nodes(p)
   expansion for the whole range; the join fallback uses one branch per length.
 - **Variable-length alternation** follows each relationship type's configured endpoint labels. With
   suitable CSR and node indexes, a mixed path such as `[:hasType|isSubclassOf*1..3]` stays in one operator.
-  Undirected or named variable-length alternation remains unsupported.
+  Named paths also support typed variable-length alternation through their edge inventory.
+  Unnamed undirected variable-length alternation remains unsupported.
 - **Undirected variable-length paths** skip immediate backtracking (`a-b-a`).
 - **`shortestPath` and `allShortestPaths`** need exactly one relationship type, no relationship variable,
   and named end nodes. Their length is unbounded unless you give a maximum. `nodes(p)` returns the node keys.
@@ -296,7 +297,51 @@ RETURN length(p), nodes(p)
   duplicate node sequences that use different parallel edges. A single source-target pair searches from
   both ends when reverse adjacency is available. Several targets for the same source in an input batch
   share one forward search.
-- **Named paths** (`p = ...`) are only supported with `shortestPath` and `allShortestPaths`.
+- **Named paths** (`p = (a)-[:R]->(b)`) retain the ordered node and relationship records. Named
+  variable-length paths use each relationship at most once, including self-loops and parallel edges.
+  Use `relationships(p)` for variable-length relationship lists; binding a relationship variable inside
+  a named variable-length segment is not supported.
+
+### Path values
+
+A named path can pass through `WITH`, `collect()` and `UNWIND` without losing its edges. Parallel edges
+with identical endpoints remain distinct, including when their properties are identical.
+
+```python
+paths = engine.execute("""
+    MATCH path = (a:Person {id: 1})-[:KNOWS]->(b:Person)
+    WITH collect(path) AS paths
+    UNWIND paths AS path
+    RETURN [n IN nodes(path) | n.name] AS names,
+           [r IN relationships(path) | endNode(r).id] AS targets
+    ORDER BY names
+""")
+print(paths.to_pylist())
+# [{'names': ['Alice', 'Bob'], 'targets': [2]},
+#  {'names': ['Alice', 'Carol'], 'targets': [3]}]
+```
+
+`nodes(path)` still returns integer keys when returned directly. A property comprehension over it uses
+stored node records when the path is a value, so equal keys in different labels remain different nodes.
+`startNode(r)` and `endNode(r)` return the relationship's stored source and target, even when the path
+traversed that relationship backwards. Property access, `keys()` and node `labels()` work on these values.
+A zero-hop path has one node and an empty relationship list. All path functions return null for a null path.
+
+`RETURN path` produces an Arrow struct with `length`, `nodes`, `node_records` and `relationships` fields.
+Entity records store user properties in `__lance_graph_properties` and `{label, id}` identity metadata
+in `__lance_graph_identity`. Relationship records also carry the node records `__lance_graph_start` and
+`__lance_graph_end`. These metadata fields are distinct from user properties, even if a property has the
+same name. `keys(entity)` lists only non-null user properties; `keys(map)` includes null-valued keys.
+Prefer the Cypher property and endpoint functions when writing queries. Relationship identities identify actual occurrences within this query's inventory, not persistent
+IDs that can be compared across queries or refreshes. Rich paths support the same signed integer and
+`uint8`/`uint16`/`uint32` keys as the CSR. Mixed labels may share compatible properties; conflicting Arrow
+property types fail explicitly. Expanding a graph pattern from a mixed-label value remains unsupported.
+
+A path value needs a query-local inventory of the participating node and relationship tables, including
+properties. It therefore materializes those tables, even with `use_csr=True`. Traversal output is emitted
+in batches and named ordinary paths keep a cursor per hop, but inventory memory grows with the graph.
+Queries asking only for shortest-path length or node keys, including existing homogeneous node-property
+comprehensions, retain the usual CSR execution route.
 
 ### Expressions and predicates
 
@@ -329,7 +374,7 @@ RETURN length(p), nodes(p)
 | Lists | `size`, `head`, `last`, `tail`, `reverse`, `range(start, end [, step])` (inclusive) |
 | Math | `abs`, `round`, `floor`, `ceil`, `sqrt` |
 | Temporal | `date`, `datetime`, `date_part('month', d)`, `to_epoch_ms`, `duration.inSeconds(a, b).seconds` |
-| Paths | `length(p)`, `nodes(p)` on `shortestPath` variables |
+| Paths | `length(p)`, `nodes(p)`, `relationships(p)`; `startNode(r)`, `endNode(r)` on relationship values |
 | Vectors | `vector_distance(a, b, metric)`, `vector_similarity(a, b, metric)`; see [Vector search](vector-search.md) |
 
 The string and list functions follow the [Cypher v9 reference](https://s3.amazonaws.com/artifacts.opencypher.org/openCypher9.pdf),
@@ -386,7 +431,7 @@ print(result.to_pylist())  # [{'labels': ['Person'], 'properties': 3}]
 
 Any other function raises `ValueError` with `Cypher function 'name' is not implemented`. This is a
 bounded function set, not a claim of full Cypher conformance. Remaining functions include `reduce`,
-the list predicates `any` / `all` / `none` / `single`, and `relationships(p)`.
+the list predicates `any` / `all` / `none` / `single`.
 
 When `size()` consumes an unmapped list comprehension, such as `size([x IN values WHERE x > 0])`, the planner
 counts retained elements directly. Each duplicate and each retained null element still contributes one;

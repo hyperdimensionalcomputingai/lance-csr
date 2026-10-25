@@ -68,6 +68,7 @@ impl DataFusionPlanner {
         let analysis = analysis::analyze(inner)?;
         let mut child_ctx = PlanningContext::new(&analysis);
         child_ctx.call_input = Some(seed);
+        child_ctx.path_sources = ctx.path_sources.clone();
         let child = self.build_operator(&mut child_ctx, inner)?;
         let node = ApplyNode::try_new(input, child, imports)
             .map_err(|error| self.plan_error("CALL output", error))?;

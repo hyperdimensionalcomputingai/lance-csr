@@ -51,7 +51,10 @@ impl ScalarUDFImpl for CypherScalar {
                 "abs" | "round" | "floor" | "ceil" | "sqrt" => t.is_integer() || t.is_floating(),
                 "range" => t.is_integer(),
                 "keys" | "__entity_keys" => matches!(t, DataType::Struct(_)),
-                "labels" => false,
+                "labels" => crate::path_value::entity_kind(t) == Some("node"),
+                "startnode" | "endnode" => {
+                    crate::path_value::entity_kind(t) == Some("relationship")
+                }
                 "size" | "reverse" => is_string(t) || list_field(t).is_some(),
                 "last" | "tail" => list_field(t).is_some(),
                 "left" | "right" | "substring" if i > 0 => t.is_integer(),
@@ -62,6 +65,10 @@ impl ScalarUDFImpl for CypherScalar {
             }
         }
         Ok(match self.name.as_str() {
+            "startnode" | "endnode" => match &types[0] {
+                DataType::Struct(fields) => fields[2].data_type().clone(),
+                _ => DataType::Null,
+            },
             "size" => DataType::Int64,
             "abs" if types[0].is_integer() => DataType::Int64,
             "abs" | "round" | "floor" | "ceil" | "sqrt" => DataType::Float64,
@@ -89,15 +96,50 @@ impl ScalarUDFImpl for CypherScalar {
                 args.number_rows,
             )));
         }
+        if matches!(self.name.as_str(), "startnode" | "endnode") {
+            let input = args.args[0].to_array(args.number_rows)?;
+            let column = input
+                .as_struct()
+                .column(if self.name == "startnode" { 2 } else { 3 });
+            let nulls = arrow::buffer::NullBuffer::union(
+                input.logical_nulls().as_ref(),
+                column.logical_nulls().as_ref(),
+            );
+            return Ok(ColumnarValue::Array(arrow::array::make_array(
+                column.to_data().into_builder().nulls(nulls).build()?,
+            )));
+        }
+        if self.name == "labels" {
+            let input = args.args[0].to_array(args.number_rows)?;
+            let labels = input
+                .as_struct()
+                .column(1)
+                .as_struct()
+                .column(0)
+                .as_string::<i32>();
+            let mut result = ListBuilder::new(StringBuilder::new());
+            for row in 0..input.len() {
+                if input.is_valid(row) {
+                    result.values().append_value(labels.value(row));
+                }
+                result.append(input.is_valid(row));
+            }
+            return Ok(ColumnarValue::Array(Arc::new(result.finish())));
+        }
         if matches!(self.name.as_str(), "keys" | "__entity_keys") {
             let input = args.args[0].to_array(args.number_rows)?;
-            let map = input.as_struct();
+            let typed_entity = crate::path_value::entity_kind(input.data_type()).is_some();
+            let map = if typed_entity {
+                input.as_struct().column(0).as_struct()
+            } else {
+                input.as_struct()
+            };
             let nulls: Vec<_> = map
                 .columns()
                 .iter()
                 .map(|column| column.logical_nulls())
                 .collect();
-            let entity = self.name == "__entity_keys";
+            let entity = self.name == "__entity_keys" || typed_entity;
             let mut result = ListBuilder::new(StringBuilder::new());
             for row in 0..input.len() {
                 let missing = |i: usize| nulls[i].as_ref().is_some_and(|nulls| nulls.is_null(row));

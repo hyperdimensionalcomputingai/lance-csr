@@ -19,6 +19,7 @@ mod comprehension_ops;
 mod expand_ops;
 mod helpers;
 mod join_builder;
+mod path_ops;
 
 use super::DataFusionPlanner;
 use crate::error::Result;
@@ -153,6 +154,7 @@ impl DataFusionPlanner {
                 optional,
                 keys,
             } => self.build_optional_match(ctx, input, optional, keys),
+            LogicalOperator::PathMatch { input, path } => self.build_path_match(ctx, input, path),
             LogicalOperator::ShortestPath {
                 input,
                 source_variable,

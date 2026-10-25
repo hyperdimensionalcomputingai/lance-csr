@@ -145,6 +145,12 @@ pub enum LogicalOperator {
 
     /// `shortestPath` / `allShortestPaths` between two variables bound in `input`; adds
     /// `<path_variable>__length` and `<path_variable>__nodes` (node ids, source first).
+    /// A named path retaining actual relationship occurrences and typed node records.
+    PathMatch {
+        input: Box<LogicalOperator>,
+        path: PathPattern,
+    },
+
     ShortestPath {
         input: Box<LogicalOperator>,
         source_variable: String,
@@ -244,6 +250,7 @@ pub struct LogicalPlanner<'a> {
     calls: usize,
     /// The node label of each path variable's nodes, for `nodes(path)`.
     path_labels: HashMap<String, String>,
+    rich_paths: bool,
     /// The rows a projection or WHERE started from, while its EXISTS marks and
     /// comprehensions are being added: each is seeded from these, not from the rows with
     /// the previous ones joined on, so planned copies grow linearly, not exponentially.
@@ -262,6 +269,7 @@ impl<'a> LogicalPlanner<'a> {
             comprehensions: 0,
             calls: 0,
             path_labels: HashMap::new(),
+            rich_paths: false,
             seed_source: None,
         }
     }
@@ -281,6 +289,12 @@ impl<'a> LogicalPlanner<'a> {
     }
 
     fn retain_variable_alternation(&self, patterns: &[GraphPattern]) -> bool {
+        if patterns
+            .iter()
+            .all(|p| matches!(p, GraphPattern::Path(path) if path.variable.is_some()))
+        {
+            return true;
+        }
         let Some(catalog) = self.adjacency else {
             return false;
         };
@@ -346,6 +360,9 @@ impl<'a> LogicalPlanner<'a> {
     /// 100). `None` keeps the written order: start already right, no estimates, or a
     /// variable-length segment.
     fn cheaper_orientation(&self, path: &PathPattern) -> Option<PathPattern> {
+        if path.variable.is_some() || path.shortest.is_some() {
+            return None;
+        }
         let bound = |n: &NodePattern| {
             n.variable
                 .as_ref()
@@ -401,11 +418,13 @@ impl<'a> LogicalPlanner<'a> {
             start_node: nodes[0].clone(),
             segments,
             shortest: path.shortest.clone(),
+            variable: path.variable.clone(),
         }
     }
 
     /// Convert a Cypher AST to a logical plan
     pub fn plan(&mut self, query: &CypherQuery) -> Result<LogicalOperator> {
+        self.rich_paths = crate::path_value::needs_values(query);
         self.plan_query(query, None, false)
     }
 
@@ -507,6 +526,7 @@ impl<'a> LogicalPlanner<'a> {
                 .with_fan_out(self.fan_out)
                 .with_adjacency(self.adjacency);
             planner.calls = self.calls;
+            planner.rich_paths = self.rich_paths;
             if preserve_entities {
                 planner.variables = imports.0.clone();
                 planner.node_lists = imports.1.clone();
@@ -599,6 +619,7 @@ impl<'a> LogicalPlanner<'a> {
             .with_fan_out(self.fan_out)
             .with_adjacency(self.adjacency);
         inner.calls = self.calls;
+        inner.rich_paths = self.rich_paths;
         for name in &imports {
             if let Some(label) = self.variables.get(name) {
                 inner.variables.insert(name.clone(), label.clone());
@@ -671,7 +692,7 @@ impl<'a> LogicalPlanner<'a> {
         match expr {
             ValueExpression::Variable(var) => {
                 let property = match self.variables.get(var).map(String::as_str) {
-                    Some("Path") => Some("length".to_string()),
+                    Some("Path") => None,
                     Some(label) => self
                         .config
                         .get_node_mapping(label)
@@ -720,7 +741,10 @@ impl<'a> LogicalPlanner<'a> {
                     && matches!(args.as_slice(), [ValueExpression::Variable(_)]) => {}
             // Path functions take the path variable itself.
             ValueExpression::ScalarFunction { name, args }
-                if matches!(name.to_lowercase().as_str(), "length" | "nodes") => {}
+                if matches!(
+                    name.to_lowercase().as_str(),
+                    "length" | "nodes" | "relationships" | "__path_node_records"
+                ) => {}
             ValueExpression::ScalarFunction { args, .. }
             | ValueExpression::AggregateFunction { args, .. } => {
                 args.iter_mut().for_each(|a| self.resolve_value(a))
@@ -878,8 +902,22 @@ impl<'a> LogicalPlanner<'a> {
                         }
                     }
                 }
+                GraphPattern::Path(path) if path.variable.is_some() => {
+                    plan = Some(self.plan_named_path(plan, path)?)
+                }
                 GraphPattern::Path(path) if path.shortest.is_some() => {
                     plan = Some(self.plan_shortest_path(plan, path)?)
+                }
+                GraphPattern::Path(path)
+                    if self.rich_paths
+                        && path
+                            .segments
+                            .iter()
+                            .any(|s| s.relationship.variable.is_some()) =>
+                {
+                    let mut path = path.clone();
+                    path.variable = Some(format!("_path_value_{}", self.variables.len()));
+                    plan = Some(self.plan_named_path(plan, &path)?);
                 }
                 GraphPattern::Path(path) => plan = Some(self.plan_path(plan, path)?),
             }
@@ -1136,6 +1174,13 @@ impl<'a> LogicalPlanner<'a> {
             } => {
                 input = self.rewrite_exists_in_value(input, list)?;
                 self.resolve_value(list);
+                if self.rich_paths {
+                    if let ValueExpression::ScalarFunction { name, .. } = list.as_mut() {
+                        if name.eq_ignore_ascii_case("nodes") {
+                            *name = "__path_node_records".into();
+                        }
+                    }
+                }
                 let label = match list.as_ref() {
                     ValueExpression::Variable(l) => self.node_lists.get(l).cloned(),
                     ValueExpression::ScalarFunction { name, args }
@@ -1242,6 +1287,12 @@ impl<'a> LogicalPlanner<'a> {
             self.path_labels.insert(path_variable.clone(), label);
         }
         let length = rel.length.as_ref();
+        if self.rich_paths {
+            return Ok(LogicalOperator::PathMatch {
+                input: Box::new(plan.expect("both ends planned")),
+                path: path.clone(),
+            });
+        }
         Ok(LogicalOperator::ShortestPath {
             input: Box::new(plan.expect("both end nodes are planned")),
             source_variable: ends[0].clone(),
@@ -1540,6 +1591,54 @@ impl<'a> LogicalPlanner<'a> {
         Ok(plan)
     }
 
+    fn plan_named_path(
+        &mut self,
+        base: Option<LogicalOperator>,
+        path: &PathPattern,
+    ) -> Result<LogicalOperator> {
+        let mut path = path.clone();
+        if path.start_node.variable.is_none() {
+            path.start_node.variable = Some(format!("_path_node_{}", self.variables.len()));
+        }
+        let start = path.start_node.variable.as_ref().unwrap();
+        let base = if self.variables.contains_key(start) {
+            base.expect("bound variables have input rows")
+        } else {
+            let scan = self.plan_node_scan(&path.start_node)?;
+            match base {
+                Some(input) => LogicalOperator::Join {
+                    left: Box::new(input),
+                    right: Box::new(scan),
+                    join_type: JoinType::Cross,
+                },
+                None => scan,
+            }
+        };
+        for segment in &mut path.segments {
+            if segment.end_node.variable.is_none() {
+                segment.end_node.variable = Some(format!("_path_node_{}", self.variables.len()));
+            }
+            let variable = segment.end_node.variable.as_ref().unwrap();
+            self.validate_variable_label(variable, &segment.end_node.labels)?;
+            let label = self
+                .variables
+                .get(variable)
+                .cloned()
+                .or_else(|| segment.end_node.labels.first().cloned())
+                .ok_or_else(|| GraphError::UnsupportedFeature {
+                    feature: "named path boundary needs a resolved node label".into(),
+                    location: Location::new(file!(), line!(), column!()),
+                })?;
+            self.variables.insert(variable.clone(), label);
+        }
+        self.variables
+            .insert(path.variable.clone().unwrap(), "Path".into());
+        Ok(LogicalOperator::PathMatch {
+            input: Box::new(base),
+            path,
+        })
+    }
+
     /// Extract the main variable from a logical plan (for chaining)
     #[allow(clippy::only_used_in_recursion)]
     fn extract_variable_from_plan(&self, plan: &LogicalOperator) -> Result<String> {
@@ -1581,6 +1680,14 @@ impl<'a> LogicalPlanner<'a> {
                 message: "a comprehension's element rows bind no pattern variable".to_string(),
                 location: snafu::Location::new(file!(), line!(), column!()),
             }),
+            LogicalOperator::PathMatch { path, .. } => Ok(path
+                .segments
+                .last()
+                .unwrap()
+                .end_node
+                .variable
+                .clone()
+                .unwrap()),
             LogicalOperator::ShortestPath {
                 target_variable, ..
             } => Ok(target_variable.clone()),
@@ -1622,7 +1729,7 @@ impl<'a> LogicalPlanner<'a> {
                 ValueExpression::Variable(var) => {
                     match self.variables.get(var) {
                         // if it is a node variable, expand to all properties
-                        Some(label) if label != "Unwound" => {
+                        Some(label) if label != "Unwound" && label != "Path" => {
                             let mapping = self.config.get_node_mapping(label).ok_or_else(|| {
                                 GraphError::PlanError {
                                     message: format!("Node label '{}' doesn't exist", label),

@@ -223,13 +223,14 @@ pub(crate) fn to_df_value_expr(expr: &ValueExpression) -> Expr {
                         / lit(1000_i64),
                 ]),
                 // A path's length and node ids are columns of its variable (see shortest_path).
-                "length" | "nodes" => match &args[0] {
+                "length" | "nodes" | "relationships" | "__path_node_records" => match &args[0] {
                     VE::Variable(path) => col(qualify_column(path, &name.to_lowercase())),
                     _ => Expr::Literal(datafusion::scalar::ScalarValue::Null, None),
                 },
                 "abs" | "round" | "floor" | "ceil" | "sqrt" | "left" | "right" | "substring"
                 | "replace" | "split" | "trim" | "ltrim" | "rtrim" | "size" | "reverse"
-                | "last" | "tail" | "keys" | "__entity_keys" | "labels" => {
+                | "last" | "tail" | "keys" | "__entity_keys" | "labels" | "startnode"
+                | "endnode" => {
                     super::scalar_functions::call(name, args.iter().map(to_df_value_expr).collect())
                 }
                 "range" => {
@@ -523,6 +524,29 @@ pub(crate) fn bind_value(
                 base: Box::new(ValueExpression::Variable(p.variable.clone())),
                 field: p.property.clone(),
             };
+        }
+        ValueExpression::ScalarFunction { name, args }
+            if matches!(
+                name.to_lowercase().as_str(),
+                "length" | "nodes" | "relationships" | "__path_node_records"
+            ) =>
+        {
+            if let [base] = args.as_slice() {
+                let value = match base {
+                    ValueExpression::Variable(var) => has(&var.to_lowercase()),
+                    _ => true,
+                };
+                if value {
+                    *e = ValueExpression::Field {
+                        base: Box::new(base.clone()),
+                        field: if name == "__path_node_records" {
+                            "node_records".into()
+                        } else {
+                            name.to_lowercase()
+                        },
+                    };
+                }
+            }
         }
         ValueExpression::ScalarFunction { name, args } if name.eq_ignore_ascii_case("keys") => {
             if let [ValueExpression::Variable(var)] = args.as_slice() {

@@ -37,6 +37,7 @@ pub struct RelationshipInstance {
 /// Planning context that tracks state during plan building
 pub struct PlanningContext<'a> {
     pub analysis: &'a QueryAnalysis,
+    pub(crate) path_sources: crate::path_inventory::SourceBatches,
     pub(crate) relationship_instance_idx: HashMap<String, usize>,
     /// Element rows of the list comprehensions being built, innermost last.
     pub(crate) call_input: Option<datafusion::logical_expr::LogicalPlan>,
@@ -47,6 +48,7 @@ impl<'a> PlanningContext<'a> {
     pub fn new(analysis: &'a QueryAnalysis) -> Self {
         Self {
             analysis,
+            path_sources: Default::default(),
             relationship_instance_idx: HashMap::new(),
             comprehension_elements: Vec::new(),
             call_input: None,
@@ -221,6 +223,18 @@ fn analyze_operator(
             if let Some(label) = label {
                 analysis.var_to_label.insert(alias.clone(), label.clone());
                 analysis.required_datasets.insert(label.clone());
+            }
+        }
+        LogicalOperator::PathMatch { input, path } => {
+            analyze_operator(input, analysis, rel_counter)?;
+            for node in
+                std::iter::once(&path.start_node).chain(path.segments.iter().map(|s| &s.end_node))
+            {
+                if let (Some(variable), Some(label)) = (&node.variable, node.labels.first()) {
+                    analysis
+                        .var_to_label
+                        .insert(variable.clone(), label.clone());
+                }
             }
         }
         LogicalOperator::ShortestPath { input, .. } => {

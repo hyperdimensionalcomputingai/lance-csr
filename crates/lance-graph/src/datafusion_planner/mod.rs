@@ -18,7 +18,7 @@ pub mod analysis;
 mod builder;
 mod config_helpers;
 mod cypher_udf;
-mod expression;
+pub(crate) mod expression;
 mod join_ops;
 mod scalar_functions;
 mod scan_ops;

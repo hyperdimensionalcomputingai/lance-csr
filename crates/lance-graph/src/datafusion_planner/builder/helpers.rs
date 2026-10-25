@@ -96,6 +96,15 @@ impl DataFusionPlanner {
             LogicalOperator::OptionalMatch { optional, .. } => {
                 Self::collect_variables(optional, vars);
             }
+            LogicalOperator::PathMatch { input, path } => {
+                Self::collect_variables(input, vars);
+                vars.extend(
+                    std::iter::once(&path.start_node)
+                        .chain(path.segments.iter().map(|s| &s.end_node))
+                        .filter_map(|n| n.variable.clone()),
+                );
+                vars.extend(path.variable.clone());
+            }
             LogicalOperator::ShortestPath {
                 input,
                 path_variable,
@@ -177,6 +186,16 @@ impl DataFusionPlanner {
             }
             LogicalOperator::OptionalMatch { optional, .. } => {
                 Self::collect_labels(optional, labels)
+            }
+            LogicalOperator::PathMatch { input, path } => {
+                Self::collect_labels(input, labels);
+                for node in std::iter::once(&path.start_node)
+                    .chain(path.segments.iter().map(|s| &s.end_node))
+                {
+                    if let (Some(variable), Some(label)) = (&node.variable, node.labels.first()) {
+                        labels.insert(variable.clone(), label.clone());
+                    }
+                }
             }
             LogicalOperator::ShortestPath { input, .. } => Self::collect_labels(input, labels),
             LogicalOperator::Union { .. } => {}
