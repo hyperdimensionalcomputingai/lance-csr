@@ -117,6 +117,19 @@ def test_math_out_of_range_unsigned_integer():
         engine.execute("MATCH (p:Person) RETURN abs(p.large) AS value")
 
 
+@pytest.mark.parametrize("function", ["round", "floor", "ceil", "sqrt"])
+def test_math_unsigned_integer_converts_to_float(function):
+    config = GraphConfig.builder().node_table("Person", "id").build()
+    engine = CypherEngine(
+        config,
+        {"Person": pa.table({"id": [1], "large": pa.array([2**63], type=pa.uint64())})},
+    )
+    result = engine.execute(f"MATCH (p:Person) RETURN {function}(p.large) AS value")
+    expected = math.sqrt(2**63) if function == "sqrt" else float(2**63)
+    assert result.to_pylist() == [{"value": expected}]
+    assert result.schema.field("value").type == pa.float64()
+
+
 def test_math_non_finite_arrow_values():
     config = GraphConfig.builder().node_table("Person", "id").build()
     engine = CypherEngine(
