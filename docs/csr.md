@@ -169,6 +169,12 @@ print([line.strip(" |") for line in plan.splitlines() if "CsrExpandExec" in line
 The fused lookup needs the target's key to be a **unique integer**. Duplicate keys, or a target that is
 already bound earlier in the query, keep the CSR hop but join for the target's properties.
 
+Only requested target columns are read. A pushed-down target filter reads its own columns first; remaining
+properties are fetched only for neighbours that pass. When a column is used by both the filter and the
+projection, its filtered values are reused within that output batch. Target keys come directly from the
+neighbour IDs, including when a filter reads them. This reuse ends with the batch and keeps no property
+cache across queries or dataset versions.
+
 ### Patterns start at the most selective node
 
 The planner rewrites each `MATCH` so traversal starts at its most selective node, walking edges backwards
