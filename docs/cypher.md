@@ -269,6 +269,13 @@ Any other function raises `NotImplementedError: Cypher function 'name' is not im
 missing: math functions (`abs`, `round`, `sqrt`, ...), most string and list functions, `reduce`, the list
 predicates `any` / `all` / `none` / `single`, and `relationships(p)`.
 
+When `size()` consumes an unmapped list comprehension, such as `size([x IN values WHERE x > 0])`, the planner
+counts retained elements directly. Each duplicate and each retained null element still contributes one;
+an empty or null input list produces zero, as for the existing comprehension. A mapped comprehension
+(`| expression`) or a pattern comprehension keeps the ordinary list-building path. The count path still
+unnests and groups rows; `explain()` shows a filtered count in place of ordered list aggregation. A direct
+count output is marked non-nullable in its Arrow schema; the previous list-size expression was marked nullable.
+
 ### Example: a little of everything
 
 ```python

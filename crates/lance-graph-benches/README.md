@@ -50,3 +50,17 @@ calls DataFusion's query planner directly so optimization is counted only once. 
 and their ID checksum. These local measurements do not replace the two SF1 suites required for performance
 submissions; record runtime, hardware, revision and build profile with any reported numbers. The engine's
 Python cache also includes dictionary conversion and lookup, which this Rust microbenchmark does not time.
+
+
+## Comprehension counts
+
+Compare `size([x IN list WHERE predicate])` with the equivalent identity-mapped comprehension, which keeps the
+ordinary list-building path. Both queries run against 1,000 input rows with list lengths 16 and 256; results,
+row count and summed counts must match before timing. This measures planning plus execution after parsing.
+
+```bash
+cargo bench -p lance-graph-benches --bench graph_execution -- comprehension_count --warm-up-time 1
+```
+
+The count path removes ordered list aggregation. It still numbers and unnests rows, evaluates predicates and
+groups by input row, so these measurements do not establish a general bound on planning or memory use.

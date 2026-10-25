@@ -117,6 +117,7 @@ impl DataFusionPlanner {
                 keep,
                 map,
                 output,
+                count_only,
             } => self.build_list_comprehension(
                 ctx,
                 input,
@@ -126,6 +127,7 @@ impl DataFusionPlanner {
                 keep.as_ref(),
                 map,
                 output,
+                *count_only,
             ),
             LogicalOperator::ComprehensionElement => Ok(ctx
                 .comprehension_elements
