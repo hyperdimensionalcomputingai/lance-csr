@@ -92,6 +92,10 @@ engine.execute(
 ).to_pylist()  # [{'name': 'Alice'}, {'name': 'Carol'}]
 ```
 
+Pagination also accepts parameters, for example `RETURN 1 AS n LIMIT $take` with `{"take": 1}`.
+`WITH ... LIMIT $take` uses the same rules. Missing, null, boolean, fractional, negative and overflowing
+counts raise `ValueError`; arbitrary expressions and `WITH SKIP` remain unsupported.
+
 Map keys must be strings, integer parameters must fit signed 64-bit values, and nesting is limited to 128
 levels. Cyclic containers and unsupported Python objects raise `ValueError`. Lists follow literal-list
 coercion: mixed string/numeric values become strings because Arrow lists have one element type. Containers
@@ -187,7 +191,7 @@ read-only subset of openCypher, enough to run all 14 (IC14 without `reduce()`).
 | `WITH [DISTINCT]` | With `ORDER BY`, `LIMIT` and `WHERE`; chain as many as you need. No `SKIP` inside `WITH`. |
 | `UNWIND list AS x` | |
 | `RETURN [DISTINCT]` | With `AS` aliases. Without reading clauses, expressions run on one implicit row. |
-| `ORDER BY`, `SKIP`, `LIMIT` | `SKIP` and `LIMIT` take integer literals, not parameters. |
+| `ORDER BY`, `SKIP`, `LIMIT` | `SKIP` and `LIMIT` take nonnegative integer literals or parameters. |
 
 !!! failure "Not supported"
 

@@ -1309,35 +1309,37 @@ fn order_by_item(input: &str) -> IResult<&str, OrderByItem> {
 }
 
 // Parse a LIMIT clause
-fn limit_clause(input: &str) -> IResult<&str, u64> {
+fn limit_clause(input: &str) -> IResult<&str, RowCount> {
     let (input, _) = multispace0(input)?;
     let (input, _) = tag_no_case("LIMIT")(input)?;
     let (input, _) = multispace1(input)?;
-    let (input, limit) = integer_literal(input)?;
-    // Negative counts are an error, not a wrap-around to a huge u64.
-    let limit = u64::try_from(limit).map_err(|_| {
-        nom::Err::Failure(nom::error::Error::new(input, nom::error::ErrorKind::Verify))
-    })?;
-    Ok((input, limit))
+    row_count(input)
 }
 
 // Parse a SKIP clause
-fn skip_clause(input: &str) -> IResult<&str, u64> {
+fn skip_clause(input: &str) -> IResult<&str, RowCount> {
     let (input, _) = multispace0(input)?;
     let (input, _) = tag_no_case("SKIP")(input)?;
     let (input, _) = multispace1(input)?;
-    let (input, skip) = integer_literal(input)?;
-    let skip = u64::try_from(skip).map_err(|_| {
+    row_count(input)
+}
+
+fn row_count(input: &str) -> IResult<&str, RowCount> {
+    if let Ok((remaining, name)) = parameter(input) {
+        return Ok((remaining, RowCount::Parameter(name)));
+    }
+    let (remaining, value) = integer_literal(input)?;
+    let value = u64::try_from(value).map_err(|_| {
         nom::Err::Failure(nom::error::Error::new(input, nom::error::ErrorKind::Verify))
     })?;
-    Ok((input, skip))
+    Ok((remaining, RowCount::Literal(value)))
 }
 
 // Parse pagination clauses (SKIP and LIMIT)
-fn pagination_clauses(input: &str) -> IResult<&str, (Option<u64>, Option<u64>)> {
+fn pagination_clauses(input: &str) -> IResult<&str, (Option<RowCount>, Option<RowCount>)> {
     let (mut remaining, _) = multispace0(input)?;
-    let mut skip: Option<u64> = None;
-    let mut limit: Option<u64> = None;
+    let mut skip: Option<RowCount> = None;
+    let mut limit: Option<RowCount> = None;
 
     loop {
         let before = remaining;
@@ -1702,7 +1704,7 @@ mod tests {
         let query = "MATCH (n:Person) RETURN n.name LIMIT 10";
         let result = parse_cypher_query(query).unwrap();
 
-        assert_eq!(result.limit, Some(10));
+        assert_eq!(result.limit, Some(RowCount::Literal(10)));
     }
 
     #[test]
@@ -1710,7 +1712,7 @@ mod tests {
         let query = "MATCH (n:Person) RETURN n.name SKIP 5";
         let result = parse_cypher_query(query).unwrap();
 
-        assert_eq!(result.skip, Some(5));
+        assert_eq!(result.skip, Some(RowCount::Literal(5)));
         assert_eq!(result.limit, None);
     }
 
@@ -1719,8 +1721,8 @@ mod tests {
         let query = "MATCH (n:Person) RETURN n.name SKIP 5 LIMIT 10";
         let result = parse_cypher_query(query).unwrap();
 
-        assert_eq!(result.skip, Some(5));
-        assert_eq!(result.limit, Some(10));
+        assert_eq!(result.skip, Some(RowCount::Literal(5)));
+        assert_eq!(result.limit, Some(RowCount::Literal(10)));
     }
 
     #[test]
@@ -1728,7 +1730,7 @@ mod tests {
         let query = "MATCH (n:Person) RETURN n.name ORDER BY n.age SKIP 5";
         let result = parse_cypher_query(query).unwrap();
 
-        assert_eq!(result.skip, Some(5));
+        assert_eq!(result.skip, Some(RowCount::Literal(5)));
         assert!(result.order_by.is_some());
     }
 
@@ -1737,8 +1739,8 @@ mod tests {
         let query = "MATCH (n:Person) RETURN n.name ORDER BY n.age SKIP 5 LIMIT 10";
         let result = parse_cypher_query(query).unwrap();
 
-        assert_eq!(result.skip, Some(5));
-        assert_eq!(result.limit, Some(10));
+        assert_eq!(result.skip, Some(RowCount::Literal(5)));
+        assert_eq!(result.limit, Some(RowCount::Literal(10)));
         assert!(result.order_by.is_some());
     }
 
@@ -2291,6 +2293,15 @@ mod tests {
             }
             _ => panic!("Expected AND expression"),
         }
+    }
+
+    #[test]
+    fn pagination_accepts_parameters_without_losing_names() {
+        let query = parse_cypher_query("RETURN 1 AS n SKIP $offset LIMIT $count").unwrap();
+        assert_eq!(query.skip, Some(RowCount::Parameter("offset".to_string())));
+        assert_eq!(query.limit, Some(RowCount::Parameter("count".to_string())));
+        assert!(parse_cypher_query("RETURN 1 LIMIT -1").is_err());
+        assert!(parse_cypher_query("RETURN 1 LIMIT 1.5").is_err());
     }
 
     #[test]
