@@ -235,7 +235,28 @@ impl CypherQuery {
         &mut self,
         catalog: Arc<dyn lance_graph_catalog::GraphSourceCatalog>,
     ) -> Result<bool> {
-        if self.scalar_parameters().is_none() || self.has_parameter_named_columns() {
+        let parameter_counts = self
+            .ast
+            .limit
+            .iter()
+            .chain(self.ast.skip.iter())
+            .chain(
+                self.ast
+                    .with_clause
+                    .iter()
+                    .filter_map(|clause| clause.limit.as_ref()),
+            )
+            .chain(
+                self.ast
+                    .further_with_stages
+                    .iter()
+                    .filter_map(|stage| stage.with_clause.limit.as_ref()),
+            )
+            .any(|count| matches!(count, crate::ast::RowCount::Parameter(_)));
+        if parameter_counts
+            || self.scalar_parameters().is_none()
+            || self.has_parameter_named_columns()
+        {
             return Ok(false);
         }
         let (graph, datafusion) = self.build_logical_plans(catalog.clone(), true)?;
@@ -1630,6 +1651,25 @@ mod tests {
         assert!(!containers
             .prepare_cached_plan(Arc::new(crate::InMemoryCatalog::new()))
             .unwrap());
+    }
+
+    #[test]
+    fn parameterized_row_counts_bypass_templates() {
+        for text in [
+            "MATCH (p:Person) RETURN p.id LIMIT $count",
+            "MATCH (p:Person) RETURN p.id SKIP $count",
+            "MATCH (p:Person) WITH p LIMIT $count RETURN p.id",
+            "MATCH (p:Person) WITH p WITH p LIMIT $count RETURN p.id",
+        ] {
+            let mut query = CypherQuery::new(text).unwrap().with_parameter("count", 1);
+            assert!(
+                !query
+                    .prepare_cached_plan(Arc::new(crate::InMemoryCatalog::new()))
+                    .unwrap(),
+                "{text}"
+            );
+            assert!(query.cached_plan.is_none());
+        }
     }
 
     // Opt-in diagnostic: reports stage means for a fixed local scan, with no timing
