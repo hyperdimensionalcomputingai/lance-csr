@@ -74,7 +74,7 @@ pub enum LogicalOperator {
     /// Variable-length path expansion (*1..2 syntax)
     ///
     /// Represents multi-hop relationship traversals: (source)-[rel*min..max]->(target)
-    /// This is implemented by unrolling into multiple fixed-length paths and unioning them
+    /// Uses iterative CSR traversal when indexed, otherwise fixed-length branches and a union.
     VariableLengthExpand {
         /// The input operator (typically a node scan)
         input: Box<LogicalOperator>,
@@ -82,6 +82,8 @@ pub enum LogicalOperator {
         source_variable: String,
         /// Variable name for the target node (reachable in min..max hops)
         target_variable: String,
+        /// The label of the final node, which may differ from intermediate nodes.
+        target_label: String,
         /// Types of relationships to traverse in each hop
         relationship_types: Vec<String>,
         /// Direction of traversal for each hop
@@ -212,6 +214,7 @@ pub struct LogicalPlanner<'a> {
     variables: HashMap<String, String>, // variable -> label
     config: &'a GraphConfig,
     fan_out: Option<&'a FanOut>,
+    adjacency: Option<&'a crate::csr_expand::AdjacencyCatalog>,
     /// Mark columns created for EXISTS subqueries so far (names `__exists_<n>`).
     exists_marks: usize,
     /// Aliases holding lists of node ids (`collect(node) AS friends`), with the label.
@@ -232,6 +235,7 @@ impl<'a> LogicalPlanner<'a> {
             variables: HashMap::new(),
             config,
             fan_out: None,
+            adjacency: None,
             exists_marks: 0,
             node_lists: HashMap::new(),
             comprehensions: 0,
@@ -244,6 +248,73 @@ impl<'a> LogicalPlanner<'a> {
     pub fn with_fan_out(mut self, fan_out: Option<&'a FanOut>) -> Self {
         self.fan_out = fan_out;
         self
+    }
+
+    pub(crate) fn with_adjacency(
+        mut self,
+        adjacency: Option<&'a crate::csr_expand::AdjacencyCatalog>,
+    ) -> Self {
+        self.adjacency = adjacency;
+        self
+    }
+
+    fn retain_variable_alternation(&self, patterns: &[GraphPattern]) -> bool {
+        let Some(catalog) = self.adjacency else {
+            return false;
+        };
+        let labels = |n: &NodePattern| -> Vec<String> {
+            n.variable
+                .as_ref()
+                .and_then(|v| self.variables.get(v))
+                .map(|l| vec![l.clone()])
+                .unwrap_or_else(|| n.labels.clone())
+        };
+        patterns.iter().all(|p| {
+            let GraphPattern::Path(path) = p else {
+                return true;
+            };
+            let mut previous = &path.start_node;
+            path.segments.iter().all(|segment| {
+                let start = previous;
+                previous = &segment.end_node;
+                let rel = &segment.relationship;
+                let Some(range) = &rel.length else {
+                    return true;
+                };
+                if rel.types.len() <= 1 {
+                    return true;
+                }
+                if rel.variable.is_some()
+                    || !rel.properties.is_empty()
+                    || rel.direction == RelationshipDirection::Undirected
+                    || (range.min == Some(1) && range.max == Some(1))
+                {
+                    return false;
+                }
+                let (starts, ends) = (labels(start), labels(&segment.end_node));
+                let (Some(start), Some(end)) = (starts.first(), ends.first()) else {
+                    return false;
+                };
+                if starts
+                    .iter()
+                    .chain(&ends)
+                    .any(|l| catalog.nodes(l).is_none())
+                {
+                    return false;
+                }
+                crate::csr_traversal::Traversal::new(
+                    self.config,
+                    catalog,
+                    &rel.types,
+                    &rel.direction,
+                    start,
+                    end,
+                    0,
+                    0,
+                )
+                .is_some()
+            })
+        })
     }
 
     /// For a path that continues earlier rows, the path read from the other end when that
@@ -623,11 +694,13 @@ impl<'a> LogicalPlanner<'a> {
             ..match_clause.clone()
         };
         let match_clause = &inferred;
-        if crate::pattern_alternatives::needs_expansion(&match_clause.patterns) {
+        let retain_variable = self.retain_variable_alternation(&match_clause.patterns);
+        if crate::pattern_alternatives::needs_expansion(&match_clause.patterns, retain_variable) {
             let branches = crate::pattern_alternatives::expand(
                 &match_clause.patterns,
                 self.config,
                 &self.variables,
+                retain_variable,
             )?;
             return self.plan_match_branches(base, branches, filter);
         }
@@ -1380,6 +1453,7 @@ impl<'a> LogicalPlanner<'a> {
                     input: Box::new(plan),
                     source_variable: current_src.clone(),
                     target_variable: target_variable.clone(),
+                    target_label: target_label.clone(),
                     relationship_types: segment.relationship.types.clone(),
                     direction: segment.relationship.direction.clone(),
                     relationship_variable: segment.relationship.variable.clone(),

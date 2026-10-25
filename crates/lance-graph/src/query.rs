@@ -949,7 +949,9 @@ impl CypherQuery {
         }
 
         // Phase 2: Graph Logical Plan
-        let mut logical_planner = LogicalPlanner::new(config).with_fan_out(self.fan_out.as_ref());
+        let mut logical_planner = LogicalPlanner::new(config)
+            .with_fan_out(self.fan_out.as_ref())
+            .with_adjacency(self.adjacency.as_ref());
         // Use the transformed AST (with parameters substituted)
         let logical_plan = logical_planner.plan(&semantic.ast)?;
 

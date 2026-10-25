@@ -121,7 +121,8 @@ When those hold, it covers:
 | --- | --- |
 | `(a)-[:KNOWS]->(b)`, `(a)<-[:KNOWS]-(b)` | :material-check: outgoing or incoming adjacency |
 | `(a)-[:KNOWS]-(b)` | :material-check: both adjacencies |
-| `(a)-[:KNOWS*1..3]->(b)` | :material-check: every unrolled hop |
+| `(a)-[:KNOWS*1..3]->(b)` | :material-check: one iterative expansion for the whole range |
+| <code>(t:Tag)-[:hasType&#124;isSubclassOf*1..3]->(c:TagClass)</code> | :material-check: typed iterative expansion when every type and label is indexed |
 | <code>(a)-[:LIKES_POST&#124;LIKES_COMMENT]->(m)</code> | :material-check: one expansion per branch |
 | `OPTIONAL MATCH (a)-[:KNOWS]->(b)` | :material-check: |
 | `shortestPath((a)-[:KNOWS*]-(b))` | :material-check: the search walks the CSR adjacency |
@@ -130,6 +131,23 @@ When those hold, it covers:
 
 Everything else in the query (filters, aggregations, sorts and any hop the CSR can't take) is planned by
 DataFusion as usual. You can mix: a three-hop query might run two hops on the CSR and one as a join.
+
+### Variable-length traversal
+
+An eligible variable-length path keeps one cursor per hop and yields bounded output batches. Its plan
+contains one `CsrExpandExec` with `iterative hops=...`, rather than a branch for every possible length or
+sequence of relationship types. It preserves duplicate matches and skips missing nodes at intermediate
+hops. A node's label and key travel together, so the same integer key in two labels identifies two nodes.
+
+The iterative path needs CSR indexes for every traversed type and direction, node indexes for every
+intermediate label, and resolved labels for the endpoints. Unsupported index shapes retain the join
+fallback. The 20-hop maximum still applies. `*0..` includes a zero-hop identity match when both labels and
+keys agree. Undirected paths keep the existing rule that rejects immediate backtracking; neither execution
+path enforces full relationship uniqueness on longer cycles.
+
+Traversal state grows with the hop limit, not the number of pending paths. Resident graph indexes, input
+batches, fetched target properties and downstream operators still contribute to query memory. Branching
+graphs can produce exponentially many matches even though traversal resumes between output batches.
 
 !!! tip "Leave relationship variables out unless you need them"
 
