@@ -69,6 +69,17 @@ pub struct UnionBranch {
 }
 
 impl CypherQuery {
+    pub(crate) fn all_reading_clauses(&self) -> impl Iterator<Item = &ReadingClause> {
+        self.reading_clauses
+            .iter()
+            .chain(&self.post_with_reading_clauses)
+            .chain(
+                self.further_with_stages
+                    .iter()
+                    .flat_map(|stage| &stage.reading_clauses),
+            )
+    }
+
     /// Visit each independently scoped query without cloning its AST.
     pub(crate) fn for_each_query(&self, visit: &mut dyn FnMut(&Self)) {
         visit(self);
@@ -81,7 +92,7 @@ impl CypherQuery {
     pub fn get_node_labels(&self) -> Vec<String> {
         let mut labels = Vec::new();
         // Iterate all match clauses directly
-        for clause in &self.reading_clauses {
+        for clause in self.all_reading_clauses() {
             if let ReadingClause::Match(match_clause) = clause {
                 for pattern in &match_clause.patterns {
                     match pattern {
@@ -123,7 +134,7 @@ impl CypherQuery {
     /// Extract all relationship types referenced in the query
     pub fn get_relationship_types(&self) -> Vec<String> {
         let mut types = Vec::new();
-        for clause in &self.reading_clauses {
+        for clause in self.all_reading_clauses() {
             if let ReadingClause::Match(match_clause) = clause {
                 for pattern in &match_clause.patterns {
                     self.collect_relationship_types_from_pattern(pattern, &mut types);

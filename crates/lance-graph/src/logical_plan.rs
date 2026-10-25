@@ -472,7 +472,9 @@ impl<'a> LogicalPlanner<'a> {
         }
 
         for branch in &query.union_branches {
-            let mut planner = LogicalPlanner::new(self.config).with_fan_out(self.fan_out);
+            let mut planner = LogicalPlanner::new(self.config)
+                .with_fan_out(self.fan_out)
+                .with_adjacency(self.adjacency);
             let right = planner.plan(&branch.query)?;
             plan = LogicalOperator::QueryUnion {
                 left: Box::new(plan),

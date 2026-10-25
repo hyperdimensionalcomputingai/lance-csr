@@ -1574,7 +1574,11 @@ impl ExecutionPlan for CsrExpandExec {
                                 .next_path_chunk(walk, target.as_deref(), batch_size)
                                 .await
                         }
-                        None => expansion.next_chunk(&adjacency, target.as_deref(), batch_size).await,
+                        None => {
+                            expansion
+                                .next_chunk(&adjacency, target.as_deref(), batch_size)
+                                .await
+                        }
                     };
                     if chunk.rows.is_empty() {
                         pending = None;

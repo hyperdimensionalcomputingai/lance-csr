@@ -235,25 +235,33 @@ impl CypherQuery {
         &mut self,
         catalog: Arc<dyn lance_graph_catalog::GraphSourceCatalog>,
     ) -> Result<bool> {
-        let parameter_counts = self
-            .ast
-            .limit
-            .iter()
-            .chain(self.ast.skip.iter())
-            .chain(
-                self.ast
-                    .with_clause
-                    .iter()
-                    .filter_map(|clause| clause.limit.as_ref()),
-            )
-            .chain(
-                self.ast
-                    .further_with_stages
-                    .iter()
-                    .filter_map(|stage| stage.with_clause.limit.as_ref()),
-            )
-            .any(|count| matches!(count, crate::ast::RowCount::Parameter(_)));
-        if parameter_counts || self.scalar_parameters().is_none() {
+        // Rich path properties live in an extension-owned spec, and its inventory is
+        // query-local. Keep ordinary substitution and a fresh inventory for each query.
+        let mut shape_sensitive = false;
+        self.ast.for_each_query(&mut |query| {
+            shape_sensitive |= query
+                .limit
+                .iter()
+                .chain(query.skip.iter())
+                .chain(
+                    query
+                        .with_clause
+                        .iter()
+                        .filter_map(|clause| clause.limit.as_ref()),
+                )
+                .chain(
+                    query
+                        .further_with_stages
+                        .iter()
+                        .filter_map(|stage| stage.with_clause.limit.as_ref()),
+                )
+                .any(|count| matches!(count, crate::ast::RowCount::Parameter(_)));
+        });
+        if shape_sensitive
+            || self.scalar_parameters().is_none()
+            || crate::path_value::needs_values(&self.ast, self.require_config()?)
+        {
+            // Parameterized row counts alter plan shape.
             return Ok(false);
         }
         let (graph, datafusion) = self.build_logical_plans(catalog.clone(), true)?;
@@ -840,7 +848,12 @@ impl CypherQuery {
         }
 
         // Create session context and catalog
-        let ctx = SessionContext::new();
+        let ctx = SessionContext::new_with_state(
+            datafusion::execution::session_state::SessionStateBuilder::new()
+                .with_default_features()
+                .with_query_planner(Arc::new(crate::csr_expand::CsrQueryPlanner))
+                .build(),
+        );
         let mut catalog = InMemoryCatalog::new();
 
         // Register all datasets as tables
@@ -920,7 +933,12 @@ impl CypherQuery {
             });
         }
 
-        let ctx = SessionContext::new();
+        let ctx = SessionContext::new_with_state(
+            datafusion::execution::session_state::SessionStateBuilder::new()
+                .with_default_features()
+                .with_query_planner(Arc::new(crate::csr_expand::CsrQueryPlanner))
+                .build(),
+        );
         let mut catalog = InMemoryCatalog::new();
         let mut providers: HashMap<String, Arc<dyn TableProvider>> = HashMap::new();
 
@@ -1244,7 +1262,7 @@ impl CypherQuery {
         let mut labels = Vec::new();
 
         self.ast.for_each_query(&mut |ast| {
-            for clause in &ast.reading_clauses {
+            for clause in ast.all_reading_clauses() {
                 if let ReadingClause::Match(match_clause) = clause {
                     for pattern in &match_clause.patterns {
                         self.collect_node_labels_from_pattern(pattern, &mut labels);
@@ -1262,7 +1280,7 @@ impl CypherQuery {
         let mut types = Vec::new();
 
         self.ast.for_each_query(&mut |ast| {
-            for clause in &ast.reading_clauses {
+            for clause in ast.all_reading_clauses() {
                 if let ReadingClause::Match(match_clause) = clause {
                     for pattern in &match_clause.patterns {
                         self.collect_relationship_types_from_pattern(pattern, &mut types);
@@ -1280,7 +1298,7 @@ impl CypherQuery {
         let mut variables = Vec::new();
 
         self.ast.for_each_query(&mut |ast| {
-            for clause in &ast.reading_clauses {
+            for clause in ast.all_reading_clauses() {
                 match clause {
                     ReadingClause::Match(match_clause) => {
                         for pattern in &match_clause.patterns {
@@ -1758,6 +1776,30 @@ mod tests {
                 "{text}"
             );
             assert!(query.cached_plan.is_none());
+        }
+    }
+
+    #[test]
+    fn cross_label_shortest_queries_bypass_cached_inventories() {
+        let config = GraphConfig::builder()
+            .node_table("Person", "id")
+            .node_table("Place", "id")
+            .rel_table("LIVES", "Person", "Place", "src", "dst")
+            .build()
+            .unwrap();
+        for text in [
+            "MATCH p = shortestPath((a:Person {id: $id})-[:LIVES*0..]->(b:Place)) RETURN length(p)",
+            "MATCH p = shortestPath((a:Person {id: $id})-[:LIVES*0..]-(b:Person)) WITH p AS q RETURN nodes(q)",
+            "RETURN 0 AS n UNION MATCH p = shortestPath((a:Person {id: $id})-[:LIVES*0..]->(b:Place)) RETURN length(p) AS n",
+        ] {
+            let mut query = CypherQuery::new(text)
+                .unwrap()
+                .with_config(config.clone())
+                .with_parameter("id", 1);
+            assert!(!query
+                .prepare_cached_plan(Arc::new(crate::InMemoryCatalog::new()))
+                .unwrap());
+            assert!(query.cached_plan.is_none(), "{text}");
         }
     }
 

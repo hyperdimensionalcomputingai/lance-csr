@@ -184,3 +184,5 @@ print(namespace.base_uri)  # graph
 
 `CypherQuery` (with a namespace or a dict) reads the data for each `execute()`; use `CypherEngine` for lazy
 reads, refresh and the CSR.
+
+Rich path queries keep a fresh inventory for each execution and bypass scalar template caching. UNION branches share that query-local inventory; refreshing an engine does not change an already-open reader.

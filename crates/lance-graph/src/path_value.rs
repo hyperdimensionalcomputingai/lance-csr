@@ -199,7 +199,10 @@ pub(crate) fn needs_values(
             }
         }
     }
-    let mut needed = false;
+    let mut needed = query
+        .union_branches
+        .iter()
+        .any(|branch| needs_values(&branch.query, config));
     let mut inspect = |expression: &V| {
         let mut value = expression.clone();
         crate::ast::transform_value(&mut value, &mut |v| match v {
