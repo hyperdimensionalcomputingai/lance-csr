@@ -336,5 +336,75 @@ fn bench_cypher_execution(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_cypher_execution);
+// A fixed snapshot isolates template reuse from dataset/catalog construction.
+// The result count and checksum are checked outside the timed loops.
+fn bench_query_templates(c: &mut Criterion) {
+    use datafusion::datasource::{DefaultTableSource, MemTable};
+    use datafusion::execution::context::SessionContext;
+    use lance_graph::{GraphSourceCatalog, InMemoryCatalog};
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let context = SessionContext::new();
+    let batch = make_people_batch(10_000);
+    let provider = Arc::new(MemTable::try_new(batch.schema(), vec![vec![batch]]).unwrap());
+    let catalog: Arc<dyn GraphSourceCatalog> = Arc::new(
+        InMemoryCatalog::new()
+            .with_node_source("Person", Arc::new(DefaultTableSource::new(provider))),
+    );
+    let config = GraphConfig::builder()
+        .node_table("Person", "person_id")
+        .build()
+        .unwrap();
+    let text = "MATCH (p:Person) WHERE p.age >= $minimum RETURN p.person_id AS id ORDER BY id";
+    let fresh = || {
+        CypherQuery::new(text)
+            .unwrap()
+            .with_config(config.clone())
+            .with_parameter("minimum", 50)
+    };
+    let mut template = fresh();
+    assert!(template.prepare_cached_plan(catalog.clone()).unwrap());
+    let expected = rt
+        .block_on(fresh().execute_with_catalog_and_context(catalog.clone(), context.clone()))
+        .unwrap();
+    let cached = rt
+        .block_on(template.execute_with_catalog_and_context(catalog.clone(), context.clone()))
+        .unwrap();
+    assert_eq!(cached, expected);
+    let expected_ids: Vec<i32> = (0..10_000).filter(|id| 20 + id % 60 >= 50).collect();
+    assert_eq!(cached.num_rows(), expected_ids.len());
+    let ids = cached
+        .column(0)
+        .as_any()
+        .downcast_ref::<Int32Array>()
+        .unwrap();
+    assert_eq!(
+        ids.values().iter().map(|id| i64::from(*id)).sum::<i64>(),
+        expected_ids.iter().map(|id| i64::from(*id)).sum::<i64>()
+    );
+    let mut group = c.benchmark_group("query_templates");
+    group.bench_function("cold_parse_plan_execute", |b| {
+        b.iter(|| {
+            black_box(
+                rt.block_on(
+                    fresh().execute_with_catalog_and_context(catalog.clone(), context.clone()),
+                )
+                .unwrap(),
+            );
+        })
+    });
+    group.bench_function("cached_bind_plan_execute", |b| {
+        b.iter(|| {
+            let query = template.clone().with_parameter("minimum", black_box(50));
+            black_box(
+                rt.block_on(
+                    query.execute_with_catalog_and_context(catalog.clone(), context.clone()),
+                )
+                .unwrap(),
+            );
+        })
+    });
+    group.finish();
+}
+
+criterion_group!(benches, bench_cypher_execution, bench_query_templates);
 criterion_main!(benches);

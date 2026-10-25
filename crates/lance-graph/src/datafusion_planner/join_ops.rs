@@ -59,9 +59,7 @@ impl DataFusionPlanner {
 
         // Apply target property filters (e.g., (b {age: 30}))
         for (k, v) in target_properties.iter() {
-            let lit_expr = super::expression::to_df_value_expr(
-                &crate::ast::ValueExpression::Literal(v.clone()),
-            );
+            let lit_expr = self.unresolved_value_expr(&crate::ast::ValueExpression::Literal(v.clone()));
             let filter_expr = Expr::BinaryExpr(BinaryExpr {
                 left: Box::new(col(k.to_lowercase())),
                 op: Operator::Eq,

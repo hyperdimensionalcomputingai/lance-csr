@@ -342,7 +342,7 @@ impl DataFusionPlanner {
                 let bound =
                     super::super::expression::bind_value(&item.expression, input_plan.schema());
                 SortExpr {
-                    expr: super::super::expression::to_df_value_expr(&bound),
+                    expr: self.unresolved_value_expr(&bound),
                     asc: matches!(item.direction, crate::ast::SortDirection::Ascending),
                     nulls_first: true,
                 }

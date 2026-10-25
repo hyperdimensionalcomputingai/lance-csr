@@ -51,6 +51,7 @@ pub struct DataFusionPlanner {
     pub(crate) config: GraphConfig,
     pub(crate) catalog: Option<Arc<dyn GraphSourceCatalog>>,
     pub(crate) adjacency: Option<crate::csr_expand::AdjacencyCatalog>,
+    pub(crate) parameter_types: std::collections::HashMap<String, arrow_schema::DataType>,
 }
 
 impl DataFusionPlanner {
@@ -59,6 +60,7 @@ impl DataFusionPlanner {
             config,
             catalog: None,
             adjacency: None,
+            parameter_types: Default::default(),
         }
     }
 
@@ -67,6 +69,7 @@ impl DataFusionPlanner {
             config,
             catalog: Some(catalog),
             adjacency: None,
+            parameter_types: Default::default(),
         }
     }
 

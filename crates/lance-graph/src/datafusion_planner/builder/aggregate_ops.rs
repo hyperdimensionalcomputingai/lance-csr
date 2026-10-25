@@ -89,7 +89,7 @@ impl DataFusionPlanner {
                     }
                     agg_exprs.push(aggregate.alias(column));
                 }
-                outer.push(super::super::expression::to_df_value_expr(&rewritten).alias(alias));
+                outer.push(self.unresolved_value_expr(&rewritten).alias(alias));
             } else {
                 // Group expressions: use raw expression for grouping, no alias
                 group_exprs.push(self.value_expr(&p.expression, &schema)?);
@@ -114,7 +114,7 @@ impl DataFusionPlanner {
                 }));
             } else if !super::super::expression::contains_aggregate(&p.expression) {
                 // Re-create the expression and apply alias
-                let expr = super::super::expression::to_df_value_expr(&p.expression);
+                let expr = self.unresolved_value_expr(&p.expression);
                 let aliased = if let Some(alias) = &p.alias {
                     expr.alias(alias.to_lowercase())
                 } else {

@@ -25,7 +25,8 @@ impl super::DataFusionPlanner {
         expr: Expr,
         schema: &datafusion::common::DFSchema,
     ) -> crate::error::Result<Expr> {
-        expr.resolve_lambda_variables(schema)
+        self.type_parameters(expr)
+            .resolve_lambda_variables(schema)
             .map(|e| e.data)
             .map_err(|e| self.plan_error("Failed to resolve expression scope", e))
     }
@@ -44,6 +45,36 @@ impl super::DataFusionPlanner {
         schema: &datafusion::common::DFSchema,
     ) -> crate::error::Result<Expr> {
         self.resolve_expr(to_df_boolean_expr(&bind_boolean(expr, schema)), schema)
+    }
+    pub(crate) fn unresolved_value_expr(&self, value: &ValueExpression) -> Expr {
+        self.type_parameters(to_df_value_expr(value))
+    }
+
+    fn type_parameters(&self, expression: Expr) -> Expr {
+        use datafusion::common::tree_node::{Transformed, TreeNode};
+        if self.parameter_types.is_empty() {
+            return expression;
+        }
+        expression
+            .transform_up(|expression| {
+                if let Expr::Placeholder(mut parameter) = expression {
+                    parameter.field = self
+                        .parameter_types
+                        .get(parameter.id.trim_start_matches('$'))
+                        .map(|data_type| {
+                            std::sync::Arc::new(arrow_schema::Field::new(
+                                "",
+                                data_type.clone(),
+                                true,
+                            ))
+                        });
+                    Ok(Transformed::yes(Expr::Placeholder(parameter)))
+                } else {
+                    Ok(Transformed::no(expression))
+                }
+            })
+            .expect("typing placeholders does not fail")
+            .data
     }
 }
 
@@ -185,10 +216,7 @@ pub(crate) fn to_df_value_expr(expr: &ValueExpression) -> Expr {
         }
         VE::Literal(PV::Variable(v)) => col(v.to_lowercase()),
         VE::Literal(PV::Parameter(name)) => {
-            panic!(
-                "Parameter ${} should have been substituted during semantic analysis",
-                name
-            );
+            datafusion::logical_expr::placeholder(format!("${}", name.to_lowercase()))
         }
         VE::Literal(PV::Property(prop)) => {
             // Create qualified column name: variable__property (lowercase for case-insensitivity)
@@ -469,10 +497,7 @@ pub(crate) fn to_df_value_expr(expr: &ValueExpression) -> Expr {
             lit(scalar)
         }
         VE::Parameter(name) => {
-            panic!(
-                "Parameter ${} should have been substituted during semantic analysis",
-                name
-            );
+            datafusion::logical_expr::placeholder(format!("${}", name.to_lowercase()))
         }
         VE::Boolean(b) => to_df_boolean_expr(b),
         VE::Map(entries) if entries.is_empty() => lit(datafusion::common::ScalarValue::Struct(
