@@ -18,8 +18,9 @@ the internals. The CSR index is the project's distinguishing feature, so it gets
 - Preview with `uv run --project docs --locked zensical serve`; check with
   `uv run --project docs --locked zensical build --strict`, which CI runs on every pull request. Fix every
   warning.
-- Read the Docs builds and hosts the site from `.readthedocs.yaml`. There is no other publishing pipeline: no
-  Sphinx, no GitHub Pages.
+- Cloudflare Pages builds and hosts the site at https://lance-csr.pages.dev/ through its native GitHub
+  integration. Pushes to `main` automatically deploy when automatic production deployments are enabled.
+  Build from the repository root with the locked build command above and publish `site/`.
 - Files that aren't pages (this file, `check_snippets.py`, `sync_benchmarks.py`, the uv project, `overrides/`, the
   brand README and previews) are listed under `exclude_docs` in `zensical.toml`. Add new non-page files there.
 - Benchmark tables between `<!-- bench:... -->` markers in `benchmarks.md` and the root `README.md` are

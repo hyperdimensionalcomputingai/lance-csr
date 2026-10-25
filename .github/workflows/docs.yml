@@ -7,7 +7,6 @@ on:
     paths:
       - docs/**
       - zensical.toml
-      - .readthedocs.yaml
       - .github/workflows/docs.yml
 
 concurrency:
@@ -17,7 +16,7 @@ concurrency:
 permissions:
   contents: read
 
-# Checks that the site builds; Read the Docs builds and hosts it.
+# Checks that the site builds; Cloudflare Pages builds and hosts it.
 jobs:
   build:
     runs-on: ubuntu-24.04
