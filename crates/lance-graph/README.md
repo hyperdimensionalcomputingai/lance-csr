@@ -187,3 +187,7 @@ See the Python package docs for setup and development:
 ## License
 
 Apache-2.0. See the top-level LICENSE file for details.
+
+## Rust AST migration for CALL
+
+Read-only subqueries add `ReadingClause::Call(Box<CypherQuery>)` and `LogicalOperator::{Apply, CallInput}`. Update exhaustive matches and visitors to recurse into the child query, including UNION branches. A leading plain importing `WITH` declares its available outer variables; other bindings stay in their own scope.

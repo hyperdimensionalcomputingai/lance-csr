@@ -80,6 +80,7 @@ fn substitute_in_reading_clause(
     parameters: &HashMap<String, serde_json::Value>,
 ) -> Result<()> {
     match clause {
+        ReadingClause::Call(query) => substitute_parameters(query, parameters)?,
         ReadingClause::Match(match_clause) => {
             for pattern in &mut match_clause.patterns {
                 substitute_in_graph_pattern(pattern, parameters)?;

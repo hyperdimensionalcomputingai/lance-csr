@@ -202,7 +202,18 @@ pub(crate) fn needs_values(
     let mut needed = query
         .union_branches
         .iter()
-        .any(|branch| needs_values(&branch.query, config));
+        .any(|branch| needs_values(&branch.query, config))
+        || clauses.iter().any(|clause| match clause {
+            ReadingClause::Call(inner) => {
+                needs_values(inner, config)
+                    || inner
+                        .call_union_imports()
+                        .unwrap_or_default()
+                        .iter()
+                        .any(|name| names.contains(name))
+            }
+            _ => false,
+        });
     let mut inspect = |expression: &V| {
         let mut value = expression.clone();
         crate::ast::transform_value(&mut value, &mut |v| match v {
@@ -236,6 +247,7 @@ pub(crate) fn needs_values(
     };
     for clause in clauses {
         match clause {
+            ReadingClause::Call(_) => {}
             ReadingClause::Unwind(u) => inspect(&u.expression),
             ReadingClause::Match(m) => {
                 if let Some(w) = &m.where_clause {
@@ -296,7 +308,9 @@ mod tests {
     fn direct_shortest_queries_keep_the_csr_route() {
         let config = crate::config::GraphConfig::builder()
             .node_table("Person", "id")
+            .node_table("Place", "id")
             .rel_table("R", "Person", "Person", "src", "dst")
+            .rel_table("LIVES", "Person", "Place", "src", "dst")
             .build()
             .unwrap();
         let prefix = "MATCH p = shortestPath((a:Person)-[:R*]-(b:Person)) ";
@@ -310,6 +324,14 @@ mod tests {
             ),
             ("WITH p AS q RETURN q", true),
             ("WITH p AS q RETURN relationships(q)", true),
+            (
+                "WITH p AS q CALL { WITH q RETURN relationships(q) AS edges } RETURN edges",
+                true,
+            ),
+            (
+                "WITH p AS q CALL { WITH q RETURN q AS result UNION WITH q RETURN q AS result } RETURN nodes(result)",
+                true,
+            ),
             (
                 "WITH p AS q WITH collect(q) AS ps UNWIND ps AS r RETURN nodes(r)",
                 true,
@@ -338,6 +360,14 @@ mod tests {
             ))
             .unwrap();
             assert!(needs_values(&query, &config));
+        }
+        for text in [
+            "CALL { MATCH p = shortestPath((a:Person)-[:LIVES*0..]->(b:Place)) RETURN length(p) AS n } RETURN n",
+            "RETURN 0 AS n UNION MATCH p = shortestPath((a:Person)-[:LIVES*0..]->(b:Place)) RETURN length(p) AS n",
+            "CALL { RETURN 0 AS n UNION MATCH p = shortestPath((a:Person)-[:LIVES*0..]-(b:Person)) RETURN length(p) AS n } RETURN n",
+        ] {
+            let query = crate::parser::parse_cypher_query(text).unwrap();
+            assert!(needs_values(&query, &config), "{text}");
         }
     }
 }
