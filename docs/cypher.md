@@ -282,7 +282,9 @@ same name. `keys(entity)` lists only non-null user properties; `keys(map)` inclu
 Prefer the Cypher property and endpoint functions when writing queries. Relationship identities identify actual occurrences within this query's inventory, not persistent
 IDs that can be compared across queries or refreshes. Rich paths support the same signed integer and
 `uint8`/`uint16`/`uint32` keys as the CSR. Mixed labels may share compatible properties; conflicting Arrow
-property types fail explicitly. Expanding a graph pattern from a mixed-label value remains unsupported.
+property types fail explicitly. Non-null node IDs must be unique within each participating label so
+relationship endpoints identify one node; duplicate IDs raise an error. Expanding a graph pattern from
+a mixed-label value remains unsupported.
 
 A path value needs a query-local inventory of the participating node and relationship tables, including
 properties. It therefore materializes those tables, even with `use_csr=True`. Traversal output is emitted

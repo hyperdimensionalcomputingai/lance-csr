@@ -466,3 +466,29 @@ def test_path_alias_retains_actual_relationship_values(engine, suffix):
         [7, 11],
     ]
     assert "PathMatchExec" in engine.explain(query)
+
+
+@pytest.mark.parametrize("storage", ["arrow", "lance"])
+def test_rich_path_rejects_ambiguous_node_ids(tmp_path, storage):
+    import lance
+
+    tables = {
+        "Person": pa.table({"id": [1, 1, 2], "name": ["one", "duplicate", "two"]}),
+        "R": pa.table({"src": [1], "dst": [2]}),
+    }
+    if storage == "lance":
+        tables = {
+            name: lance.write_dataset(table, tmp_path / f"{name}.lance")
+            for name, table in tables.items()
+        }
+    config = (
+        GraphConfig.builder()
+        .node_table("Person", "id")
+        .rel_table("R", "Person", "Person", "src", "dst")
+        .build()
+    )
+    engine = CypherEngine(config, tables, use_csr=True)
+    with pytest.raises(
+        Exception, match="unique node IDs within label 'Person'; duplicate ID 1"
+    ):
+        engine.execute("MATCH p = (a:Person)-[:R]->(b:Person) RETURN p")
