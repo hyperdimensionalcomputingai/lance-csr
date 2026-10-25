@@ -10,9 +10,19 @@ class _ArrowStream(Protocol):
 
 _Dataset = Table | RecordBatch | RecordBatchReader | LanceDataset | _ArrowStream
 _DatasetT = TypeVar("_DatasetT", bound=_Dataset)
-_Parameter = int | float | str | bool | date | datetime | None
+_Parameter = (
+    int
+    | float
+    | str
+    | bool
+    | date
+    | datetime
+    | None
+    | list["_Parameter"]
+    | dict[str, "_Parameter"]
+)
 _ParameterT = TypeVar("_ParameterT", bound=_Parameter)
-_Scalar = int | float | str | bool | None
+_Scalar = int | float | str | bool | None | list["_Scalar"] | dict[str, "_Scalar"]
 
 class _NodeIndexStats(TypedDict):
     rows: int
@@ -88,6 +98,8 @@ class CypherQuery:
         self,
         datasets: dict[str, _DatasetT],
         strategy: ExecutionStrategy | None = None,
+        *,
+        timeout: float | None = None,
     ) -> Table: ...
     def execute_with_namespace(
         self, namespace: DirNamespace, strategy: ExecutionStrategy | None = None
@@ -106,10 +118,18 @@ class CypherEngine:
         self, config: GraphConfig, datasets: dict[str, _DatasetT], use_csr: bool = False
     ) -> None: ...
     def execute(
-        self, query: str, params: dict[str, _ParameterT] | None = None
+        self,
+        query: str,
+        params: dict[str, _ParameterT] | None = None,
+        *,
+        timeout: float | None = None,
     ) -> Table: ...
     def execute_batches(
-        self, query: str, params: dict[str, _ParameterT] | None = None
+        self,
+        query: str,
+        params: dict[str, _ParameterT] | None = None,
+        *,
+        timeout: float | None = None,
     ) -> RecordBatchReader: ...
     def explain(
         self, query: str, params: dict[str, _ParameterT] | None = None
