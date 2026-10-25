@@ -20,6 +20,12 @@ use std::collections::HashMap;
 pub enum LogicalOperator {
     /// One row with no bound variables, for queries without reading clauses.
     SingleRow,
+    /// Language-level UNION; unlike pattern alternation, branches must share output schema.
+    QueryUnion {
+        left: Box<LogicalOperator>,
+        right: Box<LogicalOperator>,
+        all: bool,
+    },
     /// Scan all nodes with a specific label
     ScanByLabel {
         variable: String,
@@ -413,6 +419,15 @@ impl<'a> LogicalPlanner<'a> {
             };
         }
 
+        for branch in &query.union_branches {
+            let mut planner = LogicalPlanner::new(self.config).with_fan_out(self.fan_out);
+            let right = planner.plan(&branch.query)?;
+            plan = LogicalOperator::QueryUnion {
+                left: Box::new(plan),
+                right: Box::new(right),
+                all: branch.all,
+            };
+        }
         Ok(plan)
     }
 
@@ -1394,7 +1409,8 @@ impl<'a> LogicalPlanner<'a> {
             LogicalOperator::Sort { input, .. } => self.extract_variable_from_plan(input),
             LogicalOperator::Offset { input, .. } => self.extract_variable_from_plan(input),
             LogicalOperator::Limit { input, .. } => self.extract_variable_from_plan(input),
-            LogicalOperator::Join { left, right, .. } => {
+            LogicalOperator::Join { left, right, .. }
+            | LogicalOperator::QueryUnion { left, right, .. } => {
                 // Prefer the right branch's tail variable, else fall back to left
                 self.extract_variable_from_plan(right)
                     .or_else(|_| self.extract_variable_from_plan(left))

@@ -174,7 +174,7 @@ A parsed Cypher query. Raises `ValueError` if `query_text` doesn't parse. Builde
 :   The query text and the bound parameters.
 
 `#!python variables() -> list[str]`, `#!python node_labels() -> list[str]`, `#!python relationship_types() -> list[str]`
-:   Names referenced by the query.
+:   Names referenced by the query, including independently scoped UNION branches. List ordering is not guaranteed.
 
 ---
 

@@ -207,7 +207,8 @@ fn analyze_operator(
         | LogicalOperator::Distinct { input } => {
             analyze_operator(input, analysis, rel_counter)?;
         }
-        LogicalOperator::Join { left, right, .. } => {
+        LogicalOperator::Join { left, right, .. }
+        | LogicalOperator::QueryUnion { left, right, .. } => {
             analyze_operator(left, analysis, rel_counter)?;
             analyze_operator(right, analysis, rel_counter)?;
         }

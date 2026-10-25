@@ -190,19 +190,29 @@ read-only subset of openCypher, enough to run all 14 (IC14 without `reduce()`).
 | `WHERE` | After `MATCH`, `OPTIONAL MATCH` (filters inside the optional part) or `WITH`. |
 | `WITH [DISTINCT]` | With `ORDER BY`, `LIMIT` and `WHERE`; chain as many as you need. No `SKIP` inside `WITH`. |
 | `UNWIND list AS x` | |
+| `UNION`, `UNION ALL` | Combine independent queries with matching output names/order and compatible Arrow types. |
 | `CALL { ... RETURN ... }` | Read-only subquery. Import outer variables with a leading plain `WITH`; see below. |
 | `RETURN [DISTINCT]` | With `AS` aliases. Without reading clauses, expressions run on one implicit row. |
 | `ORDER BY`, `SKIP`, `LIMIT` | `SKIP` and `LIMIT` take nonnegative integer literals or parameters. |
 
 !!! failure "Not supported"
 
-    Writes (`CREATE`, `MERGE`, `SET`, `DELETE`, `REMOVE`), `UNION`, procedure calls (`CALL name(...)` / `YIELD`), and `FOREACH`.
+    Writes (`CREATE`, `MERGE`, `SET`, `DELETE`, `REMOVE`), procedure calls (`CALL name(...)` / `YIELD`), and `FOREACH`.
 
 Integer list literals retain signed 64-bit values: `RETURN [1, 2, 3] AS ids` returns integers, and
 `UNWIND [1131, 19791209300775] AS id RETURN id` preserves both IDs exactly. Numeric literals with a decimal
 point or exponent, such as `[0.1, 1e-3]`, form float32 vectors. Whole-number lists can also be used as query
 vectors; conversion to float32 happens inside the vector operation. A configured engine is still required
 for standalone `RETURN` queries.
+
+`UNION` removes duplicate rows; `UNION ALL` preserves them. Branches have independent variable scopes and
+keep their own `ORDER BY`, `SKIP` and `LIMIT`. Combined output has no guaranteed order. Mixed UNION modes
+are evaluated from left to right. Numeric columns can promote to a common numeric type; incompatible
+column counts, names or types raise `ValueError`. This follows the existing homogeneous Arrow value model.
+
+```python
+engine.execute("RETURN 1 AS n UNION RETURN 1 AS n").to_pylist()  # [{'n': 1}]
+```
 
 ### Read-only subqueries
 

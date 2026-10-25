@@ -1189,16 +1189,15 @@ impl CypherQuery {
     pub fn referenced_node_labels(&self) -> Vec<String> {
         let mut labels = Vec::new();
 
-        for clause in self.ast.all_reading_clauses() {
-            if let ReadingClause::Call(inner) = clause {
-                labels.extend(inner.get_node_labels());
-            }
-            if let ReadingClause::Match(match_clause) = clause {
-                for pattern in &match_clause.patterns {
-                    self.collect_node_labels_from_pattern(pattern, &mut labels);
+        self.ast.for_each_query(&mut |ast| {
+            for clause in ast.all_reading_clauses() {
+                if let ReadingClause::Match(match_clause) = clause {
+                    for pattern in &match_clause.patterns {
+                        self.collect_node_labels_from_pattern(pattern, &mut labels);
+                    }
                 }
             }
-        }
+        });
 
         labels.sort();
         labels.dedup();
@@ -1209,16 +1208,15 @@ impl CypherQuery {
     pub fn referenced_relationship_types(&self) -> Vec<String> {
         let mut types = Vec::new();
 
-        for clause in self.ast.all_reading_clauses() {
-            if let ReadingClause::Call(inner) = clause {
-                types.extend(inner.get_relationship_types());
-            }
-            if let ReadingClause::Match(match_clause) = clause {
-                for pattern in &match_clause.patterns {
-                    self.collect_relationship_types_from_pattern(pattern, &mut types);
+        self.ast.for_each_query(&mut |ast| {
+            for clause in ast.all_reading_clauses() {
+                if let ReadingClause::Match(match_clause) = clause {
+                    for pattern in &match_clause.patterns {
+                        self.collect_relationship_types_from_pattern(pattern, &mut types);
+                    }
                 }
             }
-        }
+        });
 
         types.sort();
         types.dedup();
@@ -1229,27 +1227,29 @@ impl CypherQuery {
     pub fn variables(&self) -> Vec<String> {
         let mut variables = Vec::new();
 
-        for clause in self.ast.all_reading_clauses() {
-            match clause {
-                ReadingClause::Call(inner) => {
-                    variables.extend(inner.call_imports().unwrap_or_default());
-                    variables.extend(inner.return_clause.items.iter().filter_map(|item| {
-                        item.alias.clone().or_else(|| match &item.expression {
-                            crate::ast::ValueExpression::Variable(name) => Some(name.clone()),
-                            _ => None,
-                        })
-                    }));
-                }
-                ReadingClause::Match(match_clause) => {
-                    for pattern in &match_clause.patterns {
-                        self.collect_variables_from_pattern(pattern, &mut variables);
+        self.ast.for_each_query(&mut |ast| {
+            for clause in ast.all_reading_clauses() {
+                match clause {
+                    ReadingClause::Call(inner) => {
+                        variables.extend(inner.call_imports().unwrap_or_default());
+                        variables.extend(inner.return_clause.items.iter().filter_map(|item| {
+                            item.alias.clone().or_else(|| match &item.expression {
+                                crate::ast::ValueExpression::Variable(name) => Some(name.clone()),
+                                _ => None,
+                            })
+                        }));
+                    }
+                    ReadingClause::Match(match_clause) => {
+                        for pattern in &match_clause.patterns {
+                            self.collect_variables_from_pattern(pattern, &mut variables);
+                        }
+                    }
+                    ReadingClause::Unwind(unwind_clause) => {
+                        variables.push(unwind_clause.alias.clone());
                     }
                 }
-                ReadingClause::Unwind(unwind_clause) => {
-                    variables.push(unwind_clause.alias.clone());
-                }
             }
-        }
+        });
 
         variables.sort();
         variables.dedup();
@@ -1461,6 +1461,7 @@ impl CypherQueryBuilder {
             post_with_reading_clauses: vec![],
             post_with_where_clause: None,
             further_with_stages: vec![],
+            union_branches: Vec::new(),
             return_clause: crate::ast::ReturnClause {
                 distinct: self.distinct,
                 items: self.return_items,
@@ -1497,6 +1498,53 @@ impl CypherQueryBuilder {
 mod tests {
     use super::*;
     use crate::config::GraphConfig;
+
+    #[tokio::test]
+    async fn union_distinct_all_and_schema_validation_execute() {
+        use arrow_array::{Int64Array, RecordBatch};
+        use arrow_schema::{DataType, Field, Schema};
+        use std::sync::Arc;
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)])),
+            vec![Arc::new(Int64Array::from(vec![1, 2, 2]))],
+        )
+        .unwrap();
+        let config = GraphConfig::builder()
+            .node_table("Person", "id")
+            .build()
+            .unwrap();
+        for (query, rows) in [
+            ("MATCH (p:Person) RETURN p.id AS n UNION RETURN 2 AS n", 2),
+            (
+                "MATCH (p:Person) RETURN p.id AS n UNION ALL RETURN 2 AS n",
+                4,
+            ),
+            (
+                "RETURN 1 AS n UNION ALL RETURN 1 AS n UNION RETURN 2 AS n",
+                2,
+            ),
+            ("RETURN NULL AS n UNION RETURN NULL AS n", 1),
+        ] {
+            let result = CypherQuery::new(query)
+                .unwrap()
+                .with_config(config.clone())
+                .execute(HashMap::from([("Person".to_string(), batch.clone())]), None)
+                .await
+                .unwrap();
+            assert_eq!(result.num_rows(), rows, "{query}");
+        }
+        for query in [
+            "RETURN 1 AS x UNION RETURN 2 AS y",
+            "RETURN 1 AS x UNION RETURN 'a' AS x",
+        ] {
+            assert!(CypherQuery::new(query)
+                .unwrap()
+                .with_config(config.clone())
+                .execute(HashMap::from([("Person".to_string(), batch.clone())]), None)
+                .await
+                .is_err());
+        }
+    }
 
     #[test]
     fn test_parse_simple_cypher_query() {
