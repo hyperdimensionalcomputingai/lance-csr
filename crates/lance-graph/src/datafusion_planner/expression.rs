@@ -19,6 +19,34 @@ use datafusion_functions_aggregate::min_max::max;
 use datafusion_functions_aggregate::min_max::min;
 use datafusion_functions_aggregate::sum::sum;
 
+impl super::DataFusionPlanner {
+    pub(crate) fn resolve_expr(
+        &self,
+        expr: Expr,
+        schema: &datafusion::common::DFSchema,
+    ) -> crate::error::Result<Expr> {
+        expr.resolve_lambda_variables(schema)
+            .map(|e| e.data)
+            .map_err(|e| self.plan_error("Failed to resolve expression scope", e))
+    }
+
+    pub(crate) fn value_expr(
+        &self,
+        expr: &ValueExpression,
+        schema: &datafusion::common::DFSchema,
+    ) -> crate::error::Result<Expr> {
+        self.resolve_expr(to_df_value_expr(&bind_value(expr, schema)), schema)
+    }
+
+    pub(crate) fn boolean_expr(
+        &self,
+        expr: &BooleanExpression,
+        schema: &datafusion::common::DFSchema,
+    ) -> crate::error::Result<Expr> {
+        self.resolve_expr(to_df_boolean_expr(&bind_boolean(expr, schema)), schema)
+    }
+}
+
 /// Helper function to create LIKE expressions with consistent settings
 fn create_like_expr(expression: &ValueExpression, pattern: &str, case_insensitive: bool) -> Expr {
     Expr::Like(datafusion::logical_expr::Like {
@@ -122,6 +150,32 @@ pub(crate) fn to_df_value_expr(expr: &ValueExpression) -> Expr {
             col(qualify_column(&prop.variable, &prop.property))
         }
         VE::Variable(v) => col(v.to_lowercase()),
+        VE::LocalVariable(v) => Expr::LambdaVariable(
+            datafusion::logical_expr::expr::LambdaVariable::new(v.to_lowercase(), None),
+        ),
+        VE::Reduce {
+            accumulator,
+            initial,
+            variable,
+            list,
+            expression,
+        } => super::list_folds::reduce(
+            to_df_value_expr(list),
+            to_df_value_expr(initial),
+            vec![accumulator.clone(), variable.clone()],
+            to_df_value_expr(expression),
+        ),
+        VE::ListPredicate {
+            kind,
+            variable,
+            list,
+            predicate,
+        } => super::list_folds::predicate(
+            kind,
+            to_df_value_expr(list),
+            variable.clone(),
+            to_df_value_expr(predicate),
+        ),
         VE::Literal(PV::String(s)) => lit(s.clone()),
         VE::Literal(PV::Integer(i)) => lit(*i),
         VE::Literal(PV::Float(f)) => lit(*f),
@@ -198,7 +252,8 @@ pub(crate) fn to_df_value_expr(expr: &ValueExpression) -> Expr {
                 }
                 "left" | "right" | "substring" | "replace" | "split" | "trim" | "ltrim"
                 | "rtrim" | "size" | "reverse" | "last" | "tail" | "keys" | "__entity_keys"
-                | "labels" => {
+                | "labels" | "__predicate_all" | "__predicate_any" | "__predicate_none"
+                | "__predicate_single" => {
                     super::scalar_functions::call(name, args.iter().map(to_df_value_expr).collect())
                 }
                 "range" => {
@@ -535,34 +590,13 @@ pub(crate) fn bind_boolean(
 
 /// Check if a ValueExpression contains an aggregate function
 pub(crate) fn contains_aggregate(expr: &ValueExpression) -> bool {
-    use crate::ast::ValueExpression as VE;
-    match expr {
-        VE::AggregateFunction { .. } => true,
-        VE::ScalarFunction { args, .. } => args.iter().any(contains_aggregate),
-        VE::Map(entries) => entries.iter().any(|(_, v)| contains_aggregate(v)),
-        VE::Field { base, .. } => contains_aggregate(base),
-        VE::Arithmetic { left, right, .. } => contains_aggregate(left) || contains_aggregate(right),
-        VE::Case { whens, otherwise } => {
-            whens.iter().any(|(_, then)| contains_aggregate(then))
-                || otherwise.as_deref().is_some_and(contains_aggregate)
-        }
-        VE::VectorDistance { left, right, .. } => {
-            contains_aggregate(left) || contains_aggregate(right)
-        }
-        VE::VectorSimilarity { left, right, .. } => {
-            contains_aggregate(left) || contains_aggregate(right)
-        }
-        _ => false,
-    }
+    let mut found = false;
+    crate::ast::transform_value(&mut expr.clone(), &mut |value| {
+        found |= matches!(value, ValueExpression::AggregateFunction { .. });
+    });
+    found
 }
 
-/// Convert a ValueExpression to Cypher dot notation for column naming
-///
-/// This generates user-friendly column names following Cypher conventions:
-/// - Property references: `p.name` (variable.property)
-/// - Functions: `function_name(arg)` with simplified argument representation
-/// - Other expressions: Use the expression as-is
-///
 /// This is used when no explicit alias is provided in RETURN clauses.
 pub(crate) fn to_cypher_column_name(expr: &ValueExpression) -> String {
     use crate::ast::ValueExpression as VE;

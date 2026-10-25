@@ -443,6 +443,23 @@ pub enum ValueExpression {
         filter: Option<Box<BooleanExpression>>,
         map: Option<Box<ValueExpression>>,
     },
+    /// A lexically scoped variable in a reduce or list predicate body.
+    LocalVariable(String),
+    /// `reduce(accumulator = initial, variable IN list | expression)`.
+    Reduce {
+        accumulator: String,
+        initial: Box<ValueExpression>,
+        variable: String,
+        list: Box<ValueExpression>,
+        expression: Box<ValueExpression>,
+    },
+    /// `all/any/none/single(variable IN list WHERE predicate)`.
+    ListPredicate {
+        kind: String,
+        variable: String,
+        list: Box<ValueExpression>,
+        predicate: Box<ValueExpression>,
+    },
     /// Vector literal: [0.1, 0.2, 0.3]
     /// Represents an inline vector for similarity search
     VectorLiteral(Vec<f32>),
@@ -662,13 +679,75 @@ pub fn transform_value(expr: &mut ValueExpression, f: &mut dyn FnMut(&mut ValueE
             }
             transform_value(map, f);
         }
+        ValueExpression::Reduce {
+            initial,
+            list,
+            expression,
+            ..
+        } => {
+            transform_value(initial, f);
+            transform_value(list, f);
+            transform_value(expression, f);
+        }
+        ValueExpression::ListPredicate {
+            list, predicate, ..
+        } => {
+            transform_value(list, f);
+            transform_value(predicate, f);
+        }
         ValueExpression::Variable(_)
+        | ValueExpression::LocalVariable(_)
         | ValueExpression::Property(_)
         | ValueExpression::Literal(_)
         | ValueExpression::Parameter(_)
         | ValueExpression::VectorLiteral(_) => {}
     }
     f(expr);
+}
+
+// Mark only the body's local references; the input and initializer retain outer scope.
+pub(crate) fn mark_locals(expr: &mut ValueExpression, names: &[&str]) {
+    transform_value(expr, &mut |value| match value {
+        ValueExpression::Variable(name) if names.iter().any(|n| n.eq_ignore_ascii_case(name)) => {
+            *value = ValueExpression::LocalVariable(name.to_lowercase());
+        }
+        ValueExpression::Property(p)
+            if names.iter().any(|n| n.eq_ignore_ascii_case(&p.variable)) =>
+        {
+            *value = ValueExpression::Field {
+                base: Box::new(ValueExpression::LocalVariable(p.variable.to_lowercase())),
+                field: p.property.clone(),
+            };
+        }
+        _ => {}
+    });
+}
+
+/// Expressions that need relational planning rather than scalar lambda execution.
+pub(crate) fn needs_relational_evaluation(expr: &ValueExpression) -> bool {
+    fn boolean_has_pattern(expr: &BooleanExpression) -> bool {
+        match expr {
+            BooleanExpression::PatternExists { .. } => true,
+            BooleanExpression::And(a, b) | BooleanExpression::Or(a, b) => {
+                boolean_has_pattern(a) || boolean_has_pattern(b)
+            }
+            BooleanExpression::Not(b) => boolean_has_pattern(b),
+            _ => false,
+        }
+    }
+    let mut found = false;
+    transform_value(&mut expr.clone(), &mut |value| {
+        found |= match value {
+            ValueExpression::PatternComprehension { .. }
+            | ValueExpression::ListComprehension { .. } => true,
+            ValueExpression::Boolean(b) => boolean_has_pattern(b),
+            ValueExpression::Case { whens, .. } => {
+                whens.iter().any(|(b, _)| boolean_has_pattern(b))
+            }
+            _ => false,
+        };
+    });
+    found
 }
 
 /// [`transform_value`] over every value in a predicate.
