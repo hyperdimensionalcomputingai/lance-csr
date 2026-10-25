@@ -43,7 +43,7 @@ pub(crate) struct TargetJoinParams<'a> {
 
 impl DataFusionPlanner {
     /// Build a target node scan with property filters and qualified column names
-    fn build_target_scan(
+    pub(crate) fn build_target_scan(
         &self,
         target_source: Arc<dyn TableSource>,
         target_label: &str,

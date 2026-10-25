@@ -209,8 +209,13 @@ MATCH p = shortestPath((a:Person {id: 1})-[:KNOWS*]-(b:Person {id: 4}))
 RETURN length(p), nodes(p)
 ```
 
-- **Variable length** defaults to a minimum of 1 and a maximum of 20 hops; a maximum above 20 is rejected,
-  and zero-length paths (`*0..`) are not supported. Each length becomes one branch of a union.
+- **Variable length** defaults to a minimum of 1 and a maximum of 20 hops; a maximum above 20 is rejected.
+  `*0..` also matches the source itself, once per input row; `*0..0` matches only that identity. The start
+  and end must have the same label and key for a zero-hop match. Eligible CSR paths use one iterative
+  expansion for the whole range; the join fallback uses one branch per length.
+- **Variable-length alternation** follows each relationship type's configured endpoint labels. With
+  suitable CSR and node indexes, a mixed path such as `[:hasType|isSubclassOf*1..3]` stays in one operator.
+  Undirected or named variable-length alternation remains unsupported.
 - **Undirected variable-length paths** skip immediate backtracking (`a-b-a`).
 - **`shortestPath` and `allShortestPaths`** need exactly one relationship type, no relationship variable,
   and named end nodes. Their length is unbounded unless you give a maximum. `nodes(p)` returns the node keys.
