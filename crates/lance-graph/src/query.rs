@@ -377,11 +377,19 @@ impl CypherQuery {
     ///
     /// # Returns
     /// A SQL string representing the query in the specified dialect
+    ///
+    /// # Errors
+    /// Returns `GraphError::UnsupportedFeature` for runtime-only Cypher functions
+    /// without a faithful SQL translation. Constant expressions may be folded first.
     pub async fn to_sql(
         &self,
         datasets: HashMap<String, arrow::record_batch::RecordBatch>,
         dialect: Option<SqlDialect>,
     ) -> Result<String> {
+        use datafusion::common::not_impl_err;
+        use datafusion::common::tree_node::{TreeNode, TreeNodeRecursion};
+        use datafusion::logical_expr::registry::FunctionRegistry;
+        use datafusion::logical_expr::Expr;
         use std::sync::Arc;
 
         let dialect = dialect.unwrap_or_default();
@@ -402,6 +410,28 @@ impl CypherQuery {
             .optimize(&df_plan)
             .map_err(|e| GraphError::PlanError {
                 message: format!("Failed to optimize plan: {}", e),
+                location: snafu::Location::new(file!(), line!(), column!()),
+            })?;
+
+        // An SQL function with the same name need not implement Cypher semantics.
+        optimized_plan
+            .apply_with_subqueries(|plan| {
+                plan.apply_expressions(|expr| {
+                    expr.apply(|expr| {
+                        if let Expr::ScalarFunction(function) = expr {
+                            if !ctx.udf(function.name()).is_ok_and(|registered| registered == function.func) {
+                                return not_impl_err!(
+                                    "SQL export of Cypher function '{}' is unsupported; execute the Cypher query directly",
+                                    function.name()
+                                );
+                            }
+                        }
+                        Ok(TreeNodeRecursion::Continue)
+                    })
+                })
+            })
+            .map_err(|error| GraphError::UnsupportedFeature {
+                feature: error.to_string(),
                 location: snafu::Location::new(file!(), line!(), column!()),
             })?;
 
@@ -1995,6 +2025,37 @@ mod tests {
         // Note: DataFusion unparser might quote identifiers or use aliases
         // We check for "p.name" which is the expected output alias
         assert!(sql.contains("p.name"));
+    }
+
+    #[tokio::test]
+    async fn test_to_sql_rejects_runtime_only_cypher_function() {
+        let batch = RecordBatch::try_from_iter(vec![
+            (
+                "id",
+                Arc::new(arrow_array::Int64Array::from(vec![1])) as arrow_array::ArrayRef,
+            ),
+            (
+                "number",
+                Arc::new(arrow_array::Float64Array::from(vec![-1.5])) as arrow_array::ArrayRef,
+            ),
+        ])
+        .unwrap();
+        let query = CypherQuery::new("MATCH (p:Person) RETURN round(p.number) AS value")
+            .unwrap()
+            .with_config(
+                GraphConfig::builder()
+                    .node_table("Person", "id")
+                    .build()
+                    .unwrap(),
+            );
+        let error = query
+            .to_sql(HashMap::from([("Person".to_string(), batch)]), None)
+            .await
+            .unwrap_err();
+        assert!(matches!(error, GraphError::UnsupportedFeature { .. }));
+        assert!(error
+            .to_string()
+            .contains("SQL export of Cypher function 'round'"));
     }
 
     async fn write_lance_dataset(path: &std::path::Path, batch: arrow_array::RecordBatch) {

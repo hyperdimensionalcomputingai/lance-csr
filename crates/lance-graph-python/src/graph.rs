@@ -588,7 +588,7 @@ impl CypherQuery {
         Ok(dict.unbind())
     }
 
-    /// Convert query to SQL
+    /// Export supported Cypher expressions as SQL
     ///
     /// Parameters
     /// ----------
@@ -604,6 +604,8 @@ impl CypherQuery {
     ///
     /// Raises
     /// ------
+    /// NotImplementedError
+    ///     If a runtime-only Cypher function has no faithful SQL translation
     /// RuntimeError
     ///     If SQL generation fails
     #[pyo3(signature = (datasets, dialect=None))]

@@ -5,7 +5,87 @@
 
 import pyarrow as pa
 import pytest
-from lance_csr import CypherQuery, GraphConfig
+from lance_csr import CypherQuery, GraphConfig, SqlEngine
+
+
+@pytest.fixture
+def scalar_export_env():
+    config = GraphConfig.builder().node_table("Person", "id").build()
+    datasets = {
+        "Person": pa.table(
+            {
+                "id": [1, 2, 3],
+                "number": pa.array([-1.5, None, 2.0], pa.float32()),
+                "integer": pa.array([-100, None, 2], pa.int8()),
+                "text": pa.array(["a猫😀z", None, ""], pa.large_string()),
+            }
+        )
+    }
+    return config, datasets
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "toUpper(p.text)",
+        "round(-1.5)",
+        "abs(-100)",
+        "sqrt(9)",
+    ],
+)
+def test_sql_export_preserves_scalar_values_and_types(scalar_export_env, expression):
+    config, datasets = scalar_export_env
+    query = CypherQuery(
+        f"MATCH (p:Person) RETURN p.id AS id, {expression} AS value ORDER BY id"
+    ).with_config(config)
+    cypher = query.execute(datasets)
+    sql = SqlEngine(datasets).execute(query.to_sql(datasets))
+    assert sql.to_pylist() == cypher.to_pylist()
+    assert sql.schema.types == cypher.schema.types
+
+
+@pytest.mark.parametrize(
+    ("expression", "function", "expected"),
+    [
+        ("round(p.number)", "round", [-1.0, None, 2.0]),
+        ("abs(p.integer)", "abs", [100, None, 2]),
+    ],
+)
+def test_sql_export_rejects_runtime_only_cypher_functions(
+    scalar_export_env, expression, function, expected
+):
+    config, datasets = scalar_export_env
+    query = CypherQuery(
+        f"MATCH (p:Person) RETURN p.id AS id, {expression} AS value ORDER BY id"
+    ).with_config(config)
+    result = query.execute(datasets)
+    assert result.column("value").to_pylist() == expected
+    with pytest.raises(
+        NotImplementedError, match=f"SQL export of Cypher function '{function}'"
+    ):
+        query.to_sql(datasets)
+
+    # A same-named SQL function can differ in values or Arrow result width.
+    engine = SqlEngine(datasets)
+    if function == "round":
+        assert engine.execute(
+            "SELECT round(number) AS value FROM person ORDER BY id"
+        ).column("value").to_pylist() == [-2.0, None, 2.0]
+    if function == "abs":
+        sql = engine.execute("SELECT abs(integer) AS value FROM person ORDER BY id")
+        assert sql.schema.field("value").type == pa.int8()
+        assert result.schema.field("value").type == pa.int64()
+
+
+def test_sql_export_checks_filter_functions(scalar_export_env):
+    config, datasets = scalar_export_env
+    query = CypherQuery(
+        "MATCH (p:Person) WHERE round(p.number) = -1 RETURN p.id"
+    ).with_config(config)
+    with pytest.raises(
+        NotImplementedError, match="SQL export of Cypher function 'round'"
+    ):
+        query.to_sql(datasets)
 
 
 @pytest.fixture

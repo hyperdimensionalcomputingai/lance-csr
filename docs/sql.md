@@ -59,7 +59,7 @@ The SQL dialect is DataFusion's; see the
 
 ## From Cypher to SQL
 
-`CypherQuery.to_sql(datasets, dialect=None)` shows the SQL that a Cypher query is equivalent to. It's handy
+`CypherQuery.to_sql(datasets, dialect=None)` exports supported Cypher expressions as SQL. It's handy
 for understanding a query, or for running a graph pattern on another SQL engine:
 
 ```python
@@ -81,6 +81,17 @@ print(query.to_sql(graph, SqlDialect.PostgreSql))
 ```
 
 `SqlDialect` has `Default` (DataFusion's), `Spark`, `PostgreSql`, `MySql` and `Sqlite`.
+
+Export is experimental and supports a subset of Cypher execution. Runtime-only Cypher functions
+raise `NotImplementedError` when no faithful SQL expression is available. This includes math wrappers such
+as `round` and `abs` when they depend on table values. Cypher `round(-1.5)` produces `-1.0`;
+DataFusion SQL `round(-1.5)` produces `-2.0`.
+Integer `abs` also normalizes its result to Int64 in Cypher, while SQL preserves the input width.
+Use `CypherQuery.execute` or `CypherEngine.execute` for these expressions.
+
+Existing native SQL functions remain exportable. Constant expressions that the optimizer
+evaluates completely can also export their resulting literals. These checks establish DataFusion
+semantics; other SQL dialects still require validation on the destination engine.
 
 !!! info "This is the join path"
 
