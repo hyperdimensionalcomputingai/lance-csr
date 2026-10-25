@@ -134,6 +134,16 @@ namespace utilities.
 
 Most APIs return `Result<T, GraphError>`. Errors include parsing failures, missing mappings, and execution issues surfaced from DataFusion.
 
+## Constructing query ASTs directly
+
+Prefer `CypherQuery::new` or the query builder when you do not need direct AST access. Pagination fields
+now use `Option<ast::RowCount>`: wrap literal values with `RowCount::Literal(n)`, or use
+`RowCount::Parameter(name)` before parameter substitution. AST struct literals also set
+`union_branches: Vec::new()` for a single query. `UnionBranch` holds each following query and its `all`
+flag; each branch has its own variable scope. Exhaustive matches on `LogicalOperator` must handle the
+new `SingleRow` and `QueryUnion` variants. These are Rust source compatibility changes; Python method
+signatures are unchanged by UNION.
+
 ## Testing
 
 ```bash
