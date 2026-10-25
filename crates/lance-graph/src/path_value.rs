@@ -286,6 +286,14 @@ mod tests {
             ("WITH p AS q RETURN q", true),
             ("WITH p AS q RETURN relationships(q)", true),
             (
+                "WITH p AS q CALL { WITH q RETURN relationships(q) AS edges } RETURN edges",
+                true,
+            ),
+            (
+                "WITH p AS q CALL { WITH q RETURN q AS result UNION WITH q RETURN q AS result } RETURN nodes(result)",
+                true,
+            ),
+            (
                 "WITH p AS q WITH collect(q) AS ps UNWIND ps AS r RETURN nodes(r)",
                 true,
             ),

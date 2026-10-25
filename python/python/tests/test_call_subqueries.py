@@ -457,3 +457,19 @@ def test_shortest_path_alias_import_demands_relationship_values(graph):
         {"targets": [20, 40]},
         {"targets": [20, 40]},
     ]
+
+
+def test_shortest_path_alias_survives_call_union(graph):
+    engine, _, _ = graph
+    query = (
+        "MATCH path = allShortestPaths((a:Person {id: 10})-[:KNOWS*..3]->"
+        "(b:Person {id: 40})) WITH path AS carried "
+        "CALL { WITH carried RETURN carried AS result "
+        "UNION WITH carried RETURN carried AS result } "
+        "RETURN [edge IN relationships(result) | endNode(edge).id] AS targets "
+        "ORDER BY targets"
+    )
+    assert engine.execute(query).to_pylist() == [
+        {"targets": [20, 40]},
+        {"targets": [20, 40]},
+    ]
