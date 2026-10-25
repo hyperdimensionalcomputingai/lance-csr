@@ -1,4 +1,20 @@
-# lance-csr: Fast graph queries on Lance
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/brand/desktop-dark-1016.png">
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/brand/desktop-light-1016.png">
+    <img src="docs/assets/brand/desktop-light-1016.png" alt="lance-csr" width="340">
+  </picture>
+</h1>
+
+**Fast graph queries on Lance**
+
+[![Rust tests](https://github.com/hyperdimensionalcomputingai/lance-csr/actions/workflows/rust-test.yml/badge.svg?branch=main)](https://github.com/hyperdimensionalcomputingai/lance-csr/actions/workflows/rust-test.yml)
+[![Python tests](https://github.com/hyperdimensionalcomputingai/lance-csr/actions/workflows/python-test.yml/badge.svg?branch=main)](https://github.com/hyperdimensionalcomputingai/lance-csr/actions/workflows/python-test.yml)
+[![PyPI version](https://img.shields.io/pypi/v/lance-csr?color=555)](https://pypi.org/project/lance-csr/)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-555)](LICENSE)
+
+[Documentation](https://lance-csr.pages.dev/) · [Examples](examples/README.md) ·
+[Releases](https://github.com/hyperdimensionalcomputingai/lance-csr/releases) · [Contributing](CONTRIBUTING.md)
 
 lance-csr is a fast graph query engine over [Lance](https://lancedb.github.io/lance/) datasets, built in Rust on
 Apache DataFusion, with Python bindings. It is a fork of [lance-graph](https://github.com/lance-format/lance-graph)
