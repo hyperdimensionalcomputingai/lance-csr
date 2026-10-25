@@ -497,6 +497,7 @@ mod tests {
 
     #[test]
     fn call_bypasses_snapshot_templates_in_every_reading_stage() {
+        let (config, _) = graph();
         let catalog = Arc::new(lance_graph_catalog::InMemoryCatalog::new());
         for text in [
             "CALL { RETURN 1 AS n } RETURN n",
@@ -507,7 +508,7 @@ mod tests {
             "MATCH path = (p:Person)-[:KNOWS]->(f:Person) RETURN path",
             "MATCH path = shortestPath((p:Person)-[:KNOWS*..3]->(f:Person)) RETURN relationships(path)",
         ] {
-            let mut query = CypherQuery::new(text).unwrap();
+            let mut query = CypherQuery::new(text).unwrap().with_config(config.clone());
             assert!(!query.prepare_cached_plan(catalog.clone()).unwrap());
         }
     }
