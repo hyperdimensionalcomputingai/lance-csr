@@ -19,6 +19,43 @@ use datafusion_functions_aggregate::min_max::max;
 use datafusion_functions_aggregate::min_max::min;
 use datafusion_functions_aggregate::sum::sum;
 
+impl super::DataFusionPlanner {
+    pub(crate) fn value_expr(&self, value: &ValueExpression) -> Expr {
+        self.type_parameters(to_df_value_expr(value))
+    }
+
+    pub(crate) fn boolean_expr(&self, value: &BooleanExpression) -> Expr {
+        self.type_parameters(to_df_boolean_expr(value))
+    }
+
+    fn type_parameters(&self, expression: Expr) -> Expr {
+        use datafusion::common::tree_node::{Transformed, TreeNode};
+        if self.parameter_types.is_empty() {
+            return expression;
+        }
+        expression
+            .transform_up(|expression| {
+                if let Expr::Placeholder(mut parameter) = expression {
+                    parameter.field = self
+                        .parameter_types
+                        .get(parameter.id.trim_start_matches('$'))
+                        .map(|data_type| {
+                            std::sync::Arc::new(arrow_schema::Field::new(
+                                "",
+                                data_type.clone(),
+                                true,
+                            ))
+                        });
+                    Ok(Transformed::yes(Expr::Placeholder(parameter)))
+                } else {
+                    Ok(Transformed::no(expression))
+                }
+            })
+            .expect("typing placeholders does not fail")
+            .data
+    }
+}
+
 /// Helper function to create LIKE expressions with consistent settings
 fn create_like_expr(expression: &ValueExpression, pattern: &str, case_insensitive: bool) -> Expr {
     Expr::Like(datafusion::logical_expr::Like {
@@ -131,10 +168,7 @@ pub(crate) fn to_df_value_expr(expr: &ValueExpression) -> Expr {
         }
         VE::Literal(PV::Variable(v)) => col(v.to_lowercase()),
         VE::Literal(PV::Parameter(name)) => {
-            panic!(
-                "Parameter ${} should have been substituted during semantic analysis",
-                name
-            );
+            datafusion::logical_expr::placeholder(format!("${}", name.to_lowercase()))
         }
         VE::Literal(PV::Property(prop)) => {
             // Create qualified column name: variable__property (lowercase for case-insensitivity)
@@ -411,10 +445,7 @@ pub(crate) fn to_df_value_expr(expr: &ValueExpression) -> Expr {
             lit(scalar)
         }
         VE::Parameter(name) => {
-            panic!(
-                "Parameter ${} should have been substituted during semantic analysis",
-                name
-            );
+            datafusion::logical_expr::placeholder(format!("${}", name.to_lowercase()))
         }
         VE::Boolean(b) => to_df_boolean_expr(b),
         VE::Map(entries) => datafusion::functions::core::expr_fn::named_struct(

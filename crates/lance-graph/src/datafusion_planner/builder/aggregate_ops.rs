@@ -96,7 +96,7 @@ impl DataFusionPlanner {
                 let first = aggregates.len();
                 split_aggregates(&mut rewritten, &mut aggregates);
                 for (column, aggregate) in &aggregates[first..] {
-                    let mut aggregate = super::super::expression::to_df_value_expr(aggregate);
+                    let mut aggregate = self.value_expr(aggregate);
                     // collect() gathers in the order of a preceding `WITH ... ORDER BY`.
                     if let datafusion::logical_expr::Expr::AggregateFunction(f) = &mut aggregate {
                         if f.func.name() == "array_agg" && !f.params.distinct {
@@ -105,10 +105,10 @@ impl DataFusionPlanner {
                     }
                     agg_exprs.push(aggregate.alias(column));
                 }
-                outer.push(super::super::expression::to_df_value_expr(&rewritten).alias(alias));
+                outer.push(self.value_expr(&rewritten).alias(alias));
             } else {
                 // Group expressions: use raw expression for grouping, no alias
-                group_exprs.push(super::super::expression::to_df_value_expr(&p.expression));
+                group_exprs.push(self.value_expr(&p.expression));
             }
         }
 
@@ -130,7 +130,7 @@ impl DataFusionPlanner {
                 }));
             } else if !super::super::expression::contains_aggregate(&p.expression) {
                 // Re-create the expression and apply alias
-                let expr = super::super::expression::to_df_value_expr(&p.expression);
+                let expr = self.value_expr(&p.expression);
                 let aliased = if let Some(alias) = &p.alias {
                     expr.alias(alias.to_lowercase())
                 } else {

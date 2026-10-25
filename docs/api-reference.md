@@ -87,7 +87,11 @@ CypherEngine(config: GraphConfig, datasets: dict, use_csr: bool = False)
 ```
 
 Registers `datasets` once and reuses the catalog, DataFusion session and (with `use_csr=True`) CSR index
-across queries. Safe to share between threads.
+across queries. Safe to share between threads. `execute()` and `execute_batches()` reuse up to 128
+unoptimized query templates per snapshot, keyed by exact text and scalar parameter names/types. Values are
+bound before optimization on every call. Containers, value-dependent column names and unsupported template
+shapes use ordinary planning. `explain()` always plans directly; successful `refresh()` clears the cache.
+See [Repeated queries](lance.md#repeated-queries) for the scope and limits.
 
 | Parameter | Description |
 | --- | --- |
