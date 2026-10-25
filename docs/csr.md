@@ -91,6 +91,14 @@ Node index
     Expect about **70 bytes per edge** of extra peak memory, for both directions together. The index lives in
     memory even when the tables are read lazily from Lance.
 
+    During query execution, each CSR expansion partition keeps one input batch and collects at most one
+    output chunk of neighbour positions before fetching properties. It yields that chunk before visiting
+    the remaining neighbours, even for a single high-degree node. Deleted edge positions are read from the
+    shared snapshot rather than copied for each query; refresh resolves those positions by scanning the
+    affected sources' neighbour lists. The chunk row limit comes from DataFusion's batch
+    size; wide properties and multiple active partitions still increase working memory. This does not bound
+    the resident graph, the input data, or buffering in joins, sorts and aggregations elsewhere in the plan.
+
 !!! warning "Experimental"
 
     The CSR is marked experimental. Results are identical with it on or off (the test suite runs each

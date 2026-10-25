@@ -3,7 +3,7 @@
 
 """Peak memory of streamed Cypher scans over Lance data larger than RAM limits.
 
-``generate`` writes a deterministic Person table with a wide unused ``payload``
+``generate`` writes a deterministic Person table with a wide ``payload``
 column, in batches so the generator itself stays small. ``run`` executes a query in
 a fresh subprocess, consumes ``execute_batches()`` incrementally (count + checksum,
 nothing retained), and reports peak RSS from ``getrusage``, which includes native
@@ -11,10 +11,19 @@ allocations. Apply the memory cap outside, e.g. ``docker run --memory=2g``.
 
     python benchmarks/bounded_memory.py generate --out /data/large --rows 2000000
     python benchmarks/bounded_memory.py run --data /data/large --query scan
+
+For CSR fan-out, generate a hub and return its wide properties. Compare fresh
+processes on the base and changed revisions for several row counts. The pre-query
+RSS includes the resident CSR and node index; peak growth is a lower bound because
+getrusage also includes allocations made during engine construction.
+
+    python benchmarks/bounded_memory.py generate --out /data/hub --rows 100000 --hub
+    python benchmarks/bounded_memory.py run --data /data/hub --query hub
 """
 
 import argparse
 import json
+import os
 import resource
 import subprocess
 import sys
@@ -27,10 +36,13 @@ QUERIES = {
     "scan": "MATCH (p:Person) RETURN p.id",
     # Selective graph join; the KNOWS side is filtered before the join.
     "join": "MATCH (a:Person)-[:KNOWS]->(b:Person) WHERE a.id < 1000 RETURN b.id",
+    "hub": (
+        "MATCH (a:Person)-[:KNOWS]->(b:Person) WHERE a.id = 0 RETURN b.id, b.payload"
+    ),
 }
 
 
-def generate(out: Path, rows: int, batch_rows: int = 16_384) -> None:
+def generate(out: Path, rows: int, batch_rows: int = 16_384, hub: bool = False) -> None:
     import lance
     import numpy as np
     import pyarrow as pa
@@ -56,7 +68,11 @@ def generate(out: Path, rows: int, batch_rows: int = 16_384) -> None:
     reader = pa.RecordBatchReader.from_batches(schema, person_batches())
     lance.write_dataset(reader, out / "person.lance", mode="overwrite")
     ids = np.arange(rows, dtype=np.int64)
-    knows = pa.table({"src": ids, "dst": (ids + 1) % rows})
+    knows = pa.table(
+        {"src": np.zeros(rows, dtype=np.int64), "dst": ids}
+        if hub
+        else {"src": ids, "dst": (ids + 1) % rows}
+    )
     lance.write_dataset(knows, out / "knows.lance", mode="overwrite")
     logical = rows * (8 + PAYLOAD_BYTES)
     print(json.dumps({"rows": rows, "logical_input_bytes": logical}))
@@ -80,7 +96,14 @@ def measure(data: Path, query: str) -> dict:
             "Person": lance.dataset(data / "person.lance"),
             "KNOWS": lance.dataset(data / "knows.lance"),
         },
+        use_csr=query == "hub",
     )
+    peak_before = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    rss_before = (
+        int(subprocess.check_output(["ps", "-o", "rss=", "-p", str(os.getpid())]))
+        * 1024
+    )
+    query_start = time.perf_counter()
     reader = engine.execute_batches(QUERIES[query])
     rows = checksum = batches = 0
     first_batch_s = None
@@ -94,7 +117,11 @@ def measure(data: Path, query: str) -> dict:
     peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     # Linux reports KiB, macOS reports bytes.
     peak_bytes = peak if sys.platform == "darwin" else peak * 1024
+    peak_before_bytes = peak_before if sys.platform == "darwin" else peak_before * 1024
     input_rows = lance.dataset(data / "person.lance").count_rows()
+    if query in {"scan", "hub"}:
+        assert rows == input_rows
+        assert checksum == input_rows * (input_rows - 1) // 2
     return {
         "query": query,
         "input_rows": input_rows,
@@ -102,8 +129,14 @@ def measure(data: Path, query: str) -> dict:
         "checksum": checksum,
         "batches": batches,
         "time_to_first_batch_s": first_batch_s,
+        "query_time_to_first_batch_s": first_batch_s - (query_start - start)
+        if first_batch_s is not None
+        else None,
         "elapsed_s": elapsed,
         "peak_rss_bytes": peak_bytes,
+        "pre_query_rss_bytes": rss_before,
+        "pre_query_peak_rss_bytes": peak_before_bytes,
+        "peak_growth_lower_bound_bytes": max(0, peak_bytes - peak_before_bytes),
         "plan_scan": next(
             (
                 line.strip()
@@ -121,6 +154,7 @@ def main() -> None:
     gen = sub.add_parser("generate")
     gen.add_argument("--out", type=Path, required=True)
     gen.add_argument("--rows", type=int, required=True)
+    gen.add_argument("--hub", action="store_true")
     run = sub.add_parser("run")
     run.add_argument("--data", type=Path, required=True)
     run.add_argument("--query", choices=QUERIES, default="scan")
@@ -131,7 +165,7 @@ def main() -> None:
 
     if args.cmd == "generate":
         args.out.mkdir(parents=True, exist_ok=True)
-        generate(args.out, args.rows)
+        generate(args.out, args.rows, hub=args.hub)
     elif args.cmd == "child":
         print(json.dumps(measure(args.data, args.query)))
     else:
