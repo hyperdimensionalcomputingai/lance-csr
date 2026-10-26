@@ -22,7 +22,7 @@ mod join_builder;
 use super::DataFusionPlanner;
 use crate::error::Result;
 use crate::logical_plan::*;
-use datafusion::logical_expr::LogicalPlan;
+use datafusion::logical_expr::{LogicalPlan, LogicalPlanBuilder};
 
 use super::analysis::PlanningContext;
 
@@ -34,6 +34,9 @@ impl DataFusionPlanner {
         op: &LogicalOperator,
     ) -> Result<LogicalPlan> {
         match op {
+            LogicalOperator::SingleRow => LogicalPlanBuilder::empty(true)
+                .build()
+                .map_err(|e| self.plan_error("Failed to build singleton row", e)),
             LogicalOperator::ScanByLabel {
                 variable,
                 label,

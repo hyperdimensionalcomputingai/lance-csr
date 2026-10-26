@@ -112,7 +112,7 @@ impl DataFusionPlanner {
             LogicalOperator::ListComprehension { input, .. } => {
                 Self::collect_variables(input, vars)
             }
-            LogicalOperator::ComprehensionElement => {}
+            LogicalOperator::ComprehensionElement | LogicalOperator::SingleRow => {}
         }
     }
 
@@ -176,7 +176,7 @@ impl DataFusionPlanner {
             LogicalOperator::ShortestPath { input, .. } => Self::collect_labels(input, labels),
             LogicalOperator::Union { .. } => {}
             LogicalOperator::ListComprehension { input, .. } => Self::collect_labels(input, labels),
-            LogicalOperator::ComprehensionElement => {}
+            LogicalOperator::ComprehensionElement | LogicalOperator::SingleRow => {}
         }
     }
 }

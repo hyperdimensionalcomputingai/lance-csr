@@ -18,6 +18,8 @@ use std::collections::HashMap;
 /// A logical plan operator - describes what operation to perform
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum LogicalOperator {
+    /// One row with no bound variables, for queries without reading clauses.
+    SingleRow,
     /// Scan all nodes with a specific label
     ScanByLabel {
         variable: String,
@@ -385,10 +387,7 @@ impl<'a> LogicalPlanner<'a> {
         let mut plan = base_plan;
 
         if reading_clauses.is_empty() && plan.is_none() {
-            return Err(GraphError::PlanError {
-                message: "Query must have at least one MATCH or UNWIND clause".to_string(),
-                location: snafu::Location::new(file!(), line!(), column!()),
-            });
+            plan = Some(LogicalOperator::SingleRow);
         }
 
         for clause in reading_clauses {
@@ -1266,6 +1265,10 @@ impl<'a> LogicalPlanner<'a> {
     #[allow(clippy::only_used_in_recursion)]
     fn extract_variable_from_plan(&self, plan: &LogicalOperator) -> Result<String> {
         match plan {
+            LogicalOperator::SingleRow => Err(GraphError::PlanError {
+                message: "a singleton row binds no pattern variable".to_string(),
+                location: snafu::Location::new(file!(), line!(), column!()),
+            }),
             LogicalOperator::ScanByLabel { variable, .. } => Ok(variable.clone()),
             LogicalOperator::Unwind { alias, .. } => Ok(alias.clone()),
             LogicalOperator::Expand {

@@ -256,7 +256,7 @@ fn analyze_operator(
             }
             analyze_operator(element, analysis, rel_counter)?;
         }
-        LogicalOperator::ComprehensionElement => {}
+        LogicalOperator::ComprehensionElement | LogicalOperator::SingleRow => {}
     }
     Ok(())
 }
