@@ -1,6 +1,9 @@
-# Lance Graph Query Engine
+# lance-csr
 
-A graph query engine for Lance datasets with Cypher syntax support. This crate enables querying Lance's columnar datasets using familiar graph query patterns, interpreting tabular data as property graphs.
+A Cypher graph query engine for [Lance](https://lancedb.github.io/lance/) datasets, built on Apache DataFusion,
+with a CSR (compressed sparse row) adjacency index for fast multi-hop traversal. It interprets Lance datasets or
+Arrow tables as property graphs. The [lance-csr Python package](https://pypi.org/project/lance-csr/) wraps this
+crate.
 
 ## Features
 
@@ -8,11 +11,44 @@ A graph query engine for Lance datasets with Cypher syntax support. This crate e
 - Graph configuration for mapping Lance tables to nodes and relationships
 - Semantic validation with typed `GraphError` diagnostics
 - Pluggable execution strategies (DataFusion planner by default, Lance Native placeholder)
-- Async query execution that returns Arrow `RecordBatch` results
+- `CypherEngine`: register datasets once, optionally build the CSR, and serve many queries
+- Lance datasets read lazily and pinned to a version until `refresh()`
+- Async query execution that returns Arrow `RecordBatch` results or a stream
 - JSON-serializable parameter binding for reusable query templates
 - Logical plan debugging via `CypherQuery::explain`
 
-## Quick Start
+## Quick start
+
+```rust
+use std::collections::HashMap;
+use lance_csr::{CypherEngine, EngineSource, GraphConfig};
+
+let config = GraphConfig::builder()
+    .node_table("Person", "id")
+    .rel_table("KNOWS", "Person", "Person", "src_id", "dst_id")
+    .build()?;
+let sources = HashMap::from([
+    ("Person".to_string(), EngineSource::open_lance("person.lance", None, HashMap::new()).await?),
+    ("KNOWS".to_string(), EngineSource::open_lance("knows.lance", None, HashMap::new()).await?),
+]);
+let engine = CypherEngine::new(config, sources, true).await?;
+let batch = engine
+    .execute("MATCH (a:Person)-[:KNOWS]->(b) RETURN a.name, b.name", HashMap::new())
+    .await?;
+```
+
+`examples/embedded_query.rs` is a complete program that writes two Lance datasets, queries them, and picks up a
+new write with `refresh()`:
+
+```bash
+cargo run -p lance-csr --example embedded_query
+```
+
+The [Rust guide](https://lance-csr.pages.dev/rust/) covers the API, and the rest of the
+[documentation](https://lance-csr.pages.dev/) covers the graph schema, supported Cypher and the CSR index.
+Building the crate needs `protoc` for Lance's dependencies.
+
+For one query over in-memory batches, `CypherQuery` works without an engine:
 
 ```rust
 use std::collections::HashMap;
@@ -96,15 +132,10 @@ All queries use the DataFusion planner for optimization and execution.
 
 A builder (`CypherQueryBuilder`) is also available for constructing queries programmatically without parsing text.
 
-## Supported Cypher Surface
+## Supported Cypher
 
-- Node patterns `(:Label)` with optional variables.
-- Relationship patterns with fixed direction and type, including multi-hop paths.
-- Property comparisons against literal values with `AND`/`OR`/`NOT`/`EXISTS`.
-- RETURN lists of property accesses, optional `DISTINCT`, `ORDER BY`, `SKIP` (offset), and `LIMIT`.
-- Positional and named parameters (e.g. `$min_age`).
-
-Basic aggregations like `COUNT` are supported. Optional matches and subqueries are parsed but not executed yet.
+See [Supported Cypher](https://lance-csr.pages.dev/cypher/#supported-cypher) in the documentation for the
+clauses, patterns, expressions and functions the engine runs.
 
 ## Crate Layout
 
@@ -114,7 +145,9 @@ Basic aggregations like `COUNT` are supported. Optional matches and subqueries a
 - `logical_plan` – Builders for graph logical plans.
 - `datafusion_planner` – DataFusion-based execution planning.
 - `config` – Graph configuration types and builders.
+- `engine` – `CypherEngine`: cached snapshot, CSR adjacencies, `refresh()`.
 - `query` – High level `CypherQuery` API and runtime.
+- `csr_index`, `csr_expand` – The CSR adjacency index and the traversal operators that use it.
 - `error` – `GraphError` and result helpers.
 - `namespace` – Namespace helpers (re-exported from `lance-csr-catalog`).
 - `source_catalog` – Catalog helpers for looking up table metadata (re-exported from `lance-csr-catalog`).
@@ -135,7 +168,9 @@ cargo test -p lance-csr
 
 ## Benchmarks
 
-See the repository root `README.md` for benchmark setup, run commands, and report locations.
+All published numbers were measured through the Python package; see the
+[benchmarks page](https://lance-csr.pages.dev/benchmarks/). Criterion micro-benchmarks live in the unpublished
+`lance-csr-benches` crate.
 
 ## Python Bindings
 
@@ -146,4 +181,4 @@ See the Python package docs for setup and development:
 
 ## License
 
-Apache-2.0. See the top-level LICENSE file for details.
+Apache-2.0. See `LICENSE` and `NOTICE`.

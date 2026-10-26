@@ -7,6 +7,8 @@ on:
     paths:
       - docs/**
       - zensical.toml
+      # Pages include this example with --8<--.
+      - crates/lance-csr/examples/**
       - .github/workflows/docs.yml
 
 concurrency:

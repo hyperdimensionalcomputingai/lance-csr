@@ -1,6 +1,6 @@
 [package]
 name = "lance-csr-python"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 authors = ["The lance-csr Authors"]
 publish = false

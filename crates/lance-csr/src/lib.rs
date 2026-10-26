@@ -14,23 +14,31 @@
 //! - Property graph interpretation of Lance datasets
 //! - Translation to optimized SQL via DataFusion
 //! - Support for nodes, relationships, and properties
+//! - A CSR (compressed sparse row) adjacency index for multi-hop traversal
 //!
 //! # Example
 //!
-//! ```no_run
-//! use lance_csr::{CypherQuery, GraphConfig, Result};
+//! [`CypherEngine`] registers datasets once, optionally builds the CSR, and serves
+//! many queries. See [`engine`] for the full API and `examples/embedded_query.rs`
+//! for a runnable program.
 //!
-//! # fn example() -> Result<()> {
+//! ```no_run
+//! use std::collections::HashMap;
+//! use lance_csr::{CypherEngine, EngineSource, GraphConfig, Result};
+//!
+//! # async fn example() -> Result<()> {
 //! let config = GraphConfig::builder()
 //!     .node_table("Person", "person_id")
 //!     .rel_table("KNOWS", "Person", "Person", "src_person_id", "dst_person_id")
 //!     .build()?;
-//!
-//! let query = CypherQuery::new("MATCH (p:Person) WHERE p.age > 30 RETURN p.name")?
-//!     .with_config(config);
-//!
-//! // Execute against a dataset (would need actual dataset integration)
-//! // let results = query.execute(&dataset).await?;
+//! let sources = HashMap::from([
+//!     ("Person".to_string(), EngineSource::open_lance("person.lance", None, HashMap::new()).await?),
+//!     ("KNOWS".to_string(), EngineSource::open_lance("knows.lance", None, HashMap::new()).await?),
+//! ]);
+//! let engine = CypherEngine::new(config, sources, true).await?;
+//! let batch = engine
+//!     .execute("MATCH (p:Person) WHERE p.age > 30 RETURN p.name", HashMap::new())
+//!     .await?;
 //! # Ok(())
 //! # }
 //! ```
@@ -41,6 +49,7 @@ pub mod config;
 pub mod csr_expand;
 pub mod csr_index;
 pub mod datafusion_planner;
+pub mod engine;
 pub mod error;
 pub mod key_statistics;
 pub mod lance_vector_search;
@@ -60,6 +69,7 @@ pub const MAX_VARIABLE_LENGTH_HOPS: u32 = 20;
 
 pub use config::{GraphConfig, NodeMapping, RelationshipMapping};
 pub use csr_index::{CsrIndex, CsrIndexBuilder};
+pub use engine::{CypherEngine, EngineSource};
 pub use error::{GraphError, Result};
 pub use lance_csr_catalog::{DirNamespace, GraphSourceCatalog, InMemoryCatalog, SimpleTableSource};
 pub use lance_vector_search::VectorSearch;
