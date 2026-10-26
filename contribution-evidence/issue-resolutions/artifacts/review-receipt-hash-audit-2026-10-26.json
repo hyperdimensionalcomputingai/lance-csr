@@ -1,0 +1,5 @@
+{
+  "verified_pairs": 871,
+  "mismatches": [],
+  "scope": "Checks named file/hash pairs in included JSON; full archive members were separately verified against staged bytes."
+}

@@ -31,4 +31,6 @@ The accepted combined release passes all three correlated CALL post-expiry CPU t
 
 Publication awaits owner approval under the approved delivery plan. External runner adoption for #19 remains outside read/run authorization; #23 field privacy/validated deserialization waits for the next breaking release. The #20 tracker remains open until every finite group is accepted. No complete Cypher-conformance or other-OS verification is claimed.
 
+The [immutable audit archive](artifacts/README.md) is 47.7 MB and includes 46 source refs plus 3,264 raw records. Its receipt audit verifies 871 file/hash pairs with zero mismatches.
+
 Submitted by David Hughes (@stugorf), with AI Collaboration.
