@@ -99,6 +99,9 @@ Node index
     size; wide properties and multiple active partitions still increase working memory. This does not bound
     the resident graph, the input data, or buffering in joins, sorts and aggregations elsewhere in the plan.
 
+    Iteration checkpoints count raw edge occurrences, including tombstones, and empty source rows.
+    Traversal therefore remains cooperative even when no path survives.
+
 !!! warning "Experimental"
 
     The CSR is marked experimental. Results are identical with it on or off (the test suite runs each
