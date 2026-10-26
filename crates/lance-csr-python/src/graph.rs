@@ -340,13 +340,19 @@ impl GraphConfig {
     /// Get node labels
     fn node_labels(&self) -> Vec<String> {
         // Extract from the config's node mappings
-        self.inner.node_mappings.keys().cloned().collect()
+        self.inner
+            .iter_node_mappings()
+            .map(|(name, _)| name.clone())
+            .collect()
     }
 
     /// Get relationship types
     fn relationship_types(&self) -> Vec<String> {
         // Extract from the config's relationship mappings
-        self.inner.relationship_mappings.keys().cloned().collect()
+        self.inner
+            .iter_relationship_mappings()
+            .map(|(name, _)| name.clone())
+            .collect()
     }
 
     fn __repr__(&self) -> String {
@@ -1481,8 +1487,8 @@ impl CypherEngine {
         let config = self.inner.config();
         format!(
             "CypherEngine(nodes={}, relationships={})",
-            config.node_mappings.len(),
-            config.relationship_mappings.len()
+            config.iter_node_mappings().len(),
+            config.iter_relationship_mappings().len()
         )
     }
 }

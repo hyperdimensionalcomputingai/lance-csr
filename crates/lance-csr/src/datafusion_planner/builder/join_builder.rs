@@ -242,10 +242,8 @@ impl DataFusionPlanner {
                     .find(|r| r.alias == *var)
                 {
                     // Get the relationship mapping to find src/dst field names
-                    if let Some(rel_map) = self
-                        .config
-                        .relationship_mappings
-                        .get(&rel_instance.rel_type)
+                    if let Some(rel_map) =
+                        self.config.get_relationship_mapping(&rel_instance.rel_type)
                     {
                         // Generate composite join keys for both src_id and dst_id
                         // This ensures we're matching the exact same relationship instance
@@ -695,5 +693,48 @@ mod tests {
             shared.contains(&"r".to_string()),
             "Shared variables should include 'r'"
         );
+    }
+
+    #[test]
+    fn test_shared_relationship_variable_joins_on_its_endpoints() {
+        // MATCH (a)-[r:KNOWS]->(b) and (c)-[r:KNOWS]->(d), joined on r. Mapping keys are
+        // stored lower-case, so the upper-case type must still find the KNOWS mapping.
+        use crate::datafusion_planner::test_fixtures::{person_knows_config, person_scan};
+        let expand = |src: &str, dst: &str| LogicalOperator::Expand {
+            input: Box::new(person_scan(src)),
+            source_variable: src.to_string(),
+            target_variable: dst.to_string(),
+            target_label: "Person".to_string(),
+            relationship_types: vec!["KNOWS".to_string()],
+            direction: crate::ast::RelationshipDirection::Outgoing,
+            relationship_variable: Some("r".to_string()),
+            properties: Default::default(),
+            target_properties: Default::default(),
+        };
+        let join = LogicalOperator::Join {
+            left: Box::new(expand("a", "b")),
+            right: Box::new(expand("c", "d")),
+            join_type: crate::logical_plan::JoinType::Inner,
+        };
+        let planner = DataFusionPlanner::with_catalog(person_knows_config(), make_catalog());
+        let analysis = analysis::analyze(&join).unwrap();
+        let ctx = crate::datafusion_planner::analysis::PlanningContext::new(&analysis);
+        let (left, right) = planner.infer_join_keys(&ctx, &join_left(&join), &join_right(&join));
+        assert_eq!(left, ["r__src_person_id", "r__dst_person_id"]);
+        assert_eq!(right, left);
+    }
+
+    fn join_left(op: &LogicalOperator) -> LogicalOperator {
+        match op {
+            LogicalOperator::Join { left, .. } => (**left).clone(),
+            _ => unreachable!(),
+        }
+    }
+
+    fn join_right(op: &LogicalOperator) -> LogicalOperator {
+        match op {
+            LogicalOperator::Join { right, .. } => (**right).clone(),
+            _ => unreachable!(),
+        }
     }
 }

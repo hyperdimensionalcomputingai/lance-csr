@@ -363,10 +363,10 @@ fn validate_sources(config: &GraphConfig, schemas: &HashMap<String, SchemaRef>) 
         }
         Ok(())
     };
-    for mapping in config.node_mappings.values() {
+    for (_, mapping) in config.iter_node_mappings() {
         check(&mapping.label, &mapping.id_field)?;
     }
-    for mapping in config.relationship_mappings.values() {
+    for (_, mapping) in config.iter_relationship_mappings() {
         check(&mapping.relationship_type, &mapping.source_id_field)?;
         check(&mapping.relationship_type, &mapping.target_id_field)?;
     }
@@ -464,7 +464,7 @@ async fn build_node_index(
     previous: Option<&EngineState>,
 ) -> Result<HashMap<String, NodeIndexEntry>> {
     let mut entries = HashMap::new();
-    for mapping in config.node_mappings.values() {
+    for (_, mapping) in config.iter_node_mappings() {
         let label = &mapping.label;
         let Some(source) = sources
             .iter()
@@ -561,7 +561,7 @@ async fn build_key_statistics(
         let mut to_count = Vec::new();
         // Relationship type and endpoint columns, for the fan-out once counts are known.
         let mut endpoints = None;
-        for mapping in config.node_mappings.values() {
+        for (_, mapping) in config.iter_node_mappings() {
             if !mapping.label.eq_ignore_ascii_case(name) {
                 continue;
             }
@@ -569,7 +569,7 @@ async fn build_key_statistics(
                 distinct.insert(id.name().clone(), source.num_rows(name).await?);
             }
         }
-        for mapping in config.relationship_mappings.values() {
+        for (_, mapping) in config.iter_relationship_mappings() {
             if !mapping.relationship_type.eq_ignore_ascii_case(name) {
                 continue;
             }
@@ -662,7 +662,7 @@ async fn build_csr_entries(
     previous: Option<&EngineState>,
 ) -> Result<HashMap<String, CsrEntry>> {
     let mut entries = HashMap::new();
-    for mapping in config.relationship_mappings.values() {
+    for (_, mapping) in config.iter_relationship_mappings() {
         let rel_type = &mapping.relationship_type;
         let Some((name, source)) = sources
             .iter()
