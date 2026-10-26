@@ -20,7 +20,9 @@ mod config_helpers;
 mod cypher_udf;
 mod expression;
 mod join_ops;
+mod list_folds;
 mod math_functions;
+mod scalar_functions;
 mod scan_ops;
 mod udf;
 pub mod vector_ops;
@@ -30,6 +32,7 @@ mod test_fixtures;
 
 // Re-export public types
 pub use analysis::{PlanningContext, QueryAnalysis, RelationshipInstance};
+pub(crate) use scalar_functions::sql_expr;
 
 use crate::config::GraphConfig;
 use crate::error::Result;

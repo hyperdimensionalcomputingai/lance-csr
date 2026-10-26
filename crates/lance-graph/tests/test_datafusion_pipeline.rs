@@ -4747,7 +4747,7 @@ async fn test_unimplemented_scalar_function_errors() {
         .unwrap();
 
     let query = CypherQuery::new(
-        "MATCH (p:Person) RETURN p.name AS name, replace(p.name, 'A', 'a') AS replaced",
+        "MATCH (p:Person) RETURN p.name AS name, not_a_function(p.name) AS result",
     )
     .unwrap()
     .with_config(config);
@@ -4758,10 +4758,13 @@ async fn test_unimplemented_scalar_function_errors() {
     let err = query
         .execute(datasets, Some(ExecutionStrategy::DataFusion))
         .await
-        .expect_err("replace() should error until implemented");
+        .expect_err("unknown functions must fail explicitly");
 
     let message = err.to_string().to_lowercase();
-    assert!(message.contains("replace"), "unexpected error: {err}");
+    assert!(
+        message.contains("not_a_function"),
+        "unexpected error: {err}"
+    );
     assert!(
         message.contains("not implemented") || message.contains("unsupported"),
         "unexpected error: {err}"

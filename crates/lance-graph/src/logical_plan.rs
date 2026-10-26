@@ -470,6 +470,39 @@ impl<'a> LogicalPlanner<'a> {
                     });
                 }
             }
+            ValueExpression::ScalarFunction { name, args }
+                if name.eq_ignore_ascii_case("labels") =>
+            {
+                if let ValueExpression::Variable(var) = &args[0] {
+                    if let Some(mapping) = self
+                        .variables
+                        .get(var)
+                        .and_then(|label| self.config.get_node_mapping(label))
+                    {
+                        *expr = ValueExpression::Case {
+                            whens: vec![(
+                                BooleanExpression::IsNull(ValueExpression::Property(PropertyRef {
+                                    variable: var.clone(),
+                                    property: mapping.id_field.clone(),
+                                })),
+                                ValueExpression::Literal(PropertyValue::Null),
+                            )],
+                            otherwise: Some(Box::new(ValueExpression::ScalarFunction {
+                                name: "__list".to_string(),
+                                args: vec![ValueExpression::Literal(PropertyValue::String(
+                                    mapping.label.clone(),
+                                ))],
+                            })),
+                        };
+                        return;
+                    }
+                }
+                args.iter_mut().for_each(|arg| self.resolve_value(arg));
+            }
+            // keys(node/relationship) binds the entity's property columns, not its ID.
+            ValueExpression::ScalarFunction { name, args }
+                if name.eq_ignore_ascii_case("keys")
+                    && matches!(args.as_slice(), [ValueExpression::Variable(_)]) => {}
             // Path functions take the path variable itself.
             ValueExpression::ScalarFunction { name, args }
                 if matches!(name.to_lowercase().as_str(), "length" | "nodes") => {}
@@ -489,6 +522,22 @@ impl<'a> LogicalPlanner<'a> {
                 if let Some(e) = otherwise {
                     self.resolve_value(e);
                 }
+            }
+            ValueExpression::Reduce {
+                initial,
+                list,
+                expression,
+                ..
+            } => {
+                self.resolve_value(initial);
+                self.resolve_value(list);
+                self.resolve_value(expression);
+            }
+            ValueExpression::ListPredicate {
+                list, predicate, ..
+            } => {
+                self.resolve_value(list);
+                self.resolve_value(predicate);
             }
             ValueExpression::Boolean(b) => self.resolve_boolean(b),
             // A node inside a map keeps its properties (see `bind_value`), not just its id.
@@ -744,6 +793,15 @@ impl<'a> LogicalPlanner<'a> {
         expr: &mut ValueExpression,
     ) -> Result<LogicalOperator> {
         match expr {
+            ValueExpression::ScalarFunction { name, args }
+                if name.eq_ignore_ascii_case("labels")
+                    && matches!(args.as_slice(), [ValueExpression::Variable(var)] if self.variables.get(var).is_some_and(|label| label.contains('|'))) =>
+            {
+                Err(GraphError::UnsupportedFeature {
+                    feature: "labels() on a mixed-label binding is not supported".to_string(),
+                    location: Location::new(file!(), line!(), column!()),
+                })
+            }
             ValueExpression::Case { whens, otherwise } => {
                 for (condition, then) in whens.iter_mut() {
                     input = self.rewrite_exists(input, condition)?;
@@ -764,6 +822,80 @@ impl<'a> LogicalPlanner<'a> {
             ValueExpression::Arithmetic { left, right, .. } => {
                 input = self.rewrite_exists_in_value(input, left)?;
                 self.rewrite_exists_in_value(input, right)
+            }
+            ValueExpression::Reduce {
+                initial,
+                list,
+                expression,
+                ..
+            } => {
+                input = self.rewrite_exists_in_value(input, initial)?;
+                input = self.rewrite_exists_in_value(input, list)?;
+                self.rewrite_exists_in_value(input, expression)
+            }
+            ValueExpression::ListPredicate {
+                kind,
+                variable,
+                list,
+                predicate,
+            } if crate::ast::needs_relational_evaluation(predicate) => {
+                input = self.rewrite_exists_in_value(input, list)?;
+                let original_list = (**list).clone();
+                let mut map = (**predicate).clone();
+                // The relational comprehension supplies this iterator as a column. Restore
+                // inner lambda bindings after replacing references to the outer iterator.
+                crate::ast::transform_value(&mut map, &mut |value| match value {
+                    ValueExpression::LocalVariable(name) if name == variable => {
+                        *value = ValueExpression::Variable(name.clone());
+                    }
+                    ValueExpression::Field { base, field } if matches!(base.as_ref(), ValueExpression::Variable(name) if name == variable) =>
+                    {
+                        *value = ValueExpression::Property(PropertyRef::new(
+                            variable.clone(),
+                            field.clone(),
+                        ));
+                    }
+                    ValueExpression::Reduce {
+                        accumulator,
+                        variable,
+                        expression,
+                        ..
+                    } => {
+                        crate::ast::mark_locals(expression, &[accumulator, variable]);
+                    }
+                    ValueExpression::ListPredicate {
+                        variable,
+                        predicate,
+                        ..
+                    } => {
+                        crate::ast::mark_locals(predicate, &[variable]);
+                    }
+                    _ => {}
+                });
+                let mut comprehension = ValueExpression::ListComprehension {
+                    variable: variable.clone(),
+                    list: list.clone(),
+                    filter: None,
+                    map: Some(Box::new(map)),
+                };
+                input = self.rewrite_exists_in_value(input, &mut comprehension)?;
+                *expr = ValueExpression::Case {
+                    whens: vec![(
+                        BooleanExpression::IsNull(original_list),
+                        ValueExpression::Literal(PropertyValue::Null),
+                    )],
+                    otherwise: Some(Box::new(ValueExpression::ScalarFunction {
+                        name: format!("__predicate_{kind}"),
+                        args: vec![comprehension],
+                    })),
+                };
+                Ok(input)
+            }
+            ValueExpression::ListPredicate {
+                list, predicate, ..
+            } => {
+                input = self.rewrite_exists_in_value(input, list)?;
+                self.rewrite_exists_in_value(input, predicate)
             }
             ValueExpression::Boolean(b) => self.rewrite_exists(input, b),
             ValueExpression::Map(entries) => {
@@ -1007,9 +1139,6 @@ impl<'a> LogicalPlanner<'a> {
                 }
             }
         }
-        if shared.is_empty() {
-            return Err(unsupported("without a variable bound by an earlier clause"));
-        }
         let mut keys = Vec::with_capacity(shared.len());
         for var in &shared {
             let label = &self.variables[var];
@@ -1026,11 +1155,28 @@ impl<'a> LogicalPlanner<'a> {
             let local = crate::pattern_order::pattern_variables(&clause.patterns);
             let mut scalars: Vec<String> = names
                 .into_iter()
-                .filter(|n| !self.variables.contains_key(*n) && !local.contains(*n))
+                .filter(|n| !local.contains(*n) && !shared.iter().any(|v| v == *n))
                 .map(str::to_string)
                 .collect();
             scalars.sort();
+            for variable in &scalars {
+                // Binding variables distinguish iterator contexts. Untracked aggregate
+                // captures can be re-evaluated in a different order by the seed plan.
+                if !self.variables.contains_key(variable) && !shared.is_empty() {
+                    continue;
+                }
+                keys.push(
+                    self.variables
+                        .get(variable)
+                        .and_then(|label| self.config.get_node_mapping(label))
+                        .map(|mapping| qualify_column(variable, &mapping.id_field))
+                        .unwrap_or_else(|| variable.to_lowercase()),
+                );
+            }
             carried.extend(scalars);
+        }
+        if carried.is_empty() {
+            return Err(unsupported("without a variable bound by an earlier clause"));
         }
         let seed = LogicalOperator::Distinct {
             input: Box::new(LogicalOperator::Project {
@@ -1386,6 +1532,17 @@ impl<'a> LogicalPlanner<'a> {
             }
         }
 
+        // RETURN aliases shadow input entities in ORDER BY, after every item is bound.
+        // Whole-node aliases expand to `alias.property`, so keep their entity binding.
+        self.variables.retain(|variable, _| {
+            !projections.iter().any(|projection| {
+                projection
+                    .alias
+                    .as_ref()
+                    .is_some_and(|alias| alias.eq_ignore_ascii_case(variable))
+            })
+        });
+
         let mut plan = LogicalOperator::Project {
             input: Box::new(input),
             projections,
@@ -1529,6 +1686,44 @@ impl<'a> LogicalPlanner<'a> {
 mod tests {
     use super::*;
     use crate::{parser::parse_cypher_query, NodeMapping};
+
+    #[test]
+    fn return_alias_shadows_node_only_after_projection() {
+        let config = GraphConfig::builder()
+            .node_table("Person", "id")
+            .build()
+            .unwrap();
+        let query =
+            parse_cypher_query("MATCH (p:Person) RETURN p.name AS P, p.id AS id ORDER BY p")
+                .unwrap();
+        let LogicalOperator::Sort { input, sort_items } =
+            LogicalPlanner::new(&config).plan(&query).unwrap()
+        else {
+            panic!("expected sort");
+        };
+        assert_eq!(
+            sort_items[0].expression,
+            ValueExpression::Variable("p".into())
+        );
+        let LogicalOperator::Project { projections, .. } = *input else {
+            panic!("expected projection");
+        };
+        assert_eq!(
+            projections[1].expression,
+            ValueExpression::Property(PropertyRef {
+                variable: "p".into(),
+                property: "id".into(),
+            })
+        );
+
+        let query = parse_cypher_query("MATCH (p:Person) RETURN p AS p ORDER BY p").unwrap();
+        let LogicalOperator::Sort { sort_items, .. } =
+            LogicalPlanner::new(&config).plan(&query).unwrap()
+        else {
+            panic!("expected sort");
+        };
+        assert_eq!(sort_items[0].expression, projections[1].expression);
+    }
 
     #[test]
     fn test_relationship_query_logical_plan_structure() {

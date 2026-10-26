@@ -425,7 +425,7 @@ impl SemanticAnalyzer {
             ValueExpression::Literal(_) => {
                 // Literals are always valid
             }
-            ValueExpression::Variable(var) => {
+            ValueExpression::Variable(var) | ValueExpression::LocalVariable(var) => {
                 // Use case-insensitive lookup
                 if !self.variables.contains_key_ci(var) {
                     return Err(GraphError::PlanError {
@@ -439,7 +439,8 @@ impl SemanticAnalyzer {
                 // Validate arity and known functions
                 match function_name.as_str() {
                     "tolower" | "lower" | "toupper" | "upper" | "abs" | "round" | "floor"
-                    | "ceil" | "sqrt" => {
+                    | "ceil" | "sqrt" | "trim" | "ltrim" | "rtrim" | "reverse" | "last"
+                    | "tail" | "keys" | "labels" => {
                         if args.len() != 1 {
                             return Err(GraphError::PlanError {
                                 message: format!(
@@ -451,10 +452,11 @@ impl SemanticAnalyzer {
                             });
                         }
                     }
-                    "date_part" | "to_epoch_ms" | "length" | "nodes" | "size" | "range"
-                    | "__index" => {
+                    "date_part" | "to_epoch_ms" | "length" | "nodes" | "size" | "left"
+                    | "right" | "split" | "replace" | "__index" => {
                         let want = match function_name.as_str() {
-                            "date_part" | "range" | "__index" => 2,
+                            "date_part" | "__index" | "left" | "right" | "split" => 2,
+                            "replace" => 3,
                             _ => 1,
                         };
                         if args.len() != want {
@@ -463,6 +465,18 @@ impl SemanticAnalyzer {
                                     "{} requires exactly {} argument(s), got {}",
                                     name.to_uppercase(),
                                     want,
+                                    args.len()
+                                ),
+                                location: snafu::Location::new(file!(), line!(), column!()),
+                            });
+                        }
+                    }
+                    "substring" | "range" => {
+                        if !(2..=3).contains(&args.len()) {
+                            return Err(GraphError::PlanError {
+                                message: format!(
+                                    "{} requires 2 or 3 arguments, got {}",
+                                    name,
                                     args.len()
                                 ),
                                 location: snafu::Location::new(file!(), line!(), column!()),
@@ -507,11 +521,39 @@ impl SemanticAnalyzer {
                         // Unknown scalar function - reject early with helpful error
                         return Err(GraphError::UnsupportedFeature {
                             feature: format!(
-                                "Cypher function '{}' is not implemented. Supported scalar functions: toLower, lower, toUpper, upper, toString, coalesce, date_part, to_epoch_ms, length, nodes, size, range, abs, round, floor, ceil, sqrt. Supported aggregate functions: COUNT, SUM, AVG, MIN, MAX, COLLECT.",
+                                "Cypher function '{}' is not implemented. Supported scalar functions: toLower, lower, toUpper, upper, toString, coalesce, date_part, to_epoch_ms, length, nodes, size, range, head, last, tail, keys, labels, reverse, left, right, substring, replace, split, trim, lTrim, rTrim, abs, round, floor, ceil, sqrt, toInteger, toFloat, date, datetime, duration.inSeconds. Supported aggregate functions: COUNT, SUM, AVG, MIN, MAX, COLLECT.",
                                 name
                             ),
                             location: snafu::Location::new(file!(), line!(), column!()),
                         });
+                    }
+                }
+
+                if function_name == "labels" {
+                    if let ValueExpression::Variable(var) = &args[0] {
+                        if let Some(info) = self.variables.get_ci(var) {
+                            if info
+                                .labels
+                                .iter()
+                                .map(|label| label.to_lowercase())
+                                .collect::<HashSet<_>>()
+                                .len()
+                                > 1
+                            {
+                                return Err(GraphError::UnsupportedFeature {
+                                    feature: "labels() on a mixed-label binding is not supported"
+                                        .to_string(),
+                                    location: snafu::Location::new(file!(), line!(), column!()),
+                                });
+                            }
+                            if info.variable_type == VariableType::Relationship {
+                                return Err(GraphError::PlanError {
+                                    message: "labels() requires a node, not a relationship"
+                                        .to_string(),
+                                    location: snafu::Location::new(file!(), line!(), column!()),
+                                });
+                            }
+                        }
                     }
                 }
 
@@ -716,6 +758,32 @@ impl SemanticAnalyzer {
                 self.variables = before;
                 result?;
             }
+            ValueExpression::Reduce {
+                accumulator,
+                initial,
+                variable,
+                list,
+                expression,
+            } => {
+                self.analyze_value_expression(initial)?;
+                self.analyze_value_expression(list)?;
+                if accumulator.eq_ignore_ascii_case(variable) {
+                    return Err(GraphError::PlanError {
+                        message: "reduce accumulator and element variables must differ".to_string(),
+                        location: snafu::Location::new(file!(), line!(), column!()),
+                    });
+                }
+                self.analyze_lambda(&[accumulator, variable], expression, false)?;
+            }
+            ValueExpression::ListPredicate {
+                variable,
+                list,
+                predicate,
+                ..
+            } => {
+                self.analyze_value_expression(list)?;
+                self.analyze_lambda(&[variable], predicate, true)?;
+            }
             ValueExpression::ListComprehension {
                 variable,
                 list,
@@ -740,6 +808,34 @@ impl SemanticAnalyzer {
             }
         }
         Ok(())
+    }
+
+    fn analyze_lambda(
+        &mut self,
+        names: &[&String],
+        expression: &ValueExpression,
+        allow_patterns: bool,
+    ) -> Result<()> {
+        let before = self.variables.clone();
+        for name in names {
+            self.variables.remove(&name.to_lowercase());
+            self.register_projection_alias(name);
+        }
+        let mut unsupported =
+            !allow_patterns && crate::ast::needs_relational_evaluation(expression);
+        crate::ast::transform_value(&mut expression.clone(), &mut |value| {
+            unsupported |= matches!(value, ValueExpression::AggregateFunction { .. });
+        });
+        let result = if unsupported {
+            Err(GraphError::UnsupportedFeature {
+                feature: "graph expressions/comprehensions inside a reduce body, or aggregates inside a lambda body; compute the list before the body".to_string(),
+                location: snafu::Location::new(file!(), line!(), column!()),
+            })
+        } else {
+            self.analyze_value_expression(expression)
+        };
+        self.variables = before;
+        result
     }
 
     fn register_projection_alias(&mut self, alias: &str) {
@@ -1595,7 +1691,7 @@ mod tests {
     #[test]
     fn test_unimplemented_scalar_function_fails_validation() {
         let expr = ValueExpression::ScalarFunction {
-            name: "replace".to_string(),
+            name: "not_a_function".to_string(),
             args: vec![ValueExpression::Property(PropertyRef::new("n", "name"))],
         };
         let result = analyze_return_with_match("n", "Person", expr).unwrap();
