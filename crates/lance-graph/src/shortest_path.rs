@@ -422,6 +422,7 @@ async fn expand_level(
     let mut next = Vec::new();
     let mut work = 0_usize;
     for &node in frontier {
+        let previous_work = work;
         let mut position = crate::csr_expand::NeighborPosition::default();
         for candidate in adjacency.candidates_from(node, &mut position) {
             work += 1;
@@ -440,6 +441,12 @@ async fn expand_level(
                     parents.insert(n, vec![node]);
                     next.push(n);
                 }
+            }
+        }
+        if work == previous_work {
+            work += 1;
+            if work.is_multiple_of(1024) {
+                crate::csr_expand::cooperative_yield().await;
             }
         }
     }
@@ -697,6 +704,30 @@ mod tests {
         // Beyond the hop limit, nothing is reached.
         let (depth, _) = search(&adj, 1, &HashSet::from([4]), 1).await;
         assert!(!depth.contains_key(&4));
+    }
+
+    #[tokio::test]
+    async fn cancellation_without_edges_yields_while_scanning_frontier() {
+        let (out, _) = adjacencies(&[]).await;
+        let adjacency = Neighbors::directed(out);
+        let frontier = vec![99; 100_000];
+        let mut depth = FastMap::default();
+        let mut parents = FastMap::default();
+        let mut next = Box::pin(expand_level(
+            &adjacency,
+            &frontier,
+            1,
+            &mut depth,
+            &mut parents,
+        ));
+        assert!(futures::poll!(next.as_mut()).is_pending());
+        drop(next);
+        assert!(depth.is_empty() && parents.is_empty());
+        assert!(
+            expand_level(&adjacency, &frontier, 1, &mut depth, &mut parents)
+                .await
+                .is_empty()
+        );
     }
 
     #[tokio::test]

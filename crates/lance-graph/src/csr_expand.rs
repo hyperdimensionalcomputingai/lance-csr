@@ -1225,6 +1225,7 @@ impl BatchExpansion {
         let mut work = 0_usize;
         'rows: while row < self.keys.len() {
             let i = row;
+            let previous_work = work;
             if self.keys.is_valid(i) && self.bound.as_ref().is_none_or(|b| b.is_valid(i)) {
                 let key = self.keys.value(i);
                 let required = self.bound.as_ref().map(|b| b.value(i));
@@ -1257,8 +1258,14 @@ impl BatchExpansion {
                     break;
                 }
             }
+            if work == previous_work {
+                work += 1;
+            }
             row += 1;
             position = NeighborPosition::default();
+            if work == 1024 {
+                break;
+            }
         }
         self.row = row;
         self.position = position;
@@ -1959,6 +1966,32 @@ mod tests {
             vec![3]
         );
         assert!(expansion.next_chunk(&adj, None, 1).await.rows.is_empty());
+    }
+
+    #[tokio::test]
+    async fn cancellation_without_edges_yields_while_skipping_source_rows() {
+        let adjacency = Neighbors::directed(Arc::new(
+            Adjacency::build(edge_stream(vec![Some(1)], vec![Some(2)]), "src", "dst")
+                .await
+                .unwrap(),
+        ));
+        for missing in [Some(99), None] {
+            let input = RecordBatch::try_from_iter([(
+                "id",
+                Arc::new(Int64Array::from(vec![missing; 100_000])) as ArrayRef,
+            )])
+            .unwrap();
+            let mut expansion = BatchExpansion::try_new(input, 0, None).unwrap();
+            let mut next = Box::pin(expansion.next_chunk(&adjacency, None, 1));
+            assert!(futures::poll!(next.as_mut()).is_pending());
+            drop(next);
+            assert!(expansion.row > 0 && expansion.row <= 1024);
+            assert!(expansion
+                .next_chunk(&adjacency, None, 1)
+                .await
+                .rows
+                .is_empty());
+        }
     }
 
     #[tokio::test]

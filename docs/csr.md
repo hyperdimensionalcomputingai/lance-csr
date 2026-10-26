@@ -243,3 +243,5 @@ The 25% threshold is fixed: lookups pay a little for every pending delta edge, a
 | Very large edge tables and tight memory | Budget ~70 bytes per edge before turning it on |
 
 The [benchmarks](benchmarks.md) were all run with `use_csr=True`.
+
+Cancellation checkpoints count source and frontier rows that have no surviving edges, as well as deleted edge occurrences. Queries producing no rows therefore remain cooperative.
