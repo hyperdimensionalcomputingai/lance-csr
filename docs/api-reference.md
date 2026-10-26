@@ -16,6 +16,9 @@ code. The guides link here for exact signatures and link back for examples.
 
 `lance_csr.__version__` is the package version.
 
+This page covers the Python API. For Rust, see [Using from Rust](rust.md) and the
+[API documentation on docs.rs](https://docs.rs/lance-csr).
+
 ## Type checking
 
 The package ships type stubs for every public class, including the compiled extension, and a `py.typed`
@@ -141,7 +144,8 @@ be opened.
 
 `#!python refresh() -> None`
 :   Moves every Lance dataset to its latest version and updates the CSR, node indexes and statistics.
-    All-or-nothing; running queries keep their snapshot. See [Lance datasets](lance.md#refresh).
+    All-or-nothing; running queries keep their snapshot, and concurrent calls run one at a time. See
+    [Lance datasets](lance.md#refresh).
 
 `#!python dataset_versions() -> dict[str, int]`
 :   The pinned version of each Lance dataset. PyArrow inputs are not listed.

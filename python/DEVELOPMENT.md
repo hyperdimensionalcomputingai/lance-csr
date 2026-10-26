@@ -12,7 +12,7 @@
 
 Dependencies are managed with uv and pinned in `uv.lock`. The package is built with
 [maturin](https://github.com/PyO3/maturin): `pyproject.toml` points it at the bindings crate in
-`crates/lance-graph-python/`, so run these commands from this `python/` directory.
+`crates/lance-csr-python/`, so run these commands from this `python/` directory.
 
 ```shell
 cd python
@@ -90,10 +90,10 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 `python/benchmarks/` holds scripts for the engine's own costs: catalog reuse, bounded-memory streaming, CSR expansion
 and incremental CSR maintenance. Build with `uv run --no-sync maturin develop --release` before running them. The
-Rust Criterion benchmarks live in the `lance-graph-benches` crate:
+Rust Criterion benchmarks live in the `lance-csr-benches` crate:
 
 ```shell
-cargo bench -p lance-graph-benches --bench graph_execution -- --warm-up-time 1
+cargo bench -p lance-csr-benches --bench graph_execution -- --warm-up-time 1
 ```
 
 The Graph Data Council (GDC), formerly known as the Linked Data Benchmark Council (LDBC), maintains the

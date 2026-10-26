@@ -1,18 +1,18 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `crates/lance-graph/` hosts the Rust Cypher engine; keep new modules under `src/` and co-locate helpers inside `query/` or feature-specific submodules.
-- `crates/lance-graph-catalog/` provides the graph source catalog and `DirNamespace` (Unity Catalog and Delta Lake support were removed).
-- `crates/lance-graph-benches/` contains performance benchmarks in a dedicated unpublished crate; add new benchmarks here rather than in the main crate.
-- `crates/lance-graph-python/src/` contains the PyO3 bridge; `python/python/lance_csr/` holds the pure-Python facade and packaging metadata.
+- `crates/lance-csr/` hosts the Rust Cypher engine; keep new modules under `src/` and co-locate helpers inside `query/` or feature-specific submodules.
+- `crates/lance-csr-catalog/` provides the graph source catalog and `DirNamespace` (Unity Catalog and Delta Lake support were removed).
+- `crates/lance-csr-benches/` contains performance benchmarks in a dedicated unpublished crate; add new benchmarks here rather than in the main crate.
+- `crates/lance-csr-python/src/` contains the PyO3 bridge; `python/python/lance_csr/` holds the pure-Python facade and packaging metadata.
 - `python/python/tests/` stores functional tests; mirror new features with targeted cases here and in the corresponding Rust module.
 - `examples/` demonstrates Cypher usage; update or add examples when introducing new public APIs.
 - `docs/` is the Zensical documentation site (configured by `zensical.toml`); follow `docs/AGENTS.md`.
-- Keep the docs in step with the code. Any substantial code change (a new or changed Python method, parameter, return type, exception or Cypher feature, or a change in behaviour users can observe) updates the affected guide pages in the same pull request, and `docs/api-reference.md` whenever the Python API changes. That page is written by hand from `crates/lance-graph-python/src/`, so check every signature and statement against the code. Then run `uv run --project docs --locked zensical build --strict` and `uvx typos@1.26.0 .` (the spell check CI runs).
+- Keep the docs in step with the code. Any substantial code change (a new or changed Python method, parameter, return type, exception or Cypher feature, or a change in behaviour users can observe) updates the affected guide pages in the same pull request, and `docs/api-reference.md` whenever the Python API changes. That page is written by hand from `crates/lance-csr-python/src/`, so check every signature and statement against the code. Then run `uv run --project docs --locked zensical build --strict` and `uvx typos@1.26.0 .` (the spell check CI runs).
 
 ## Build, Test, and Development Commands
 - `cargo test --workspace` (from the repository root) runs the Rust tests; building needs `protoc`.
-- `cargo bench --bench graph_execution -p lance-graph-benches` measures performance-critical changes; include shortened runs with `--warm-up-time 1`.
+- `cargo bench --bench graph_execution -p lance-csr-benches` measures performance-critical changes; include shortened runs with `--warm-up-time 1`.
 - Never use `pip`. In `python/`, `make install` runs `uv sync --locked --no-install-project` (locked dependencies and the `dev` group) and then a debug build with `uv run --no-sync maturin develop`; re-run it after Rust edits. Change dependencies with `uv add`/`uv remove` and commit `uv.lock`.
 - `make test` runs the Python tests; `make lint` runs `ruff`, formatting checks, and `pyright`.
 
