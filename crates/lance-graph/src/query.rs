@@ -1662,7 +1662,7 @@ mod tests {
         .unwrap()
         .with_config(config.clone());
         let stream = with_execution_deadline(
-            Some(std::time::Instant::now() + std::time::Duration::from_secs(60)),
+            Some(tokio::time::Instant::now() + std::time::Duration::from_secs(60)),
             query.execute_stream_with_catalog_and_context(catalog.clone(), ctx.clone()),
         )
         .await
@@ -1697,7 +1697,7 @@ mod tests {
         .unwrap()
         .with_config(config);
         let expired = with_execution_deadline(
-            Some(std::time::Instant::now() - std::time::Duration::from_secs(1)),
+            Some(tokio::time::Instant::now() - std::time::Duration::from_secs(1)),
             filtered.execute_with_catalog_and_context(catalog.clone(), ctx.clone()),
         )
         .await
@@ -1705,7 +1705,7 @@ mod tests {
         assert!(expired.to_string().contains("Query timeout exceeded"));
         for timed in [false, true] {
             let result = with_execution_deadline(
-                timed.then(|| std::time::Instant::now() + std::time::Duration::from_secs(60)),
+                timed.then(|| tokio::time::Instant::now() + std::time::Duration::from_secs(60)),
                 filtered.execute_with_catalog_and_context(catalog.clone(), ctx.clone()),
             )
             .await
