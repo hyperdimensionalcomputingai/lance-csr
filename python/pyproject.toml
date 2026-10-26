@@ -28,6 +28,12 @@ classifiers = [
     "Topic :: Scientific/Engineering",
 ]
 
+[project.urls]
+Documentation = "https://lance-csr.hdclabs.ai/"
+Repository = "https://github.com/hyperdimensionalcomputingai/lance-csr"
+Issues = "https://github.com/hyperdimensionalcomputingai/lance-csr/issues"
+Releases = "https://github.com/hyperdimensionalcomputingai/lance-csr/releases"
+
 [tool.maturin]
 python-source = "python"
 module-name = "lance_csr._internal"
