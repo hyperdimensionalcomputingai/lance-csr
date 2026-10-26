@@ -1,0 +1,71 @@
+{
+  "source_commit": "0189c99aac4de1ff7ea85a9032bd9824f965f1b8",
+  "source_worktree": "/private/tmp/lance-csr-issue-19-cursor-recheck",
+  "tracked_source_clean": true,
+  "rust_passed": 599,
+  "rust_ignored": 9,
+  "rust_targets": 16,
+  "python_passed": 487,
+  "binding_rust_passed": 15,
+  "documentation_blocks": 39,
+  "checks": {
+    "format": {
+      "path": "/private/tmp/lance-csr-runtime/issue-19-cursor-recheck-r2-format.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "status": "passed"
+    },
+    "workspace": {
+      "path": "/private/tmp/lance-csr-runtime/issue-19-cursor-recheck-r2-workspace.log",
+      "sha256": "c36ba1dd76a5bbef594e29b230b220985370b29d27f04e17b706ba5bc741e3aa",
+      "status": "passed"
+    },
+    "clippy": {
+      "path": "/private/tmp/lance-csr-runtime/issue-19-cursor-recheck-r2-clippy.log",
+      "sha256": "c3775cc2220fc0f1eaf6c2d32569d2d17819a465e0f61d905c6f6030e3b2618c",
+      "status": "passed"
+    },
+    "install": {
+      "path": "/private/tmp/lance-csr-runtime/issue-19-cursor-recheck-r2-install.log",
+      "sha256": "c18c8b8ab47adeca2b866a0c6c81277692e4251013f0ce61a3a54935aa84cc52",
+      "status": "passed"
+    },
+    "python": {
+      "path": "/private/tmp/lance-csr-runtime/issue-19-cursor-recheck-r2-python.log",
+      "sha256": "518c36ab8ad1369b4db6aadf4ba5150d6c6547176d4b9c5278e0d44da2a34509",
+      "status": "passed"
+    },
+    "lint": {
+      "path": "/private/tmp/lance-csr-runtime/issue-19-cursor-recheck-r2-lint.log",
+      "sha256": "28460491b74e2dfa2ca315edd2f28372397140f8521b78bce80d303d4704d417",
+      "status": "passed"
+    },
+    "binding-clippy": {
+      "path": "/private/tmp/lance-csr-runtime/issue-19-cursor-recheck-r2-binding-clippy.log",
+      "sha256": "8b2d63979f17ef53b46c2f638a1fd182288574adc5eac4ebdb16c9469d8d2473",
+      "status": "passed"
+    },
+    "binding-tests": {
+      "path": "/private/tmp/lance-csr-runtime/issue-19-cursor-recheck-r2-binding-tests.log",
+      "sha256": "469799ecb49b418bfdfc0db45f1f003f365d8c88da24d33a175d79f22f90ee29",
+      "status": "passed"
+    },
+    "snippets": {
+      "path": "/private/tmp/lance-csr-runtime/issue-19-cursor-recheck-r2-snippets.log",
+      "sha256": "191dcb9d1d788139eff2b86753c4c9e8bb8e525594d764d8c29ba074121242c0",
+      "status": "passed"
+    },
+    "docs": {
+      "path": "/private/tmp/lance-csr-runtime/issue-19-cursor-recheck-r2-docs.log",
+      "sha256": "cc9dab78a0e5855ed1e003eaef7fffeb0d2567dec9a179f9baa78d31708a080a",
+      "status": "passed"
+    },
+    "typos": {
+      "path": "/private/tmp/lance-csr-runtime/issue-19-cursor-recheck-r2-typos.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "status": "passed"
+    }
+  },
+  "scope": "Borrowed raw candidate iteration and query-local deadline physical rule. Cross joins cooperate; nested-loop filters check the captured deadline even without output. No engine snapshot mutation. Existing Tokio dependency promoted to runtime; no package versions changed.",
+  "performance_acceptance": "pending optimized release and quiet measurements",
+  "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration."
+}

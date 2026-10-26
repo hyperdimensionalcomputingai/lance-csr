@@ -1,0 +1,252 @@
+{
+  "before": "candidate-91d6b48-q30-memory",
+  "after": "issue-15-option-release-q30-memory",
+  "query_count": 30,
+  "geometric_mean_speedup": 1.0502060339723711,
+  "investigate_above_10_percent": [],
+  "rows": [
+    {
+      "query": 1,
+      "before_mean_seconds": 0.0007416608997366645,
+      "after_mean_seconds": 0.0008049903195096206,
+      "after_over_before": 1.085388645667369,
+      "before_median_seconds": 0.0007316656410694122,
+      "after_median_seconds": 0.000794833991676569
+    },
+    {
+      "query": 2,
+      "before_mean_seconds": 0.0006567382501089014,
+      "after_mean_seconds": 0.0006893078040296198,
+      "after_over_before": 1.0495928993252908,
+      "before_median_seconds": 0.0006481453310698271,
+      "after_median_seconds": 0.0006818748079240322
+    },
+    {
+      "query": 3,
+      "before_mean_seconds": 0.0008155543672818657,
+      "after_mean_seconds": 0.0007511339540864656,
+      "after_over_before": 0.9210102774507789,
+      "before_median_seconds": 0.0007948540151119232,
+      "after_median_seconds": 0.0007290421053767204
+    },
+    {
+      "query": 4,
+      "before_mean_seconds": 0.0007148565983858562,
+      "after_mean_seconds": 0.0006215693288732201,
+      "after_over_before": 0.869502121511813,
+      "before_median_seconds": 0.0006959373131394386,
+      "after_median_seconds": 0.0006063329055905342
+    },
+    {
+      "query": 5,
+      "before_mean_seconds": 0.0010764780140137074,
+      "after_mean_seconds": 0.00098544507196015,
+      "after_over_before": 0.9154344623220534,
+      "before_median_seconds": 0.0010663743596524,
+      "after_median_seconds": 0.0009839581325650215
+    },
+    {
+      "query": 6,
+      "before_mean_seconds": 0.0005943208579892933,
+      "after_mean_seconds": 0.0005456364708598259,
+      "after_over_before": 0.9180840004603298,
+      "before_median_seconds": 0.0005851248279213905,
+      "after_median_seconds": 0.0005288748070597649
+    },
+    {
+      "query": 7,
+      "before_mean_seconds": 0.0014148483977472182,
+      "after_mean_seconds": 0.0013231735218352252,
+      "after_over_before": 0.935205159748591,
+      "before_median_seconds": 0.001404354115948081,
+      "after_median_seconds": 0.001318562077358365
+    },
+    {
+      "query": 8,
+      "before_mean_seconds": 0.0009062831698062417,
+      "after_mean_seconds": 0.0008188827536515068,
+      "after_over_before": 0.9035616912389308,
+      "before_median_seconds": 0.0008905422873795033,
+      "after_median_seconds": 0.0008026666473597288
+    },
+    {
+      "query": 9,
+      "before_mean_seconds": 0.0010504550269862566,
+      "after_mean_seconds": 0.000971139254000354,
+      "after_over_before": 0.9244938898398548,
+      "before_median_seconds": 0.0010244580917060375,
+      "after_median_seconds": 0.0009614997543394566
+    },
+    {
+      "query": 10,
+      "before_mean_seconds": 0.0010113236628365603,
+      "after_mean_seconds": 0.0009733481083681986,
+      "after_over_before": 0.9624496530004569,
+      "before_median_seconds": 0.00100431265309453,
+      "after_median_seconds": 0.0009437296539545059
+    },
+    {
+      "query": 11,
+      "before_mean_seconds": 0.002112952859044589,
+      "after_mean_seconds": 0.0020623035013860222,
+      "after_over_before": 0.9760291113728544,
+      "before_median_seconds": 0.0021065417677164078,
+      "after_median_seconds": 0.002042416948825121
+    },
+    {
+      "query": 12,
+      "before_mean_seconds": 0.0010299114592981042,
+      "after_mean_seconds": 0.0009673359373790705,
+      "after_over_before": 0.9392418432146782,
+      "before_median_seconds": 0.0010062502697110176,
+      "after_median_seconds": 0.0009647500701248646
+    },
+    {
+      "query": 13,
+      "before_mean_seconds": 0.0011176460328533129,
+      "after_mean_seconds": 0.001211326795693852,
+      "after_over_before": 1.0838197068542132,
+      "before_median_seconds": 0.0010970840230584145,
+      "after_median_seconds": 0.0011749998666346073
+    },
+    {
+      "query": 14,
+      "before_mean_seconds": 0.0006799482494550809,
+      "after_mean_seconds": 0.0006081202390516933,
+      "after_over_before": 0.8943625335296451,
+      "before_median_seconds": 0.0006665829569101334,
+      "after_median_seconds": 0.0005930410698056221
+    },
+    {
+      "query": 15,
+      "before_mean_seconds": 0.0006920896915470058,
+      "after_mean_seconds": 0.0006531082647319179,
+      "after_over_before": 0.9436757586607685,
+      "before_median_seconds": 0.0006745001301169395,
+      "after_median_seconds": 0.00063947937451303
+    },
+    {
+      "query": 16,
+      "before_mean_seconds": 0.0008726208064070695,
+      "after_mean_seconds": 0.0008096649871585539,
+      "after_over_before": 0.9278543225347444,
+      "before_median_seconds": 0.0008637919090688229,
+      "after_median_seconds": 0.0007951874285936356
+    },
+    {
+      "query": 17,
+      "before_mean_seconds": 0.0013501013016566834,
+      "after_mean_seconds": 0.00118488335002327,
+      "after_over_before": 0.8776255148923435,
+      "before_median_seconds": 0.0013020001351833344,
+      "after_median_seconds": 0.0011569168418645859
+    },
+    {
+      "query": 18,
+      "before_mean_seconds": 0.0008756604840056281,
+      "after_mean_seconds": 0.0008019086883536407,
+      "after_over_before": 0.9157758092330299,
+      "before_median_seconds": 0.0008677709847688675,
+      "after_median_seconds": 0.0007814168930053711
+    },
+    {
+      "query": 19,
+      "before_mean_seconds": 0.0013390610292351988,
+      "after_mean_seconds": 0.0011946689583918584,
+      "after_over_before": 0.8921691635475273,
+      "before_median_seconds": 0.0013361666351556778,
+      "after_median_seconds": 0.001182936830446124
+    },
+    {
+      "query": 20,
+      "before_mean_seconds": 0.001930216188122938,
+      "after_mean_seconds": 0.0018698574143886696,
+      "after_over_before": 0.9687295267205457,
+      "before_median_seconds": 0.0019082501530647278,
+      "after_median_seconds": 0.0018293540924787521
+    },
+    {
+      "query": 21,
+      "before_mean_seconds": 0.00095594679403707,
+      "after_mean_seconds": 0.0008941622280706,
+      "after_over_before": 0.9353681958537181,
+      "before_median_seconds": 0.0009144172072410583,
+      "after_median_seconds": 0.0008937092497944832
+    },
+    {
+      "query": 22,
+      "before_mean_seconds": 0.0008735994537945212,
+      "after_mean_seconds": 0.0008597013287838253,
+      "after_over_before": 0.9840909641709038,
+      "before_median_seconds": 0.000859562773257494,
+      "after_median_seconds": 0.000850082840770483
+    },
+    {
+      "query": 23,
+      "before_mean_seconds": 0.0009080832915311928,
+      "after_mean_seconds": 0.0008494856563822323,
+      "after_over_before": 0.9354710788146379,
+      "before_median_seconds": 0.0009085414931178093,
+      "after_median_seconds": 0.0008448543958365917
+    },
+    {
+      "query": 24,
+      "before_mean_seconds": 0.0008904510351112343,
+      "after_mean_seconds": 0.000833218132929076,
+      "after_over_before": 0.9357259412079757,
+      "before_median_seconds": 0.0008603541646152735,
+      "after_median_seconds": 0.0008260002359747887
+    },
+    {
+      "query": 25,
+      "before_mean_seconds": 0.0009943319353770254,
+      "after_mean_seconds": 0.0009288551588047375,
+      "after_over_before": 0.9341499812661043,
+      "before_median_seconds": 0.000974167138338089,
+      "after_median_seconds": 0.000906333327293396
+    },
+    {
+      "query": 26,
+      "before_mean_seconds": 0.0009183410083029843,
+      "after_mean_seconds": 0.000879680106795978,
+      "after_over_before": 0.95790136653219,
+      "before_median_seconds": 0.0009045000188052654,
+      "after_median_seconds": 0.000875416211783886
+    },
+    {
+      "query": 27,
+      "before_mean_seconds": 0.001059490366883221,
+      "after_mean_seconds": 0.0011594301335267967,
+      "after_over_before": 1.0943281503706124,
+      "before_median_seconds": 0.0010144589468836784,
+      "after_median_seconds": 0.0011192909441888332
+    },
+    {
+      "query": 28,
+      "before_mean_seconds": 0.00197971152232551,
+      "after_mean_seconds": 0.001906324824732211,
+      "after_over_before": 0.9629306104623295,
+      "before_median_seconds": 0.0019434578716754913,
+      "after_median_seconds": 0.0018398540560156107
+    },
+    {
+      "query": 29,
+      "before_mean_seconds": 0.0008443336271515998,
+      "after_mean_seconds": 0.000810474915438948,
+      "after_over_before": 0.9598988946740451,
+      "before_median_seconds": 0.0008474169299006462,
+      "after_median_seconds": 0.0007938961498439312
+    },
+    {
+      "query": 30,
+      "before_mean_seconds": 0.02883550256603595,
+      "after_mean_seconds": 0.02918976471079765,
+      "after_over_before": 1.0122856240826879,
+      "before_median_seconds": 0.029035416897386312,
+      "after_median_seconds": 0.029416958335787058
+    }
+  ],
+  "manifest_sha256": "f4f20d97da5ebf658b5ab8b713ac6a211c31f336c8f8b6903a9049ef6f79b1ed",
+  "geomean_implementation_sha256": "711108b3561e959f3ed8321f49efeb62e317ae0a494694c73b97bdce8f6f13d9",
+  "interpretation": "A single comparison flags regressions for repeat measurement; it does not establish repeatability."
+}

@@ -1,0 +1,34 @@
+{
+  "cell": {
+    "label": "hub-1000000-main-r2",
+    "kind": "hub",
+    "cohort": "main",
+    "repeat": 2,
+    "rows": 1000000
+  },
+  "source_commit": "54e02307a48e467a98d9da2183f5adcb767e7c99",
+  "wheel_sha256": "611cb5fdda5c77d604c4a86cae0477ebe1bfd39228e1c35d3c15049b5512bcd6",
+  "extension_sha256": "ab0e52b65b26b5b568487f7ca859e43b5e12760dabda093281b7868eb9fa033a",
+  "python": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+  "lance": "13.0.0",
+  "pyarrow": "26.0.0",
+  "status": "passed",
+  "output_rows": 1000000,
+  "checksum": 499999500000,
+  "batches": 123,
+  "maximum_batch_rows": 8192,
+  "query_first_batch_seconds": 0.5472660828381777,
+  "query_seconds_including_validation": 0.5797273330390453,
+  "pre_query": {
+    "rss_bytes": 312672256,
+    "peak_rss_bytes": 312672256
+  },
+  "post_query_rss_bytes": 2397913088,
+  "process_peak_rss_bytes": 4492050432,
+  "query_high_water_growth_lower_bound_bytes": 4179378176,
+  "payload_samples_sha256": {
+    "0": "9d37d1a1cb4ab6318ff4e6426147691757a51ee6f09a97dc97292e7f76114c46",
+    "500000": "675fb5bf8ed1fc3d078c2c81c7fe3f840be2aa76b4a0ef841cc7f1cc1e717c9e",
+    "999999": "150c2c0dc05babeca385e8aa8179cd2086916e02fafdb2b87788b723b9cea854"
+  }
+}

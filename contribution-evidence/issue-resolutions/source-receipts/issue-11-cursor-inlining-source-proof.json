@@ -1,0 +1,81 @@
+{
+  "source_commit": "a6881a3a880d8b070c85f2b29725ddcfe2d4bf36",
+  "source_worktree": "/private/tmp/lance-csr-issue-11-cursor-inlining",
+  "tracked_source_clean": true,
+  "rust_passed": 587,
+  "rust_ignored": 9,
+  "rust_targets": 16,
+  "python_passed": 333,
+  "binding_rust_passed": 11,
+  "documentation_blocks": 36,
+  "checks": {
+    "format": {
+      "status": "passed",
+      "command": "cargo fmt --all --check; excluded binding manifest format check",
+      "log": "/private/tmp/lance-csr-runtime/issue-11-cursor-inlining-format.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "workspace": {
+      "status": "passed",
+      "command": "cargo test --workspace --locked --offline",
+      "log": "/private/tmp/lance-csr-runtime/issue-11-cursor-inlining-workspace.log",
+      "sha256": "c4b0f4fe17b076415e4268b02112b02b2d76f74c07950ff5fbe380af3412bec1"
+    },
+    "clippy": {
+      "status": "passed",
+      "command": "cargo clippy --workspace --all-targets --locked --offline -- -D warnings",
+      "log": "/private/tmp/lance-csr-runtime/issue-11-cursor-inlining-clippy.log",
+      "sha256": "996842dbcb2a11362dc35bf447327546970b151f06a4ea8dd385a162ae356213"
+    },
+    "install": {
+      "status": "passed",
+      "command": "make install PYTHON=3.12.9",
+      "log": "/private/tmp/lance-csr-runtime/issue-11-cursor-inlining-install.log",
+      "sha256": "5eb46128bbaad5390572a57e4f4c8a57e2529c5a5bc2c8dcb623b7485db53b6d"
+    },
+    "python": {
+      "status": "passed",
+      "command": "make test",
+      "log": "/private/tmp/lance-csr-runtime/issue-11-cursor-inlining-python.log",
+      "sha256": "1db4de40fbf2e57eb38278104fd2b188c01abe9f1734d8684e2c323e242928b8"
+    },
+    "lint": {
+      "status": "passed",
+      "command": "make lint",
+      "log": "/private/tmp/lance-csr-runtime/issue-11-cursor-inlining-lint.log",
+      "sha256": "733d6f28cfff689a98df5ccb97e3a057228a37b34c82a9b0366f3ff5e54ef87c"
+    },
+    "binding-clippy": {
+      "status": "passed",
+      "command": "cargo clippy --manifest-path crates/lance-graph-python/Cargo.toml --all-targets --locked --offline -- -D warnings",
+      "log": "/private/tmp/lance-csr-runtime/issue-11-cursor-inlining-binding-clippy.log",
+      "sha256": "d784b0dbbcc2aa1423e1799590affb815d9d1f56ac3737924a75b647e681c720"
+    },
+    "binding-tests": {
+      "status": "passed",
+      "command": "Cargo JSON-selected _internal executable, with PYTHONHOME only for that process",
+      "log": "/private/tmp/lance-csr-runtime/issue-11-cursor-inlining-binding-tests.log",
+      "sha256": "5127ee79323870bdad2d8446695cdcbba5bf3cbfd44722a9ab95c44521361212"
+    },
+    "snippets": {
+      "status": "passed",
+      "command": "uv run --no-sync python ../docs/check_snippets.py",
+      "log": "/private/tmp/lance-csr-runtime/issue-11-cursor-inlining-snippets.log",
+      "sha256": "1df6a2bfb548ec6d8535c9fe9e3bfb683a6ac6cef9fa9d5fe3623637f11e4e31"
+    },
+    "docs": {
+      "status": "passed",
+      "command": "uv run --project docs --locked zensical build --strict",
+      "log": "/private/tmp/lance-csr-runtime/issue-11-cursor-inlining-docs.log",
+      "sha256": "d6ff2e9fbdb6db52366394f82ee414520d80bde1e17d02a5ecfd23241289a27c"
+    },
+    "typos": {
+      "status": "passed",
+      "command": "uvx typos@1.26.0 .",
+      "log": "/private/tmp/lance-csr-runtime/issue-11-cursor-inlining-typos.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "scope": "Two inline hints on the sampled hot adjacency lookup helpers; no behavior or API change. Performance acceptance is separate.",
+  "release_proof": "/private/tmp/lance-csr-submissions/wheels/issue-11-cursor-inlining-release/release-proof.json"
+}

@@ -1,0 +1,68 @@
+{
+  "source_commit": "d595e377322e2105f7fbd1bb16d11f6afd776198",
+  "source_worktree": "/private/tmp/lance-csr-issue-20-path-null-recheck",
+  "tracked_source_clean": true,
+  "checks": {
+    "format": {
+      "path": "/private/tmp/lance-csr-runtime/issue-20-path-null-recheck-r4-format.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "status": "passed"
+    },
+    "workspace": {
+      "path": "/private/tmp/lance-csr-runtime/issue-20-path-null-recheck-r4-workspace.log",
+      "sha256": "2dfbb284a3a06a32db1c49b9d7274827450519d6b930bae8764ec815dc2ff0b9",
+      "status": "passed"
+    },
+    "clippy": {
+      "path": "/private/tmp/lance-csr-runtime/issue-20-path-null-recheck-r4-clippy.log",
+      "sha256": "c54bca416b8a09e3c2018b0ada16771065b3b9b5469242539af42bc53077e2cf",
+      "status": "passed"
+    },
+    "install": {
+      "path": "/private/tmp/lance-csr-runtime/issue-20-path-null-recheck-r4-install.log",
+      "sha256": "dd6e21da6bd2b6b0f6f216875d8961ac1b06433f9e0aa882d49bb38cd9f92638",
+      "status": "passed"
+    },
+    "python": {
+      "path": "/private/tmp/lance-csr-runtime/issue-20-path-null-recheck-r4-python.log",
+      "sha256": "7462896d4c8fe9fa3142962063fe04e1d193bd23c1c77fa78891dccc67278873",
+      "status": "passed"
+    },
+    "lint": {
+      "path": "/private/tmp/lance-csr-runtime/issue-20-path-null-recheck-r4-lint.log",
+      "sha256": "d13212a36d2956dc7aad93b83fe7917afa052155edadd2731928401f79f7a478",
+      "status": "passed"
+    },
+    "binding-clippy": {
+      "path": "/private/tmp/lance-csr-runtime/issue-20-path-null-recheck-r4-binding-clippy.log",
+      "sha256": "07748c4c5125e284527651488e751062ead8a317573e226d7abd7540902d687e",
+      "status": "passed"
+    },
+    "binding-tests": {
+      "path": "/private/tmp/lance-csr-runtime/issue-20-path-null-recheck-r4-binding-tests.log",
+      "sha256": "09e74318d9c308ff5668d3819c74a47543d258d3b594b54b7bbf3c7a6c77e175",
+      "status": "passed"
+    },
+    "snippets": {
+      "path": "/private/tmp/lance-csr-runtime/issue-20-path-null-recheck-r4-snippets.log",
+      "sha256": "79217be192093257969237f3830f7bcefe4a8d53161d8841dae7f3ef367fdc37",
+      "status": "passed"
+    },
+    "docs": {
+      "path": "/private/tmp/lance-csr-runtime/issue-20-path-null-recheck-r4-docs.log",
+      "sha256": "a30efcb8b0edd30a3cea47269ef413b3a3ab77b33198204b0c0c0f587d01d269",
+      "status": "passed"
+    },
+    "typos": {
+      "path": "/private/tmp/lance-csr-runtime/issue-20-path-null-recheck-r4-typos.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "status": "passed"
+    }
+  },
+  "rust_passed": 617,
+  "rust_ignored": 9,
+  "rust_targets": 16,
+  "python_passed": 961,
+  "binding_rust_passed": 11,
+  "documentation_blocks": 43
+}

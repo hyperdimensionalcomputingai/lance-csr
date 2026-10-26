@@ -1,0 +1,213 @@
+{
+  "actual_fetch_requests": 344,
+  "requested_row_occurrences_across_fetches": 1605888,
+  "requested_cells": 1661502,
+  "cells_by_column": [
+    {
+      "backend": "lance",
+      "dataset": "/private/tmp/lance-csr-benchmark-ic/lance_csr/graph_lance/Comment.lance",
+      "column": "content",
+      "cells": 152331
+    },
+    {
+      "backend": "lance",
+      "dataset": "/private/tmp/lance-csr-benchmark-ic/lance_csr/graph_lance/Comment.lance",
+      "column": "creationdate",
+      "cells": 1040353
+    },
+    {
+      "backend": "lance",
+      "dataset": "/private/tmp/lance-csr-benchmark-ic/lance_csr/graph_lance/Person.lance",
+      "column": "firstname",
+      "cells": 10860
+    },
+    {
+      "backend": "lance",
+      "dataset": "/private/tmp/lance-csr-benchmark-ic/lance_csr/graph_lance/Person.lance",
+      "column": "lastname",
+      "cells": 10860
+    },
+    {
+      "backend": "lance",
+      "dataset": "/private/tmp/lance-csr-benchmark-ic/lance_csr/graph_lance/Post.lance",
+      "column": "content",
+      "cells": 44754
+    },
+    {
+      "backend": "lance",
+      "dataset": "/private/tmp/lance-csr-benchmark-ic/lance_csr/graph_lance/Post.lance",
+      "column": "creationdate",
+      "cells": 357590
+    },
+    {
+      "backend": "lance",
+      "dataset": "/private/tmp/lance-csr-benchmark-ic/lance_csr/graph_lance/Post.lance",
+      "column": "imagefile",
+      "cells": 44754
+    }
+  ],
+  "take_operation_wall_ns_sum": 5418387179,
+  "materialization_wall_ns_sum_including_nested_logging": 5593174159,
+  "decode_time": "unverified: not separately exposed",
+  "physical_disk_reads": "unverified: object-store counters are not physical disk counters",
+  "wall_interpretation": "Overlapping async durations and nested logging; sums are not query latency or pure I/O time.",
+  "primary_store_deltas": [
+    {
+      "store_identity": "0x8ca4dd050",
+      "read_requests": 0,
+      "read_bytes": 0
+    },
+    {
+      "store_identity": "0x8ca8fea90",
+      "read_requests": 0,
+      "read_bytes": 0
+    },
+    {
+      "store_identity": "0x8ca8ff5d0",
+      "read_requests": 0,
+      "read_bytes": 0
+    },
+    {
+      "store_identity": "0x8ca8ff3f0",
+      "read_requests": 0,
+      "read_bytes": 0
+    },
+    {
+      "store_identity": "0x8ca8fec70",
+      "read_requests": 0,
+      "read_bytes": 0
+    },
+    {
+      "store_identity": "0x8ca8ffd50",
+      "read_requests": 0,
+      "read_bytes": 0
+    },
+    {
+      "store_identity": "0x8ca4dcc90",
+      "read_requests": 0,
+      "read_bytes": 0
+    },
+    {
+      "store_identity": "0x8ca8fff30",
+      "read_requests": 0,
+      "read_bytes": 0
+    },
+    {
+      "store_identity": "0x8ca8ffb70",
+      "read_requests": 0,
+      "read_bytes": 0
+    },
+    {
+      "store_identity": "0x8ca8ff030",
+      "read_requests": 0,
+      "read_bytes": 0
+    },
+    {
+      "store_identity": "0x8ca4dc510",
+      "read_requests": 0,
+      "read_bytes": 0
+    },
+    {
+      "store_identity": "0x8ca8fee50",
+      "read_requests": 25,
+      "read_bytes": 334998
+    },
+    {
+      "store_identity": "0x8ca4dd230",
+      "read_requests": 0,
+      "read_bytes": 0
+    },
+    {
+      "store_identity": "0x8ca8ff210",
+      "read_requests": 6480,
+      "read_bytes": 55136423
+    },
+    {
+      "store_identity": "0x8ca8ff990",
+      "read_requests": 0,
+      "read_bytes": 0
+    },
+    {
+      "store_identity": "0x8ca4dc6f0",
+      "read_requests": 0,
+      "read_bytes": 0
+    },
+    {
+      "store_identity": "0x8ca8ff7b0",
+      "read_requests": 0,
+      "read_bytes": 0
+    },
+    {
+      "store_identity": "0x8ca4dc150",
+      "read_requests": 0,
+      "read_bytes": 0
+    },
+    {
+      "store_identity": "0x8ca4dce70",
+      "read_requests": 0,
+      "read_bytes": 0
+    },
+    {
+      "store_identity": "0x8ca4dcab0",
+      "read_requests": 0,
+      "read_bytes": 0
+    },
+    {
+      "store_identity": "0x8ca4dd7d0",
+      "read_requests": 0,
+      "read_bytes": 0
+    },
+    {
+      "store_identity": "0x8ca4de130",
+      "read_requests": 0,
+      "read_bytes": 0
+    },
+    {
+      "store_identity": "0x8ca4ddb90",
+      "read_requests": 0,
+      "read_bytes": 0
+    },
+    {
+      "store_identity": "0x8ca4dd9b0",
+      "read_requests": 0,
+      "read_bytes": 0
+    },
+    {
+      "store_identity": "0x8ca4dd410",
+      "read_requests": 0,
+      "read_bytes": 0
+    },
+    {
+      "store_identity": "0x8ca4ddf50",
+      "read_requests": 0,
+      "read_bytes": 0
+    },
+    {
+      "store_identity": "0x8ca4dd5f0",
+      "read_requests": 0,
+      "read_bytes": 0
+    },
+    {
+      "store_identity": "0x8ca4ddd70",
+      "read_requests": 0,
+      "read_bytes": 0
+    },
+    {
+      "store_identity": "0x8ca8fe8b0",
+      "read_requests": 71819,
+      "read_bytes": 1109385514
+    },
+    {
+      "store_identity": "0x8ca4dc8d0",
+      "read_requests": 0,
+      "read_bytes": 0
+    },
+    {
+      "store_identity": "0x8ca4dc330",
+      "read_requests": 0,
+      "read_bytes": 0
+    }
+  ],
+  "primary_store_read_requests": 78324,
+  "primary_store_read_bytes": 1164856935
+}

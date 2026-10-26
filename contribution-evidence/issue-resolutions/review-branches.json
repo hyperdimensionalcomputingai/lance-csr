@@ -1,0 +1,330 @@
+{
+  "scope": "Local review commands use these exact frozen base/head commits; no branch publication or retargeting authorized.",
+  "submissions": [
+    {
+      "issue": 3,
+      "group": "integer precision",
+      "phase": "issue-3-cp313",
+      "head": "f71fe3c481b5c8599c24e904d163b8867eae29af",
+      "head_branches": [
+        "codex/issue-3-integer-lists"
+      ],
+      "base": "54e02307a48e467a98d9da2183f5adcb767e7c99",
+      "base_branches": [
+        "main"
+      ],
+      "diffstat": "9 files changed, 210 insertions(+), 54 deletions(-)"
+    },
+    {
+      "issue": 11,
+      "group": "bounded expansion",
+      "phase": "issue-11-clean-r2",
+      "head": "e127755c872949733c69435047384c9d17fb572b",
+      "head_branches": [
+        "codex/issue-11-bounded-csr"
+      ],
+      "base": "54e02307a48e467a98d9da2183f5adcb767e7c99",
+      "base_branches": [
+        "main"
+      ],
+      "diffstat": "5 files changed, 377 insertions(+), 149 deletions(-)"
+    },
+    {
+      "issue": 12,
+      "group": "refresh publication",
+      "phase": "issue-12",
+      "head": "58b96fb601eda5f02caff0dc537c1ffa0f18bd15",
+      "head_branches": [
+        "codex/issue-12-refresh-corrected",
+        "codex/issue-12-refresh-safety"
+      ],
+      "base": "54e02307a48e467a98d9da2183f5adcb767e7c99",
+      "base_branches": [
+        "main"
+      ],
+      "diffstat": "4 files changed, 134 insertions(+), 18 deletions(-)"
+    },
+    {
+      "issue": 13,
+      "group": "iterative paths",
+      "phase": "issue-13",
+      "head": "1bf6d42141b9cc6ee1824d000f49cdc0ebd9d8fe",
+      "head_branches": [
+        "codex/issue-13-iterative-csr"
+      ],
+      "base": "e127755c872949733c69435047384c9d17fb572b",
+      "base_branches": [
+        "codex/issue-11-bounded-csr"
+      ],
+      "diffstat": "15 files changed, 912 insertions(+), 79 deletions(-)"
+    },
+    {
+      "issue": 14,
+      "group": "plan templates",
+      "phase": "issue-14-curated",
+      "head": "74dd1e5d9ad680b79da40428e2f7e2cc18eb6671",
+      "head_branches": [
+        "codex/issue-14-curated"
+      ],
+      "base": "248def899cea569f57e44fa447ad9ccf5f8f5eab",
+      "base_branches": [
+        "codex/issue-14-prerequisites"
+      ],
+      "diffstat": "16 files changed, 853 insertions(+), 70 deletions(-)"
+    },
+    {
+      "issue": 15,
+      "group": "partition override",
+      "phase": "issue-15-option-release",
+      "head": "7461a7774d6cdf74bbd6961efa7ec86b229fa945",
+      "head_branches": [
+        "codex/issue-15-target-partitions"
+      ],
+      "base": "91d6b482a625b671c1e2eef923a4105331dc7ef4",
+      "base_branches": [
+        "codex/issue-20-final-corrections"
+      ],
+      "diffstat": "9 files changed, 231 insertions(+), 16 deletions(-)"
+    },
+    {
+      "issue": 16,
+      "group": "property read reuse",
+      "phase": "issue-16",
+      "head": "447355dbaf90993d33926afc48ab6712e421505a",
+      "head_branches": [
+        "codex/issue-16-filter-column-reuse"
+      ],
+      "base": "1bf6d42141b9cc6ee1824d000f49cdc0ebd9d8fe",
+      "base_branches": [
+        "codex/issue-13-iterative-csr"
+      ],
+      "diffstat": "4 files changed, 191 insertions(+), 6 deletions(-)"
+    },
+    {
+      "issue": 17,
+      "group": "bidirectional search",
+      "phase": "issue-17",
+      "head": "09a92e424bd8a7dffc0c3ff6a82838dc088de59e",
+      "head_branches": [
+        "codex/issue-17-bidirectional-shortest-path"
+      ],
+      "base": "e127755c872949733c69435047384c9d17fb572b",
+      "base_branches": [
+        "codex/issue-11-bounded-csr"
+      ],
+      "diffstat": "5 files changed, 311 insertions(+), 25 deletions(-)"
+    },
+    {
+      "issue": 18,
+      "group": "comprehension counts",
+      "phase": "issue-18-curated",
+      "head": "4bc6eeae6a6f0c71bb23559b3c81387a49970836",
+      "head_branches": [
+        "codex/issue-18-curated"
+      ],
+      "base": "07a0fa1246c1829f4184e7d33c5fa063a4a76f19",
+      "base_branches": [
+        "codex/issue-18-prerequisites"
+      ],
+      "diffstat": "9 files changed, 301 insertions(+), 8 deletions(-)"
+    },
+    {
+      "issue": 19,
+      "group": "query deadlines",
+      "phase": "issue-19",
+      "head": "63a4928202455955f079ebcbf9672075f75ad5ca",
+      "head_branches": [
+        "codex/issue-19-query-timeout"
+      ],
+      "base": "81ef524be83db4abb626394dd4940121a45751e2",
+      "base_branches": [
+        "codex/issue-19-prerequisites"
+      ],
+      "diffstat": "10 files changed, 658 insertions(+), 99 deletions(-)"
+    },
+    {
+      "issue": 20,
+      "group": "container parameters",
+      "phase": "issue-20-containers-curated",
+      "head": "89f96a422a6a2e566b68496269f63b6f00ef908c",
+      "head_branches": [
+        "codex/issue-20-containers-curated"
+      ],
+      "base": "4b157120db78fad823e494deea2dba5c82729f59",
+      "base_branches": [
+        "codex/issue-20-parameter-prerequisites"
+      ],
+      "diffstat": "9 files changed, 272 insertions(+), 51 deletions(-)"
+    },
+    {
+      "issue": 20,
+      "group": "pagination parameters",
+      "phase": "issue-20-pagination-curated",
+      "head": "90c141a0979bea1291baba501d49677a8dabb516",
+      "head_branches": [
+        "codex/issue-20-pagination-curated"
+      ],
+      "base": "89f96a422a6a2e566b68496269f63b6f00ef908c",
+      "base_branches": [
+        "codex/issue-20-containers-curated"
+      ],
+      "diffstat": "8 files changed, 190 insertions(+), 33 deletions(-)"
+    },
+    {
+      "issue": 20,
+      "group": "math",
+      "phase": "issue-20-math-delivery",
+      "head": "c53f47c2304f09f48019e0d3facdc7ece62c3a83",
+      "head_branches": [
+        "codex/issue-20-math-delivery"
+      ],
+      "base": "90c141a0979bea1291baba501d49677a8dabb516",
+      "base_branches": [
+        "codex/issue-20-pagination-curated"
+      ],
+      "diffstat": "12 files changed, 582 insertions(+), 9 deletions(-)"
+    },
+    {
+      "issue": 20,
+      "group": "string/list functions",
+      "phase": "issue-20-string-list-delivery",
+      "head": "d44596967609bce35fad34acafe68753a2913383",
+      "head_branches": [
+        "codex/issue-20-string-list-delivery"
+      ],
+      "base": "c53f47c2304f09f48019e0d3facdc7ece62c3a83",
+      "base_branches": [
+        "codex/issue-20-math-delivery"
+      ],
+      "diffstat": "11 files changed, 759 insertions(+), 46 deletions(-)"
+    },
+    {
+      "issue": 20,
+      "group": "entity metadata",
+      "phase": "issue-20-entities-delivery",
+      "head": "99d11c0ea0e72ecf592d65165a47101ce281ca3a",
+      "head_branches": [
+        "codex/issue-20-entities-delivery"
+      ],
+      "base": "d44596967609bce35fad34acafe68753a2913383",
+      "base_branches": [
+        "codex/issue-20-string-list-delivery"
+      ],
+      "diffstat": "6 files changed, 330 insertions(+), 23 deletions(-)"
+    },
+    {
+      "issue": 20,
+      "group": "reduce/list predicates",
+      "phase": "issue-20-folds-delivery",
+      "head": "88dd97e8baa87cc76dbd968b5761252be3bf60ec",
+      "head_branches": [
+        "codex/issue-20-folds-delivery"
+      ],
+      "base": "99d11c0ea0e72ecf592d65165a47101ce281ca3a",
+      "base_branches": [
+        "codex/issue-20-entities-delivery"
+      ],
+      "diffstat": "17 files changed, 1116 insertions(+), 75 deletions(-)"
+    },
+    {
+      "issue": 20,
+      "group": "UNION",
+      "phase": "issue-20-union-delivery",
+      "head": "6e62a429da270649aa6877e81fc4a67df941bdc8",
+      "head_branches": [
+        "codex/issue-20-union-delivery"
+      ],
+      "base": "ccfc4fece4c1a099ab5b494f6a4533dfd03acc11",
+      "base_branches": [
+        "codex/issue-20-union-delivery-prerequisites",
+        "codex/issue-21-delivery"
+      ],
+      "diffstat": "14 files changed, 467 insertions(+), 40 deletions(-)"
+    },
+    {
+      "issue": 20,
+      "group": "path values",
+      "phase": "issue-20-paths-curated-head",
+      "head": "92cfb4ac051429cbe96a3a1f6184636a194e87ce",
+      "head_branches": [
+        "codex/issue-20-paths-curated"
+      ],
+      "base": "84fcac65be2d4f5104061da1af16294656875b1a",
+      "base_branches": [
+        "codex/issue-20-paths-curated-base"
+      ],
+      "diffstat": "28 files changed, 2928 insertions(+), 85 deletions(-)"
+    },
+    {
+      "issue": 20,
+      "group": "CALL",
+      "phase": "issue-20-call-delivery-release",
+      "head": "f2cc84c64898185bf8ea4826b276b61ea8b20b63",
+      "head_branches": [
+        "codex/issue-20-call-delivery"
+      ],
+      "base": "32fee35e2aad15167a7d33ec0d9eee9b3d268b5b",
+      "base_branches": [
+        "codex/issue-20-call-prerequisites"
+      ],
+      "diffstat": "21 files changed, 1544 insertions(+), 19 deletions(-)"
+    },
+    {
+      "issue": 21,
+      "group": "alias shadowing",
+      "phase": "issue-21-delivery",
+      "head": "ccfc4fece4c1a099ab5b494f6a4533dfd03acc11",
+      "head_branches": [
+        "codex/issue-20-union-delivery-prerequisites",
+        "codex/issue-21-delivery"
+      ],
+      "base": "d44596967609bce35fad34acafe68753a2913383",
+      "base_branches": [
+        "codex/issue-20-string-list-delivery"
+      ],
+      "diffstat": "3 files changed, 127 insertions(+), 4 deletions(-)"
+    },
+    {
+      "issue": 22,
+      "group": "public stubs",
+      "phase": "issue-22-cp313",
+      "head": "6175122bd24cc8fe95ddd4cf82d7492975ea6e7d",
+      "head_branches": [
+        "codex/issue-22-python-stubs"
+      ],
+      "base": "54e02307a48e467a98d9da2183f5adcb767e7c99",
+      "base_branches": [
+        "main"
+      ],
+      "diffstat": "11 files changed, 482 insertions(+), 5 deletions(-)"
+    },
+    {
+      "issue": 23,
+      "group": "compatible accessors",
+      "phase": "issue-23-accessors",
+      "head": "96598edac33e9c8dab8bf3b0ec1324308faf589e",
+      "head_branches": [
+        "codex/issue-23-config-accessors"
+      ],
+      "base": "54e02307a48e467a98d9da2183f5adcb767e7c99",
+      "base_branches": [
+        "main"
+      ],
+      "diffstat": "5 files changed, 75 insertions(+), 34 deletions(-)"
+    },
+    {
+      "issue": 23,
+      "group": "expression types",
+      "phase": "issue-23-types",
+      "head": "1939b6948792ed84eecd0914ff413da792ac2875",
+      "head_branches": [
+        "codex/issue-23-expression-types"
+      ],
+      "base": "96598edac33e9c8dab8bf3b0ec1324308faf589e",
+      "base_branches": [
+        "codex/issue-23-config-accessors"
+      ],
+      "diffstat": "6 files changed, 560 insertions(+), 33 deletions(-)"
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "cell": {
+    "label": "plan-mixed-10-11-r1",
+    "kind": "plan",
+    "cohort": "11",
+    "repeat": 1,
+    "shape": "mixed",
+    "hops": 10
+  },
+  "source_commit": "e127755c872949733c69435047384c9d17fb572b",
+  "wheel_sha256": "12f84f269da0d8234713716f5a4f25d260400390d8fb6e03fc4d48b7890acabe",
+  "extension_sha256": "777cbe332b754772c782f10c6693e76412074d2c4b73c3872f05fe7275de10ea",
+  "python": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+  "lance": "13.0.0",
+  "pyarrow": "26.0.0",
+  "status": "passed",
+  "explain_seconds_including_formatting": 0.02198904100805521,
+  "csr_expands": 55,
+  "unions": 1,
+  "physical_plan_bytes": 522502,
+  "physical_plan_lines": 118,
+  "verified_node_ids": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10
+  ]
+}

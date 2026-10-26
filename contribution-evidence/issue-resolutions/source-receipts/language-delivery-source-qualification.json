@@ -1,0 +1,93 @@
+{
+  "created_utc": "2026-10-25T22:05:23.522424+00:00",
+  "records": [
+    {
+      "group": "math",
+      "delivery_source": "c53f47c2304f09f48019e0d3facdc7ece62c3a83",
+      "verified_source": "4e3826d8c804ba07c727d56bde8164f972d9d3e3",
+      "tracked_tree": "6a48e795f6427bf321a86cffae76feb09ae74007",
+      "identical_tree_basis": true,
+      "rust_passed": 594,
+      "rust_ignored": 9,
+      "rust_targets": 16,
+      "python_passed": 573,
+      "all_required_static_and_documentation_checks_passed": true,
+      "qualification_receipt": "/private/tmp/lance-csr-submissions/cache-cleanup/issue-20-math-qualified-debug.json",
+      "qualification_receipt_sha256": "cea6369732b6e860119824a6eaf02f6477f1421f80b3ec3b6b4c3824bae09503"
+    },
+    {
+      "group": "string-list",
+      "delivery_source": "d44596967609bce35fad34acafe68753a2913383",
+      "verified_source": "d44596967609bce35fad34acafe68753a2913383",
+      "tracked_tree": "eeeb6c7e45119884d800598698a8325e0c976331",
+      "identical_tree_basis": false,
+      "rust_passed": 598,
+      "rust_ignored": 9,
+      "rust_targets": 16,
+      "python_passed": 742,
+      "all_required_static_and_documentation_checks_passed": true,
+      "qualification_receipt": "/private/tmp/lance-csr-submissions/cache-cleanup/issue-20-string-list-delivery-debug.json",
+      "qualification_receipt_sha256": "a9a27c608f8f850c889392a2ddb4643834f5bc2c86fd2d16df547f60b26c3251"
+    },
+    {
+      "group": "entities",
+      "delivery_source": "99d11c0ea0e72ecf592d65165a47101ce281ca3a",
+      "verified_source": "99d11c0ea0e72ecf592d65165a47101ce281ca3a",
+      "tracked_tree": "9ece799742d6544edf7d6188ff077e0793efc19c",
+      "identical_tree_basis": false,
+      "rust_passed": 599,
+      "rust_ignored": 9,
+      "rust_targets": 16,
+      "python_passed": 774,
+      "all_required_static_and_documentation_checks_passed": true,
+      "qualification_receipt": "/private/tmp/lance-csr-submissions/cache-cleanup/issue-20-entities-delivery-debug.json",
+      "qualification_receipt_sha256": "1dfb1f1d054add59733312d454f01ca3cf6c75c33a85f0eac25446b94cb46677"
+    },
+    {
+      "group": "folds",
+      "delivery_source": "88dd97e8baa87cc76dbd968b5761252be3bf60ec",
+      "verified_source": "88dd97e8baa87cc76dbd968b5761252be3bf60ec",
+      "tracked_tree": "013450f866b85ced23f6f53b550cb5e119fe89ae",
+      "identical_tree_basis": false,
+      "rust_passed": 601,
+      "rust_ignored": 9,
+      "rust_targets": 16,
+      "python_passed": 858,
+      "all_required_static_and_documentation_checks_passed": true,
+      "qualification_receipt": "/private/tmp/lance-csr-submissions/cache-cleanup/issue-20-folds-delivery-debug.json",
+      "qualification_receipt_sha256": "03d218232b320f3aa32903a2e0c3e21ec50ff97f2585b25ed7c4fbc73bc9976d"
+    },
+    {
+      "group": "alias",
+      "delivery_source": "ccfc4fece4c1a099ab5b494f6a4533dfd03acc11",
+      "verified_source": "ccfc4fece4c1a099ab5b494f6a4533dfd03acc11",
+      "tracked_tree": "36423d947d4f5976cc0bcf50afa6c8e1e0c5c7fa",
+      "identical_tree_basis": false,
+      "rust_passed": 599,
+      "rust_ignored": 9,
+      "rust_targets": 16,
+      "python_passed": 760,
+      "all_required_static_and_documentation_checks_passed": true,
+      "qualification_receipt": "/private/tmp/lance-csr-submissions/cache-cleanup/issue-21-delivery-debug.json",
+      "qualification_receipt_sha256": "d5148aecc2ec6ef23da0b015cfbfd8fe86d0c297861cbfabe061200ffa2e6dae"
+    },
+    {
+      "group": "union",
+      "delivery_source": "6e62a429da270649aa6877e81fc4a67df941bdc8",
+      "verified_source": "6e62a429da270649aa6877e81fc4a67df941bdc8",
+      "tracked_tree": "f7d3acf9dde7c27fda1d03b647a78802c2484faf",
+      "identical_tree_basis": false,
+      "rust_passed": 602,
+      "rust_ignored": 9,
+      "rust_targets": 16,
+      "python_passed": 797,
+      "all_required_static_and_documentation_checks_passed": true,
+      "qualification_receipt": "/private/tmp/lance-csr-submissions/cache-cleanup/issue-20-union-delivery-debug.json",
+      "qualification_receipt_sha256": "9241bc003b5db23b31b125b24e447b9bbf6ea89238d97a9d8bf8cf06420cd46d"
+    }
+  ],
+  "validator_path": "/private/tmp/lance-csr-curated-validate.sh",
+  "validator_sha256": "24efa67b82a3c2bb427e52ca250dbd63a3c1663d54b973cf399bda4d449fce1c",
+  "scope_audit_sha256": "14f17b9db197b5755bffc30ff347e947279760c4db03708008b5914e42d24643",
+  "note": "Math was qualified on an identical tracked tree before ancestry-only rerooting; all other full suites ran on the exact delivery commit. Optimized wheel and performance evidence are separate."
+}

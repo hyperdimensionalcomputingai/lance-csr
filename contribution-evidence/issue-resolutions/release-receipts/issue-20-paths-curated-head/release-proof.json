@@ -1,0 +1,91 @@
+{
+  "created_utc": "2026-10-26T00:27:03.817036+00:00",
+  "phase": "issue-20-paths-curated-head",
+  "source_worktree": "/private/tmp/lance-csr-issue-20-paths-curated",
+  "source_commit": "92cfb4ac051429cbe96a3a1f6184636a194e87ce",
+  "source_tree_clean": true,
+  "profile": "release",
+  "build_interpreter_path": "/private/tmp/lance-csr-issue-21/python/.venv/bin/python",
+  "build_python": "Python 3.13.17",
+  "consumer_fixture_sha256": {
+    "tests/queries/ic14.cypher": "fa10dace1305088b1ce5e90997155512aca4a100b43d9162e12ed23be11aa2b4",
+    "tests/test_config_builder.py": "3f9f1cff6c27713c79fef6e0818a866cc351756671eef2a55cd10fb49fc3d300",
+    "tests/test_container_parameters.py": "49915b1ed798f4772c020f7f4dd4971715d9552dd3ea1c8d9cfbde4902d9e515",
+    "tests/test_cypher_engine.py": "db384c0ae7bbf6a8764a7f248c56995ab4bd1e44a03c871cf018b1ec74a1197c",
+    "tests/test_engine_alternation.py": "3df067e7c8488859e6bd815d9a8602c5d023750a5e0d62c25b5c25899ff4012e",
+    "tests/test_engine_csr.py": "a97a8bb00e6956be3fb7e0524781de4ff7208d91435c58b490b232cfb900903d",
+    "tests/test_engine_csr_delta.py": "724a76f5b30a4633b301a5de983ce70d6d2cad2a9579a890e499f18ea8b972e6",
+    "tests/test_engine_exists.py": "115c65f1b17ff0e9bf3235dcd205fd524efaa7cd283f983e01370ec0842de867",
+    "tests/test_engine_expressions.py": "df3c7b4a8ac68e9a0642311f77dc4404b007ded76d4cb667ac64059364dfebdf",
+    "tests/test_engine_lance.py": "b99c5b2e27f47ee886cc80065953afab609a2c06fbc4b06160179009dc6d2594",
+    "tests/test_engine_optional.py": "9f9f0cc8d2b7f59cdba9e8358c80f7a99d837a8ae3d17f7bf47bcad2c4465672",
+    "tests/test_engine_paths.py": "b755daa6ab851426dfe68878c5e5bc82c43aa25c41a7ff017cc27252ed84c1b0",
+    "tests/test_engine_values.py": "e165bc091e6cdf238d8198d803ec0663a635a1fd6c51ad59b4291b1dc4fdfdd9",
+    "tests/test_engine_with.py": "5a21a9b2b408711f083a5b24ebf64e8fbb59de7ea32314fd0025828fcf67e0ea",
+    "tests/test_entity_functions.py": "970602eba7a56bf95d0d23d1f70ee98b3d24cce5e2fd9b8e5c8f8273d5694ded",
+    "tests/test_explain.py": "023890a661be2673603145ddc846dfb1e401daf4bd6d0672d4de0fa2fd3e30e6",
+    "tests/test_graph.py": "ebf5b2f066f5298f65a6a8715b8fe3a37d62f3f4b2005f3ba7b7a5cb489a8741",
+    "tests/test_integer_lists.py": "70a8daf12bdc667379f64b00dc9be8ddb49d5a5aa3a05da35e6d52f842be6d9f",
+    "tests/test_list_folds.py": "72df89dcd064fb49ba0747eda2509f06adacb81d8eee3d25064b6aa62b6359b5",
+    "tests/test_math_functions.py": "626d1cb4ae3245ad42b15a2398047fe1679d22266af298ff715b045914fc849c",
+    "tests/test_pagination_parameters.py": "4840f541a5ee012f4f6022de8df1caf2bcd1223920e3b759486713763cd37c98",
+    "tests/test_path_values.py": "3d4710301f605d175d164f1cc7e3940245523a0ad24e4dd3b93283fae1c93ea9",
+    "tests/test_scalar_functions.py": "4a00da4083977eb66dd75dc57a26bdafb4d730b442e7f0c2bef7e22cba0505e9",
+    "tests/test_sql.py": "6fd4a5a31a9dc622f3c40ac7013c7a38a6fd93509c5342f1c5938d94c87ad067",
+    "tests/test_to_sql.py": "7b758e62d4b137907eb70f9ca120d6906044f911431887056b46524da61d6108",
+    "tests/test_typing.py": "9a9f39c0e0e6f945ecdb21be306f1f6acc316aa268296c2cdf14ebd9bf2b37c4",
+    "tests/test_vector_search.py": "184a68c2a5a37e86cbd53798629f6f6628bcc8083366b6c427a530bec5067419"
+  },
+  "wheel_path": "/private/tmp/lance-csr-submissions/wheels/issue-20-paths-curated-head/lance_csr-0.2.0-cp312-abi3-macosx_11_0_arm64.whl",
+  "wheel_sha256": "df610ec043c2307efebc1e08f402c7059e9e1945d383e20fa018025fb67c74ff",
+  "extension_sha256": "b3248d932de281cfef1cd45bc2948e621af9b38600d81d97463a83db4cd3c5f2",
+  "installed_extension_matches_archive": true,
+  "wheel_tag": "cp312-abi3-macosx_11_0_arm64",
+  "build_python_lock_sha256": "b1ca87e689ae857d94d0021159c386e28bb4e3c8dcc1be4ef62ce8c889db4c7e",
+  "toolchain": {
+    "rustc": "1.96.0 (ac68faa20 2026-05-25)",
+    "cargo": "1.96.0 (30a34c682 2026-05-25)",
+    "maturin": "1.15.0"
+  },
+  "host": {
+    "macos": "26.6.2",
+    "architecture": "arm64"
+  },
+  "build_log": "/private/tmp/lance-csr-runtime/issue-20-paths-curated-head-release-wheel-build.log",
+  "release_clean_log": "/private/tmp/lance-csr-runtime/issue-20-paths-curated-head-release-clean.log",
+  "verification_log": "/private/tmp/lance-csr-runtime/issue-20-paths-curated-head-release-wheel-verification.log",
+  "installed_environment": {
+    "python": "3.12.9 (main, Feb 12 2025, 15:09:19) [Clang 19.1.6 ]",
+    "extension": "/Users/davidhughes/.cache/uv/archive-v0/-2ivpcnITL872592/lib/python3.12/site-packages/lance_csr/_internal.abi3.so",
+    "lance-csr": "0.2.0",
+    "pyarrow": "26.0.0",
+    "pylance": "13.0.0",
+    "installed_typing_matches_archive": [
+      "lance_csr/_internal/__init__.pyi",
+      "lance_csr/_internal/graph.pyi",
+      "lance_csr/py.typed"
+    ]
+  },
+  "focused_tests_passed": 945,
+  "typing_files": [
+    "lance_csr/_internal/__init__.pyi",
+    "lance_csr/_internal/graph.pyi",
+    "lance_csr/py.typed"
+  ],
+  "smoke": [
+    "installed extension byte match",
+    "Arrow-memory fixture",
+    "Lance-disk fixture",
+    "CSR traversal",
+    "shortestPath",
+    "refresh",
+    "Rust absent from PATH"
+  ],
+  "limits": [
+    "No external datasets used",
+    "No SF1 benchmark or performance comparison",
+    "No other operating-system matrix",
+    "No push or PR"
+  ],
+  "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration."
+}

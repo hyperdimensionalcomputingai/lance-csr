@@ -1,0 +1,453 @@
+{
+  "scope": "Original frozen submissions plus completed prospectively sized smaller-flag investigations. Changed owners still need their own gate.",
+  "submissions": [
+    {
+      "issue": 3,
+      "group": "integer precision",
+      "original_phase": "issue-3-cp313",
+      "original_head": "f71fe3c481b5c8599c24e904d163b8867eae29af",
+      "original_performance_gates": "passed_after_recorded_investigation",
+      "remaining_original_flags": [],
+      "qualification": "Source/release qualification applies to its recorded head. Owner correction and combined verification supersede no original measurements."
+    },
+    {
+      "issue": 11,
+      "group": "bounded expansion",
+      "original_phase": "issue-11-clean-r2",
+      "original_head": "e127755c872949733c69435047384c9d17fb572b",
+      "original_performance_gates": "investigation_required",
+      "remaining_original_flags": [
+        {
+          "before": "main-cp313",
+          "suite": "q30",
+          "mode": "memory",
+          "queries": [
+            30
+          ]
+        },
+        {
+          "before": "main-cp313",
+          "suite": "q30",
+          "mode": "lazy",
+          "queries": [
+            30
+          ]
+        },
+        {
+          "before": "main-cp313",
+          "suite": "ic",
+          "mode": "lazy",
+          "queries": [
+            6
+          ]
+        }
+      ],
+      "qualification": "Source/release qualification applies to its recorded head. Owner correction and combined verification supersede no original measurements."
+    },
+    {
+      "issue": 12,
+      "group": "refresh publication",
+      "original_phase": "issue-12",
+      "original_head": "58b96fb601eda5f02caff0dc537c1ffa0f18bd15",
+      "original_performance_gates": "passed_after_recorded_investigation",
+      "remaining_original_flags": [],
+      "qualification": "Source/release qualification applies to its recorded head. Owner correction and combined verification supersede no original measurements."
+    },
+    {
+      "issue": 13,
+      "group": "iterative paths",
+      "original_phase": "issue-13",
+      "original_head": "1bf6d42141b9cc6ee1824d000f49cdc0ebd9d8fe",
+      "original_performance_gates": "investigation_required",
+      "remaining_original_flags": [
+        {
+          "before": "main-cp313",
+          "suite": "q30",
+          "mode": "memory",
+          "queries": [
+            30
+          ]
+        },
+        {
+          "before": "main-cp313",
+          "suite": "q30",
+          "mode": "lazy",
+          "queries": [
+            30
+          ]
+        }
+      ],
+      "qualification": "Source/release qualification applies to its recorded head. Owner correction and combined verification supersede no original measurements."
+    },
+    {
+      "issue": 14,
+      "group": "plan templates",
+      "original_phase": "issue-14-curated",
+      "original_head": "74dd1e5d9ad680b79da40428e2f7e2cc18eb6671",
+      "original_performance_gates": "passed_after_recorded_investigation",
+      "remaining_original_flags": [],
+      "qualification": "Source/release qualification applies to its recorded head. Owner correction and combined verification supersede no original measurements."
+    },
+    {
+      "issue": 15,
+      "group": "partition override",
+      "original_phase": "issue-15-option-release",
+      "original_head": "7461a7774d6cdf74bbd6961efa7ec86b229fa945",
+      "original_performance_gates": "investigation_required",
+      "remaining_original_flags": [
+        {
+          "before": "main-cp313",
+          "suite": "q30",
+          "mode": "lazy",
+          "queries": [
+            30
+          ]
+        },
+        {
+          "before": "main-cp313",
+          "suite": "ic",
+          "mode": "memory",
+          "queries": [
+            6,
+            9,
+            13
+          ]
+        },
+        {
+          "before": "main-cp313",
+          "suite": "ic",
+          "mode": "lazy",
+          "queries": [
+            6,
+            13
+          ]
+        }
+      ],
+      "qualification": "Source/release qualification applies to its recorded head. Owner correction and combined verification supersede no original measurements."
+    },
+    {
+      "issue": 16,
+      "group": "property read reuse",
+      "original_phase": "issue-16",
+      "original_head": "447355dbaf90993d33926afc48ab6712e421505a",
+      "original_performance_gates": "investigation_required",
+      "remaining_original_flags": [
+        {
+          "before": "main-cp313",
+          "suite": "q30",
+          "mode": "memory",
+          "queries": [
+            30
+          ]
+        },
+        {
+          "before": "main-cp313",
+          "suite": "q30",
+          "mode": "lazy",
+          "queries": [
+            30
+          ]
+        }
+      ],
+      "qualification": "Source/release qualification applies to its recorded head. Owner correction and combined verification supersede no original measurements."
+    },
+    {
+      "issue": 17,
+      "group": "bidirectional search",
+      "original_phase": "issue-17",
+      "original_head": "09a92e424bd8a7dffc0c3ff6a82838dc088de59e",
+      "original_performance_gates": "investigation_required",
+      "remaining_original_flags": [
+        {
+          "before": "main-cp313",
+          "suite": "q30",
+          "mode": "memory",
+          "queries": [
+            30
+          ]
+        }
+      ],
+      "qualification": "Source/release qualification applies to its recorded head. Owner correction and combined verification supersede no original measurements."
+    },
+    {
+      "issue": 18,
+      "group": "comprehension counts",
+      "original_phase": "issue-18-curated",
+      "original_head": "4bc6eeae6a6f0c71bb23559b3c81387a49970836",
+      "original_performance_gates": "passed_after_recorded_investigation",
+      "remaining_original_flags": [],
+      "qualification": "Source/release qualification applies to its recorded head. Owner correction and combined verification supersede no original measurements."
+    },
+    {
+      "issue": 19,
+      "group": "query deadlines",
+      "original_phase": "issue-19",
+      "original_head": "63a4928202455955f079ebcbf9672075f75ad5ca",
+      "original_performance_gates": "investigation_required",
+      "remaining_original_flags": [
+        {
+          "before": "issue-19-prerequisites-release",
+          "suite": "q30",
+          "mode": "memory",
+          "queries": [
+            13,
+            27
+          ]
+        },
+        {
+          "before": "issue-19-prerequisites-release",
+          "suite": "q30",
+          "mode": "lazy",
+          "queries": [
+            8
+          ]
+        },
+        {
+          "before": "issue-19-prerequisites-release",
+          "suite": "ic",
+          "mode": "memory",
+          "queries": [
+            6,
+            9
+          ]
+        },
+        {
+          "before": "issue-19-prerequisites-release",
+          "suite": "ic",
+          "mode": "lazy",
+          "queries": [
+            6
+          ]
+        },
+        {
+          "before": "main-cp313",
+          "suite": "q30",
+          "mode": "memory",
+          "queries": [
+            28
+          ]
+        },
+        {
+          "before": "main-cp313",
+          "suite": "q30",
+          "mode": "lazy",
+          "queries": [
+            13,
+            30
+          ]
+        },
+        {
+          "before": "main-cp313",
+          "suite": "ic",
+          "mode": "memory",
+          "queries": [
+            6,
+            9
+          ]
+        },
+        {
+          "before": "main-cp313",
+          "suite": "ic",
+          "mode": "lazy",
+          "queries": [
+            6
+          ]
+        }
+      ],
+      "qualification": "Source/release qualification applies to its recorded head. Owner correction and combined verification supersede no original measurements."
+    },
+    {
+      "issue": 20,
+      "group": "container parameters",
+      "original_phase": "issue-20-containers-curated",
+      "original_head": "89f96a422a6a2e566b68496269f63b6f00ef908c",
+      "original_performance_gates": "passed_after_recorded_investigation",
+      "remaining_original_flags": [],
+      "qualification": "Source/release qualification applies to its recorded head. Owner correction and combined verification supersede no original measurements."
+    },
+    {
+      "issue": 20,
+      "group": "pagination parameters",
+      "original_phase": "issue-20-pagination-curated",
+      "original_head": "90c141a0979bea1291baba501d49677a8dabb516",
+      "original_performance_gates": "passed_after_recorded_investigation",
+      "remaining_original_flags": [],
+      "qualification": "Source/release qualification applies to its recorded head. Owner correction and combined verification supersede no original measurements."
+    },
+    {
+      "issue": 20,
+      "group": "math",
+      "original_phase": "issue-20-math-delivery",
+      "original_head": "c53f47c2304f09f48019e0d3facdc7ece62c3a83",
+      "original_performance_gates": "passed_after_recorded_investigation",
+      "remaining_original_flags": [],
+      "qualification": "Source/release qualification applies to its recorded head. Owner correction and combined verification supersede no original measurements."
+    },
+    {
+      "issue": 20,
+      "group": "string/list functions",
+      "original_phase": "issue-20-string-list-delivery",
+      "original_head": "d44596967609bce35fad34acafe68753a2913383",
+      "original_performance_gates": "passed_after_recorded_investigation",
+      "remaining_original_flags": [],
+      "qualification": "Source/release qualification applies to its recorded head. Owner correction and combined verification supersede no original measurements."
+    },
+    {
+      "issue": 20,
+      "group": "entity metadata",
+      "original_phase": "issue-20-entities-delivery",
+      "original_head": "99d11c0ea0e72ecf592d65165a47101ce281ca3a",
+      "original_performance_gates": "passed_after_recorded_investigation",
+      "remaining_original_flags": [],
+      "qualification": "Source/release qualification applies to its recorded head. Owner correction and combined verification supersede no original measurements."
+    },
+    {
+      "issue": 20,
+      "group": "reduce/list predicates",
+      "original_phase": "issue-20-folds-delivery",
+      "original_head": "88dd97e8baa87cc76dbd968b5761252be3bf60ec",
+      "original_performance_gates": "passed_after_recorded_investigation",
+      "remaining_original_flags": [],
+      "qualification": "Source/release qualification applies to its recorded head. Owner correction and combined verification supersede no original measurements."
+    },
+    {
+      "issue": 20,
+      "group": "UNION",
+      "original_phase": "issue-20-union-delivery",
+      "original_head": "6e62a429da270649aa6877e81fc4a67df941bdc8",
+      "original_performance_gates": "passed_after_recorded_investigation",
+      "remaining_original_flags": [],
+      "qualification": "Source/release qualification applies to its recorded head. Owner correction and combined verification supersede no original measurements."
+    },
+    {
+      "issue": 20,
+      "group": "path values",
+      "original_phase": "issue-20-paths-curated-head",
+      "original_head": "92cfb4ac051429cbe96a3a1f6184636a194e87ce",
+      "original_performance_gates": "investigation_required",
+      "remaining_original_flags": [
+        {
+          "before": "issue-20-paths-curated-base",
+          "suite": "ic",
+          "mode": "memory",
+          "queries": [
+            13
+          ]
+        },
+        {
+          "before": "issue-20-paths-curated-base",
+          "suite": "ic",
+          "mode": "lazy",
+          "queries": [
+            13
+          ]
+        },
+        {
+          "before": "main-cp313",
+          "suite": "q30",
+          "mode": "memory",
+          "queries": [
+            30
+          ]
+        },
+        {
+          "before": "main-cp313",
+          "suite": "q30",
+          "mode": "lazy",
+          "queries": [
+            30
+          ]
+        },
+        {
+          "before": "main-cp313",
+          "suite": "ic",
+          "mode": "memory",
+          "queries": [
+            13
+          ]
+        },
+        {
+          "before": "main-cp313",
+          "suite": "ic",
+          "mode": "lazy",
+          "queries": [
+            13
+          ]
+        }
+      ],
+      "qualification": "Source/release qualification applies to its recorded head. Owner correction and combined verification supersede no original measurements."
+    },
+    {
+      "issue": 20,
+      "group": "CALL",
+      "original_phase": "issue-20-call-delivery-release",
+      "original_head": "f2cc84c64898185bf8ea4826b276b61ea8b20b63",
+      "original_performance_gates": "investigation_required",
+      "remaining_original_flags": [
+        {
+          "before": "main-cp313",
+          "suite": "q30",
+          "mode": "lazy",
+          "queries": [
+            30
+          ]
+        },
+        {
+          "before": "main-cp313",
+          "suite": "ic",
+          "mode": "memory",
+          "queries": [
+            6,
+            9,
+            13
+          ]
+        },
+        {
+          "before": "main-cp313",
+          "suite": "ic",
+          "mode": "lazy",
+          "queries": [
+            13
+          ]
+        }
+      ],
+      "qualification": "Source/release qualification applies to its recorded head. Owner correction and combined verification supersede no original measurements."
+    },
+    {
+      "issue": 21,
+      "group": "alias shadowing",
+      "original_phase": "issue-21-delivery",
+      "original_head": "ccfc4fece4c1a099ab5b494f6a4533dfd03acc11",
+      "original_performance_gates": "passed_after_recorded_investigation",
+      "remaining_original_flags": [],
+      "qualification": "Source/release qualification applies to its recorded head. Owner correction and combined verification supersede no original measurements."
+    },
+    {
+      "issue": 22,
+      "group": "public stubs",
+      "original_phase": "issue-22-cp313",
+      "original_head": "6175122bd24cc8fe95ddd4cf82d7492975ea6e7d",
+      "original_performance_gates": "passed_after_recorded_investigation",
+      "remaining_original_flags": [],
+      "qualification": "Source/release qualification applies to its recorded head. Owner correction and combined verification supersede no original measurements."
+    },
+    {
+      "issue": 23,
+      "group": "compatible accessors",
+      "original_phase": "issue-23-accessors",
+      "original_head": "96598edac33e9c8dab8bf3b0ec1324308faf589e",
+      "original_performance_gates": "passed_after_recorded_investigation",
+      "remaining_original_flags": [],
+      "qualification": "Source/release qualification applies to its recorded head. Owner correction and combined verification supersede no original measurements."
+    },
+    {
+      "issue": 23,
+      "group": "expression types",
+      "original_phase": "issue-23-types",
+      "original_head": "1939b6948792ed84eecd0914ff413da792ac2875",
+      "original_performance_gates": "passed_after_recorded_investigation",
+      "remaining_original_flags": [],
+      "qualification": "Source/release qualification applies to its recorded head. Owner correction and combined verification supersede no original measurements."
+    }
+  ]
+}

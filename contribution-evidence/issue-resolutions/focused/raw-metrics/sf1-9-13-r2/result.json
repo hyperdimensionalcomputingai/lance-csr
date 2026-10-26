@@ -1,0 +1,20 @@
+{
+  "cell": {
+    "label": "sf1-9-13-r2",
+    "kind": "sf1",
+    "cohort": "13",
+    "repeat": 2,
+    "query": "9"
+  },
+  "source_commit": "1bf6d42141b9cc6ee1824d000f49cdc0ebd9d8fe",
+  "wheel_sha256": "f0128f457a9193be373148c6429f233a624ec03a506beb3bf9c819f375c34804",
+  "extension_sha256": "e2b5d7c5b9c857638492b969b403cefa036c95abcf2f599f5818c5b7addf22ec",
+  "python": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+  "lance": "13.0.0",
+  "pyarrow": "26.0.0",
+  "status": "passed",
+  "execute_and_convert_seconds": 1.0066891657188535,
+  "output_rows": 20,
+  "result_sha256": "200b1d27f59757cbd02c324a44405a89b628f8660c171b0753e641a78ebf2d0d",
+  "query_sha256": "2ba11b2c9f092ff4195e676a4a6a4a91aeae6a193d3e3c18d7d1196723ecaa0d"
+}

@@ -1,0 +1,76 @@
+{
+  "status": "complete",
+  "initial_failed_gate_preserved": true,
+  "rule": "Twelve fresh paired process means per comparison, fixed in advance; six blocks of before/after and reversed order. Process-level paired log-ratio 95% Student interval uses t(11)=2.200985. Upper bound<=1.10 does not substantiate a10% regression; lower bound>1.10 confirms; overlapping1.10 stays inconclusive. Report all data and unchanged-wheel controls, with no optional stopping. A control interval excluding1.0 or showing systematic drift requires investigation before acceptance.",
+  "selection_sha256": "08ab6c080855582e299fabad8a8ae94cd9ce72f80954004fc7b7513405bd27f3",
+  "plan_sha256": "7de38deb8fdf54893b57c5470c8df4a3ed93d90b3ff2bea0ff0a8727a47d9707",
+  "golden_checks_passed": 144,
+  "summaries": [
+    {
+      "before": "main-cp313",
+      "after": "issue-3-cp313",
+      "query": 3,
+      "mode": "lazy",
+      "pairs": 12,
+      "geometric_mean_after_over_before": 0.9182655922420946,
+      "confidence_95_lower": 0.8225797177053596,
+      "confidence_95_upper": 1.0250820434132746,
+      "status": "10_percent_regression_not_substantiated"
+    },
+    {
+      "before": "issue-20-parameter-prerequisites",
+      "after": "issue-20-containers-curated",
+      "query": 1,
+      "mode": "lazy",
+      "pairs": 12,
+      "geometric_mean_after_over_before": 0.992380071509622,
+      "confidence_95_lower": 0.9192175805655827,
+      "confidence_95_upper": 1.0713657214035186,
+      "status": "10_percent_regression_not_substantiated"
+    },
+    {
+      "before": "issue-20-string-list-delivery",
+      "after": "issue-20-entities-delivery",
+      "query": 28,
+      "mode": "lazy",
+      "pairs": 12,
+      "geometric_mean_after_over_before": 1.0183594136689347,
+      "confidence_95_lower": 0.931481941291679,
+      "confidence_95_upper": 1.1133397755087544,
+      "status": "inconclusive_at_10_percent"
+    },
+    {
+      "before": "main-cp313",
+      "after": "main-cp313",
+      "query": 1,
+      "mode": "lazy",
+      "pairs": 12,
+      "geometric_mean_after_over_before": 0.9617570324935388,
+      "confidence_95_lower": 0.9027829495756509,
+      "confidence_95_upper": 1.0245835834466737,
+      "status": "control_consistent_with_equality"
+    },
+    {
+      "before": "main-cp313",
+      "after": "main-cp313",
+      "query": 3,
+      "mode": "lazy",
+      "pairs": 12,
+      "geometric_mean_after_over_before": 0.9490626254784592,
+      "confidence_95_lower": 0.8931666368057101,
+      "confidence_95_upper": 1.008456686538773,
+      "status": "control_consistent_with_equality"
+    },
+    {
+      "before": "main-cp313",
+      "after": "main-cp313",
+      "query": 28,
+      "mode": "lazy",
+      "pairs": 12,
+      "geometric_mean_after_over_before": 0.994359864079091,
+      "confidence_95_lower": 0.9501231044442828,
+      "confidence_95_upper": 1.0406562419821366,
+      "status": "control_consistent_with_equality"
+    }
+  ]
+}

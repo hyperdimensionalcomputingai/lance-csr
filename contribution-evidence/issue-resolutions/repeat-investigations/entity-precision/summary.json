@@ -1,0 +1,32 @@
+{
+  "status": "complete",
+  "initial_failed_gate_preserved": true,
+  "rule": "32 fresh paired process means per comparison and unchanged-wheel control, fixed in advance. The12-pair pilot sets the sample size only and is excluded from this formal interval. Paired log-ratio95% Student t(31)=2.039513 interval: upper<=1.10 does not substantiate10%regression; lower>1.10 confirms; overlapping remains inconclusive. Control must include1.0. Report every run; no optional stopping. Execute only after builds/tests have stopped.",
+  "selection_sha256": "d78118a20a5a7cd6c9dcbbabc51c3e073f6265b6d3f7f697b0d1274a7f646f22",
+  "plan_sha256": "4d0c35827416e464f2b3ab581b86e7414b62e3c1c6bfc832ef43d7bae347a763",
+  "golden_checks_passed": 128,
+  "summaries": [
+    {
+      "before": "issue-20-string-list-delivery",
+      "after": "issue-20-entities-delivery",
+      "query": 28,
+      "mode": "lazy",
+      "pairs": 32,
+      "geometric_mean_after_over_before": 0.997716066341999,
+      "confidence_95_lower": 0.960479821563694,
+      "confidence_95_upper": 1.0363958999329588,
+      "status": "10_percent_regression_not_substantiated"
+    },
+    {
+      "before": "main-cp313",
+      "after": "main-cp313",
+      "query": 28,
+      "mode": "lazy",
+      "pairs": 32,
+      "geometric_mean_after_over_before": 0.9760774750362657,
+      "confidence_95_lower": 0.944440383732928,
+      "confidence_95_upper": 1.008774353239206,
+      "status": "control_consistent_with_equality"
+    }
+  ]
+}

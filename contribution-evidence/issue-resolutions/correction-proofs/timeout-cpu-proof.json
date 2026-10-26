@@ -1,0 +1,16 @@
+{
+  "criterion": "At most0.10own-process CPU seconds during each>=0.25s idle interval after50ms cleanup grace.",
+  "before_log_sha256": "161e6b8b587d89436c86e5e33441d4bcf2883425767dff4121f1d5025a3741e5",
+  "after_log_sha256": "e1f357595d500e3d91cdd6f05b6fc8c6ba88a411ef213dae43c8e524c5e282e5",
+  "before_failed": [
+    true,
+    true,
+    true
+  ],
+  "after_passed": [
+    true,
+    true,
+    true
+  ],
+  "limits": "Local representative Cartesian stress proof, not universal hard preemption or a global CPU guarantee."
+}

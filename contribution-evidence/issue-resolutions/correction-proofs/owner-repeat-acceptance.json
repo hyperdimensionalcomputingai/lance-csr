@@ -1,0 +1,316 @@
+{
+  "repeat_status": "complete",
+  "rule": "Two fresh pairs in before/after then reverse order. A query is repeatably slower only if both after/before ratios exceed1.10. Changed owner19/path heads only, comparing main and actual frozen bases. Original flags remain preserved. No full-suite repeats.",
+  "first_index_sha256": "8b4e2c3a92410d537adcbd3d435fb6d98a14ba2c7e276d6572ddb47183c5631f",
+  "repeat_plan_sha256": "37b17e8a58ec65f52d96edd9e5aa559d3ca7400ec272a3e5d0895f963263f704",
+  "comparisons": [
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-corrected",
+      "suite": "ic",
+      "mode": "lazy",
+      "speedup": 0.975642785576521,
+      "flags_above_10_percent": [
+        6,
+        13
+      ],
+      "report": "/private/tmp/lance-csr-submissions/correction-comparison-tables-r1/issue-19-corrected-vs-issue-19-prerequisites-release-ic-lazy.json",
+      "first_report_sha256": "f279ade62c3836c131293f4cfe432533b73b35da823d85709aa0f1fef1d792a3",
+      "repeat_group": 1,
+      "repeatable_regressions": [
+        6
+      ],
+      "acceptance": "blocked_by_repeatable_regression"
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-corrected",
+      "suite": "ic",
+      "mode": "memory",
+      "speedup": 0.9940946130887524,
+      "flags_above_10_percent": [
+        6,
+        9
+      ],
+      "report": "/private/tmp/lance-csr-submissions/correction-comparison-tables-r1/issue-19-corrected-vs-issue-19-prerequisites-release-ic-memory.json",
+      "first_report_sha256": "51174bdacc2232b875a2dd35a0bfe2e01ab5a97b4f383eeb15d7241b8d4f6b26",
+      "repeat_group": 2,
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-corrected",
+      "suite": "q30",
+      "mode": "lazy",
+      "speedup": 0.9352138278629822,
+      "flags_above_10_percent": [
+        6,
+        9,
+        11,
+        13,
+        16,
+        21,
+        22,
+        24,
+        25
+      ],
+      "report": "/private/tmp/lance-csr-submissions/correction-comparison-tables-r1/issue-19-corrected-vs-issue-19-prerequisites-release-q30-lazy.json",
+      "first_report_sha256": "38211885aa67c3ada1a9e197c496b67a83f08e2cf16e905aeba401b1fbadb312",
+      "repeat_group": 3,
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-corrected",
+      "suite": "q30",
+      "mode": "memory",
+      "speedup": 0.9919935371210932,
+      "flags_above_10_percent": [
+        8,
+        19,
+        28
+      ],
+      "report": "/private/tmp/lance-csr-submissions/correction-comparison-tables-r1/issue-19-corrected-vs-issue-19-prerequisites-release-q30-memory.json",
+      "first_report_sha256": "22abc145e8a0b8882f3baa3d388ae9062209d45873c8fa08faa35d76f407d4d5",
+      "repeat_group": 4,
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-19-corrected",
+      "suite": "ic",
+      "mode": "lazy",
+      "speedup": 1.1132115035965338,
+      "flags_above_10_percent": [
+        6
+      ],
+      "report": "/private/tmp/lance-csr-submissions/correction-comparison-tables-r1/issue-19-corrected-vs-main-cp313-ic-lazy.json",
+      "first_report_sha256": "6182a4904b44528f489bd507ea6bd99346a4dbaceea2decfe9a8e5ca74298fe7",
+      "repeat_group": 5,
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-19-corrected",
+      "suite": "ic",
+      "mode": "memory",
+      "speedup": 1.0924442246276305,
+      "flags_above_10_percent": [
+        6
+      ],
+      "report": "/private/tmp/lance-csr-submissions/correction-comparison-tables-r1/issue-19-corrected-vs-main-cp313-ic-memory.json",
+      "first_report_sha256": "d01efb49ffc2c83394495ee1febafc2472d159885cdcd342ee50f9c6b65615a3",
+      "repeat_group": 6,
+      "repeatable_regressions": [
+        6
+      ],
+      "acceptance": "blocked_by_repeatable_regression"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-19-corrected",
+      "suite": "q30",
+      "mode": "lazy",
+      "speedup": 0.8968300309451546,
+      "flags_above_10_percent": [
+        3,
+        6,
+        9,
+        10,
+        13,
+        16,
+        18,
+        19,
+        21,
+        22,
+        24,
+        25,
+        30
+      ],
+      "report": "/private/tmp/lance-csr-submissions/correction-comparison-tables-r1/issue-19-corrected-vs-main-cp313-q30-lazy.json",
+      "first_report_sha256": "109b0662b9422e692d65d5f918e85f54a054e3275dbf9205fcdb1b0acddac2bd",
+      "repeat_group": 7,
+      "repeatable_regressions": [
+        30
+      ],
+      "acceptance": "blocked_by_repeatable_regression"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-19-corrected",
+      "suite": "q30",
+      "mode": "memory",
+      "speedup": 0.9762209968840377,
+      "flags_above_10_percent": [
+        2,
+        8,
+        24,
+        27,
+        28,
+        30
+      ],
+      "report": "/private/tmp/lance-csr-submissions/correction-comparison-tables-r1/issue-19-corrected-vs-main-cp313-q30-memory.json",
+      "first_report_sha256": "9cded22885bf8fd22bea1b37ea060cf70326532363a9117baca0543745b837a7",
+      "repeat_group": 8,
+      "repeatable_regressions": [
+        28,
+        30
+      ],
+      "acceptance": "blocked_by_repeatable_regression"
+    },
+    {
+      "before": "issue-20-paths-curated-base",
+      "after": "issue-20-path-null-corrected",
+      "suite": "ic",
+      "mode": "lazy",
+      "speedup": 1.0311405643260954,
+      "flags_above_10_percent": [],
+      "report": "/private/tmp/lance-csr-submissions/correction-comparison-tables-r1/issue-20-path-null-corrected-vs-issue-20-paths-curated-base-ic-lazy.json",
+      "first_report_sha256": "84811fe62ed2f6f7c4b289c0d2bbabc8d2795d29075ecaae18b01715e6223786",
+      "repeat_group": null,
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "issue-20-paths-curated-base",
+      "after": "issue-20-path-null-corrected",
+      "suite": "ic",
+      "mode": "memory",
+      "speedup": 0.9846764583025401,
+      "flags_above_10_percent": [
+        1,
+        5,
+        9
+      ],
+      "report": "/private/tmp/lance-csr-submissions/correction-comparison-tables-r1/issue-20-path-null-corrected-vs-issue-20-paths-curated-base-ic-memory.json",
+      "first_report_sha256": "3446a2bbf2d91ba31e1b48004155ea82c399297f8bb86d02d7e24042e735205a",
+      "repeat_group": 9,
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "issue-20-paths-curated-base",
+      "after": "issue-20-path-null-corrected",
+      "suite": "q30",
+      "mode": "lazy",
+      "speedup": 0.9843710199819208,
+      "flags_above_10_percent": [
+        15,
+        17,
+        27,
+        28
+      ],
+      "report": "/private/tmp/lance-csr-submissions/correction-comparison-tables-r1/issue-20-path-null-corrected-vs-issue-20-paths-curated-base-q30-lazy.json",
+      "first_report_sha256": "3b6bda0323942afbab696205bdd286a3f9c07bef694684ef0557b6d3334bafbf",
+      "repeat_group": 10,
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "issue-20-paths-curated-base",
+      "after": "issue-20-path-null-corrected",
+      "suite": "q30",
+      "mode": "memory",
+      "speedup": 1.0077323368576787,
+      "flags_above_10_percent": [
+        8,
+        9
+      ],
+      "report": "/private/tmp/lance-csr-submissions/correction-comparison-tables-r1/issue-20-path-null-corrected-vs-issue-20-paths-curated-base-q30-memory.json",
+      "first_report_sha256": "6b81f1b3f80832e5a776c464d87431ca86be95f84ea35a31c7f0f276e666e98d",
+      "repeat_group": 11,
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-20-path-null-corrected",
+      "suite": "ic",
+      "mode": "lazy",
+      "speedup": 1.3324545889639547,
+      "flags_above_10_percent": [
+        10
+      ],
+      "report": "/private/tmp/lance-csr-submissions/correction-comparison-tables-r1/issue-20-path-null-corrected-vs-main-cp313-ic-lazy.json",
+      "first_report_sha256": "5d018000d934bf873ac6c18efe9dec67bfb466b48214f2ca7262d88f3ede1d7f",
+      "repeat_group": 12,
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-20-path-null-corrected",
+      "suite": "ic",
+      "mode": "memory",
+      "speedup": 1.285718759235307,
+      "flags_above_10_percent": [
+        1,
+        4,
+        5
+      ],
+      "report": "/private/tmp/lance-csr-submissions/correction-comparison-tables-r1/issue-20-path-null-corrected-vs-main-cp313-ic-memory.json",
+      "first_report_sha256": "974f18a001439a9996732b8bcab485d5caa45abef592a463c20717afbf124fa2",
+      "repeat_group": 13,
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-20-path-null-corrected",
+      "suite": "q30",
+      "mode": "lazy",
+      "speedup": 0.9451210899752038,
+      "flags_above_10_percent": [
+        6,
+        17,
+        18,
+        26,
+        27,
+        30
+      ],
+      "report": "/private/tmp/lance-csr-submissions/correction-comparison-tables-r1/issue-20-path-null-corrected-vs-main-cp313-q30-lazy.json",
+      "first_report_sha256": "e8bdd05dfb11b4dce6cae5253b2df0c932213674cbf44354152f36ac41be2008",
+      "repeat_group": 14,
+      "repeatable_regressions": [
+        26,
+        27,
+        30
+      ],
+      "acceptance": "blocked_by_repeatable_regression"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-20-path-null-corrected",
+      "suite": "q30",
+      "mode": "memory",
+      "speedup": 0.9704598366592979,
+      "flags_above_10_percent": [
+        4,
+        8,
+        9,
+        25,
+        27,
+        30
+      ],
+      "report": "/private/tmp/lance-csr-submissions/correction-comparison-tables-r1/issue-20-path-null-corrected-vs-main-cp313-q30-memory.json",
+      "first_report_sha256": "53fd9fd8e8939574174ff6b2080b538dee188fd18244f1f7604d9e4920315228",
+      "repeat_group": 15,
+      "repeatable_regressions": [
+        30
+      ],
+      "acceptance": "blocked_by_repeatable_regression"
+    }
+  ],
+  "completed_repeat_groups": 15,
+  "total_repeat_groups": 15,
+  "repeat_golden_checks": 248,
+  "limits": [
+    "First-pass suite geometric means are retained unchanged.",
+    "Only first-pass flags receive paired repeats; missing or failed repeats cannot pass.",
+    "Comparisons of prerequisite-only cohorts are contextual, not independently submitted changes."
+  ]
+}

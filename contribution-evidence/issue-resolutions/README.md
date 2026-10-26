@@ -2,11 +2,19 @@
 
 This is the local review record for the 14-issue resolution series. Source changes live on separate `codex/issue-*` branches. No branch has been pushed and no PR has been opened. A passing check here applies only to its recorded commit and wheel.
 
-The current combined candidate is `bfbbb24db2fdd2753b959ca775d5c85eaea75cae`. Independent clean-source checks passed all 643 Rust workspace tests, 1,224 Python tests, 17 separately linked binding tests and 46 executable documentation blocks, plus all formatting, Clippy, Ruff, Pyright, strict docs and spelling checks. The optimized wheel passed all 1,224 Python tests outside the checkout. The clean-source proof is recorded in `candidate-clean-source-proof.json`.
+The current functional verification snapshot is `23bc699b121f3ac3e8bed4f8c2bd02474d8bc420`. It passed 645 Rust workspace tests (10 ignored), 1,241 Python tests, 17 separately linked binding tests and 46 executable documentation blocks, plus formatting, Clippy, Ruff, Pyright, strict docs and spelling checks. Its [exact source proof](source-receipts/candidate-23bc699-clean-source-proof.json) is separate from the earlier optimized `bfbbb24` release. The snapshot contains an unsuccessful inlining prototype and has not passed final performance acceptance.
 
-## Completed first acceptance pass
+Fifteen focused submission heads now have completed benchmark acceptance. Eight remain held for CSR performance or corrected-owner verification. The [PR review status](pr-drafts/README.md) identifies each submission; the [original gate ledger](review-readiness-original.json) preserves its frozen source and measured flags.
 
-All 104 cells across 26 verified release cohorts passed correctness: 2,288 unchanged golden checks. The [156 before/after tables](first-pass-comparisons/index.json) reuse that single matched baseline and the actual dependency-parent measurements. Queries over 10% are flags for paired and reversed repeats, not confirmed regressions. Final acceptance remains pending those repeats and the remaining scoped path/CALL packaging.
+## Complete workload correctness and open acceptance
+
+All 128 cells across 32 qualified release cohorts passed correctness: 2,816 unchanged golden checks. The final 196 before/after tables reuse the matched main baseline and actual dependency-parent measurements. Earlier first-pass artifacts remain intact. Every source and release packaging stage is complete, including scoped path/CALL heads and their bases.
+
+All 115 paired/reversed repeat groups finished: 460 processes and 2,016 unchanged golden checks. The [original repeat report](repeat-investigations/original/acceptance.json) retains every flag. Controlled follow-up did not substantiate a 10% regression for the integer-list, container-parameter and entity-function changes. The fixed-size entity study excluded its pilot and used 32 fresh pairs plus an unchanged-wheel control; its 95% after/before interval is [0.960, 1.036]. Earlier failed gates remain intact.
+
+Corrected path and timeout owners passed complete workload correctness. Path null routing has [identical-input proof](correction-proofs/path-null-paired-proof-r1.json) of 16 failures before and 16 passes after; canonical IC14 and the existing port match all 58 unchanged golden paths and weights. The timeout correction passes all three local post-expiry CPU cleanup trials. These results do not waive the remaining CSR performance gate.
+
+The [focused measurements](focused/README.md) summarize 126 verified cells: bounded hub memory/first-batch latency, variable-length planning and IC9/12/13/14 execution. Separate receipts retain stage profiling, actual IC9 read requests, IC10 plan reduction, partition sizing and timeout overhead. Read counts are not physical disk I/O; sampled RSS growth is a lower bound; no universal hard-preemption claim is made.
 
 ## Completed measurements
 
@@ -16,7 +24,7 @@ The separate wide scan validated 36 fresh-process runs over 500,000 rows with 4 
 
 ## Required submission gates
 
-Each code submission needs complete Q30 and IC comparisons against `main`, and its immediate dependency base, in memory and lazy modes. Full per-query results, repeat investigations above 10%, source/wheel hashes and portable regeneration commands accompany each final draft. These comparisons are pending until the focused source branches and optimized wheels are frozen.
+Each code submission needs complete Q30 and IC comparisons against `main`, and its immediate dependency base, in memory and lazy modes. Full per-query results, repeat investigations above 10%, source/wheel hashes and portable regeneration commands accompany each final draft. Original source branches, optimized wheels and baselines remain frozen. Necessary corrections have isolated branches and new receipts; the PR status table records which performance gates still remain.
 
 The series includes parser, semantic, Rust execution, Python, typing, documentation and executable-example checks. The excluded Python binding crate is tested separately from the Rust workspace. [Reproduction instructions](REPRODUCE.md) list the public datasets, pinned benchmark revisions, build commands and environment requirements.
 

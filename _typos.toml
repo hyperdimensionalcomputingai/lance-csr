@@ -1,0 +1,6 @@
+# Preserve verbatim tool output and the original recorded commit identifier.
+[default]
+extend-ignore-re = [
+    '"strict_installed_consumer_pyright": "0 errors, 0 warnings, 0 informations"',
+    '"original_implementation": "0dbe2e1"',
+]

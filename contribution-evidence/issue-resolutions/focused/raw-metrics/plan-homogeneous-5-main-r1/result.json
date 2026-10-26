@@ -1,0 +1,29 @@
+{
+  "cell": {
+    "label": "plan-homogeneous-5-main-r1",
+    "kind": "plan",
+    "cohort": "main",
+    "repeat": 1,
+    "shape": "homogeneous",
+    "hops": 5
+  },
+  "source_commit": "54e02307a48e467a98d9da2183f5adcb767e7c99",
+  "wheel_sha256": "611cb5fdda5c77d604c4a86cae0477ebe1bfd39228e1c35d3c15049b5512bcd6",
+  "extension_sha256": "ab0e52b65b26b5b568487f7ca859e43b5e12760dabda093281b7868eb9fa033a",
+  "python": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+  "lance": "13.0.0",
+  "pyarrow": "26.0.0",
+  "status": "passed",
+  "explain_seconds_including_formatting": 0.002408958040177822,
+  "csr_expands": 15,
+  "unions": 1,
+  "physical_plan_bytes": 6814,
+  "physical_plan_lines": 48,
+  "verified_node_ids": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ]
+}

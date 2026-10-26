@@ -1,0 +1,38 @@
+{
+  "head": "74dd1e5d9ad680b79da40428e2f7e2cc18eb6671",
+  "base": "248def899cea569f57e44fa447ad9ccf5f8f5eab",
+  "base_branch": "codex/issue-14-prerequisites",
+  "original_head": "dbef1eab945b7cc5aee35063ba82d401ed553962",
+  "prerequisites": [
+    {
+      "issue": 12,
+      "standalone": "58b96fb601eda5f02caff0dc537c1ffa0f18bd15",
+      "integrated": "01513e0c44dc69395fc248e0996b6d49986ba21a"
+    },
+    {
+      "issue": "23-accessors",
+      "standalone": "96598edac33e9c8dab8bf3b0ec1324308faf589e",
+      "integrated": "fb56b7d24b48872f5713900dacf424585760438d"
+    },
+    {
+      "issue": "23-types",
+      "standalone": "1939b6948792ed84eecd0914ff413da792ac2875",
+      "integrated": "248def899cea569f57e44fa447ad9ccf5f8f5eab"
+    }
+  ],
+  "worktree": "/private/tmp/lance-csr-issue-14-curated",
+  "foundation": "90c141a0979bea1291baba501d49677a8dabb516",
+  "qualified_standalone_sources_are_not_combined_parent_wheels": true,
+  "comparison_source_status": "Full exact-source validation and optimized matched-Python3.13 head/immediate-parent installed-wheel qualification passed. SF1 timing/golden acceptance pending the centrally scheduled campaign.",
+  "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration.",
+  "tracked_tree": "b8cab6d692153db6d926384db40e7c929efd61a1",
+  "source_results": {
+    "rust_passed": 596,
+    "rust_ignored": 10,
+    "python_passed": 490,
+    "binding_tests_passed": 13,
+    "doc_blocks_passed": 38
+  },
+  "head_release_proof": "/private/tmp/lance-csr-submissions/wheels/issue-14-curated/release-proof.json",
+  "parent_release_proof": "/private/tmp/lance-csr-submissions/wheels/issue-14-prerequisites/release-proof.json"
+}

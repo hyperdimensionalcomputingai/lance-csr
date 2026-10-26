@@ -1,0 +1,17 @@
+{
+  "frozen_inputs": "/private/tmp/lance-csr-submissions/path-null-paired-inputs-r1/inputs.json",
+  "frozen_inputs_sha256": "7af128031808ce69090447fab16dbde7314341cf260cbc038ea1bed752b1c909",
+  "source_after_ast_matches_frozen_inputs": true,
+  "before_source": "92cfb4ac051429cbe96a3a1f6184636a194e87ce",
+  "after_source": "d595e377322e2105f7fbd1bb16d11f6afd776198",
+  "before": {
+    "log": "/private/tmp/lance-csr-runtime/path-null-before-r1.log",
+    "sha256": "62d55df64cdbaeaeafb639826e48a22a4fc15e7b338806dbfec213788e45f37f",
+    "failed": 16
+  },
+  "after": {
+    "log": "/private/tmp/lance-csr-runtime/path-null-after-r1.log",
+    "sha256": "31324bc4ba2114264a5d5d9b39e1c5d22e2d3524a3079b32fc1eacb9a198dfa0",
+    "passed": 16
+  }
+}

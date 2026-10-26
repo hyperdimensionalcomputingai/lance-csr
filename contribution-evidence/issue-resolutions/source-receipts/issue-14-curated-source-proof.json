@@ -1,0 +1,56 @@
+{
+  "phase": "issue-14-curated",
+  "source_commit": "74dd1e5d9ad680b79da40428e2f7e2cc18eb6671",
+  "source_tree": "b8cab6d692153db6d926384db40e7c929efd61a1",
+  "actual_parent": "248def899cea569f57e44fa447ad9ccf5f8f5eab",
+  "source_clean": true,
+  "results": {
+    "rust_passed": 596,
+    "rust_ignored": 10,
+    "python_passed": 490,
+    "binding_tests_passed": 13,
+    "documentation_blocks_passed": 38,
+    "workspace_and_binding_clippy": "passed -D warnings",
+    "rustfmt": "passed",
+    "ruff_check_and_format": "passed",
+    "pyright": "0 errors, 0 warnings",
+    "strict_docs": "passed",
+    "typos_1_26_0": "passed"
+  },
+  "logs": {
+    "rust": "/private/tmp/lance-csr-issue-14-curated-rust.log",
+    "python": "/private/tmp/lance-csr-issue-14-curated-python.log",
+    "bridge-build": "/private/tmp/lance-csr-issue-14-curated-bridge-build.log",
+    "bridge-tests": "/private/tmp/lance-csr-issue-14-curated-bridge-tests.log",
+    "clippy": "/private/tmp/lance-csr-issue-14-curated-clippy.log",
+    "bridge-clippy": "/private/tmp/lance-csr-issue-14-curated-bridge-clippy.log",
+    "ruff": "/private/tmp/lance-csr-issue-14-curated-ruff.log",
+    "pyright": "/private/tmp/lance-csr-issue-14-curated-pyright.log",
+    "docs": "/private/tmp/lance-csr-issue-14-curated-docs.log",
+    "snippets": "/private/tmp/lance-csr-issue-14-curated-snippets.log",
+    "typos": "/private/tmp/lance-csr-issue-14-curated-typos.log"
+  },
+  "log_sha256": {
+    "rust": "bba52b9af927ea505c21a8426ac4db4094b69f8831faa139d985bce1456f4959",
+    "python": "1e060625aa076637a41769c2c04b4d210dfb7f227751608463fff64cd6ff1e50",
+    "bridge-build": "8e1442120d9c99b3022e54a491844bdf187ad116c3a547859a0589591baa8fa8",
+    "bridge-tests": "7f8afec33c3a481ee59f53da9c1ec27f719c7d33a9ecf815c9b16ad365af1df4",
+    "clippy": "743fe3af0a32f75c55e4fbb63b8877397de7b7c49c516f1442c6fbb82dec8524",
+    "bridge-clippy": "e829dd08ec464394a0baf5095be4262536fefbf00d7c2a0caf270b9d52dc6105",
+    "ruff": "d8c5f0d6083c52c45dd04475559300a8c93fadf01c5e33d73716ac71a3f3b59e",
+    "pyright": "6d88a1b220adb7a3d62092b6e38431f0b3fe8babe9864fab90e5849766260332",
+    "docs": "69536cb1a82f3743acf9bc2505ee74f88c969cab08163c015e903a9a885bf391",
+    "snippets": "8eb83ca39c1331a98547009819643018aa1cd14aa054de0dc15e62583a37d2c2",
+    "typos": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "bridge_artifacts": "/private/tmp/lance-csr-issue-14-curated-bridge-artifacts.jsonl",
+  "debug_build_receipt": "/private/tmp/lance-csr-issue-14-curated-debug-build-receipt.json",
+  "debug_build_context": "/private/tmp/lance-csr-issue-14-curated-debug-context.json",
+  "debug_wheel_sha256": "b10f47641105a62ae428e331e1043fb13adce3124e12ac0b337a6e09f34bd1ef",
+  "limits": [
+    "No timing benchmark while builds are active",
+    "No remote CI or platform matrix",
+    "No push or PR"
+  ],
+  "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration."
+}

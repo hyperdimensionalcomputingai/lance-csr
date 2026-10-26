@@ -1,0 +1,16 @@
+{
+  "params": {
+    "person1Id": 1131,
+    "person2Id": 19791209300775
+  },
+  "runner_sha256": "d1e9b0117c1f8c6e2c8146c1401d8689610b23d2570d0eb0b1ab245501ac693b",
+  "source_commit": "d595e377322e2105f7fbd1bb16d11f6afd776198",
+  "release_proof": "/private/tmp/lance-csr-submissions/wheels/issue-20-path-null-corrected/release-proof.json",
+  "benchmark_source_commit": "c185123edd58b37b417bc4deb2fec643fdbd5e61",
+  "extension_sha256": "440115d1a09454eb7feb7ef3a56d5ad85c0dd5439d84116d0fc52494fc7b5b91",
+  "source": "/private/tmp/lance-csr-benchmark-ic/neo4j/query.py",
+  "source_sha256": "d44c037224f8105870308f17435c6f3b47d05cf9da0283ff23a74da009080adf",
+  "manifest_set_sha256": "d963b70a79dda5b1712813f1de9a6f57d7629e814b0c5a3a54ad3897e3fb98de",
+  "manifest_count": 39,
+  "expected_file_sha256": "0d2eef7a48e061b10043627d2cfe792646035c3dc8095b1dfd4fbd69438561e8"
+}

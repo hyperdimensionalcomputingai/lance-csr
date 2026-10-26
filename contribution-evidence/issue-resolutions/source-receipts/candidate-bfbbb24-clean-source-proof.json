@@ -1,0 +1,120 @@
+{
+  "source_commit": "bfbbb24db2fdd2753b959ca775d5c85eaea75cae",
+  "source_worktree": "/private/tmp/lance-csr-resolution-candidate",
+  "source_tree": "41d5846b112c0a99e9f829d1fb30cfad0499352a",
+  "tracked_source_clean": true,
+  "rust_workspace": {
+    "passed": 643,
+    "ignored": 10,
+    "targets": 16
+  },
+  "python_passed": 1224,
+  "binding_rust_passed": 17,
+  "executable_doc_blocks": 46,
+  "checks": {
+    "workspace": {
+      "status": "passed",
+      "command": "cargo test --workspace --locked --offline",
+      "log": "/private/tmp/lance-csr-runtime/candidate-bfbbb24-workspace.log",
+      "log_sha256": "6d11ac16733f65977ec691c291e1a1da4b553bfcd6462a8c5d36ee00010283d4"
+    },
+    "format": {
+      "status": "passed",
+      "command": "cargo fmt --all --check",
+      "log": "/private/tmp/lance-csr-runtime/candidate-bfbbb24-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "clippy": {
+      "status": "passed",
+      "command": "cargo clippy --workspace --all-targets --locked --offline -- -D warnings",
+      "log": "/private/tmp/lance-csr-runtime/candidate-bfbbb24-clippy.log",
+      "log_sha256": "96f2209159711890f975504816f5943b11eb0b5e272b5782867de9bd51834ab0"
+    },
+    "install": {
+      "status": "passed",
+      "command": "make install PYTHON=3.12.9",
+      "log": "/private/tmp/lance-csr-runtime/candidate-bfbbb24-install.log",
+      "log_sha256": "b2bdea0812e84efda912ec9f56eed83d924c4b4ab0259be8d643fc9e08c74a40"
+    },
+    "python": {
+      "status": "passed",
+      "command": "make test",
+      "log": "/private/tmp/lance-csr-runtime/candidate-bfbbb24-python.log",
+      "log_sha256": "b73bd1e852c26288508c87e26d341bd3e44bb732f95dc5062a03dd4cd16efc2c"
+    },
+    "lint": {
+      "status": "passed",
+      "command": "make lint",
+      "log": "/private/tmp/lance-csr-runtime/candidate-bfbbb24-lint.log",
+      "log_sha256": "64e950404aea97efc487116db07d592feaabda8d8de6b6d23ed52617deeddcb3"
+    },
+    "binding_clippy": {
+      "status": "passed",
+      "command": "cargo clippy --manifest-path crates/lance-graph-python/Cargo.toml --all-targets --locked --offline -- -D warnings",
+      "log": "/private/tmp/lance-csr-runtime/candidate-bfbbb24-binding-clippy.log",
+      "log_sha256": "c24555e2a1f61ff575b998fc514521804c015b1a63d6c6982c018296dd4a269f"
+    },
+    "binding_tests": {
+      "status": "passed",
+      "command": "Cargo JSON-selected _internal executable, with PYTHONHOME=sys.base_prefix",
+      "log": "/private/tmp/lance-csr-runtime/candidate-bfbbb24-binding-tests.log",
+      "log_sha256": "89b82cea238e55149df54d416f681a052c007041033199f75f4ea2c26b6cbdd1"
+    },
+    "snippets": {
+      "status": "passed",
+      "command": "uv run --no-sync python ../docs/check_snippets.py",
+      "log": "/private/tmp/lance-csr-runtime/candidate-bfbbb24-snippets.log",
+      "log_sha256": "e28db291fbb3c863abac898599a808e7db222cf165c7a4117bd0b3d8eb5016c9"
+    },
+    "docs": {
+      "status": "passed",
+      "command": "env -u PYTHONHOME uv run --project docs --locked zensical build --strict",
+      "log": "/private/tmp/lance-csr-runtime/candidate-bfbbb24-docs-r2.log",
+      "log_sha256": "b16c8345458c7307e02f4e1b34f59ad85f7b33e5e2cf47022e3c0866a743d58c"
+    },
+    "spelling": {
+      "status": "passed",
+      "command": "env -u PYTHONHOME uvx typos@1.26.0 .",
+      "log": "/private/tmp/lance-csr-runtime/candidate-bfbbb24-typos-r2.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "loaded_debug_runtime": {
+    "python": "3.12.9 (main, Feb 12 2025, 15:09:19) [Clang 19.1.6 ]",
+    "interpreter": "/private/tmp/lance-csr-resolution-candidate/python/.venv/bin/python",
+    "base_prefix": "/Users/davidhughes/.local/share/uv/python/cpython-3.12.9-macos-aarch64-none",
+    "facade": "/private/tmp/lance-csr-resolution-candidate/python/python/lance_csr/__init__.py",
+    "extension": "/private/tmp/lance-csr-resolution-candidate/python/python/lance_csr/_internal.abi3.so",
+    "extension_sha256": "537f9ded683ddc23b56b679a4d66143fd864eaee9c98f8cc7ff83e4ea1c8ad62",
+    "versions": {
+      "pyarrow": "26.0.0",
+      "pylance": "13.0.0",
+      "pytest": "9.1.1",
+      "maturin": "1.15.0",
+      "ruff": "0.17.1",
+      "pyright": "1.1.414"
+    }
+  },
+  "release_proof": "/private/tmp/lance-csr-submissions/wheels/candidate-bfbbb24/release-proof.json",
+  "release_proof_sha256": "960b957d28a58fb4b99b5676b3ac78dc61d676be91221d4a24210da7cec41db2",
+  "wheel_sha256": "232596c7316c365840b4da026cfdf03bf5f308fe7f16a64f4863c80f253c3cf5",
+  "extension_sha256": "c50eb3ea2cc9fde3a132dd3f182c34659c2928e2b7cbc6c3a1211f544dbe892a",
+  "preserved_diagnostics": [
+    {
+      "log": "/private/tmp/lance-csr-runtime/candidate-bfbbb24-docs.log",
+      "status": "failed_harness_environment",
+      "explanation": "The driver exported embedded-test PYTHONHOME to the docs interpreter. The unchanged source passed strict docs and spelling after unsetting it. Original driver/log retained."
+    },
+    {
+      "log": "/private/tmp/lance-csr-runtime/candidate-bfbbb24-python-sample-r1.txt",
+      "status": "diagnostic_only",
+      "explanation": "OS dyld fcntl library-validation wait during initial import; tests later passed. No engine stall or performance conclusion inferred."
+    }
+  ],
+  "limits": [
+    "No SF1 speed claim; matched comparisons are separate.",
+    "No other operating-system wheel matrix tested locally.",
+    "No push, PR or merge."
+  ],
+  "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration."
+}

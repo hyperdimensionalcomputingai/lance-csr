@@ -1,0 +1,23 @@
+{
+  "command": [
+    "/private/tmp/lance-csr-issue-21/python/.venv/bin/python",
+    "-I",
+    "/private/tmp/lance-csr-submissions/ic9-diagnostics-r1/run.py",
+    "worker",
+    "--mode",
+    "ic9",
+    "--output",
+    "/private/tmp/lance-csr-submissions/focused-finish-measurements-r1/ic9-issue-16"
+  ],
+  "source_commit": "f200e712bfdeda2c5281eda1f8a18412adc902a4",
+  "base_commit": "447355dbaf90993d33926afc48ab6712e421505a",
+  "runner_sha256": "e22fa449a007f29f251968075e95b0fa2e325abafd933a6f77ba88060815ebc3",
+  "instrumentation_sha256": "1b78282014230a927bebf2bbfa89b944c1334965621461706067b72794714bfa",
+  "wheel_sha256": "1a1b7d7731c9716cfa7cc835ae42f41a1914d0df3affde45d0d1ab9bb825de8b",
+  "extension_sha256": "cb5edc4e0fcc58cc3f4f1b3e69829e7a2b45f112b9ab4966d085fe210021d665",
+  "qualification_path": "/private/tmp/lance-csr-submissions/wheels/diagnostic-ic9-issue-16/debug-proof.json",
+  "qualification_sha256": "3e2d2b96ebc93ff11df05b6d1da72809284352c6fa34ca81f07c7f0ab491444d",
+  "python": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+  "mode": "ic9",
+  "performance_claim": "None: debug instrumented operations are diagnostic only."
+}

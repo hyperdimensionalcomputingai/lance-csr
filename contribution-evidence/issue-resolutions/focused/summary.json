@@ -1,0 +1,712 @@
+{
+  "hub": [
+    {
+      "input_rows": 100000,
+      "cohort": "main",
+      "median_first_batch_seconds": 0.05224645882844925,
+      "median_observed_growth_decimal_mb": 485.86752
+    },
+    {
+      "input_rows": 100000,
+      "cohort": "11",
+      "median_first_batch_seconds": 0.006769541185349226,
+      "median_observed_growth_decimal_mb": 114.884608
+    },
+    {
+      "input_rows": 500000,
+      "cohort": "main",
+      "median_first_batch_seconds": 0.24530175002291799,
+      "median_observed_growth_decimal_mb": 2144.485376
+    },
+    {
+      "input_rows": 500000,
+      "cohort": "11",
+      "median_first_batch_seconds": 0.007001625373959541,
+      "median_observed_growth_decimal_mb": 108.265472
+    },
+    {
+      "input_rows": 1000000,
+      "cohort": "main",
+      "median_first_batch_seconds": 0.5472660828381777,
+      "median_observed_growth_decimal_mb": 4179.378176
+    },
+    {
+      "input_rows": 1000000,
+      "cohort": "11",
+      "median_first_batch_seconds": 0.008025833871215582,
+      "median_observed_growth_decimal_mb": 70.844416
+    }
+  ],
+  "mixed_type_plans": [
+    {
+      "hops": 2,
+      "cohort": "main",
+      "csr_expands": 3,
+      "unions": 1,
+      "physical_plan_bytes": 5722,
+      "explain_seconds_including_formatting": 0.0012912922538816929
+    },
+    {
+      "hops": 2,
+      "cohort": "11",
+      "csr_expands": 3,
+      "unions": 1,
+      "physical_plan_bytes": 5722,
+      "explain_seconds_including_formatting": 0.001242500264197588
+    },
+    {
+      "hops": 2,
+      "cohort": "13",
+      "csr_expands": 1,
+      "unions": 0,
+      "physical_plan_bytes": 1054,
+      "explain_seconds_including_formatting": 0.0007232921198010445
+    },
+    {
+      "hops": 5,
+      "cohort": "main",
+      "csr_expands": 15,
+      "unions": 1,
+      "physical_plan_bytes": 61822,
+      "explain_seconds_including_formatting": 0.00430737528949976
+    },
+    {
+      "hops": 5,
+      "cohort": "11",
+      "csr_expands": 15,
+      "unions": 1,
+      "physical_plan_bytes": 61822,
+      "explain_seconds_including_formatting": 0.004361041821539402
+    },
+    {
+      "hops": 5,
+      "cohort": "13",
+      "csr_expands": 1,
+      "unions": 0,
+      "physical_plan_bytes": 1054,
+      "explain_seconds_including_formatting": 0.0007027080282568932
+    },
+    {
+      "hops": 10,
+      "cohort": "main",
+      "csr_expands": 55,
+      "unions": 1,
+      "physical_plan_bytes": 522502,
+      "explain_seconds_including_formatting": 0.02147620916366577
+    },
+    {
+      "hops": 10,
+      "cohort": "11",
+      "csr_expands": 55,
+      "unions": 1,
+      "physical_plan_bytes": 522502,
+      "explain_seconds_including_formatting": 0.02198904100805521
+    },
+    {
+      "hops": 10,
+      "cohort": "13",
+      "csr_expands": 1,
+      "unions": 0,
+      "physical_plan_bytes": 1062,
+      "explain_seconds_including_formatting": 0.0007246672175824642
+    },
+    {
+      "hops": 20,
+      "cohort": "main",
+      "csr_expands": 210,
+      "unions": 1,
+      "physical_plan_bytes": 5493832,
+      "explain_seconds_including_formatting": 0.1957398746162653
+    },
+    {
+      "hops": 20,
+      "cohort": "11",
+      "csr_expands": 210,
+      "unions": 1,
+      "physical_plan_bytes": 5493832,
+      "explain_seconds_including_formatting": 0.19557945942506194
+    },
+    {
+      "hops": 20,
+      "cohort": "13",
+      "csr_expands": 1,
+      "unions": 0,
+      "physical_plan_bytes": 1062,
+      "explain_seconds_including_formatting": 0.0007743337191641331
+    }
+  ],
+  "sf1_fresh_process": [
+    {
+      "query": 9,
+      "cohort": "main",
+      "median_execute_and_convert_seconds": 1.0144669581204653
+    },
+    {
+      "query": 9,
+      "cohort": "13",
+      "median_execute_and_convert_seconds": 1.020938000176102
+    },
+    {
+      "query": 9,
+      "cohort": "16",
+      "median_execute_and_convert_seconds": 0.8954709158279002
+    },
+    {
+      "query": 12,
+      "cohort": "main",
+      "median_execute_and_convert_seconds": 0.18972204206511378
+    },
+    {
+      "query": 12,
+      "cohort": "11",
+      "median_execute_and_convert_seconds": 0.19120341585949063
+    },
+    {
+      "query": 12,
+      "cohort": "13",
+      "median_execute_and_convert_seconds": 0.03266595909371972
+    },
+    {
+      "query": 13,
+      "cohort": "main",
+      "median_execute_and_convert_seconds": 0.00889970874413848
+    },
+    {
+      "query": 13,
+      "cohort": "11",
+      "median_execute_and_convert_seconds": 0.008013166952878237
+    },
+    {
+      "query": 13,
+      "cohort": "17",
+      "median_execute_and_convert_seconds": 0.0038054161705076694
+    },
+    {
+      "query": 14,
+      "cohort": "main",
+      "median_execute_and_convert_seconds": 0.07629383308812976
+    },
+    {
+      "query": 14,
+      "cohort": "11",
+      "median_execute_and_convert_seconds": 0.08392641693353653
+    },
+    {
+      "query": 14,
+      "cohort": "17",
+      "median_execute_and_convert_seconds": 0.05835416726768017
+    }
+  ],
+  "raw_results": [
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/hub-100000-11-r1/result.json",
+      "sha256": "2e56dc6760a93a408f6f31af0ec8418c2109e2ff3bbad60e4560030da23cc30c"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/hub-100000-11-r2/result.json",
+      "sha256": "90566aee130201eb658015212b58f4854eb2c615fb3f701180b35d448a921106"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/hub-100000-11-r3/result.json",
+      "sha256": "e73b57d24c34cd1d8d8bde7e7d74db5ea16261371bcaa615c0e554ac5b096db9"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/hub-100000-main-r1/result.json",
+      "sha256": "6b62d15c014017fbd4aff4260f8e60d42d684b6e135f1a590cfb3039eb3903c1"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/hub-100000-main-r2/result.json",
+      "sha256": "fac7f728fa42e1c1da06b44aa1397f38c684f691a4259133365377f3aa074c55"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/hub-100000-main-r3/result.json",
+      "sha256": "5abf06e3758091e91888700b7057a0a9eeab2f8ec653096b9116fdb33a53f28c"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/hub-1000000-11-r1/result.json",
+      "sha256": "c23ee59e7e26878bc4be18b57677798719beae477d517cd3ff6ac69a78b0326b"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/hub-1000000-11-r2/result.json",
+      "sha256": "5a29c0696585ff50b56ac737384bf6590a890ad247b1be8e67cbcb24cba53ca1"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/hub-1000000-11-r3/result.json",
+      "sha256": "6b797246b12f423b53d6d07f2ff6be615551c936d18353f6b9083e7a28024d7f"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/hub-1000000-main-r1/result.json",
+      "sha256": "6f015942ffde65276f066951372b049a21a1e0e41aea42807730629b4e591563"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/hub-1000000-main-r2/result.json",
+      "sha256": "c6112cbdd0b385c12ec09bb2594a208ce108e5ca075f43f277e94ea24bed7fc0"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/hub-1000000-main-r3/result.json",
+      "sha256": "b36f25d74ae136a256a5bd7b045eb96adb409cbff35c5c57a1f4a4579b09162c"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/hub-500000-11-r1/result.json",
+      "sha256": "fd63495a62787ad38cd9a6d4758c37e39c4ec8d7b49c07ea7e45f453ddc7c001"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/hub-500000-11-r2/result.json",
+      "sha256": "95eb5c62d526ed9bfdf2764ad4f512495ad83d1af8645f80eb1b33d90be3599d"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/hub-500000-11-r3/result.json",
+      "sha256": "b69077fea1533643543a1c23d0d52ae10bcc72dca2713f72da24ded8948e33cd"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/hub-500000-main-r1/result.json",
+      "sha256": "936c39975310b33e5266c60a8dba39b2ac633ec7f1ee940e0ed8f2d42973c5b9"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/hub-500000-main-r2/result.json",
+      "sha256": "92b4d6777cd3e239a80f1b13ba8b3998d4cf206528bfb9092694f8156ce65622"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/hub-500000-main-r3/result.json",
+      "sha256": "126ed33f8ae7b9b31bc8021c05d47c81a73c84fefecf6fd8c60f1d87a0805eca"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-homogeneous-10-11-r1/result.json",
+      "sha256": "24616f41f74aa44780e4716940872450b4824c3fbc55228e3dc67f9c10c5cd1b"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-homogeneous-10-11-r2/result.json",
+      "sha256": "e1a0847f5cfe288533d42bdf42580726d995be0672b17ce7b5c84db23a319649"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-homogeneous-10-11-r3/result.json",
+      "sha256": "606f0b69d2eea47c0a05f55fe97cb1923a9bad6aecd4047015019e06d1e66a6a"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-homogeneous-10-13-r1/result.json",
+      "sha256": "094fd6ff94c08c0afb92765b574c5b7698262afed62c751e6621438cd80935bf"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-homogeneous-10-13-r2/result.json",
+      "sha256": "7bfe0c6d561b33c22cdfcfee57779da1cec976d33797dc6abdad71ac28d5ec5b"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-homogeneous-10-13-r3/result.json",
+      "sha256": "1dcc61b71c74382c09cc4a9d10860bcb47cb5b0d54542ee72d69b42fa474bbf1"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-homogeneous-10-main-r1/result.json",
+      "sha256": "7a0a11ed6400b366db0cf8b1e9ee5be19a55e45c8dec0d80d9a87e20473152be"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-homogeneous-10-main-r2/result.json",
+      "sha256": "2bc5c88723d10121717f7c9f5662b3bee54668488d96a21486dfc70cff51e1e8"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-homogeneous-10-main-r3/result.json",
+      "sha256": "ffdbaed76ce8296151f7f1abd07f682627cc9b3a23b21c3b21b7023b68e71646"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-homogeneous-2-11-r1/result.json",
+      "sha256": "b67abed41113f73655bc0aa620c7bc12db6c3444a5e2d80d9dbd96f864b30406"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-homogeneous-2-11-r2/result.json",
+      "sha256": "075cbb9e38053bbaa33bdea2ea1da92c1513f3e30861255e504f60add1b802e0"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-homogeneous-2-11-r3/result.json",
+      "sha256": "a7f2ae4d8c8fab702e96136fc464329c3f90713e2787dc6666eefc82b0177f40"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-homogeneous-2-13-r1/result.json",
+      "sha256": "fcee205f079b2aaf4832a8259ffdbb494328c1eeae86a496175a864bf2b1668c"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-homogeneous-2-13-r2/result.json",
+      "sha256": "4568bb32764f70c9f6de5c61c0823bb5e900e494bcda5e04a1c3d875b20d009e"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-homogeneous-2-13-r3/result.json",
+      "sha256": "9c8f8d20b68435e6283518e9ab78e6d20dadad2595463b02255436533d9fe90f"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-homogeneous-2-main-r1/result.json",
+      "sha256": "9eabb0e9b005c5fa3b0c8fc36c9dd59791078acbea7592cbe4e82551bfb5396d"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-homogeneous-2-main-r2/result.json",
+      "sha256": "03c68ca4a78345c627875415c9b93547bbf20f735d29ae1f3e7052137929a09d"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-homogeneous-2-main-r3/result.json",
+      "sha256": "5c9e7d8b192c40f8e36fa662bab3992c023446040ca01b9ac06854b26e2fb751"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-homogeneous-20-11-r1/result.json",
+      "sha256": "7b47b0dc1d26d99565312d199a88028aa74d168d3988008bed2f537159635d21"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-homogeneous-20-11-r2/result.json",
+      "sha256": "87fa660fe8bd3c936f3b403e9ee14f6a5cfa93021cd38d3815331a3c5968f060"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-homogeneous-20-11-r3/result.json",
+      "sha256": "ec0a56eaa9a136d81e5d7097a899ee35528b8f3f31e44e8cbcee33bcf6de28af"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-homogeneous-20-13-r1/result.json",
+      "sha256": "a3371a2adc9019373a484ff2aa00de6c31235c44797d90746a92b2f4778ff105"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-homogeneous-20-13-r2/result.json",
+      "sha256": "694bebb1597a2027c19be86c46d3bf37996f0fb971164ef4204ce006df8bdf53"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-homogeneous-20-13-r3/result.json",
+      "sha256": "926e687c151e4a957dd9172253b8256115098094fcb68b72735fe251b2e0ba1a"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-homogeneous-20-main-r1/result.json",
+      "sha256": "2fed5d9779413f6be9eb9863eeb9e61709baa8219a9976b6d8fceb73247011e8"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-homogeneous-20-main-r2/result.json",
+      "sha256": "63c5715f2c04049e74df5acc0094c2ac83f329a2d6138c8c838f209f6ca6533c"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-homogeneous-20-main-r3/result.json",
+      "sha256": "4f0701ff56d2984438e9c32bffbbf3cc4722b0699595bf039d37322474222473"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-homogeneous-5-11-r1/result.json",
+      "sha256": "d03ca0b5a4831b8b80989e85f0fda92c80d8010fafd53e52c79b1c6c59a8cf5b"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-homogeneous-5-11-r2/result.json",
+      "sha256": "15d0a8808254abb83302ac2ec5fe4b917fd85b88ad9a4a36af78452188563410"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-homogeneous-5-11-r3/result.json",
+      "sha256": "64a79886ef86996c3eca2505d1fd0aae2052cb6b9ca4d8195ff17961a7bc2e5d"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-homogeneous-5-13-r1/result.json",
+      "sha256": "6f88b9bd2c6e47bbb6d58f18d73a6cc0b5c496cceaa5570b65adb8add94fd96c"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-homogeneous-5-13-r2/result.json",
+      "sha256": "b095bfd220e2aae622cf4ac79ecb6ca087a4bd5d49aec148b1e6aeee9470552a"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-homogeneous-5-13-r3/result.json",
+      "sha256": "4beccf34b040227a38cb0ad7a8b2360195e74588d3b0e6a5ba7e90fd16825c0e"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-homogeneous-5-main-r1/result.json",
+      "sha256": "90a6ed12374e18fdb1fa6c89004e61f62eb5d6aca03257a000e704bbb9ff2569"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-homogeneous-5-main-r2/result.json",
+      "sha256": "5c029a63997a0c647f2058f2d4795699b8bc9b0781f01fccadebeff0b2645190"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-homogeneous-5-main-r3/result.json",
+      "sha256": "a0c3203a706dff71d7933dfcd6c7569ec68c5001be9a1bb5926e1e078a4d7a9d"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-mixed-10-11-r1/result.json",
+      "sha256": "58be0db0f8ec00126b1207594beadb5e4f66a3fc6f4dde0f084cd0afee30b320"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-mixed-10-11-r2/result.json",
+      "sha256": "636833c776d3eda40257b6e7eb32969a442a47a8d04148e2f053aea78cf70482"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-mixed-10-11-r3/result.json",
+      "sha256": "752c8e4c3c0a9d30375f1e15663859cfacda462faef35bc59391f831b40a7442"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-mixed-10-13-r1/result.json",
+      "sha256": "ca02defad206811679e83f8c712e5f10748e7b63c72a4caff0f73915a69bc473"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-mixed-10-13-r2/result.json",
+      "sha256": "d013b18d631427a2765f890e07c8b6fd880392e814617beccc954672f7326bfc"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-mixed-10-13-r3/result.json",
+      "sha256": "c1c0208641e36628a63cc121a3e9e86242f9647c1499a830227e734972f1a86c"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-mixed-10-main-r1/result.json",
+      "sha256": "b158b54495c08830405357ce74a106c3001f9b1d1c777354a0d84d8ca7286b57"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-mixed-10-main-r2/result.json",
+      "sha256": "eb0316cd956edb9a6c512b3cff7aa52cc6b757831ae387a5c2461298b78c9514"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-mixed-10-main-r3/result.json",
+      "sha256": "898b81ca2a361f37c1a03975078e03daed11598380024ca0cc126f9e1e202e26"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-mixed-2-11-r1/result.json",
+      "sha256": "73687994e3a0455b35e66731fd95c35e411810a3f13c49563719b750d3a655c9"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-mixed-2-11-r2/result.json",
+      "sha256": "8524c837700fdbe813968394d13bc49bfa4eb80e166c2af2b0fb17f8eb93514b"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-mixed-2-11-r3/result.json",
+      "sha256": "a9efbf7465c8773c1b636f6b0babb086677b0e8904207b0669772bdb8b748a95"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-mixed-2-13-r1/result.json",
+      "sha256": "ebf7270b737b3f02162d8a48c2f056be280d10aabe66f95155bc020ca8cd582d"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-mixed-2-13-r2/result.json",
+      "sha256": "e02a0efec6b7b51e6fc85bb78bfb104244766102aaf71b4469d9cccd61a80c75"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-mixed-2-13-r3/result.json",
+      "sha256": "57639883e7ea1aedfd5c37940404522768adef68fd3279783ab5391b7060c235"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-mixed-2-main-r1/result.json",
+      "sha256": "68c573297eb2851e5803843c4222a7efe1a635baaa2fdc4a6a9e55ccad6e3247"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-mixed-2-main-r2/result.json",
+      "sha256": "01d234a1f9edf405a62f4d6222a62bf7d8055ff4814ecf45c111e594c2638b03"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-mixed-2-main-r3/result.json",
+      "sha256": "62fc0b2c84a8ea2b970bef1306b240571251b09869798641fb2e25899b73cf27"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-mixed-20-11-r1/result.json",
+      "sha256": "777ae5dabe184f50b2d96fafbcec63241af7e1dae1a513f8f9b8afbe9c9d695f"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-mixed-20-11-r2/result.json",
+      "sha256": "200d9078f0c6394f033f0a00fdb82fbc8d90e1a1116aa70d0a9860ddfdc59eb7"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-mixed-20-11-r3/result.json",
+      "sha256": "eb66fa693474c78293309a9055fb34e6b5a1dd54d155e936490fe589c182110b"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-mixed-20-13-r1/result.json",
+      "sha256": "ee39fe3a609ac04bbba361972bb0188eba1d4fc00b1dc7f794b22306455fcd3c"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-mixed-20-13-r2/result.json",
+      "sha256": "4e2721a9b4d5ab118095df4a7215c995de56acb64f1ce34799049cdcdf67c099"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-mixed-20-13-r3/result.json",
+      "sha256": "d471a1657ab32ca0f6494ee72113b4a4f5b946c2c6fe09eb6e254257b84aa987"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-mixed-20-main-r1/result.json",
+      "sha256": "9123d00946f516df4ea7d2ddcd3595f2a04742f80ba12340e496a5240b97190c"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-mixed-20-main-r2/result.json",
+      "sha256": "f3aa03296ac9adac6ba56b826f369cd62d582231ffed8e17939f8c44594ee2c8"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-mixed-20-main-r3/result.json",
+      "sha256": "b223a01d9b5a6d7563ef3f104526e0815a3cf75d469918904a29bf92d819918d"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-mixed-5-11-r1/result.json",
+      "sha256": "fbb510fefd42c60fd510e90b6331dd6de4840737b0c8eb79b6f2c57df53e96f2"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-mixed-5-11-r2/result.json",
+      "sha256": "c464c6e185d4235e4c7c557eb1509303d015c6daf7f618fd12dcec9e65af0b83"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-mixed-5-11-r3/result.json",
+      "sha256": "2cf0d2f23492f844972fa9d2249bfb306cc9a622ce5548f30ce0e08a89851ccc"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-mixed-5-13-r1/result.json",
+      "sha256": "5942503f259b701460b039da407545b24e9def7e6bd917bf3e75de8f2e6c9bd1"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-mixed-5-13-r2/result.json",
+      "sha256": "592ac46f825875d191c6723dc9432b7c20ea96b505390df5b9d712b31cc2e3a9"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-mixed-5-13-r3/result.json",
+      "sha256": "6810c8cda09cfc8705cc137075d5d7a89d270ec32dea0d2436b1629a4fd5a058"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-mixed-5-main-r1/result.json",
+      "sha256": "2268c466ab57664c14ef16fac287fccaeb04ecbfa66f31e325e98e3411953046"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-mixed-5-main-r2/result.json",
+      "sha256": "1a8d49d45561289bc6065090fe0acb60cc29fc5630bdbee649e0b7078a8ba158"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/plan-mixed-5-main-r3/result.json",
+      "sha256": "11b9bf4e38fffc7a09dd49e730643827c7046a3ac4a4470cd61d6561c0ec84de"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/sf1-12-11-r1/result.json",
+      "sha256": "528f1a8bcc64956daf6d13c108d62633520771aa9a2d09a732a2d1cbcdd77394"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/sf1-12-11-r2/result.json",
+      "sha256": "12748abc335ca711aef5ed5a79912532530ab752093309b3975b4f607b2bcd3e"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/sf1-12-11-r3/result.json",
+      "sha256": "382b33eafbfd0ed1288c45490dc454aaf005526092563520b85e4d496c31c6db"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/sf1-12-13-r1/result.json",
+      "sha256": "9542d66452d1c9a8205fccada50f052afeb6f5ce23b070f10d193c8ec32bbbc0"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/sf1-12-13-r2/result.json",
+      "sha256": "fa9ae201895091b21778841e9e4bd00cc104c3e74238d8b9b06369f9e7400c66"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/sf1-12-13-r3/result.json",
+      "sha256": "34e4e5f37dbd029d55ccd7b0d54453a6cb009505f23dbca7c99487f97c2b316a"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/sf1-12-main-r1/result.json",
+      "sha256": "ace9247f17a1d7f19aeac6c03686e311366bfb7edb324871cbf8994c0511cd65"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/sf1-12-main-r2/result.json",
+      "sha256": "3a6e7d120fa8dec6189ff6cec4014638faf229e4a4f56e8ec753158d81f9f0e9"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/sf1-12-main-r3/result.json",
+      "sha256": "20205463d451fd239eed2feed0dfa9d4c828b48d351af73c808653329264c7f4"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/sf1-13-11-r1/result.json",
+      "sha256": "b64566c0cab49dfeeb5bde924c11e0b4a09906242eb6175a8df02ce9d700d230"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/sf1-13-11-r2/result.json",
+      "sha256": "5155d979b92a9bf3a15f51fa8ee986a94dda493faf74b034bedecb1d1cc7929d"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/sf1-13-11-r3/result.json",
+      "sha256": "8bf04cf448df4aff49097c7c48136cc2f8cce39b56ec86270a04713fe10c3a22"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/sf1-13-17-r1/result.json",
+      "sha256": "cad2c0ac6af33e727bd7a61902f213406aefaed713bcfc9550ad8663e636616a"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/sf1-13-17-r2/result.json",
+      "sha256": "17be4cafc145074d119e020945ea2a31bde232329e5c4f42fc112256051ed1c3"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/sf1-13-17-r3/result.json",
+      "sha256": "ff547bdebe92f73463c455c7a2eff2982f96fcb613f81969f6e6add2c84b29d1"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/sf1-13-main-r1/result.json",
+      "sha256": "7978bf3b5c7912b6062b596c099b37171c36e5294ceb99c40a2099080844ec11"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/sf1-13-main-r2/result.json",
+      "sha256": "31e2a267f4f234c9a33d85ecd4f7a662493551ec8e93f07659fb636ea2715e25"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/sf1-13-main-r3/result.json",
+      "sha256": "7b78a0f333cb36111bbfa0cf0952c3cb40fc0f8c1bacb844a42edfd99e590e8f"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/sf1-14-11-r1/result.json",
+      "sha256": "2531f43931ec894136795e601b0f4ddb647d714b665ee7655fe3c07f873c6f98"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/sf1-14-11-r2/result.json",
+      "sha256": "87263c2d61c86244aedb070ef8fa64d4ea40f958fd5509ffbddd22d80411c5d4"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/sf1-14-11-r3/result.json",
+      "sha256": "d3776014d857acd33495ffce3c1a5911a49745c79f30f4c2edf9f0b9a9dbba74"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/sf1-14-17-r1/result.json",
+      "sha256": "a07da8e5a40cc75bf07a9de38a9240349789a80c3b6163ec43337978c7d55af7"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/sf1-14-17-r2/result.json",
+      "sha256": "a3ee0398b19b467d4f78b9fd9337d378345d3f1fdd12c548856480310a513a68"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/sf1-14-17-r3/result.json",
+      "sha256": "4eafd681e7b0cbbd3ac9c62d6b73a119e70243f45998e0d26957e14ca0e78819"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/sf1-14-main-r1/result.json",
+      "sha256": "1ca52974a148fcede3cd93c6a4ae5d273d9fae1dc3921cbcd1169c67d1610643"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/sf1-14-main-r2/result.json",
+      "sha256": "1e0ca0f5758529755f9286706fa1c66e28e2af751f300d98b40033f3c899c7a6"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/sf1-14-main-r3/result.json",
+      "sha256": "e2c1064bacc1dd996e77be45f0e29d76745dd6c097d5b4ed433b890d7617ebcc"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/sf1-9-13-r1/result.json",
+      "sha256": "cd2601ccc6d9b5d15c3c79b6432241ba13edc1636f3ee4b9fa4a527327d46387"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/sf1-9-13-r2/result.json",
+      "sha256": "4fe00570e8bbe2bee96871bada06414a93c9810d06327c625471f1705f08466d"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/sf1-9-13-r3/result.json",
+      "sha256": "d2e9a4f8f3f1b0f698eed05d19d895f9c6dc2903d5f1aba78c4fc844048dd770"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/sf1-9-16-r1/result.json",
+      "sha256": "861565764a1da8d5142194b3e9f31dd9bdaf6b996bfe8112bebf35973ebb930b"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/sf1-9-16-r2/result.json",
+      "sha256": "7135172d3bf513a814b0a46fd982a32277348c2faf82ccf5d742534399ef3f8c"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/sf1-9-16-r3/result.json",
+      "sha256": "36d3824399e1abb3fad300e8e3b9bca88132402d6c01a50b7c9a2fd401d298ed"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/sf1-9-main-r1/result.json",
+      "sha256": "60000f86e0d275cd8cfe23f6aa9a6ebdd8d1acbef04f5f7451a0c963bc17600f"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/sf1-9-main-r2/result.json",
+      "sha256": "dde4becb184ee1b6811bf0cab0e9955b2d1dc048262b13561da278054893bf7e"
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/sf1-9-main-r3/result.json",
+      "sha256": "580927fa4b7c8e78dd709f4b43af901d9daf589bc5343d1f35ad0e4ffd4e8ce9"
+    }
+  ],
+  "limits": [
+    "RSS growth is an observed high-water lower bound, not allocation accounting; resident graph and input are excluded.",
+    "Focused timings include the operations named by their field and use three fresh processes; complete suite tables remain separate.",
+    "Plan size is formatted physical-plan text. Mixed-type unrolled operator counts grow quadratically in this fixture.",
+    "The earliest qualified owner revisions are measured; these observations do not silently qualify subsequent correction commits."
+  ]
+}

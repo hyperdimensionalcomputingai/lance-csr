@@ -1,0 +1,70 @@
+{
+  "source_commit": "a7e2b60569ebd2dac68e4e661faa0264219a2ad4",
+  "source_worktree": "/private/tmp/lance-csr-issue-11-cursor-inlining",
+  "tracked_source_clean": true,
+  "rust_passed": 587,
+  "rust_ignored": 9,
+  "rust_targets": 16,
+  "python_passed": 333,
+  "binding_rust_passed": 11,
+  "documentation_blocks": 36,
+  "checks": {
+    "format": {
+      "path": "/private/tmp/lance-csr-runtime/issue-11-inline-always-source-r1-format.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "status": "passed"
+    },
+    "workspace": {
+      "path": "/private/tmp/lance-csr-runtime/issue-11-inline-always-source-r1-workspace.log",
+      "sha256": "43eb5c33ae831f5698429028623693b99ca93521c9a8465aa1505480a32b5956",
+      "status": "passed"
+    },
+    "clippy": {
+      "path": "/private/tmp/lance-csr-runtime/issue-11-inline-always-source-r1-clippy.log",
+      "sha256": "1c6a07745e9c24f720a1d22667d757b9e6c590b6b2d7d07eb4f92a67786c90c0",
+      "status": "passed"
+    },
+    "install": {
+      "path": "/private/tmp/lance-csr-runtime/issue-11-inline-always-source-r1-install.log",
+      "sha256": "ad113c6e2a69cbe1e5128aaf2ddb87ddbda52f8c75be9049f32f2801b2f3d9ea",
+      "status": "passed"
+    },
+    "python": {
+      "path": "/private/tmp/lance-csr-runtime/issue-11-inline-always-source-r1-python.log",
+      "sha256": "3bf6b4ce43d113ae2e732877c3dd434b255f67fe7da623340483bfcd45a49f33",
+      "status": "passed"
+    },
+    "lint": {
+      "path": "/private/tmp/lance-csr-runtime/issue-11-inline-always-source-r1-lint.log",
+      "sha256": "733d6f28cfff689a98df5ccb97e3a057228a37b34c82a9b0366f3ff5e54ef87c",
+      "status": "passed"
+    },
+    "binding-clippy": {
+      "path": "/private/tmp/lance-csr-runtime/issue-11-inline-always-source-r1-binding-clippy.log",
+      "sha256": "94ced8c02cd43d4f74c1a3d4d7d554137fefd76f8c7ad482e7a0e406ce99fc87",
+      "status": "passed"
+    },
+    "binding-tests": {
+      "path": "/private/tmp/lance-csr-runtime/issue-11-inline-always-source-r1-binding-tests.log",
+      "sha256": "4ff1687dcfc235392beb63953dbd2b8d302b87b9e3db5c6159c620207150c566",
+      "status": "passed"
+    },
+    "snippets": {
+      "path": "/private/tmp/lance-csr-runtime/issue-11-inline-always-source-r1-snippets.log",
+      "sha256": "e05c751c7c974b50a5eb440866bb626c78c19818634777917f4526347841428c",
+      "status": "passed"
+    },
+    "docs": {
+      "path": "/private/tmp/lance-csr-runtime/issue-11-inline-always-source-r1-docs.log",
+      "sha256": "dc8a572a1c1e2acf0c36e1e23d5cc2a55a243c9a746c28c3470f4d81cea9ec3c",
+      "status": "passed"
+    },
+    "typos": {
+      "path": "/private/tmp/lance-csr-runtime/issue-11-inline-always-source-r1-typos.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "status": "passed"
+    }
+  },
+  "scope": "Two inline hints on the sampled hot adjacency lookup helpers; no behavior or API change. Performance acceptance is separate.",
+  "release_proof": "/private/tmp/lance-csr-submissions/wheels/issue-11-cursor-inlining-release/release-proof.json"
+}
