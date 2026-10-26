@@ -38,5 +38,8 @@ jobs:
         run: cargo test --workspace --no-run
       - name: Run tests
         run: cargo test --workspace
+      # The Rust guide includes this example; run it so the documented code works.
+      - name: Run embedded example
+        run: cargo run -p lance-csr --example embedded_query
       - name: Check benchmarks
-        run: cargo check -p lance-graph-benches --benches
+        run: cargo check -p lance-csr-benches --benches

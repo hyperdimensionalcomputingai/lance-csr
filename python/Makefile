@@ -31,4 +31,4 @@ wheel:
 	$(RUN) maturin build --release --out dist --sdist
 
 clean:
-	rm -rf .venv dist ../crates/lance-graph-python/target
+	rm -rf .venv dist ../crates/lance-csr-python/target

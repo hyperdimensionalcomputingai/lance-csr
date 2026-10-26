@@ -7,7 +7,7 @@ Read them before you change a page.
 
 A reader should be able to find out what lance-csr is, install it, run a query, and learn every user-facing
 option without reading the source. Write for a Python developer who knows a little Cypher and nothing about
-the internals. The CSR index is the project's distinguishing feature, so it gets the most care.
+the internals; `rust.md` covers the same engine for Rust developers. The CSR index is the project's distinguishing feature, so it gets the most care.
 
 ## How the site is built
 
@@ -34,7 +34,8 @@ the internals. The CSR index is the project's distinguishing feature, so it gets
 ## Accuracy comes first
 
 - **Document what exists on `main`.** Read the code, tests and docstrings before writing. The Python API is
-  defined in `crates/lance-graph-python/src/graph.rs`; the Cypher surface in `crates/lance-graph/src/`
+  defined in `crates/lance-csr-python/src/graph.rs`, on top of the Rust `CypherEngine` in
+  `crates/lance-csr/src/engine.rs`; the Cypher surface in `crates/lance-csr/src/`
   (`parser.rs`, `semantic.rs`, `logical_plan.rs`). Never describe planned features as shipped.
 - **Every Python example runs.** `check_snippets.py` executes each page's `python` blocks in order, in one
   namespace, in a temporary directory. Run it against a local build before you commit:
@@ -46,6 +47,11 @@ the internals. The CSR index is the project's distinguishing feature, so it gets
   Put the output in a trailing comment (`print(x)  # [{'name': 'Bob'}]`) and check it matches what the run
   printed. Use `ORDER BY` so results are deterministic, and don't show output that varies (timings, dict or
   label order) without saying so.
+- **Every Rust example compiles and runs.** Rust code on a page is never typed into the Markdown: it lives in
+  `crates/lance-csr/examples/embedded_query.rs` between `// --8<-- [start:name]` and `// --8<-- [end:name]`
+  markers, and the page includes it with `--8<-- "crates/lance-csr/examples/embedded_query.rs:name"` inside a
+  `rust` fence. CI builds and runs the example, and the strict build fails if a file or section is missing.
+  Keep the output comments in the example in step with what it prints.
 - A snippet that can't run on its own (it needs LanceDB, a remote store or an ANN index) gets a
   `<!-- skip-check -->` line directly above its fence. Use this sparingly.
 - **Every user-facing knob is documented**: constructor arguments, keyword arguments, builder methods, enum
