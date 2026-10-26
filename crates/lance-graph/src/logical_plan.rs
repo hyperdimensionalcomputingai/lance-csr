@@ -545,6 +545,7 @@ impl<'a> LogicalPlanner<'a> {
         match expr {
             ValueExpression::Variable(var) => {
                 let property = match self.variables.get(var).map(String::as_str) {
+                    Some("Path") if !self.rich_paths => Some("length".to_string()),
                     Some("Path") => None,
                     Some(label) => self
                         .config
