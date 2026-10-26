@@ -19,6 +19,35 @@ code. The guides link here for exact signatures and link back for examples.
 This page covers the Python API. For Rust, see [Using from Rust](rust.md) and the
 [API documentation on docs.rs](https://docs.rs/lance-csr).
 
+## Type checking
+
+The package ships type stubs for every public class, including the compiled extension, and a `py.typed`
+marker. Editors and type checkers can follow builder methods, parameters, query results and statistics.
+The stubs describe the current API; they do not change runtime validation or exceptions.
+
+PyArrow distributes its type information separately. For strict checks of Arrow inputs and results, add
+`pyarrow-stubs` to your development dependencies:
+
+```bash
+uv add --dev pyright pyarrow-stubs
+uv run pyright your_script.py
+```
+
+```python
+from typing import assert_type
+
+import pyarrow as pa
+from lance_csr import CypherEngine, GraphConfig
+
+config = GraphConfig.builder().node_table("Person", "id").build()
+engine = CypherEngine(config, {"Person": pa.table({"id": [1, 2]})})
+result = engine.execute("MATCH (p:Person) RETURN p.id ORDER BY p.id")
+assert_type(result, pa.Table)
+print(result.to_pylist())  # [{'p.id': 1}, {'p.id': 2}]
+```
+
+This reference remains maintained by hand alongside the stubs and Rust bindings.
+
 ## Datasets
 
 Methods that take `datasets` take a `dict[str, object]` mapping each node label or relationship type (or SQL
