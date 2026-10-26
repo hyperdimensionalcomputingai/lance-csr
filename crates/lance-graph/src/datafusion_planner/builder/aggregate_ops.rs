@@ -14,8 +14,8 @@ use datafusion::logical_expr::{col, LogicalPlan, LogicalPlanBuilder};
 /// first and apply the outer expression after. Cypher's `collect` gives `[]`, not null,
 /// when nothing was collected.
 fn split_aggregates(expr: &mut ValueExpression, aggregates: &mut Vec<(String, ValueExpression)>) {
-    match expr {
-        ValueExpression::AggregateFunction { name, .. } => {
+    crate::ast::transform_value(expr, &mut |expr| {
+        if let ValueExpression::AggregateFunction { name, .. } = expr {
             let column = format!("__agg_{}", aggregates.len());
             let is_collect = name.eq_ignore_ascii_case("collect");
             let aggregate = std::mem::replace(expr, ValueExpression::Variable(column.clone()));
@@ -33,23 +33,7 @@ fn split_aggregates(expr: &mut ValueExpression, aggregates: &mut Vec<(String, Va
                 };
             }
         }
-        ValueExpression::ScalarFunction { args, .. } => args
-            .iter_mut()
-            .for_each(|a| split_aggregates(a, aggregates)),
-        ValueExpression::Arithmetic { left, right, .. } => {
-            split_aggregates(left, aggregates);
-            split_aggregates(right, aggregates);
-        }
-        ValueExpression::Case { otherwise, whens } => {
-            for (_, then) in whens {
-                split_aggregates(then, aggregates);
-            }
-            if let Some(e) = otherwise {
-                split_aggregates(e, aggregates);
-            }
-        }
-        _ => {}
-    }
+    });
 }
 
 impl DataFusionPlanner {
@@ -96,7 +80,7 @@ impl DataFusionPlanner {
                 let first = aggregates.len();
                 split_aggregates(&mut rewritten, &mut aggregates);
                 for (column, aggregate) in &aggregates[first..] {
-                    let mut aggregate = super::super::expression::to_df_value_expr(aggregate);
+                    let mut aggregate = self.value_expr(aggregate, &schema)?;
                     // collect() gathers in the order of a preceding `WITH ... ORDER BY`.
                     if let datafusion::logical_expr::Expr::AggregateFunction(f) = &mut aggregate {
                         if f.func.name() == "array_agg" && !f.params.distinct {
@@ -108,7 +92,7 @@ impl DataFusionPlanner {
                 outer.push(super::super::expression::to_df_value_expr(&rewritten).alias(alias));
             } else {
                 // Group expressions: use raw expression for grouping, no alias
-                group_exprs.push(super::super::expression::to_df_value_expr(&p.expression));
+                group_exprs.push(self.value_expr(&p.expression, &schema)?);
             }
         }
 
@@ -145,9 +129,15 @@ impl DataFusionPlanner {
             }
         }
 
-        LogicalPlanBuilder::from(input_plan)
+        let aggregate = LogicalPlanBuilder::from(input_plan)
             .aggregate(group_exprs, agg_exprs)
-            .map_err(|e| self.plan_error("Failed to build aggregate", e))?
+            .and_then(|b| b.build())
+            .map_err(|e| self.plan_error("Failed to build aggregate", e))?;
+        let final_projection = final_projection
+            .into_iter()
+            .map(|expr| self.resolve_expr(expr, aggregate.schema()))
+            .collect::<Result<Vec<_>>>()?;
+        LogicalPlanBuilder::from(aggregate)
             .project(final_projection)
             .map_err(|e| self.plan_error("Failed to project after aggregate", e))?
             .build()

@@ -10,7 +10,7 @@ use crate::ast::*;
 use crate::error::{GraphError, Result};
 use nom::{
     branch::alt,
-    bytes::complete::{tag, tag_no_case, take_while1},
+    bytes::complete::{tag, tag_no_case, take_while, take_while1},
     character::complete::{char, digit0, digit1, multispace0, multispace1, one_of, satisfy},
     combinator::{map, map_res, not, opt, peek, recognize},
     multi::{many0, many1, separated_list0, separated_list1},
@@ -492,6 +492,11 @@ fn boolean_primary_expression(input: &str) -> IResult<&str, BooleanExpression> {
             where_clause: None,
         }),
         comparison_expression,
+        map(list_predicate, |left| BooleanExpression::Comparison {
+            left,
+            operator: ComparisonOperator::Equal,
+            right: ValueExpression::Literal(PropertyValue::Boolean(true)),
+        }),
     ))(input)
 }
 
@@ -669,6 +674,8 @@ fn basic_value_expression(input: &str) -> IResult<&str, ValueExpression> {
         list_comprehension,
         list_literal, // Then a list of any expressions [a.x, 'y'] (or [])
         map_literal,
+        reduce_expression,
+        list_predicate,
         parse_parameter,                               // Try $parameter
         function_call,                                 // Regular function calls
         map(property_value, ValueExpression::Literal), // Try literals BEFORE property references
@@ -729,6 +736,62 @@ fn list_comprehension(input: &str) -> IResult<&str, ValueExpression> {
             list: Box::new(list),
             filter: filter.map(|w| Box::new(w.expression)),
             map: map.map(Box::new),
+        },
+    ))
+}
+
+fn reduce_expression(input: &str) -> IResult<&str, ValueExpression> {
+    let (input, _) = tuple((tag_no_case("reduce"), multispace0, char('('), multispace0))(input)?;
+    let (input, accumulator) = identifier(input)?;
+    let (input, initial) =
+        preceded(tuple((multispace0, char('='), multispace0)), expression)(input)?;
+    let (input, variable) = preceded(comma_ws, identifier)(input)?;
+    let (input, list) = preceded(
+        tuple((multispace1, tag_no_case("IN"), multispace1)),
+        value_expression,
+    )(input)?;
+    let (input, mut body) =
+        preceded(tuple((multispace0, char('|'), multispace0)), expression)(input)?;
+    let (input, _) = tuple((multispace0, char(')')))(input)?;
+    mark_locals(&mut body, &[accumulator, variable]);
+    Ok((
+        input,
+        ValueExpression::Reduce {
+            accumulator: accumulator.to_lowercase(),
+            initial: Box::new(initial),
+            variable: variable.to_lowercase(),
+            list: Box::new(list),
+            expression: Box::new(body),
+        },
+    ))
+}
+
+fn list_predicate(input: &str) -> IResult<&str, ValueExpression> {
+    let (input, kind) = alt((
+        tag_no_case("all"),
+        tag_no_case("any"),
+        tag_no_case("none"),
+        tag_no_case("single"),
+    ))(input)?;
+    let (input, variable) =
+        preceded(tuple((multispace0, char('('), multispace0)), identifier)(input)?;
+    let (input, list) = preceded(
+        tuple((multispace1, tag_no_case("IN"), multispace1)),
+        value_expression,
+    )(input)?;
+    let (input, mut predicate) = preceded(
+        tuple((multispace1, tag_no_case("WHERE"), multispace1)),
+        expression,
+    )(input)?;
+    let (input, _) = tuple((multispace0, char(')')))(input)?;
+    mark_locals(&mut predicate, &[variable]);
+    Ok((
+        input,
+        ValueExpression::ListPredicate {
+            kind: kind.to_lowercase(),
+            variable: variable.to_lowercase(),
+            list: Box::new(list),
+            predicate: Box::new(predicate),
         },
     ))
 }
@@ -1382,14 +1445,14 @@ fn string_literal(input: &str) -> IResult<&str, String> {
 
 fn double_quoted_string(input: &str) -> IResult<&str, String> {
     let (input, _) = char('"')(input)?;
-    let (input, content) = take_while1(|c| c != '"')(input)?;
+    let (input, content) = take_while(|c| c != '"')(input)?;
     let (input, _) = char('"')(input)?;
     Ok((input, content.to_string()))
 }
 
 fn single_quoted_string(input: &str) -> IResult<&str, String> {
     let (input, _) = char('\'')(input)?;
-    let (input, content) = take_while1(|c| c != '\'')(input)?;
+    let (input, content) = take_while(|c| c != '\'')(input)?;
     let (input, _) = char('\'')(input)?;
     Ok((input, content.to_string()))
 }
@@ -2528,5 +2591,32 @@ mod tests {
             query.return_clause.items[0].expression,
             ValueExpression::Variable("nullCount".into())
         );
+    }
+    #[test]
+    fn reduce_keeps_inputs_in_outer_scope_and_marks_local_properties() {
+        let q =
+            parse_cypher_query("WITH {n:1} AS x RETURN reduce(s=x.n, x IN [x] | s+x.n)").unwrap();
+        let ValueExpression::Reduce {
+            initial,
+            list,
+            expression,
+            ..
+        } = &q.return_clause.items[0].expression
+        else {
+            panic!("expected reduce");
+        };
+        assert!(matches!(initial.as_ref(), ValueExpression::Property(p) if p.variable == "x"));
+        let mut input_locals = 0;
+        transform_value(&mut list.as_ref().clone(), &mut |v| {
+            input_locals += usize::from(matches!(v, ValueExpression::LocalVariable(_)))
+        });
+        assert_eq!(input_locals, 0);
+        let mut body_locals = Vec::new();
+        transform_value(&mut expression.as_ref().clone(), &mut |v| {
+            if let ValueExpression::LocalVariable(n) = v {
+                body_locals.push(n.clone());
+            }
+        });
+        assert_eq!(body_locals, ["s", "x"]);
     }
 }

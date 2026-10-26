@@ -19,6 +19,13 @@ Replace a directly constructed `Some(n)` with `Some(ast::RowCount::Literal(n))`;
 use `ast::RowCount::Parameter(name)`. Resolve parameter values before building a logical plan, using
 the normal `CypherQuery` parameter-binding methods. Existing Cypher text with literal pagination is unchanged.
 
+## Rust AST migration for list folds
+
+`ast::ValueExpression` adds `Reduce`, `ListPredicate` and `LocalVariable` variants. Update exhaustive
+matches and visitors to traverse the fold input and body while respecting iterator and accumulator
+scope. Prefer parsing Cypher text to construct these expressions; the parser resolves local variable
+references so they cannot accidentally bind to graph variables with the same name.
+
 ## Quick Start
 
 ```rust
