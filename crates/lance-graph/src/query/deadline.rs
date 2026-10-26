@@ -89,7 +89,7 @@ impl PhysicalOptimizerRule for DeadlineJoins {
             Arc::new(config.clone()),
         ));
         plan.transform_up(|plan| {
-            if let Some(join) = plan.as_any().downcast_ref::<NestedLoopJoinExec>() {
+            if let Some(join) = plan.downcast_ref::<NestedLoopJoinExec>() {
                 // Output-only yielding cannot interrupt long runs of rejected join candidates.
                 let filter = match join.filter() {
                     Some(filter) => JoinFilter::new(
@@ -114,7 +114,7 @@ impl PhysicalOptimizerRule for DeadlineJoins {
                 Ok(Transformed::yes(
                     Arc::new(CooperativeExec::new(Arc::new(joined))) as Arc<dyn ExecutionPlan>,
                 ))
-            } else if plan.as_any().is::<CrossJoinExec>() {
+            } else if plan.is::<CrossJoinExec>() {
                 Ok(Transformed::yes(
                     Arc::new(CooperativeExec::new(plan)) as Arc<dyn ExecutionPlan>
                 ))
