@@ -1532,6 +1532,17 @@ impl<'a> LogicalPlanner<'a> {
             }
         }
 
+        // RETURN aliases shadow input entities in ORDER BY, after every item is bound.
+        // Whole-node aliases expand to `alias.property`, so keep their entity binding.
+        self.variables.retain(|variable, _| {
+            !projections.iter().any(|projection| {
+                projection
+                    .alias
+                    .as_ref()
+                    .is_some_and(|alias| alias.eq_ignore_ascii_case(variable))
+            })
+        });
+
         let mut plan = LogicalOperator::Project {
             input: Box::new(input),
             projections,
@@ -1675,6 +1686,44 @@ impl<'a> LogicalPlanner<'a> {
 mod tests {
     use super::*;
     use crate::{parser::parse_cypher_query, NodeMapping};
+
+    #[test]
+    fn return_alias_shadows_node_only_after_projection() {
+        let config = GraphConfig::builder()
+            .node_table("Person", "id")
+            .build()
+            .unwrap();
+        let query =
+            parse_cypher_query("MATCH (p:Person) RETURN p.name AS P, p.id AS id ORDER BY p")
+                .unwrap();
+        let LogicalOperator::Sort { input, sort_items } =
+            LogicalPlanner::new(&config).plan(&query).unwrap()
+        else {
+            panic!("expected sort");
+        };
+        assert_eq!(
+            sort_items[0].expression,
+            ValueExpression::Variable("p".into())
+        );
+        let LogicalOperator::Project { projections, .. } = *input else {
+            panic!("expected projection");
+        };
+        assert_eq!(
+            projections[1].expression,
+            ValueExpression::Property(PropertyRef {
+                variable: "p".into(),
+                property: "id".into(),
+            })
+        );
+
+        let query = parse_cypher_query("MATCH (p:Person) RETURN p AS p ORDER BY p").unwrap();
+        let LogicalOperator::Sort { sort_items, .. } =
+            LogicalPlanner::new(&config).plan(&query).unwrap()
+        else {
+            panic!("expected sort");
+        };
+        assert_eq!(sort_items[0].expression, projections[1].expression);
+    }
 
     #[test]
     fn test_relationship_query_logical_plan_structure() {
