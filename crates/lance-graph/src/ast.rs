@@ -80,9 +80,14 @@ impl CypherQuery {
             )
     }
 
-    /// Visit each independently scoped query without cloning its AST.
+    /// Visit query scopes, including UNION branches and nested CALL bodies.
     pub(crate) fn for_each_query(&self, visit: &mut dyn FnMut(&Self)) {
         visit(self);
+        for clause in self.all_reading_clauses() {
+            if let ReadingClause::Call(query) = clause {
+                query.for_each_query(visit);
+            }
+        }
         for branch in &self.union_branches {
             branch.query.for_each_query(visit);
         }
@@ -93,6 +98,13 @@ impl CypherQuery {
         let mut labels = Vec::new();
         // Iterate all match clauses directly
         for clause in self.all_reading_clauses() {
+            if let ReadingClause::Call(inner) = clause {
+                for label in inner.get_node_labels() {
+                    if !labels.contains(&label) {
+                        labels.push(label);
+                    }
+                }
+            }
             if let ReadingClause::Match(match_clause) = clause {
                 for pattern in &match_clause.patterns {
                     match pattern {
@@ -135,6 +147,13 @@ impl CypherQuery {
     pub fn get_relationship_types(&self) -> Vec<String> {
         let mut types = Vec::new();
         for clause in self.all_reading_clauses() {
+            if let ReadingClause::Call(inner) = clause {
+                for kind in inner.get_relationship_types() {
+                    if !types.contains(&kind) {
+                        types.push(kind);
+                    }
+                }
+            }
             if let ReadingClause::Match(match_clause) = clause {
                 for pattern in &match_clause.patterns {
                     self.collect_relationship_types_from_pattern(pattern, &mut types);
@@ -173,6 +192,49 @@ impl CypherQuery {
 pub enum ReadingClause {
     Match(MatchClause),
     Unwind(UnwindClause),
+    /// Read-only subquery, with an optional explicit importing WITH.
+    Call(Box<CypherQuery>),
+}
+
+impl CypherQuery {
+    /// Every outer variable needed by this CALL's independently scoped UNION branches.
+    pub(crate) fn call_union_imports(&self) -> crate::error::Result<Vec<String>> {
+        let mut names = self.call_imports()?;
+        for branch in &self.union_branches {
+            names.extend(branch.query.call_union_imports()?);
+        }
+        names.sort();
+        names.dedup();
+        Ok(names)
+    }
+
+    /// Names explicitly imported by a leading plain WITH in a CALL body.
+    pub(crate) fn call_imports(&self) -> crate::error::Result<Vec<String>> {
+        let Some(clause) = self
+            .with_clause
+            .as_ref()
+            .filter(|_| self.reading_clauses.is_empty())
+        else {
+            return Ok(vec![]);
+        };
+        if clause.distinct
+            || clause.order_by.is_some()
+            || clause.limit.is_some()
+            || clause.where_clause.is_some()
+        {
+            return Err(crate::error::GraphError::PlanError {
+                message: "CALL importing WITH must contain only unaliased variable names; use a second WITH for expressions or filters".into(),
+                location: snafu::Location::new(file!(), line!(), column!()),
+            });
+        }
+        clause.items.iter().map(|item| match (&item.expression, &item.alias) {
+            (ValueExpression::Variable(name), None) => Ok(name.to_lowercase()),
+            _ => Err(crate::error::GraphError::PlanError {
+                message: "CALL importing WITH must contain only unaliased variable names; use a second WITH for expressions".into(),
+                location: snafu::Location::new(file!(), line!(), column!()),
+            }),
+        }).collect()
+    }
 }
 
 /// A MATCH clause containing graph patterns

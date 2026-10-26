@@ -122,6 +122,11 @@ impl DataFusionPlanner {
             LogicalOperator::ListComprehension { input, .. } => {
                 Self::collect_variables(input, vars)
             }
+            LogicalOperator::Apply { input, labels, .. } => {
+                Self::collect_variables(input, vars);
+                vars.extend(labels.keys().cloned());
+            }
+            LogicalOperator::CallInput { labels } => vars.extend(labels.keys().cloned()),
             LogicalOperator::ComprehensionElement | LogicalOperator::SingleRow => {}
         }
     }
@@ -195,6 +200,15 @@ impl DataFusionPlanner {
             LogicalOperator::ShortestPath { input, .. } => Self::collect_labels(input, labels),
             LogicalOperator::Union { .. } => {}
             LogicalOperator::ListComprehension { input, .. } => Self::collect_labels(input, labels),
+            LogicalOperator::Apply {
+                input,
+                labels: exports,
+                ..
+            } => {
+                Self::collect_labels(input, labels);
+                labels.extend(exports.clone());
+            }
+            LogicalOperator::CallInput { labels: imports } => labels.extend(imports.clone()),
             LogicalOperator::ComprehensionElement | LogicalOperator::SingleRow => {}
         }
     }

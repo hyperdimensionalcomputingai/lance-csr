@@ -255,13 +255,16 @@ impl CypherQuery {
                         .iter()
                         .filter_map(|stage| stage.with_clause.limit.as_ref()),
                 )
-                .any(|count| matches!(count, crate::ast::RowCount::Parameter(_)));
+                .any(|count| matches!(count, crate::ast::RowCount::Parameter(_)))
+                || query
+                    .all_reading_clauses()
+                    .any(|clause| matches!(clause, ReadingClause::Call(_)));
         });
         if shape_sensitive
             || self.scalar_parameters().is_none()
             || crate::path_value::needs_values(&self.ast, self.require_config()?)
         {
-            // Parameterized row counts alter plan shape.
+            // CALL binds its own child templates; row counts alter plan shape.
             return Ok(false);
         }
         let (graph, datafusion) = self.build_logical_plans(catalog.clone(), true)?;
@@ -1270,6 +1273,7 @@ impl CypherQuery {
                 }
             }
         });
+
         labels.sort();
         labels.dedup();
         labels
@@ -1288,6 +1292,7 @@ impl CypherQuery {
                 }
             }
         });
+
         types.sort();
         types.dedup();
         types
@@ -1300,6 +1305,15 @@ impl CypherQuery {
         self.ast.for_each_query(&mut |ast| {
             for clause in ast.all_reading_clauses() {
                 match clause {
+                    ReadingClause::Call(inner) => {
+                        variables.extend(inner.call_imports().unwrap_or_default());
+                        variables.extend(inner.return_clause.items.iter().filter_map(|item| {
+                            item.alias.clone().or_else(|| match &item.expression {
+                                crate::ast::ValueExpression::Variable(name) => Some(name.clone()),
+                                _ => None,
+                            })
+                        }));
+                    }
                     ReadingClause::Match(match_clause) => {
                         for pattern in &match_clause.patterns {
                             self.collect_variables_from_pattern(pattern, &mut variables);
@@ -1311,6 +1325,7 @@ impl CypherQuery {
                 }
             }
         });
+
         variables.sort();
         variables.dedup();
         variables

@@ -40,6 +40,7 @@ pub struct PlanningContext<'a> {
     pub(crate) path_sources: crate::path_inventory::SourceBatches,
     pub(crate) relationship_instance_idx: HashMap<String, usize>,
     /// Element rows of the list comprehensions being built, innermost last.
+    pub(crate) call_input: Option<datafusion::logical_expr::LogicalPlan>,
     pub(crate) comprehension_elements: Vec<datafusion::logical_expr::LogicalPlan>,
 }
 
@@ -50,6 +51,7 @@ impl<'a> PlanningContext<'a> {
             path_sources: Default::default(),
             relationship_instance_idx: HashMap::new(),
             comprehension_elements: Vec::new(),
+            call_input: None,
         }
     }
 
@@ -267,6 +269,21 @@ fn analyze_operator(
                 analysis.required_datasets.insert(label.clone());
             }
             analyze_operator(element, analysis, rel_counter)?;
+        }
+        LogicalOperator::Apply {
+            input,
+            inner,
+            labels,
+            ..
+        } => {
+            analyze_operator(input, analysis, rel_counter)?;
+            analysis
+                .required_datasets
+                .extend(analyze(inner)?.required_datasets);
+            analysis.var_to_label.extend(labels.clone());
+        }
+        LogicalOperator::CallInput { labels } => {
+            analysis.var_to_label.extend(labels.clone());
         }
         LogicalOperator::ComprehensionElement | LogicalOperator::SingleRow => {}
     }

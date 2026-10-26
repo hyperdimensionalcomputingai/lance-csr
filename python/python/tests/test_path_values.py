@@ -556,7 +556,7 @@ def cross_label_graph(request):
     return config, tables, request.param
 
 
-@pytest.mark.parametrize("scope", ["direct", "alias", "union"])
+@pytest.mark.parametrize("scope", ["direct", "alias", "call", "union", "call_union"])
 def test_cross_label_shortest_scopes_rebind_each_parameter(cross_label_graph, scope):
     config, tables, use_csr = cross_label_graph
     engine = CypherEngine(config, tables, use_csr=use_csr)
@@ -565,7 +565,9 @@ def test_cross_label_shortest_scopes_rebind_each_parameter(cross_label_graph, sc
     queries = {
         "direct": body,
         "alias": prefix + "WITH p AS q RETURN length(q) AS hops, nodes(q) AS ids",
+        "call": "CALL { " + body + " } RETURN hops, ids",
         "union": body + " UNION ALL " + body,
+        "call_union": "CALL { " + body + " UNION ALL " + body + " } RETURN hops, ids",
     }
     query = queries[scope]
     copies = 2 if "union" in scope else 1

@@ -27,6 +27,7 @@ pub struct SemanticAnalyzer {
     current_scope: ScopeType,
     catalog: Option<Arc<dyn lance_graph_catalog::GraphSourceCatalog>>,
     expression_types: HashMap<String, ExpressionType>,
+    call_body: bool,
 }
 
 /// Information about a variable in the query
@@ -78,6 +79,7 @@ impl SemanticAnalyzer {
             current_scope: ScopeType::Match,
             catalog: None,
             expression_types: HashMap::new(),
+            call_body: false,
         }
     }
 
@@ -96,6 +98,17 @@ impl SemanticAnalyzer {
         query: &CypherQuery,
         parameters: &HashMap<String, serde_json::Value>,
     ) -> Result<SemanticResult> {
+        // UNION siblings receive the same available CALL imports, never variables
+        // created by the preceding branch. Each branch opts in with its own WITH.
+        let (imports, import_types) = if self.call_body {
+            let available = (self.variables.clone(), self.expression_types.clone());
+            let names = query.call_imports()?;
+            self.variables.retain(|name, _| names.contains(name));
+            self.expression_types.retain(|name, _| names.contains(name));
+            available
+        } else {
+            (HashMap::new(), HashMap::new())
+        };
         // Clone the query to perform parameter substitution
         let mut analyzed_query = query.clone();
 
@@ -109,6 +122,11 @@ impl SemanticAnalyzer {
         self.current_scope = ScopeType::Match;
         for clause in &analyzed_query.reading_clauses {
             match clause {
+                ReadingClause::Call(query) => {
+                    if let Err(error) = self.analyze_call(query) {
+                        errors.push(format!("CALL clause error: {error}"));
+                    }
+                }
                 ReadingClause::Match(match_clause) => {
                     if let Err(e) = self.analyze_match_clause(match_clause) {
                         errors.push(format!("MATCH clause error: {}", e));
@@ -142,6 +160,11 @@ impl SemanticAnalyzer {
         self.current_scope = ScopeType::Match;
         for clause in &analyzed_query.post_with_reading_clauses {
             match clause {
+                ReadingClause::Call(query) => {
+                    if let Err(error) = self.analyze_call(query) {
+                        errors.push(format!("CALL clause error: {error}"));
+                    }
+                }
                 ReadingClause::Match(match_clause) => {
                     if let Err(e) = self.analyze_match_clause(match_clause) {
                         errors.push(format!("Post-WITH MATCH clause error: {}", e));
@@ -172,6 +195,7 @@ impl SemanticAnalyzer {
             self.current_scope = ScopeType::Match;
             for clause in &stage.reading_clauses {
                 let result = match clause {
+                    ReadingClause::Call(query) => self.analyze_call(query),
                     ReadingClause::Match(match_clause) => self.analyze_match_clause(match_clause),
                     ReadingClause::Unwind(unwind_clause) => {
                         self.analyze_unwind_clause(unwind_clause)
@@ -203,6 +227,14 @@ impl SemanticAnalyzer {
             }
         }
 
+        if self.call_body
+            && query.return_clause.items.iter().any(|item| {
+                item.alias.is_none() && !matches!(item.expression, ValueExpression::Variable(_))
+            })
+        {
+            errors.push("CALL RETURN expressions need an alias".into());
+        }
+
         // Phase 7: Schema validation
         self.validate_schema(&mut warnings);
 
@@ -212,6 +244,9 @@ impl SemanticAnalyzer {
         for branch in &mut analyzed_query.union_branches {
             let mut analyzer = SemanticAnalyzer::new(self.config.clone());
             analyzer.catalog = self.catalog.clone();
+            analyzer.call_body = self.call_body;
+            analyzer.variables = imports.clone();
+            analyzer.expression_types = import_types.clone();
             let analyzed = analyzer.analyze(&branch.query, parameters)?;
             branch.query = analyzed.ast;
             errors.extend(
@@ -229,6 +264,61 @@ impl SemanticAnalyzer {
             errors,
             warnings,
         })
+    }
+
+    fn analyze_call(&mut self, query: &CypherQuery) -> Result<()> {
+        let error = |message| GraphError::PlanError {
+            message,
+            location: snafu::Location::new(file!(), line!(), column!()),
+        };
+        let mut inner = Self::new(self.config.clone());
+        inner.catalog = self.catalog.clone();
+        inner.call_body = true;
+        for name in query.call_union_imports()? {
+            let variable = self
+                .variables
+                .get(&name)
+                .ok_or_else(|| error(format!("CALL imports undefined variable '{name}'")))?;
+            inner.variables.insert(name.clone(), variable.clone());
+            if let Some(value_type) = self.expression_types.get(&name) {
+                inner.expression_types.insert(name, value_type.clone());
+            }
+        }
+        // Outer analysis already substituted all user parameters recursively.
+        let analyzed = inner.analyze(query, &HashMap::new())?;
+        if !analyzed.errors.is_empty() {
+            return Err(error(analyzed.errors.join("\n")));
+        }
+        let mut exports = HashSet::new();
+        for item in &query.return_clause.items {
+            let name = match (&item.alias, &item.expression) {
+                (Some(alias), _) => alias.to_lowercase(),
+                (None, ValueExpression::Variable(name)) => name.to_lowercase(),
+                _ => return Err(error("CALL RETURN expressions need an alias".into())),
+            };
+            if self.variables.contains_key(&name) || !exports.insert(name.clone()) {
+                return Err(error(format!(
+                    "CALL export '{name}' collides with an existing variable"
+                )));
+            }
+            let value_type = inner.expression_type(&item.expression);
+            let (variable_type, labels) = match &value_type {
+                ExpressionType::Entity(kind, labels) => (kind.clone(), labels.clone()),
+                _ => (VariableType::Property, vec![]),
+            };
+            self.variables.insert(
+                name.clone(),
+                VariableInfo {
+                    name: name.clone(),
+                    variable_type,
+                    labels,
+                    properties: HashSet::new(),
+                    defined_in: self.current_scope.clone(),
+                },
+            );
+            self.expression_types.insert(name, value_type);
+        }
+        Ok(())
     }
 
     /// Analyze MATCH clause and discover variables

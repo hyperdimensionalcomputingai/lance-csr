@@ -99,3 +99,7 @@ results stay bounded, while joins, sorts, aggregations and the CSR itself hold d
 sets no memory limit or spill-to-disk policy, and never distributes work across machines: distributed
 execution is
 [out of scope](index.md#what-it-is-not) for the project.
+
+## Read-only subqueries
+
+`CALL { ... RETURN ... }` evaluates its child query once per incoming row. A leading plain `WITH` imports outer variables; each body and UNION branch has its own scope. The operator streams each child result before advancing to the next outer row and yields after bounded polling work, including empty batches. Dropping or expiring the reader releases its owned child stream.

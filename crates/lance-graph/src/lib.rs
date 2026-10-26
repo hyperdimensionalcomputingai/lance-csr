@@ -35,6 +35,7 @@
 //! # }
 //! ```
 
+mod apply;
 pub mod ast;
 pub mod case_insensitive;
 pub mod config;
