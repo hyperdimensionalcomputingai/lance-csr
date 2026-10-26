@@ -256,12 +256,14 @@ impl Adjacency {
         let added = self.added.get(&key).map_or(&[][..], Vec::as_slice);
         let removed = self.removed.get(&key).map_or(&[][..], Vec::as_slice);
         let mut removed = &removed[removed.partition_point(|&position| position < *offset)..];
-        base.iter()
-            .chain(added)
-            .enumerate()
-            .skip(*offset)
-            .map(move |(position, &neighbor)| {
-                *offset = position + 1;
+        let added_offset = offset.saturating_sub(base.len());
+        base.get(*offset..)
+            .unwrap_or_default()
+            .iter()
+            .chain(added.get(added_offset..).unwrap_or_default())
+            .map(move |&neighbor| {
+                let position = *offset;
+                *offset += 1;
                 if removed.first() == Some(&position) {
                     removed = &removed[1..];
                     None
@@ -796,7 +798,7 @@ pub struct Neighbors {
 }
 
 /// Occurrence offsets are sufficient to pause even a high-degree source row.
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub(crate) struct NeighborPosition {
     forward: usize,
     reverse: usize,
@@ -1195,17 +1197,37 @@ impl BatchExpansion {
         batch_size: usize,
     ) -> ExpandedRows {
         let mut chunk = ExpandedRows::default();
+        loop {
+            if self.fill_chunk(adjacency, target, batch_size, &mut chunk) {
+                cooperative_yield().await;
+            }
+            if self.row == self.keys.len() || chunk.rows.len() == batch_size.max(1) {
+                return chunk;
+            }
+        }
+    }
+
+    /// Keep coroutine state outside the scan while counting deleted occurrences as work.
+    fn fill_chunk(
+        &mut self,
+        adjacency: &Neighbors,
+        target: Option<&TargetLookup>,
+        batch_size: usize,
+        chunk: &mut ExpandedRows,
+    ) -> bool {
+        let mut position = self.position;
+        let mut row = self.row;
         let mut work = 0_usize;
-        while self.row < self.keys.len() {
-            let i = self.row;
+        'rows: while row < self.keys.len() {
+            let i = row;
             if self.keys.is_valid(i) && self.bound.as_ref().is_none_or(|b| b.is_valid(i)) {
                 let key = self.keys.value(i);
                 let required = self.bound.as_ref().map(|b| b.value(i));
-                for candidate in adjacency.candidates_from(key, &mut self.position) {
+                for candidate in adjacency
+                    .candidates_from(key, &mut position)
+                    .take(1024 - work)
+                {
                     work += 1;
-                    if work.is_multiple_of(1024) {
-                        cooperative_yield().await;
-                    }
                     let Some(neighbor) = candidate else {
                         continue;
                     };
@@ -1214,24 +1236,28 @@ impl BatchExpansion {
                         continue;
                     }
                     if let Some(target) = target {
-                        // No target row: the inner join would drop this edge too.
-                        let Some(position) = target.rows.position(neighbor) else {
+                        let Some(target_row) = target.rows.position(neighbor) else {
                             continue;
                         };
-                        chunk.target_positions.push(position);
+                        chunk.target_positions.push(target_row);
                     }
                     chunk.rows.push(i as u32);
                     chunk.key_values.push(key);
                     chunk.neighbor_values.push(neighbor);
                     if chunk.rows.len() == batch_size.max(1) {
-                        return chunk;
+                        break 'rows;
                     }
                 }
+                if work == 1024 {
+                    break;
+                }
             }
-            self.row += 1;
-            self.position = NeighborPosition::default();
+            row += 1;
+            position = NeighborPosition::default();
         }
-        chunk
+        self.row = row;
+        self.position = position;
+        work == 1024
     }
 }
 
@@ -1793,6 +1819,33 @@ mod tests {
         assert!(neighbors(&later, 9).is_empty());
         assert_eq!(neighbors(&base, 1), vec![2, 2, 3]);
         assert!(Arc::ptr_eq(&base.base, &later.base));
+    }
+
+    #[tokio::test]
+    async fn resumed_neighbors_cross_the_base_and_delta_boundary() {
+        let base = Adjacency::build(
+            edge_stream(vec![Some(1), Some(1)], vec![Some(10), Some(11)]),
+            "src",
+            "dst",
+        )
+        .await
+        .unwrap();
+        let next = base.with_changes(&[(1, 12), (1, 12), (1, 13)], &[(1, 11), (1, 12)]);
+        for (mut offset, expected) in [
+            (0, vec![10, 12, 13]),
+            (1, vec![12, 13]),
+            (2, vec![12, 13]),
+            (3, vec![12, 13]),
+            (4, vec![13]),
+            (5, vec![]),
+            (6, vec![]),
+        ] {
+            assert_eq!(
+                next.neighbors_from(1, &mut offset).collect::<Vec<_>>(),
+                expected
+            );
+        }
+        assert_eq!(neighbors(&base, 1), vec![10, 11]);
     }
 
     #[tokio::test]
