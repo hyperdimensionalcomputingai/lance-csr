@@ -230,6 +230,7 @@ impl Adjacency {
         self.neighbors_from(key, &mut 0).for_each(f);
     }
 
+    #[inline(always)]
     fn base_neighbors(&self, key: i64) -> &[u64] {
         self.base
             .dense
@@ -238,6 +239,7 @@ impl Adjacency {
     }
 
     /// Resume at an occurrence offset, borrowing all neighbour and deletion storage.
+    #[inline(always)]
     fn neighbors_from<'a>(
         &'a self,
         key: i64,
@@ -247,6 +249,7 @@ impl Adjacency {
     }
 
     /// Keep tombstones visible to cancellation without repeating lookups for every edge.
+    #[inline(always)]
     fn candidates_from<'a>(
         &'a self,
         key: i64,
@@ -824,6 +827,7 @@ impl Neighbors {
             .for_each(f);
     }
 
+    #[inline(always)]
     fn neighbors_from<'a>(
         &'a self,
         key: i64,
@@ -833,6 +837,7 @@ impl Neighbors {
     }
 
     /// Borrow each adjacency once while exposing tombstones and suppressed self-loops as work.
+    #[inline(always)]
     pub(crate) fn candidates_from<'a>(
         &'a self,
         key: i64,
