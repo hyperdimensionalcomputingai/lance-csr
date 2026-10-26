@@ -90,3 +90,14 @@ def test_expensive_query_stops_and_engine_stays_usable(engine):
         )
     assert time.monotonic() - started < 2.0
     assert engine.execute("RETURN 2 AS n").to_pylist() == [{"n": 2}]
+
+
+def test_correlated_call_inherits_deadline_and_leaves_engine_reusable(engine):
+    query = (
+        "UNWIND [1, 2] AS minimum CALL { WITH minimum "
+        "MATCH (a:Person), (b:Person), (c:Person) "
+        "WHERE a.id + b.id + c.id > minimum RETURN count(*) AS n } RETURN n"
+    )
+    with pytest.raises(TimeoutError, match="Query timeout exceeded"):
+        engine.execute(query, timeout=0.05)
+    assert engine.execute("RETURN 4 AS n", timeout=10).to_pylist() == [{"n": 4}]
