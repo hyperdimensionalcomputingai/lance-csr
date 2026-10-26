@@ -5,7 +5,7 @@
 
 use std::future::Future;
 use std::sync::Arc;
-use std::time::Instant;
+use tokio::time::Instant;
 
 use arrow_schema::{DataType, Field, Schema};
 use datafusion::common::config::ConfigOptions;
