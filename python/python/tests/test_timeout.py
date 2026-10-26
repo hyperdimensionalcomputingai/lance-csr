@@ -72,8 +72,11 @@ def test_no_deadline_and_normal_execution_errors(engine):
 
 def test_execution_error_in_a_timed_stream_is_preserved(engine):
     reader = engine.execute_batches("MATCH (p:Person) RETURN 1 / p.id AS n", timeout=10)
+    # Only the batch holding p.id = 0 fails, and partitions finish in any order, so
+    # earlier reads may succeed; the error must still surface before the stream ends.
     with pytest.raises(pa.ArrowInvalid) as raised:
-        reader.read_next_batch()
+        while True:
+            reader.read_next_batch()
     assert "Query timeout exceeded" not in str(raised.value)
     with pytest.raises(StopIteration):
         reader.read_next_batch()

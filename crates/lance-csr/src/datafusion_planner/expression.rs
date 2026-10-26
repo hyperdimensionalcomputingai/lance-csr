@@ -327,13 +327,8 @@ pub(crate) fn to_df_value_expr(expr: &ValueExpression) -> Expr {
                                 // Use <variable>__id as a null-sensitive column
                                 // This ensures optional matches with NULL variables are not counted
                                 //
-                                // LIMITATION: This assumes all bindings expose a <var>__id column.
-                                // This is true for ScanByLabel and Expand, but NOT for:
-                                // - UNWIND-created variables (e.g., UNWIND [1,2,3] AS x)
-                                // - WITH-projected aliases (e.g., WITH 1 AS x)
-                                // Those cases will produce a runtime "column not found" error.
-                                // TODO: Consider using COUNT(1) for non-node variables, or add
-                                // semantic validation to reject COUNT(variable) for non-node types.
+                                // Paths, UNWIND and WITH values have no <var>__id column; the
+                                // aggregate builder, which sees the schema, counts the value instead.
                                 // Use qualify_column for consistent case-insensitive normalization
                                 col(qualify_column(v, "id"))
                             }

@@ -2786,24 +2786,24 @@ async fn test_count_with_grouping() {
         .unwrap();
 
     // NULL city: 1 person (David)
-    assert!(city_col.is_null(0));
-    assert_eq!(count_col.value(0), 1);
+    assert!(city_col.is_null(4));
+    assert_eq!(count_col.value(4), 1);
 
     // Chicago: 1 person (Charlie)
-    assert_eq!(city_col.value(1), "Chicago");
-    assert_eq!(count_col.value(1), 1);
+    assert_eq!(city_col.value(0), "Chicago");
+    assert_eq!(count_col.value(0), 1);
 
     // New York: 1 person (Alice)
-    assert_eq!(city_col.value(2), "New York");
-    assert_eq!(count_col.value(2), 1);
+    assert_eq!(city_col.value(1), "New York");
+    assert_eq!(count_col.value(1), 1);
 
     // San Francisco: 1 person (Bob)
-    assert_eq!(city_col.value(3), "San Francisco");
-    assert_eq!(count_col.value(3), 1);
+    assert_eq!(city_col.value(2), "San Francisco");
+    assert_eq!(count_col.value(2), 1);
 
     // Seattle: 1 person (Eve)
-    assert_eq!(city_col.value(4), "Seattle");
-    assert_eq!(count_col.value(4), 1);
+    assert_eq!(city_col.value(3), "Seattle");
+    assert_eq!(count_col.value(3), 1);
 }
 
 #[tokio::test]
@@ -3148,21 +3148,21 @@ async fn test_sum_with_grouping() {
         .downcast_ref::<Int64Array>()
         .unwrap();
 
-    // Verify grouping results (ordered by city, NULL comes first)
-    assert!(city_col.is_null(0)); // David: 40 (NULL city)
-    assert_eq!(sum_col.value(0), 40);
+    // Verify grouping results (ordered by city, NULL sorts last, as in openCypher
+    assert!(city_col.is_null(4)); // David: 40 (NULL city)
+    assert_eq!(sum_col.value(4), 40);
 
-    assert_eq!(city_col.value(1), "Chicago"); // Charlie: 30
-    assert_eq!(sum_col.value(1), 30);
+    assert_eq!(city_col.value(0), "Chicago"); // Charlie: 30
+    assert_eq!(sum_col.value(0), 30);
 
-    assert_eq!(city_col.value(2), "New York"); // Alice: 25
-    assert_eq!(sum_col.value(2), 25);
+    assert_eq!(city_col.value(1), "New York"); // Alice: 25
+    assert_eq!(sum_col.value(1), 25);
 
-    assert_eq!(city_col.value(3), "San Francisco"); // Bob: 35
-    assert_eq!(sum_col.value(3), 35);
+    assert_eq!(city_col.value(2), "San Francisco"); // Bob: 35
+    assert_eq!(sum_col.value(2), 35);
 
-    assert_eq!(city_col.value(4), "Seattle"); // Eve: 28
-    assert_eq!(sum_col.value(4), 28);
+    assert_eq!(city_col.value(3), "Seattle"); // Eve: 28
+    assert_eq!(sum_col.value(3), 28);
 }
 
 #[tokio::test]
@@ -3297,21 +3297,21 @@ async fn test_avg_with_grouping() {
         .downcast_ref::<Float64Array>()
         .unwrap();
 
-    // Verify grouping results (ordered by city, NULL comes first)
-    assert!(city_col.is_null(0)); // David: 40 (NULL city)
-    assert_eq!(avg_col.value(0), 40.0);
+    // Verify grouping results (ordered by city, NULL sorts last, as in openCypher
+    assert!(city_col.is_null(4)); // David: 40 (NULL city)
+    assert_eq!(avg_col.value(4), 40.0);
 
-    assert_eq!(city_col.value(1), "Chicago"); // Charlie: 30
-    assert_eq!(avg_col.value(1), 30.0);
+    assert_eq!(city_col.value(0), "Chicago"); // Charlie: 30
+    assert_eq!(avg_col.value(0), 30.0);
 
-    assert_eq!(city_col.value(2), "New York"); // Alice: 25
-    assert_eq!(avg_col.value(2), 25.0);
+    assert_eq!(city_col.value(1), "New York"); // Alice: 25
+    assert_eq!(avg_col.value(1), 25.0);
 
-    assert_eq!(city_col.value(3), "San Francisco"); // Bob: 35
-    assert_eq!(avg_col.value(3), 35.0);
+    assert_eq!(city_col.value(2), "San Francisco"); // Bob: 35
+    assert_eq!(avg_col.value(2), 35.0);
 
-    assert_eq!(city_col.value(4), "Seattle"); // Eve: 28
-    assert_eq!(avg_col.value(4), 28.0);
+    assert_eq!(city_col.value(3), "Seattle"); // Eve: 28
+    assert_eq!(avg_col.value(3), 28.0);
 }
 
 #[tokio::test]
@@ -3473,31 +3473,31 @@ async fn test_min_max_with_grouping() {
         .downcast_ref::<Int64Array>()
         .unwrap();
 
-    // ORDER BY p.city, NULL comes first per your other tests
-    assert!(city_col_min.is_null(0)); // David city NULL
-    assert!(city_col_max.is_null(0));
-    assert_eq!(min_col_min.value(0), 40);
-    assert_eq!(min_col_max.value(0), 40);
+    // ORDER BY p.city, NULL sorts last, as in openCypher
+    assert!(city_col_min.is_null(4)); // David city NULL
+    assert!(city_col_max.is_null(4));
+    assert_eq!(min_col_min.value(4), 40);
+    assert_eq!(min_col_max.value(4), 40);
 
-    assert_eq!(city_col_min.value(1), "Chicago"); // Charlie
-    assert_eq!(city_col_max.value(1), "Chicago");
-    assert_eq!(min_col_min.value(1), 30);
-    assert_eq!(min_col_max.value(1), 30);
+    assert_eq!(city_col_min.value(0), "Chicago"); // Charlie
+    assert_eq!(city_col_max.value(0), "Chicago");
+    assert_eq!(min_col_min.value(0), 30);
+    assert_eq!(min_col_max.value(0), 30);
 
-    assert_eq!(city_col_min.value(2), "New York"); // Alice
-    assert_eq!(city_col_max.value(2), "New York");
-    assert_eq!(min_col_min.value(2), 25);
-    assert_eq!(min_col_max.value(2), 25);
+    assert_eq!(city_col_min.value(1), "New York"); // Alice
+    assert_eq!(city_col_max.value(1), "New York");
+    assert_eq!(min_col_min.value(1), 25);
+    assert_eq!(min_col_max.value(1), 25);
 
-    assert_eq!(city_col_min.value(3), "San Francisco"); // Bob
-    assert_eq!(city_col_max.value(3), "San Francisco");
-    assert_eq!(min_col_min.value(3), 35);
-    assert_eq!(min_col_max.value(3), 35);
+    assert_eq!(city_col_min.value(2), "San Francisco"); // Bob
+    assert_eq!(city_col_max.value(2), "San Francisco");
+    assert_eq!(min_col_min.value(2), 35);
+    assert_eq!(min_col_max.value(2), 35);
 
-    assert_eq!(city_col_min.value(4), "Seattle"); // Eve
-    assert_eq!(city_col_max.value(4), "Seattle");
-    assert_eq!(min_col_min.value(4), 28);
-    assert_eq!(min_col_max.value(4), 28);
+    assert_eq!(city_col_min.value(3), "Seattle"); // Eve
+    assert_eq!(city_col_max.value(3), "Seattle");
+    assert_eq!(min_col_min.value(3), 28);
+    assert_eq!(min_col_max.value(3), 28);
 }
 
 // ============================================================================
@@ -4823,16 +4823,14 @@ async fn test_unwind_simple_list() {
     }
 }
 
-/// Test that COUNT(x) where x comes from UNWIND fails gracefully
-/// This documents a known limitation: COUNT(variable) assumes variable__id exists,
-/// but UNWIND-created variables don't have __id columns.
+/// COUNT(x) where x comes from UNWIND counts the values: UNWIND variables have no
+/// `x__id` column, so the aggregate counts the value column itself.
 #[tokio::test]
-async fn test_count_unwind_variable_known_limitation() {
+async fn test_count_unwind_variable() {
     let config = create_graph_config();
     let person_batch = create_person_dataset();
 
-    // COUNT(x) where x comes from UNWIND - x has no __id column
-    let query = CypherQuery::new("UNWIND [1, 2, 3] AS x RETURN COUNT(x)")
+    let query = CypherQuery::new("UNWIND [1, 2, 3] AS x RETURN COUNT(x) AS n")
         .unwrap()
         .with_config(config);
 
@@ -4841,15 +4839,15 @@ async fn test_count_unwind_variable_known_limitation() {
 
     let result = query
         .execute(datasets, Some(ExecutionStrategy::DataFusion))
-        .await;
-
-    // This currently fails because COUNT(x) looks for x__id which doesn't exist
-    // If this starts passing in the future, update the test to verify correct count (3)
-    assert!(
-        result.is_err(),
-        "COUNT(unwind_variable) should fail - no __id column. If this passes, \
-         the limitation has been fixed and test should verify COUNT returns 3"
-    );
+        .await
+        .unwrap();
+    let n = result
+        .column_by_name("n")
+        .unwrap()
+        .as_any()
+        .downcast_ref::<Int64Array>()
+        .unwrap();
+    assert_eq!(n.value(0), 3);
 }
 
 #[tokio::test]

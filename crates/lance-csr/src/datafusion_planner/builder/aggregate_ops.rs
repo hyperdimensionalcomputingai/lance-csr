@@ -36,6 +36,27 @@ fn split_aggregates(expr: &mut ValueExpression, aggregates: &mut Vec<(String, Va
     });
 }
 
+/// `count(v)` lowers to `count(v__id)`, which only nodes and relationships have. For a
+/// value without an id column (a path, or an UNWIND or WITH value), count the value itself.
+fn count_values_without_ids(
+    args: &mut [datafusion::logical_expr::Expr],
+    schema: &datafusion::common::DFSchema,
+) {
+    for arg in args {
+        let datafusion::logical_expr::Expr::Column(column) = arg else {
+            continue;
+        };
+        let Some(variable) = column.name.strip_suffix("__id") else {
+            continue;
+        };
+        if !schema.has_column_with_unqualified_name(&column.name)
+            && schema.has_column_with_unqualified_name(variable)
+        {
+            *arg = col(datafusion::common::Column::new_unqualified(variable));
+        }
+    }
+}
+
 impl DataFusionPlanner {
     pub(crate) fn build_project_with_aggregates(
         &self,
@@ -81,10 +102,13 @@ impl DataFusionPlanner {
                 split_aggregates(&mut rewritten, &mut aggregates);
                 for (column, aggregate) in &aggregates[first..] {
                     let mut aggregate = self.value_expr(aggregate, &schema)?;
-                    // collect() gathers in the order of a preceding `WITH ... ORDER BY`.
                     if let datafusion::logical_expr::Expr::AggregateFunction(f) = &mut aggregate {
+                        // collect() gathers in the order of a preceding `WITH ... ORDER BY`.
                         if f.func.name() == "array_agg" && !f.params.distinct {
                             f.params.order_by = ordering.to_vec();
+                        }
+                        if f.func.name() == "count" {
+                            count_values_without_ids(&mut f.params.args, &schema);
                         }
                     }
                     agg_exprs.push(aggregate.alias(column));

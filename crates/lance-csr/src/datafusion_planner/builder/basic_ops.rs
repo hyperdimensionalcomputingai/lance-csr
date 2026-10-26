@@ -346,10 +346,12 @@ impl DataFusionPlanner {
             .map(|item| {
                 let bound =
                     super::super::expression::bind_value(&item.expression, input_plan.schema());
+                let asc = matches!(item.direction, crate::ast::SortDirection::Ascending);
+                // openCypher orders null after every value: last ascending, first descending.
                 SortExpr {
                     expr: self.unresolved_value_expr(&bound),
-                    asc: matches!(item.direction, crate::ast::SortDirection::Ascending),
-                    nulls_first: true,
+                    asc,
+                    nulls_first: !asc,
                 }
             })
             .collect()
