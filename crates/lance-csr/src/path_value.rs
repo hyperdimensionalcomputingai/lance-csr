@@ -13,10 +13,10 @@ use arrow::compute::take;
 use arrow_schema::{DataType, Field, Fields};
 use datafusion::common::Result;
 
-pub(crate) const PROPERTIES: &str = "__lance_graph_properties";
-pub(crate) const IDENTITY: &str = "__lance_graph_identity";
-pub(crate) const START: &str = "__lance_graph_start";
-pub(crate) const END: &str = "__lance_graph_end";
+pub(crate) const PROPERTIES: &str = "__lance_csr_properties";
+pub(crate) const IDENTITY: &str = "__lance_csr_identity";
+pub(crate) const START: &str = "__lance_csr_start";
+pub(crate) const END: &str = "__lance_csr_end";
 const ENTITY: &str = "lance_csr.entity";
 
 pub(crate) fn entity_kind(data_type: &DataType) -> Option<&str> {
