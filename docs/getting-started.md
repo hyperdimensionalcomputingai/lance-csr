@@ -31,6 +31,10 @@ build from the source distribution, which needs Rust and `protoc` (see [Contribu
 
 The package depends on `pyarrow>=14` and `pylance` 13.x, which uv installs for you.
 
+!!! tip "Using Rust?"
+
+    The same engine is on crates.io: run `cargo add lance-csr` and see [Using from Rust](rust.md).
+
 !!! note "Docs track the `main` branch"
 
     These pages describe the code on `main`. The `node_table` and `rel_table` builder methods arrived in
@@ -160,5 +164,6 @@ than one query against the same data.
 - [Graph schema](graph-schema.md): every option of `GraphConfig`.
 - [Querying with Cypher](cypher.md): parameters, streaming, `explain()` and the supported Cypher.
 - [Lance datasets](lance.md): query data on disk without loading it, and pick up new writes with `refresh()`.
+- [Using from Rust](rust.md): the same engine as a Rust library.
 - The [`examples/`](https://github.com/hyperdimensionalcomputingai/lance-csr/tree/main/examples) directory has
   runnable scripts.

@@ -76,7 +76,7 @@ DataFusion as extension operators, falling back to a join for any hop the CSR ca
 
 ## Repository layout
 
-- `crates/lance-graph` – the Cypher-capable query engine implemented in Rust
+- `crates/lance-csr` – the Cypher-capable query engine implemented in Rust
 - `python/` – PyO3 bindings and Python packages:
   - `lance_csr` – thin wrapper around the Rust query engine
 
@@ -90,6 +90,10 @@ uv add lance-csr
 
 Prebuilt wheels cover Linux x86-64 and native Apple Silicon (CPython 3.12+); no Rust toolchain is needed.
 See [`python/README.md`](python/README.md) for details and usage.
+
+To use the engine from Rust, add the crate with `cargo add lance-csr` and see
+[`crates/lance-csr/README.md`](crates/lance-csr/README.md) and the
+[Rust guide](https://lance-csr.pages.dev/rust/).
 
 ## Build from source
 

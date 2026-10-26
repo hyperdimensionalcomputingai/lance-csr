@@ -3946,6 +3946,63 @@ dependencies = [
 ]
 
 [[package]]
+name = "lance-csr"
+version = "0.3.0"
+dependencies = [
+ "ahash",
+ "arrow",
+ "arrow-array",
+ "arrow-schema",
+ "async-trait",
+ "datafusion",
+ "datafusion-common",
+ "datafusion-expr",
+ "datafusion-functions-aggregate",
+ "datafusion-sql",
+ "futures",
+ "lance",
+ "lance-arrow",
+ "lance-csr-catalog",
+ "lance-linalg",
+ "lance-namespace",
+ "lance-table",
+ "nom 7.1.3",
+ "serde",
+ "serde_json",
+ "snafu 0.8.9",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "lance-csr-benches"
+version = "0.3.0"
+dependencies = [
+ "arrow-array",
+ "arrow-schema",
+ "criterion",
+ "futures",
+ "lance",
+ "lance-csr",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "lance-csr-catalog"
+version = "0.3.0"
+dependencies = [
+ "arrow-schema",
+ "async-trait",
+ "datafusion",
+ "lance-namespace",
+ "serde",
+ "serde_json",
+ "snafu 0.8.9",
+ "tokio",
+]
+
+[[package]]
 name = "lance-datafusion"
 version = "13.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4072,63 +4129,6 @@ dependencies = [
  "geodatafusion",
  "lance-core",
  "serde",
-]
-
-[[package]]
-name = "lance-graph"
-version = "0.2.0"
-dependencies = [
- "ahash",
- "arrow",
- "arrow-array",
- "arrow-schema",
- "async-trait",
- "datafusion",
- "datafusion-common",
- "datafusion-expr",
- "datafusion-functions-aggregate",
- "datafusion-sql",
- "futures",
- "lance",
- "lance-arrow",
- "lance-graph-catalog",
- "lance-linalg",
- "lance-namespace",
- "lance-table",
- "nom 7.1.3",
- "serde",
- "serde_json",
- "snafu 0.8.9",
- "tempfile",
- "tokio",
-]
-
-[[package]]
-name = "lance-graph-benches"
-version = "0.2.0"
-dependencies = [
- "arrow-array",
- "arrow-schema",
- "criterion",
- "futures",
- "lance",
- "lance-graph",
- "tempfile",
- "tokio",
-]
-
-[[package]]
-name = "lance-graph-catalog"
-version = "0.2.0"
-dependencies = [
- "arrow-schema",
- "async-trait",
- "datafusion",
- "lance-namespace",
- "serde",
- "serde_json",
- "snafu 0.8.9",
- "tokio",
 ]
 
 [[package]]
