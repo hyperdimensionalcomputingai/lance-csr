@@ -23,8 +23,6 @@ def engine(request):
     [
         ("RETURN 1 AS n UNION RETURN 1 AS n", [1]),
         ("RETURN 1 AS n UNION ALL RETURN 1 AS n", [1, 1]),
-        ("RETURN 1 AS n UNION ALL RETURN 1 AS n UNION RETURN 2 AS n", [1, 2]),
-        ("RETURN 1 AS n UNION RETURN 1 AS n UNION ALL RETURN 1 AS n", [1, 1]),
         (
             "MATCH (p:Person) RETURN p.id AS n UNION MATCH (p:City) RETURN p.id AS n",
             [1, 2, 3],
@@ -76,6 +74,8 @@ def test_numeric_promotion_and_parameters(engine):
         "RETURN 1 AS x UNION RETURN 'a' AS x",
         "WITH 1 AS x RETURN x UNION RETURN x",
         "RETURN 1 AS x UNION ALL",
+        "RETURN 1 AS n UNION ALL RETURN 1 AS n UNION RETURN 2 AS n",
+        "RETURN 1 AS n UNION RETURN 1 AS n UNION ALL RETURN 1 AS n",
     ],
 )
 def test_invalid_union(engine, query):

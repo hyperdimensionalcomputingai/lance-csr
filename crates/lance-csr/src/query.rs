@@ -1601,10 +1601,6 @@ mod tests {
                 "MATCH (p:Person) RETURN p.id AS n UNION ALL RETURN 2 AS n",
                 4,
             ),
-            (
-                "RETURN 1 AS n UNION ALL RETURN 1 AS n UNION RETURN 2 AS n",
-                2,
-            ),
             ("RETURN NULL AS n UNION RETURN NULL AS n", 1),
         ] {
             let result = CypherQuery::new(query)
@@ -1618,6 +1614,7 @@ mod tests {
         for query in [
             "RETURN 1 AS x UNION RETURN 2 AS y",
             "RETURN 1 AS x UNION RETURN 'a' AS x",
+            "RETURN 1 AS n UNION ALL RETURN 1 AS n UNION RETURN 2 AS n",
         ] {
             assert!(CypherQuery::new(query)
                 .unwrap()

@@ -241,6 +241,17 @@ impl SemanticAnalyzer {
         // Phase 8: Type checking
         self.validate_types(&mut errors);
 
+        // openCypher allows UNION or UNION ALL throughout a query, not a mix of both.
+        if let Some(first) = analyzed_query.union_branches.first() {
+            if analyzed_query
+                .union_branches
+                .iter()
+                .any(|branch| branch.all != first.all)
+            {
+                errors.push("Invalid combination of UNION and UNION ALL".into());
+            }
+        }
+
         for branch in &mut analyzed_query.union_branches {
             let mut analyzer = SemanticAnalyzer::new(self.config.clone());
             analyzer.catalog = self.catalog.clone();

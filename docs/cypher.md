@@ -227,8 +227,8 @@ vectors; conversion to float32 happens inside the vector operation. A configured
 for standalone `RETURN` queries.
 
 `UNION` removes duplicate rows; `UNION ALL` preserves them. Branches have independent variable scopes and
-keep their own `ORDER BY`, `SKIP` and `LIMIT`. Combined output has no guaranteed order. Mixed UNION modes
-are evaluated from left to right. Numeric columns can promote to a common numeric type; incompatible
+keep their own `ORDER BY`, `SKIP` and `LIMIT`. Combined output has no guaranteed order. As in openCypher,
+one query uses either `UNION` or `UNION ALL` throughout; mixing them raises `ValueError`. Numeric columns can promote to a common numeric type; incompatible
 column counts, names or types raise `ValueError`. This follows the existing homogeneous Arrow value model.
 
 ```python
