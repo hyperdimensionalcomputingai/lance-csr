@@ -18,8 +18,9 @@ the internals; `rust.md` covers the same engine for Rust developers. The CSR ind
 - Preview with `uv run --project docs --locked zensical serve`; check with
   `uv run --project docs --locked zensical build --strict`, which CI runs on every pull request. Fix every
   warning.
-- Cloudflare Pages builds and hosts the site at https://lance-csr.pages.dev/ through its native GitHub
-  integration. Pushes to `main` automatically deploy when automatic production deployments are enabled.
+- Cloudflare Pages builds and hosts the site at https://lance-csr.hdclabs.ai/ (a custom domain on the
+  `lance-csr` Pages project) through its native GitHub integration. `site_url` in `zensical.toml` must match
+  it, because it sets the canonical and social-preview URLs. Pushes to `main` automatically deploy when automatic production deployments are enabled.
   Build from the repository root with the locked build command above and publish `site/`.
 - Files that aren't pages (this file, `check_snippets.py`, `sync_benchmarks.py`, the uv project, `overrides/`, the
   brand README and previews) are listed under `exclude_docs` in `zensical.toml`. Add new non-page files there.

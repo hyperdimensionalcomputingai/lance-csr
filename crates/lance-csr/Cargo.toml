@@ -5,6 +5,7 @@ edition = "2021"
 license = "Apache-2.0"
 authors = ["The lance-csr Authors"]
 repository = "https://github.com/hyperdimensionalcomputingai/lance-csr"
+homepage = "https://lance-csr.hdclabs.ai/"
 readme = "README.md"
 description = "Graph query engine for Lance datasets with Cypher support"
 keywords = ["lance", "graph", "cypher", "query", "datafusion"]

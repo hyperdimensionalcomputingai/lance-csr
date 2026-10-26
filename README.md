@@ -13,7 +13,7 @@
 [![PyPI version](https://img.shields.io/pypi/v/lance-csr?color=555)](https://pypi.org/project/lance-csr/)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-555)](LICENSE)
 
-[Documentation](https://lance-csr.pages.dev/) · [Examples](examples/README.md) ·
+[Documentation](https://lance-csr.hdclabs.ai/) · [Examples](examples/README.md) ·
 [Releases](https://github.com/hyperdimensionalcomputingai/lance-csr/releases) · [Contributing](CONTRIBUTING.md)
 
 lance-csr is a fast graph query engine over [Lance](https://lancedb.github.io/lance/) datasets, built in Rust on
@@ -21,7 +21,7 @@ Apache DataFusion, with Python bindings. It is a fork of [lance-graph](https://g
 and a research test bed: it pushes the limits of CSR indexes and DataFusion on top of the Lance format, with the
 goal of making multi-hop path traversal fast.
 
-**Documentation:** Visit the [lance-csr documentation site](https://lance-csr.pages.dev/) for getting started,
+**Documentation:** Visit the [lance-csr documentation site](https://lance-csr.hdclabs.ai/) for getting started,
 Cypher guides, the CSR index, the Python API reference, and benchmarks.
 
 ## Goals
@@ -93,7 +93,7 @@ See [`python/README.md`](python/README.md) for details and usage.
 
 To use the engine from Rust, add the crate with `cargo add lance-csr` and see
 [`crates/lance-csr/README.md`](crates/lance-csr/README.md) and the
-[Rust guide](https://lance-csr.pages.dev/rust/).
+[Rust guide](https://lance-csr.hdclabs.ai/rust/).
 
 ## Build from source
 

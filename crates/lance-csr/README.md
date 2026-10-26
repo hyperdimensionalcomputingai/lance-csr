@@ -44,8 +44,8 @@ new write with `refresh()`:
 cargo run -p lance-csr --example embedded_query
 ```
 
-The [Rust guide](https://lance-csr.pages.dev/rust/) covers the API, and the rest of the
-[documentation](https://lance-csr.pages.dev/) covers the graph schema, supported Cypher and the CSR index.
+The [Rust guide](https://lance-csr.hdclabs.ai/rust/) covers the API, and the rest of the
+[documentation](https://lance-csr.hdclabs.ai/) covers the graph schema, supported Cypher and the CSR index.
 Building the crate needs `protoc` for Lance's dependencies.
 
 For one query over in-memory batches, `CypherQuery` works without an engine:
@@ -141,7 +141,7 @@ A builder (`CypherQueryBuilder`) is also available for constructing queries prog
 
 ## Supported Cypher
 
-See [Supported Cypher](https://lance-csr.pages.dev/cypher/#supported-cypher) in the documentation for the
+See [Supported Cypher](https://lance-csr.hdclabs.ai/cypher/#supported-cypher) in the documentation for the
 clauses, patterns, expressions and functions the engine runs.
 
 ## Crate Layout
@@ -204,7 +204,7 @@ cargo test -p lance-csr
 ## Benchmarks
 
 All published numbers were measured through the Python package; see the
-[benchmarks page](https://lance-csr.pages.dev/benchmarks/). Criterion micro-benchmarks live in the unpublished
+[benchmarks page](https://lance-csr.hdclabs.ai/benchmarks/). Criterion micro-benchmarks live in the unpublished
 `lance-csr-benches` crate.
 
 ## Python Bindings
