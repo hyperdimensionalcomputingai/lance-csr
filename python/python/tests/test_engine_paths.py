@@ -95,3 +95,74 @@ def test_search_without_csr_reads_every_edge_partition():
         "MATCH p = shortestPath((a)-[:KNOWS*1..30]->(b)) RETURN length(p) AS l"
     )
     assert got.to_pylist() == [{"l": 5}]
+
+
+@pytest.mark.parametrize("use_csr", [False, True])
+@pytest.mark.parametrize("direction", ["outgoing", "incoming", "undirected"])
+def test_all_shortest_paths_keeps_every_meeting_node(use_csr, direction):
+    people = pa.table({"id": list(range(1, 10))})
+    knows = pa.table(
+        {
+            "src": [1, 1, 1, 1, 2, 2, 3, 3, 4, 5, 5],
+            "dst": [2, 2, 3, 9, 4, 4, 4, 4, 5, 5, 6],
+        }
+    )
+    engine = CypherEngine(CONFIG, {"Person": people, "KNOWS": knows}, use_csr=use_csr)
+    pattern = {
+        "outgoing": "(a)-[:KNOWS*1..3]->(b)",
+        "incoming": "(b)<-[:KNOWS*1..3]-(a)",
+        "undirected": "(a)-[:KNOWS*1..3]-(b)",
+    }[direction]
+    got = engine.execute(
+        "MATCH (a:Person {id: 1}), (b:Person {id: 5}) "
+        f"MATCH p = allShortestPaths({pattern}) RETURN length(p) AS l, nodes(p) AS ns"
+    ).to_pylist()
+    paths = [[1, 2, 4, 5]] * 4 + [[1, 3, 4, 5]] * 2
+    if direction == "incoming":
+        paths = [p[::-1] for p in paths]
+    assert sorted((r["l"], r["ns"]) for r in got) == sorted((3, p) for p in paths)
+
+
+@pytest.mark.parametrize("use_csr", [False, True])
+def test_shortest_paths_shares_a_source_across_targets(use_csr):
+    engine = CypherEngine(CONFIG, {"Person": PEOPLE, "KNOWS": KNOWS}, use_csr=use_csr)
+    got = engine.execute(
+        "MATCH (a:Person {id: 5}), (b:Person) "
+        "MATCH p = allShortestPaths((a)-[:KNOWS*1..3]->(b)) "
+        "RETURN b.id AS target, length(p) AS l, nodes(p) AS ns"
+    ).to_pylist()
+    assert sorted((r["target"], r["l"], r["ns"]) for r in got) == [
+        (1, 1, [5, 1]),
+        (2, 2, [5, 1, 2]),
+        (2, 2, [5, 1, 2]),
+        (3, 2, [5, 1, 3]),
+    ]
+
+
+@pytest.mark.parametrize("use_csr", [False, True])
+@pytest.mark.parametrize(("target", "hops", "missing"), [(3, 2, False), (6, -1, True)])
+@pytest.mark.parametrize(
+    "projection",
+    [
+        "RETURN CASE p IS NULL WHEN true THEN -1 ELSE length(p) END AS hops, "
+        "p IS NULL AS missing",
+        "RETURN CASE WHEN p IS NOT NULL THEN length(p) ELSE -1 END AS hops, "
+        "p IS NULL AS missing",
+        "WITH p AS q RETURN CASE q IS NULL WHEN true THEN -1 "
+        "ELSE length(q) END AS hops, q IS NULL AS missing",
+        "WITH p AS q WHERE q IS NOT NULL OR q IS NULL "
+        "RETURN coalesce(length(q), -1) AS hops, q IS NULL AS missing",
+    ],
+)
+def test_shortest_path_null_checks_keep_compact_plan(
+    use_csr, target, hops, missing, projection
+):
+    engine = CypherEngine(CONFIG, {"Person": PEOPLE, "KNOWS": KNOWS}, use_csr=use_csr)
+    query = (
+        f"MATCH (a:Person {{id: 5}}), (b:Person {{id: {target}}}) "
+        "OPTIONAL MATCH p = shortestPath((a)-[:KNOWS*1..5]-(b)) " + projection
+    )
+    assert engine.execute(query).to_pylist() == [{"hops": hops, "missing": missing}]
+    plan = engine.explain(query)
+    assert "ShortestPathExec" in plan
+    assert "PathMatchExec" not in plan

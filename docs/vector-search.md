@@ -32,6 +32,10 @@ vector_similarity(a, b, metric)
 `metric` is a bare keyword (not a string): `cosine`, `l2` or `dot`. One argument must be a property; the
 other can be a property or a vector literal.
 
+Whole-number query vectors such as `[1, 0]` also work. They remain integer lists until the vector function
+converts their elements to float32. Outside vector functions, integer lists preserve signed 64-bit precision.
+Vector elements must be non-null numbers.
+
 ```python
 result = engine.execute("""
     MATCH (d:Document)
@@ -52,10 +56,9 @@ print(result.to_pylist())
 Smaller distances and larger similarities mean closer vectors. Comparing vectors of different dimensions
 gives the worst possible score rather than an error.
 
-!!! warning "Write vector literals into the query"
-
-    `CypherEngine` doesn't accept list parameters yet, so `$query_vector` bound to a list raises
-    `ValueError`. Format the vector into the query text.
+Query vectors may also be passed as list parameters, for example
+`engine.execute("MATCH (d:Document) RETURN vector_distance(d.embedding, $v, l2)", {"v": [1, 0]})`.
+Elements are converted to float32 only by the vector operation.
 
 ## `VectorSearch`
 

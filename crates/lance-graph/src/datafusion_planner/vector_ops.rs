@@ -26,18 +26,7 @@ pub fn extract_vectors(array: &ArrayRef) -> Result<Vec<Vec<f32>>> {
                 });
             }
             let value_array = list_array.value(i);
-            let float_array = value_array
-                .as_any()
-                .downcast_ref::<Float32Array>()
-                .ok_or_else(|| GraphError::ExecutionError {
-                    message: "Expected Float32Array in vector".to_string(),
-                    location: snafu::Location::new(file!(), line!(), column!()),
-                })?;
-
-            let vec: Vec<f32> = (0..float_array.len())
-                .map(|j| float_array.value(j))
-                .collect();
-            vectors.push(vec);
+            vectors.push(vector_values(value_array.as_ref())?);
         }
         return Ok(vectors);
     }
@@ -53,18 +42,7 @@ pub fn extract_vectors(array: &ArrayRef) -> Result<Vec<Vec<f32>>> {
                 });
             }
             let value_array = list_array.value(i);
-            let float_array = value_array
-                .as_any()
-                .downcast_ref::<Float32Array>()
-                .ok_or_else(|| GraphError::ExecutionError {
-                    message: "Expected Float32Array in vector".to_string(),
-                    location: snafu::Location::new(file!(), line!(), column!()),
-                })?;
-
-            let vec: Vec<f32> = (0..float_array.len())
-                .map(|j| float_array.value(j))
-                .collect();
-            vectors.push(vec);
+            vectors.push(vector_values(value_array.as_ref())?);
         }
         return Ok(vectors);
     }
@@ -86,33 +64,32 @@ pub fn extract_single_vector_from_scalar(
         location: snafu::Location::new(file!(), line!(), column!()),
     })?;
 
-    let list_array = array
-        .as_any()
-        .downcast_ref::<FixedSizeListArray>()
+    extract_vectors(&array)?
+        .into_iter()
+        .next()
         .ok_or_else(|| GraphError::ExecutionError {
-            message: "Expected FixedSizeListArray for vector scalar".to_string(),
-            location: snafu::Location::new(file!(), line!(), column!()),
-        })?;
-
-    if list_array.is_empty() {
-        return Err(GraphError::ExecutionError {
             message: "Empty vector array".to_string(),
+            location: snafu::Location::new(file!(), line!(), column!()),
+        })
+}
+
+/// Numeric lists become Float32 only when consumed as vectors.
+fn vector_values(values: &dyn Array) -> Result<Vec<f32>> {
+    if !values.data_type().is_numeric() || values.null_count() != 0 {
+        return Err(GraphError::ExecutionError {
+            message: "Vector elements must be non-null numbers".to_string(),
             location: snafu::Location::new(file!(), line!(), column!()),
         });
     }
-
-    let value_array = list_array.value(0);
-    let float_array = value_array
-        .as_any()
-        .downcast_ref::<Float32Array>()
-        .ok_or_else(|| GraphError::ExecutionError {
-            message: "Expected Float32Array in vector".to_string(),
-            location: snafu::Location::new(file!(), line!(), column!()),
+    let floats =
+        arrow::compute::cast(values, &arrow::datatypes::DataType::Float32).map_err(|e| {
+            GraphError::ExecutionError {
+                message: format!("Failed to convert vector elements to Float32: {e}"),
+                location: snafu::Location::new(file!(), line!(), column!()),
+            }
         })?;
-
-    Ok((0..float_array.len())
-        .map(|j| float_array.value(j))
-        .collect())
+    let floats = floats.as_any().downcast_ref::<Float32Array>().unwrap();
+    Ok(floats.values().to_vec())
 }
 
 /// Compute L2 (Euclidean) distance between two vectors
@@ -233,6 +210,31 @@ pub fn compute_vector_similarities(
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    #[test]
+    fn test_integer_list_vectors_and_scalar() {
+        use arrow::array::{Int64Builder, ListBuilder};
+        use datafusion::scalar::ScalarValue;
+
+        let mut builder = ListBuilder::new(Int64Builder::new());
+        builder.values().append_slice(&[1, 0, 1]);
+        builder.append(true);
+        let array: ArrayRef = Arc::new(builder.finish());
+        assert_eq!(extract_vectors(&array).unwrap(), vec![vec![1.0, 0.0, 1.0]]);
+        let scalar = ScalarValue::try_from_array(&array, 0).unwrap();
+        assert_eq!(
+            extract_single_vector_from_scalar(&scalar).unwrap(),
+            vec![1.0, 0.0, 1.0]
+        );
+    }
+
+    #[test]
+    fn test_vector_elements_must_be_non_null_numbers() {
+        use arrow::array::{Int64Array, StringArray};
+
+        assert!(vector_values(&Int64Array::from(vec![Some(1), None])).is_err());
+        assert!(vector_values(&StringArray::from(vec!["1", "2"])).is_err());
+    }
 
     #[test]
     fn test_l2_distance() {

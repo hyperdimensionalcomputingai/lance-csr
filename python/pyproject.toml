@@ -40,7 +40,14 @@ build-backend = "maturin"
 
 # Development tools, installed by `uv sync` (the `dev` group is uv's default).
 [dependency-groups]
-dev = ["maturin[patchelf]>=1.9,<2", "pytest", "pandas", "ruff", "pyright"]
+dev = [
+    "maturin[patchelf]>=1.9,<2",
+    "pytest",
+    "pandas",
+    "ruff",
+    "pyright",
+    "pyarrow-stubs>=20.0.0.20260819",
+]
 
 [tool.ruff]
 lint.select = ["F", "E", "W", "I", "G", "TCH", "PERF", "B019"]
@@ -50,7 +57,9 @@ lint.select = ["F", "E", "W", "I", "G", "TCH", "PERF", "B019"]
 
 [tool.pyright]
 pythonVersion = "3.13"
-include = ["python/lance_csr/__init__.py"]
+include = ["python/lance_csr", "python/tests/typing"]
+strict = ["python/tests/typing"]
+reportUnnecessaryTypeIgnoreComment = "error"
 # Dependencies like pyarrow make this difficult to enforce strictly.
 reportMissingTypeStubs = "warning"
 reportImportCycles = "error"

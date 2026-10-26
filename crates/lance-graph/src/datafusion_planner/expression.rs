@@ -19,6 +19,65 @@ use datafusion_functions_aggregate::min_max::max;
 use datafusion_functions_aggregate::min_max::min;
 use datafusion_functions_aggregate::sum::sum;
 
+impl super::DataFusionPlanner {
+    pub(crate) fn resolve_expr(
+        &self,
+        expr: Expr,
+        schema: &datafusion::common::DFSchema,
+    ) -> crate::error::Result<Expr> {
+        self.type_parameters(expr)
+            .resolve_lambda_variables(schema)
+            .map(|e| e.data)
+            .map_err(|e| self.plan_error("Failed to resolve expression scope", e))
+    }
+
+    pub(crate) fn value_expr(
+        &self,
+        expr: &ValueExpression,
+        schema: &datafusion::common::DFSchema,
+    ) -> crate::error::Result<Expr> {
+        self.resolve_expr(to_df_value_expr(&bind_value(expr, schema)), schema)
+    }
+
+    pub(crate) fn boolean_expr(
+        &self,
+        expr: &BooleanExpression,
+        schema: &datafusion::common::DFSchema,
+    ) -> crate::error::Result<Expr> {
+        self.resolve_expr(to_df_boolean_expr(&bind_boolean(expr, schema)), schema)
+    }
+    pub(crate) fn unresolved_value_expr(&self, value: &ValueExpression) -> Expr {
+        self.type_parameters(to_df_value_expr(value))
+    }
+
+    fn type_parameters(&self, expression: Expr) -> Expr {
+        use datafusion::common::tree_node::{Transformed, TreeNode};
+        if self.parameter_types.is_empty() {
+            return expression;
+        }
+        expression
+            .transform_up(|expression| {
+                if let Expr::Placeholder(mut parameter) = expression {
+                    parameter.field = self
+                        .parameter_types
+                        .get(parameter.id.trim_start_matches('$'))
+                        .map(|data_type| {
+                            std::sync::Arc::new(arrow_schema::Field::new(
+                                "",
+                                data_type.clone(),
+                                true,
+                            ))
+                        });
+                    Ok(Transformed::yes(Expr::Placeholder(parameter)))
+                } else {
+                    Ok(Transformed::no(expression))
+                }
+            })
+            .expect("typing placeholders does not fail")
+            .data
+    }
+}
+
 /// Helper function to create LIKE expressions with consistent settings
 fn create_like_expr(expression: &ValueExpression, pattern: &str, case_insensitive: bool) -> Expr {
     Expr::Like(datafusion::logical_expr::Like {
@@ -122,6 +181,32 @@ pub(crate) fn to_df_value_expr(expr: &ValueExpression) -> Expr {
             col(qualify_column(&prop.variable, &prop.property))
         }
         VE::Variable(v) => col(v.to_lowercase()),
+        VE::LocalVariable(v) => Expr::LambdaVariable(
+            datafusion::logical_expr::expr::LambdaVariable::new(v.to_lowercase(), None),
+        ),
+        VE::Reduce {
+            accumulator,
+            initial,
+            variable,
+            list,
+            expression,
+        } => super::list_folds::reduce(
+            to_df_value_expr(list),
+            to_df_value_expr(initial),
+            vec![accumulator.clone(), variable.clone()],
+            to_df_value_expr(expression),
+        ),
+        VE::ListPredicate {
+            kind,
+            variable,
+            list,
+            predicate,
+        } => super::list_folds::predicate(
+            kind,
+            to_df_value_expr(list),
+            variable.clone(),
+            to_df_value_expr(predicate),
+        ),
         VE::Literal(PV::String(s)) => lit(s.clone()),
         VE::Literal(PV::Integer(i)) => lit(*i),
         VE::Literal(PV::Float(f)) => lit(*f),
@@ -131,10 +216,7 @@ pub(crate) fn to_df_value_expr(expr: &ValueExpression) -> Expr {
         }
         VE::Literal(PV::Variable(v)) => col(v.to_lowercase()),
         VE::Literal(PV::Parameter(name)) => {
-            panic!(
-                "Parameter ${} should have been substituted during semantic analysis",
-                name
-            );
+            datafusion::logical_expr::placeholder(format!("${}", name.to_lowercase()))
         }
         VE::Literal(PV::Property(prop)) => {
             // Create qualified column name: variable__property (lowercase for case-insensitivity)
@@ -189,22 +271,26 @@ pub(crate) fn to_df_value_expr(expr: &ValueExpression) -> Expr {
                         / lit(1000_i64),
                 ]),
                 // A path's length and node ids are columns of its variable (see shortest_path).
-                "length" | "nodes" => match &args[0] {
+                "length" | "nodes" | "relationships" | "__path_node_records" => match &args[0] {
                     VE::Variable(path) => col(qualify_column(path, &name.to_lowercase())),
                     _ => Expr::Literal(datafusion::scalar::ScalarValue::Null, None),
                 },
-                "size" => Expr::Cast(datafusion::logical_expr::Cast::new(
-                    Box::new(datafusion::functions_nested::expr_fn::cardinality(
-                        to_df_value_expr(&args[0]),
-                    )),
-                    arrow_schema::DataType::Int64,
-                )),
-                // Cypher's range includes its upper bound, like DataFusion's gen_series.
-                "range" => datafusion::functions_nested::expr_fn::gen_series(
-                    to_df_value_expr(&args[0]),
-                    to_df_value_expr(&args[1]),
-                    lit(1_i64),
-                ),
+                "abs" | "round" | "floor" | "ceil" | "sqrt" => {
+                    super::math_functions::call(name, args.iter().map(to_df_value_expr).collect())
+                }
+                "left" | "right" | "substring" | "replace" | "split" | "trim" | "ltrim"
+                | "rtrim" | "size" | "reverse" | "last" | "tail" | "keys" | "__entity_keys"
+                | "labels" | "startnode" | "endnode" | "__predicate_all" | "__predicate_any"
+                | "__predicate_none" | "__predicate_single" => {
+                    super::scalar_functions::call(name, args.iter().map(to_df_value_expr).collect())
+                }
+                "range" => {
+                    let mut args: Vec<_> = args.iter().map(to_df_value_expr).collect();
+                    if args.len() == 2 {
+                        args.push(lit(1_i64));
+                    }
+                    super::scalar_functions::call(name, args)
+                }
                 // list[i] (0-based in Cypher, 1-based in DataFusion's array_element).
                 "__index" => datafusion::functions_nested::expr_fn::array_element(
                     to_df_value_expr(&args[0]),
@@ -411,12 +497,12 @@ pub(crate) fn to_df_value_expr(expr: &ValueExpression) -> Expr {
             lit(scalar)
         }
         VE::Parameter(name) => {
-            panic!(
-                "Parameter ${} should have been substituted during semantic analysis",
-                name
-            );
+            datafusion::logical_expr::placeholder(format!("${}", name.to_lowercase()))
         }
         VE::Boolean(b) => to_df_boolean_expr(b),
+        VE::Map(entries) if entries.is_empty() => lit(datafusion::common::ScalarValue::Struct(
+            std::sync::Arc::new(arrow::array::StructArray::new_empty_fields(1, None)),
+        )),
         VE::Map(entries) => datafusion::functions::core::expr_fn::named_struct(
             entries
                 .iter()
@@ -458,6 +544,27 @@ pub(crate) fn bind_value(
     schema: &datafusion::common::DFSchema,
 ) -> ValueExpression {
     let has = |name: &str| schema.has_column_with_unqualified_name(name);
+    let entity_properties = |var: &str| {
+        let var = var.to_lowercase();
+        let prefix = format!("{var}__");
+        if has(&var) {
+            return Vec::new();
+        }
+        schema
+            .fields()
+            .iter()
+            .filter_map(|f| f.name().strip_prefix(&prefix))
+            .map(|property| {
+                (
+                    property.to_string(),
+                    ValueExpression::Property(crate::ast::PropertyRef {
+                        variable: var.clone(),
+                        property: property.to_string(),
+                    }),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
     let mut expr = expr.clone();
     crate::ast::transform_value(&mut expr, &mut |e| match e {
         ValueExpression::Property(p)
@@ -469,28 +576,46 @@ pub(crate) fn bind_value(
                 field: p.property.clone(),
             };
         }
+        ValueExpression::ScalarFunction { name, args }
+            if matches!(
+                name.to_lowercase().as_str(),
+                "length" | "nodes" | "relationships" | "__path_node_records"
+            ) =>
+        {
+            if let [base] = args.as_slice() {
+                let value = match base {
+                    ValueExpression::Variable(var) => has(&var.to_lowercase()),
+                    _ => true,
+                };
+                if value {
+                    *e = ValueExpression::Field {
+                        base: Box::new(base.clone()),
+                        field: if name == "__path_node_records" {
+                            "node_records".into()
+                        } else {
+                            name.to_lowercase()
+                        },
+                    };
+                }
+            }
+        }
+        ValueExpression::ScalarFunction { name, args } if name.eq_ignore_ascii_case("keys") => {
+            if let [ValueExpression::Variable(var)] = args.as_slice() {
+                let properties = entity_properties(var);
+                if !properties.is_empty() {
+                    *e = ValueExpression::ScalarFunction {
+                        name: "__entity_keys".to_string(),
+                        args: vec![ValueExpression::Map(properties)],
+                    };
+                }
+            }
+        }
         ValueExpression::Map(entries) => {
             for (_, value) in entries.iter_mut() {
                 let ValueExpression::Variable(var) = value else {
                     continue;
                 };
-                let var = var.to_lowercase();
-                let prefix = format!("{var}__");
-                if has(&var) {
-                    continue;
-                }
-                let properties: Vec<(String, ValueExpression)> = schema
-                    .fields()
-                    .iter()
-                    .filter_map(|f| f.name().strip_prefix(&prefix))
-                    .map(|property| {
-                        let column = ValueExpression::Property(crate::ast::PropertyRef {
-                            variable: var.clone(),
-                            property: property.to_string(),
-                        });
-                        (property.to_string(), column)
-                    })
-                    .collect();
+                let properties = entity_properties(var);
                 if !properties.is_empty() {
                     *value = ValueExpression::Map(properties);
                 }
@@ -513,34 +638,13 @@ pub(crate) fn bind_boolean(
 
 /// Check if a ValueExpression contains an aggregate function
 pub(crate) fn contains_aggregate(expr: &ValueExpression) -> bool {
-    use crate::ast::ValueExpression as VE;
-    match expr {
-        VE::AggregateFunction { .. } => true,
-        VE::ScalarFunction { args, .. } => args.iter().any(contains_aggregate),
-        VE::Map(entries) => entries.iter().any(|(_, v)| contains_aggregate(v)),
-        VE::Field { base, .. } => contains_aggregate(base),
-        VE::Arithmetic { left, right, .. } => contains_aggregate(left) || contains_aggregate(right),
-        VE::Case { whens, otherwise } => {
-            whens.iter().any(|(_, then)| contains_aggregate(then))
-                || otherwise.as_deref().is_some_and(contains_aggregate)
-        }
-        VE::VectorDistance { left, right, .. } => {
-            contains_aggregate(left) || contains_aggregate(right)
-        }
-        VE::VectorSimilarity { left, right, .. } => {
-            contains_aggregate(left) || contains_aggregate(right)
-        }
-        _ => false,
-    }
+    let mut found = false;
+    crate::ast::transform_value(&mut expr.clone(), &mut |value| {
+        found |= matches!(value, ValueExpression::AggregateFunction { .. });
+    });
+    found
 }
 
-/// Convert a ValueExpression to Cypher dot notation for column naming
-///
-/// This generates user-friendly column names following Cypher conventions:
-/// - Property references: `p.name` (variable.property)
-/// - Functions: `function_name(arg)` with simplified argument representation
-/// - Other expressions: Use the expression as-is
-///
 /// This is used when no explicit alias is provided in RETURN clauses.
 pub(crate) fn to_cypher_column_name(expr: &ValueExpression) -> String {
     use crate::ast::ValueExpression as VE;

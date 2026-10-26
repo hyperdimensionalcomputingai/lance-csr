@@ -124,7 +124,14 @@ impl ScalarUDFImpl for CypherField {
         let Some(Some(ScalarValue::Utf8(Some(name)))) = args.scalar_arguments.get(1) else {
             return plan_err!("cypher_field takes a field name literal");
         };
-        let data_type = match args.arg_fields[0].data_type() {
+        let input_type = args.arg_fields[0].data_type();
+        let input_type = match input_type {
+            DataType::Struct(fields) if crate::path_value::entity_kind(input_type).is_some() => {
+                fields[0].data_type()
+            }
+            other => other,
+        };
+        let data_type = match input_type {
             DataType::Struct(fields) => match struct_field(fields, name) {
                 Some(i) => fields[i].data_type().clone(),
                 None => return plan_err!("no key '{name}' in this map"),
@@ -141,13 +148,23 @@ impl ScalarUDFImpl for CypherField {
             return exec_err!("cypher_field takes a field name literal");
         };
         let base = args.args[0].to_array(args.number_rows)?;
+        let parent_nulls = base.logical_nulls();
+        let base = if crate::path_value::entity_kind(base.data_type()).is_some() {
+            base.as_struct().column(0).clone()
+        } else {
+            base
+        };
         let result = match base.data_type() {
             DataType::Struct(fields) => {
                 let i = struct_field(fields, name).expect("checked when planning");
                 let column = base.as_struct().column(i).clone();
                 // A null map gives null keys, whatever its child arrays hold.
                 let nulls = arrow::buffer::NullBuffer::union(
-                    base.logical_nulls().as_ref(),
+                    arrow::buffer::NullBuffer::union(
+                        parent_nulls.as_ref(),
+                        base.logical_nulls().as_ref(),
+                    )
+                    .as_ref(),
                     column.logical_nulls().as_ref(),
                 );
                 let data = column.to_data().into_builder().nulls(nulls).build()?;

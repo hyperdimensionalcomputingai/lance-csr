@@ -18,8 +18,11 @@ pub mod analysis;
 mod builder;
 mod config_helpers;
 mod cypher_udf;
-mod expression;
+pub(crate) mod expression;
 mod join_ops;
+mod list_folds;
+mod math_functions;
+mod scalar_functions;
 mod scan_ops;
 mod udf;
 pub mod vector_ops;
@@ -29,6 +32,7 @@ mod test_fixtures;
 
 // Re-export public types
 pub use analysis::{PlanningContext, QueryAnalysis, RelationshipInstance};
+pub(crate) use scalar_functions::sql_expr;
 
 use crate::config::GraphConfig;
 use crate::error::Result;
@@ -47,6 +51,7 @@ pub struct DataFusionPlanner {
     pub(crate) config: GraphConfig,
     pub(crate) catalog: Option<Arc<dyn GraphSourceCatalog>>,
     pub(crate) adjacency: Option<crate::csr_expand::AdjacencyCatalog>,
+    pub(crate) parameter_types: std::collections::HashMap<String, arrow_schema::DataType>,
 }
 
 impl DataFusionPlanner {
@@ -55,6 +60,7 @@ impl DataFusionPlanner {
             config,
             catalog: None,
             adjacency: None,
+            parameter_types: Default::default(),
         }
     }
 
@@ -63,6 +69,7 @@ impl DataFusionPlanner {
             config,
             catalog: Some(catalog),
             adjacency: None,
+            parameter_types: Default::default(),
         }
     }
 

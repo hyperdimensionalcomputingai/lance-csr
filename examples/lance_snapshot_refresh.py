@@ -46,6 +46,8 @@ def main() -> None:
             "Person": lance.dataset(person_uri),
             "KNOWS": lance.dataset(root / "knows.lance"),
         },
+        # Optional: choose this target after measuring your own queries; refresh keeps it.
+        target_partitions=2,
     )
     count = "MATCH (p:Person) RETURN count(*) AS n"
 

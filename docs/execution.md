@@ -23,14 +23,24 @@ Source paths below are in `crates/lance-graph/src/`.
    only the order of work is.
 4. **Plan the graph** (`logical_plan.rs`). Graph operators describe the query: `ScanByLabel`, `Expand` for a
    hop, `VariableLengthExpand` (unrolled into one branch per length), `OptionalMatch` as a left join,
-   `ShortestPath`.
+   `ShortestPath`, and `Apply` for a read-only CALL subquery.
 5. **Plan for DataFusion** (`datafusion_planner/`). Each graph operator becomes DataFusion relational
    operators. A hop becomes either two hash joins or, when the engine has a [CSR](csr.md) for it, a
    `CsrExpand` extension node.
 6. **Execute.** DataFusion optimizes and runs the physical plan, vectorized and multi-threaded across cores,
-   with `CsrExpandExec` and the shortest-path search as extension operators.
+   with `CsrExpandExec`, the shortest-path search and `ApplyExec` as extension operators.
 
 `engine.explain(query)` prints the plans from steps 4 to 6.
+
+A CALL body is kept as an unoptimized child template. For each incoming row, `ApplyExec` binds its
+explicit imports, plans the child, and streams that child's batches. Child `LIMIT` and aggregates
+therefore apply separately to each incoming row. The operator retains one outer batch and one child
+stream per partition; its children may have their own buffering requirements. Dropping the result
+stream drops both owned streams. CALL queries use ordinary planning instead of the engine's template
+cache.
+
+Rust callers supplying their own `SessionContext` must install `CsrQueryPlanner` to execute CALL or
+other graph extension nodes. Contexts created by `CypherQuery` and `CypherEngine` install it themselves.
 
 ## Joins versus CSR expansion
 

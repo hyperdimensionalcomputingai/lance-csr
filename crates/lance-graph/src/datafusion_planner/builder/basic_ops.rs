@@ -9,6 +9,34 @@ use crate::error::Result;
 use crate::logical_plan::*;
 use datafusion::logical_expr::{LogicalPlan, LogicalPlanBuilder, SortExpr};
 
+fn union_compatible(left: &arrow_schema::DataType, right: &arrow_schema::DataType) -> bool {
+    use arrow_schema::DataType;
+    if left == right
+        || left.is_null()
+        || right.is_null()
+        || (left.is_numeric() && right.is_numeric())
+    {
+        return true;
+    }
+    let text =
+        |t: &DataType| matches!(t, DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View);
+    if text(left) && text(right) {
+        return true;
+    }
+    match (left, right) {
+        (DataType::List(left), DataType::List(right)) => {
+            union_compatible(left.data_type(), right.data_type())
+        }
+        (DataType::Struct(left), DataType::Struct(right)) => {
+            left.len() == right.len()
+                && left.iter().zip(right).all(|(l, r)| {
+                    l.name() == r.name() && union_compatible(l.data_type(), r.data_type())
+                })
+        }
+        _ => false,
+    }
+}
+
 impl DataFusionPlanner {
     /// UNION ALL of alternation branches. Each branch is planned with its own variable
     /// labels (the analysis keeps only one per variable), then all branches are projected
@@ -28,6 +56,9 @@ impl DataFusionPlanner {
             Self::collect_labels(input, &mut analysis.var_to_label);
             let mut branch = PlanningContext::new(&analysis);
             branch.relationship_instance_idx = ctx.relationship_instance_idx.clone();
+            branch.call_input = ctx.call_input.clone();
+            branch.path_sources = ctx.path_sources.clone();
+            branch.comprehension_elements = ctx.comprehension_elements.clone();
             plans.push(self.build_operator(&mut branch, input)?);
             // Branches consume distinct relationship instances, in analysis order.
             ctx.relationship_instance_idx = branch.relationship_instance_idx;
@@ -79,6 +110,79 @@ impl DataFusionPlanner {
             .map_err(|e| self.plan_error("Failed to build UNION", e))
     }
 
+    /// Language-level UNION validates the positional output contract before concatenation.
+    pub(crate) fn build_query_union(
+        &self,
+        ctx: &mut PlanningContext,
+        left: &LogicalOperator,
+        right: &LogicalOperator,
+        all: bool,
+    ) -> Result<LogicalPlan> {
+        let mut plans = Vec::with_capacity(2);
+        for input in [left, right] {
+            let mut analysis = ctx.analysis.clone();
+            Self::collect_labels(input, &mut analysis.var_to_label);
+            let mut branch = PlanningContext::new(&analysis);
+            branch.relationship_instance_idx = ctx.relationship_instance_idx.clone();
+            branch.call_input = ctx.call_input.clone();
+            branch.path_sources = ctx.path_sources.clone();
+            branch.comprehension_elements = ctx.comprehension_elements.clone();
+            plans.push(self.build_operator(&mut branch, input)?);
+            ctx.relationship_instance_idx = branch.relationship_instance_idx;
+        }
+        let right = plans.pop().unwrap();
+        let left = plans.pop().unwrap();
+        let l = left.schema();
+        let r = right.schema();
+        if l.fields().len() != r.fields().len()
+            || l.fields()
+                .iter()
+                .zip(r.fields())
+                .any(|(l, r)| !l.name().eq_ignore_ascii_case(r.name()))
+        {
+            return Err(crate::error::GraphError::PlanError {
+                message: "UNION branches must return the same column names in the same order"
+                    .to_string(),
+                location: snafu::Location::new(file!(), line!(), column!()),
+            });
+        }
+        for (left, right) in l.fields().iter().zip(r.fields()) {
+            if !union_compatible(left.data_type(), right.data_type()) {
+                return Err(crate::error::GraphError::PlanError {
+                    message: format!(
+                        "UNION column '{}' has incompatible types {} and {}",
+                        left.name(),
+                        left.data_type(),
+                        right.data_type()
+                    ),
+                    location: snafu::Location::new(file!(), line!(), column!()),
+                });
+            }
+        }
+        // A CALL must know its child's final schema before physical planning per row.
+        // DataFusion's UNION builder deliberately leaves coercion until analysis;
+        // perform its standard UNION coercion now, without optimizing parameter values.
+        let union = datafusion::logical_expr::Union::try_new_with_loose_types(vec![
+            std::sync::Arc::new(left),
+            std::sync::Arc::new(right),
+        ])
+        .and_then(
+            datafusion::optimizer::analyzer::type_coercion::TypeCoercionRewriter::coerce_union,
+        )
+        .map_err(|e| self.plan_error("Failed to coerce query UNION", e))?;
+        let union = LogicalPlanBuilder::from(union);
+        let union = if all {
+            union
+        } else {
+            union
+                .distinct()
+                .map_err(|e| self.plan_error("Failed to deduplicate UNION", e))?
+        };
+        union
+            .build()
+            .map_err(|e| self.plan_error("Failed to build query UNION", e))
+    }
+
     pub(crate) fn build_filter(
         &self,
         ctx: &mut PlanningContext,
@@ -86,8 +190,7 @@ impl DataFusionPlanner {
         predicate: &crate::ast::BooleanExpression,
     ) -> Result<LogicalPlan> {
         let input_plan = self.build_operator(ctx, input)?;
-        let predicate = super::super::expression::bind_boolean(predicate, input_plan.schema());
-        let expr = super::super::expression::to_df_boolean_expr(&predicate);
+        let expr = self.boolean_expr(predicate, input_plan.schema())?;
         LogicalPlanBuilder::from(input_plan)
             .filter(expr)
             .map_err(|e| self.plan_error("Failed to build filter", e))?
@@ -119,7 +222,16 @@ impl DataFusionPlanner {
         } = input
         {
             let input_plan = self.build_operator(ctx, inner)?;
-            let ordering = self.sort_exprs(&input_plan, sort_items);
+            let ordering = self
+                .sort_exprs(&input_plan, sort_items)
+                .into_iter()
+                .map(|sort| {
+                    Ok(SortExpr {
+                        expr: self.resolve_expr(sort.expr, input_plan.schema())?,
+                        ..sort
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
             return self.build_project_with_aggregates(input_plan, projections, &ordering);
         }
         let input_plan = self.build_operator(ctx, input)?;
@@ -174,8 +286,7 @@ impl DataFusionPlanner {
                 exprs.extend(columns);
                 continue;
             }
-            let bound = super::super::expression::bind_value(&p.expression, &schema);
-            let expr = super::super::expression::to_df_value_expr(&bound);
+            let expr = self.value_expr(&p.expression, &schema)?;
             // Apply alias if provided, otherwise use Cypher dot notation
             // Normalize alias to lowercase for case-insensitive behavior
             exprs.push(if let Some(alias) = &p.alias {
@@ -219,6 +330,8 @@ impl DataFusionPlanner {
             .sort(sort_exprs)
             .map_err(|e| self.plan_error("Failed to build sort", e))?
             .build()
+            // The sort builder first restores input columns omitted by RETURN.
+            .and_then(|plan| plan.resolve_lambda_variables().map(|p| p.data))
             .map_err(|e| self.plan_error("Failed to build plan", e))
     }
 
@@ -234,7 +347,7 @@ impl DataFusionPlanner {
                 let bound =
                     super::super::expression::bind_value(&item.expression, input_plan.schema());
                 SortExpr {
-                    expr: super::super::expression::to_df_value_expr(&bound),
+                    expr: self.unresolved_value_expr(&bound),
                     asc: matches!(item.direction, crate::ast::SortDirection::Ascending),
                     nulls_first: true,
                 }
@@ -288,8 +401,7 @@ impl DataFusionPlanner {
         };
 
         // Convert expression to DataFusion Expr
-        let bound = super::super::expression::bind_value(expression, input_plan.schema());
-        let df_expr = super::super::expression::to_df_value_expr(&bound);
+        let df_expr = self.value_expr(expression, input_plan.schema())?;
         // A list of node ids: unnest under a temporary name, then join each id back to the
         // node table so the alias carries the node's columns like any matched node.
         let unnested = match label {

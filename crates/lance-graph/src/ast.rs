@@ -10,6 +10,27 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// A pagination count, resolved to a nonnegative literal before logical planning.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum RowCount {
+    Literal(u64),
+    Parameter(String),
+}
+
+impl RowCount {
+    /// Return a resolved count; unresolved parameters are a planning error.
+    pub fn value(&self) -> crate::error::Result<u64> {
+        match self {
+            Self::Literal(value) => Ok(*value),
+            Self::Parameter(name) => Err(crate::error::GraphError::PlanError {
+                message: format!("Unresolved pagination parameter: ${name}"),
+                location: snafu::Location::new(file!(), line!(), column!()),
+            }),
+        }
+    }
+}
+
 /// A complete Cypher query
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CypherQuery {
@@ -30,19 +51,60 @@ pub struct CypherQuery {
     /// RETURN clause
     pub return_clause: ReturnClause,
     /// LIMIT clause (optional)
-    pub limit: Option<u64>,
+    pub limit: Option<RowCount>,
     /// ORDER BY clause (optional)
     pub order_by: Option<OrderByClause>,
     /// SKIP/OFFSET clause (optional)
-    pub skip: Option<u64>,
+    pub skip: Option<RowCount>,
+    /// Following UNION branches, evaluated in order with independent variable scopes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub union_branches: Vec<UnionBranch>,
+}
+
+/// One right-hand query of UNION (distinct) or UNION ALL (bag concatenation).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UnionBranch {
+    pub all: bool,
+    pub query: CypherQuery,
 }
 
 impl CypherQuery {
+    pub(crate) fn all_reading_clauses(&self) -> impl Iterator<Item = &ReadingClause> {
+        self.reading_clauses
+            .iter()
+            .chain(&self.post_with_reading_clauses)
+            .chain(
+                self.further_with_stages
+                    .iter()
+                    .flat_map(|stage| &stage.reading_clauses),
+            )
+    }
+
+    /// Visit query scopes, including UNION branches and nested CALL bodies.
+    pub(crate) fn for_each_query(&self, visit: &mut dyn FnMut(&Self)) {
+        visit(self);
+        for clause in self.all_reading_clauses() {
+            if let ReadingClause::Call(query) = clause {
+                query.for_each_query(visit);
+            }
+        }
+        for branch in &self.union_branches {
+            branch.query.for_each_query(visit);
+        }
+    }
+
     /// Extract all node labels referenced in the query
     pub fn get_node_labels(&self) -> Vec<String> {
         let mut labels = Vec::new();
         // Iterate all match clauses directly
-        for clause in &self.reading_clauses {
+        for clause in self.all_reading_clauses() {
+            if let ReadingClause::Call(inner) = clause {
+                for label in inner.get_node_labels() {
+                    if !labels.contains(&label) {
+                        labels.push(label);
+                    }
+                }
+            }
             if let ReadingClause::Match(match_clause) = clause {
                 for pattern in &match_clause.patterns {
                     match pattern {
@@ -71,16 +133,37 @@ impl CypherQuery {
                 }
             }
         }
+        for branch in &self.union_branches {
+            for label in branch.query.get_node_labels() {
+                if !labels.contains(&label) {
+                    labels.push(label);
+                }
+            }
+        }
         labels
     }
 
     /// Extract all relationship types referenced in the query
     pub fn get_relationship_types(&self) -> Vec<String> {
         let mut types = Vec::new();
-        for clause in &self.reading_clauses {
+        for clause in self.all_reading_clauses() {
+            if let ReadingClause::Call(inner) = clause {
+                for kind in inner.get_relationship_types() {
+                    if !types.contains(&kind) {
+                        types.push(kind);
+                    }
+                }
+            }
             if let ReadingClause::Match(match_clause) = clause {
                 for pattern in &match_clause.patterns {
                     self.collect_relationship_types_from_pattern(pattern, &mut types);
+                }
+            }
+        }
+        for branch in &self.union_branches {
+            for rel_type in branch.query.get_relationship_types() {
+                if !types.contains(&rel_type) {
+                    types.push(rel_type);
                 }
             }
         }
@@ -109,6 +192,49 @@ impl CypherQuery {
 pub enum ReadingClause {
     Match(MatchClause),
     Unwind(UnwindClause),
+    /// Read-only subquery, with an optional explicit importing WITH.
+    Call(Box<CypherQuery>),
+}
+
+impl CypherQuery {
+    /// Every outer variable needed by this CALL's independently scoped UNION branches.
+    pub(crate) fn call_union_imports(&self) -> crate::error::Result<Vec<String>> {
+        let mut names = self.call_imports()?;
+        for branch in &self.union_branches {
+            names.extend(branch.query.call_union_imports()?);
+        }
+        names.sort();
+        names.dedup();
+        Ok(names)
+    }
+
+    /// Names explicitly imported by a leading plain WITH in a CALL body.
+    pub(crate) fn call_imports(&self) -> crate::error::Result<Vec<String>> {
+        let Some(clause) = self
+            .with_clause
+            .as_ref()
+            .filter(|_| self.reading_clauses.is_empty())
+        else {
+            return Ok(vec![]);
+        };
+        if clause.distinct
+            || clause.order_by.is_some()
+            || clause.limit.is_some()
+            || clause.where_clause.is_some()
+        {
+            return Err(crate::error::GraphError::PlanError {
+                message: "CALL importing WITH must contain only unaliased variable names; use a second WITH for expressions or filters".into(),
+                location: snafu::Location::new(file!(), line!(), column!()),
+            });
+        }
+        clause.items.iter().map(|item| match (&item.expression, &item.alias) {
+            (ValueExpression::Variable(name), None) => Ok(name.to_lowercase()),
+            _ => Err(crate::error::GraphError::PlanError {
+                message: "CALL importing WITH must contain only unaliased variable names; use a second WITH for expressions".into(),
+                location: snafu::Location::new(file!(), line!(), column!()),
+            }),
+        }).collect()
+    }
 }
 
 /// A MATCH clause containing graph patterns
@@ -158,6 +284,9 @@ pub struct NodePattern {
 /// A path pattern connecting nodes through relationships
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PathPattern {
+    /// Named ordinary path (`p = (a)-[:R]->(b)`).
+    #[serde(default)]
+    pub variable: Option<String>,
     /// Starting node
     pub start_node: NodePattern,
     /// Relationships and intermediate nodes
@@ -422,6 +551,23 @@ pub enum ValueExpression {
         filter: Option<Box<BooleanExpression>>,
         map: Option<Box<ValueExpression>>,
     },
+    /// A lexically scoped variable in a reduce or list predicate body.
+    LocalVariable(String),
+    /// `reduce(accumulator = initial, variable IN list | expression)`.
+    Reduce {
+        accumulator: String,
+        initial: Box<ValueExpression>,
+        variable: String,
+        list: Box<ValueExpression>,
+        expression: Box<ValueExpression>,
+    },
+    /// `all/any/none/single(variable IN list WHERE predicate)`.
+    ListPredicate {
+        kind: String,
+        variable: String,
+        list: Box<ValueExpression>,
+        predicate: Box<ValueExpression>,
+    },
     /// Vector literal: [0.1, 0.2, 0.3]
     /// Represents an inline vector for similarity search
     VectorLiteral(Vec<f32>),
@@ -476,7 +622,7 @@ pub struct WithClause {
     /// Optional ORDER BY within WITH
     pub order_by: Option<OrderByClause>,
     /// Optional LIMIT within WITH
-    pub limit: Option<u64>,
+    pub limit: Option<RowCount>,
     /// `WITH ... WHERE`: filters the WITH output, before any following MATCH
     #[serde(default)]
     pub where_clause: Option<WhereClause>,
@@ -641,13 +787,75 @@ pub fn transform_value(expr: &mut ValueExpression, f: &mut dyn FnMut(&mut ValueE
             }
             transform_value(map, f);
         }
+        ValueExpression::Reduce {
+            initial,
+            list,
+            expression,
+            ..
+        } => {
+            transform_value(initial, f);
+            transform_value(list, f);
+            transform_value(expression, f);
+        }
+        ValueExpression::ListPredicate {
+            list, predicate, ..
+        } => {
+            transform_value(list, f);
+            transform_value(predicate, f);
+        }
         ValueExpression::Variable(_)
+        | ValueExpression::LocalVariable(_)
         | ValueExpression::Property(_)
         | ValueExpression::Literal(_)
         | ValueExpression::Parameter(_)
         | ValueExpression::VectorLiteral(_) => {}
     }
     f(expr);
+}
+
+// Mark only the body's local references; the input and initializer retain outer scope.
+pub(crate) fn mark_locals(expr: &mut ValueExpression, names: &[&str]) {
+    transform_value(expr, &mut |value| match value {
+        ValueExpression::Variable(name) if names.iter().any(|n| n.eq_ignore_ascii_case(name)) => {
+            *value = ValueExpression::LocalVariable(name.to_lowercase());
+        }
+        ValueExpression::Property(p)
+            if names.iter().any(|n| n.eq_ignore_ascii_case(&p.variable)) =>
+        {
+            *value = ValueExpression::Field {
+                base: Box::new(ValueExpression::LocalVariable(p.variable.to_lowercase())),
+                field: p.property.clone(),
+            };
+        }
+        _ => {}
+    });
+}
+
+/// Expressions that need relational planning rather than scalar lambda execution.
+pub(crate) fn needs_relational_evaluation(expr: &ValueExpression) -> bool {
+    fn boolean_has_pattern(expr: &BooleanExpression) -> bool {
+        match expr {
+            BooleanExpression::PatternExists { .. } => true,
+            BooleanExpression::And(a, b) | BooleanExpression::Or(a, b) => {
+                boolean_has_pattern(a) || boolean_has_pattern(b)
+            }
+            BooleanExpression::Not(b) => boolean_has_pattern(b),
+            _ => false,
+        }
+    }
+    let mut found = false;
+    transform_value(&mut expr.clone(), &mut |value| {
+        found |= match value {
+            ValueExpression::PatternComprehension { .. }
+            | ValueExpression::ListComprehension { .. } => true,
+            ValueExpression::Boolean(b) => boolean_has_pattern(b),
+            ValueExpression::Case { whens, .. } => {
+                whens.iter().any(|(b, _)| boolean_has_pattern(b))
+            }
+            _ => false,
+        };
+    });
+    found
 }
 
 /// [`transform_value`] over every value in a predicate.

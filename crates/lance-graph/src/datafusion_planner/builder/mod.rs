@@ -14,15 +14,17 @@
 
 mod aggregate_ops;
 mod basic_ops;
+mod call_ops;
 mod comprehension_ops;
 mod expand_ops;
 mod helpers;
 mod join_builder;
+mod path_ops;
 
 use super::DataFusionPlanner;
 use crate::error::Result;
 use crate::logical_plan::*;
-use datafusion::logical_expr::LogicalPlan;
+use datafusion::logical_expr::{LogicalPlan, LogicalPlanBuilder};
 
 use super::analysis::PlanningContext;
 
@@ -34,6 +36,19 @@ impl DataFusionPlanner {
         op: &LogicalOperator,
     ) -> Result<LogicalPlan> {
         match op {
+            LogicalOperator::Apply {
+                input,
+                inner,
+                imports,
+                id,
+                ..
+            } => self.build_apply(ctx, input, inner, imports, *id),
+            LogicalOperator::CallInput { .. } => ctx.call_input.clone().ok_or_else(|| {
+                self.plan_error("CALL input", "import rows must be built inside CALL")
+            }),
+            LogicalOperator::SingleRow => LogicalPlanBuilder::empty(true)
+                .build()
+                .map_err(|e| self.plan_error("Failed to build singleton row", e)),
             LogicalOperator::ScanByLabel {
                 variable,
                 label,
@@ -105,6 +120,9 @@ impl DataFusionPlanner {
                 label,
             } => self.build_unwind(ctx, input, expression, alias, label.as_deref()),
             LogicalOperator::Union { inputs } => self.build_union(ctx, inputs),
+            LogicalOperator::QueryUnion { left, right, all } => {
+                self.build_query_union(ctx, left, right, *all)
+            }
             LogicalOperator::ListComprehension {
                 input,
                 list,
@@ -114,6 +132,7 @@ impl DataFusionPlanner {
                 keep,
                 map,
                 output,
+                count_only,
             } => self.build_list_comprehension(
                 ctx,
                 input,
@@ -123,6 +142,7 @@ impl DataFusionPlanner {
                 keep.as_ref(),
                 map,
                 output,
+                *count_only,
             ),
             LogicalOperator::ComprehensionElement => Ok(ctx
                 .comprehension_elements
@@ -134,6 +154,7 @@ impl DataFusionPlanner {
                 optional,
                 keys,
             } => self.build_optional_match(ctx, input, optional, keys),
+            LogicalOperator::PathMatch { input, path } => self.build_path_match(ctx, input, path),
             LogicalOperator::ShortestPath {
                 input,
                 source_variable,

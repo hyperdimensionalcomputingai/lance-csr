@@ -35,11 +35,13 @@
 //! # }
 //! ```
 
+mod apply;
 pub mod ast;
 pub mod case_insensitive;
 pub mod config;
 pub mod csr_expand;
 pub mod csr_index;
+mod csr_traversal;
 pub mod datafusion_planner;
 pub mod error;
 pub mod key_statistics;
@@ -47,6 +49,9 @@ pub mod lance_vector_search;
 pub mod logical_plan;
 pub mod parameter_substitution;
 pub mod parser;
+mod path_inventory;
+mod path_match;
+mod path_value;
 mod pattern_alternatives;
 mod pattern_order;
 pub mod query;

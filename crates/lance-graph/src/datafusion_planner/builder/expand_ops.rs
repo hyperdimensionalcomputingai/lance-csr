@@ -358,6 +358,19 @@ impl DataFusionPlanner {
                 .zip(cat.get(rel_type, false))
                 .map(|(out, inc)| Neighbors::undirected(out.clone(), inc.clone())),
         });
+        let reverse_adjacency = self
+            .adjacency
+            .as_ref()
+            .filter(|_| adjacency.is_some())
+            .and_then(|cat| match search {
+                SearchDirection::Outgoing => {
+                    cat.get(rel_type, false).cloned().map(Neighbors::directed)
+                }
+                SearchDirection::Incoming => {
+                    cat.get(rel_type, true).cloned().map(Neighbors::directed)
+                }
+                SearchDirection::Undirected => None, // Forward neighbours already visit both ends.
+            });
         let source = self
             .get_catalog()?
             .relationship_source(&rel_map.relationship_type)
@@ -400,17 +413,14 @@ impl DataFusionPlanner {
             edge_source: schema.field(src).name().clone(),
             edge_target: schema.field(dst).name().clone(),
         };
-        let node = ShortestPathNode::try_new(input_plan, edges, adjacency, spec)?;
+        let node = ShortestPathNode::try_new(input_plan, edges, adjacency, spec)?
+            .with_reverse_adjacency(reverse_adjacency);
         Ok(LogicalPlan::Extension(Extension {
             node: Arc::new(node),
         }))
     }
 
-    /// Build variable-length path expansion using unrolling + UNION strategy
-    ///
-    /// For a query like: (a)-[:KNOWS*1..3]->(b)
-    /// This generates:
-    ///   1-hop plan UNION 2-hop plan UNION 3-hop plan
+    /// Use one iterative CSR expansion when indexed; otherwise union the fixed-length plans.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn build_variable_length_expand(
         &self,
@@ -424,7 +434,7 @@ impl DataFusionPlanner {
         max_length: Option<u32>,
         target_properties: &HashMap<String, crate::ast::PropertyValue>,
     ) -> Result<LogicalPlan> {
-        let min_hops = min_length.unwrap_or(1).max(1);
+        let min_hops = min_length.unwrap_or(1);
         let max_hops = max_length.unwrap_or(crate::MAX_VARIABLE_LENGTH_HOPS);
 
         // Validate range
@@ -464,6 +474,30 @@ impl DataFusionPlanner {
                 .iter()
                 .map(|f| f.name().clone()),
         );
+
+        if let Some(plan) = self.try_build_csr_traversal(
+            ctx,
+            input_plan.clone(),
+            source_variable,
+            target_variable,
+            relationship_types,
+            direction,
+            min_hops,
+            max_hops,
+            target_properties,
+        )? {
+            let projection: Vec<_> = plan
+                .schema()
+                .fields()
+                .iter()
+                .filter(|f| expected_columns.contains(f.name().as_str()))
+                .map(|f| col(f.name()))
+                .collect();
+            return LogicalPlanBuilder::from(plan)
+                .project(projection)
+                .and_then(|p| p.build())
+                .map_err(|e| self.plan_error("Failed to project variable-length CSR", e));
+        }
 
         // Generate a plan for each hop count and UNION them
         let mut plans = Vec::new();
@@ -544,6 +578,59 @@ impl DataFusionPlanner {
         hop_count: u32,
         target_properties: &HashMap<String, crate::ast::PropertyValue>,
     ) -> Result<LogicalPlan> {
+        if hop_count == 0 {
+            let (source_label, source_map) = self.get_target_node_mapping(ctx, source_variable)?;
+            let (target_label, target_map) = self.get_target_node_mapping(ctx, target_variable)?;
+            let source = col(qualify_column(source_variable, &source_map.id_field));
+            let target = qualify_column(target_variable, &target_map.id_field);
+            let same_label = source_label.eq_ignore_ascii_case(&target_label);
+            let mut builder = LogicalPlanBuilder::from(input_plan);
+            if builder
+                .schema()
+                .field_with_unqualified_name(&target)
+                .is_ok()
+            {
+                if !target_properties.is_empty() {
+                    return Err(crate::error::GraphError::PlanError {
+                        message: format!("Property filters on reused variable '{target_variable}' are not yet supported"),
+                        location: snafu::Location::new(file!(), line!(), column!()),
+                    });
+                }
+                builder = builder
+                    .filter(
+                        source
+                            .eq(col(&target))
+                            .and(datafusion::logical_expr::lit(same_label)),
+                    )
+                    .map_err(|e| self.plan_error("Failed to filter zero-hop identity", e))?;
+            } else {
+                let target_source =
+                    self.get_catalog()?
+                        .node_source(&target_label)
+                        .ok_or_else(|| crate::error::GraphError::PlanError {
+                            message: format!("No node source for {target_label}"),
+                            location: snafu::Location::new(file!(), line!(), column!()),
+                        })?;
+                let scan = self.build_target_scan(
+                    target_source,
+                    &target_label,
+                    target_variable,
+                    target_properties,
+                )?;
+                builder = builder
+                    .join_on(
+                        scan,
+                        datafusion::logical_expr::JoinType::Inner,
+                        [source
+                            .eq(col(&target))
+                            .and(datafusion::logical_expr::lit(same_label))],
+                    )
+                    .map_err(|e| self.plan_error("Failed to join zero-hop identity", e))?;
+            }
+            return builder
+                .build()
+                .map_err(|e| self.plan_error("Failed to build zero-hop identity", e));
+        }
         let mut current_plan = input_plan;
         let mut current_source = source_variable.to_string();
         let mut path_nodes = vec![current_source.clone()];
@@ -602,6 +689,130 @@ impl DataFusionPlanner {
         builder
             .build()
             .map_err(|e| self.plan_error("Failed to build undirected path", e))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn try_build_csr_traversal(
+        &self,
+        ctx: &mut PlanningContext,
+        input: LogicalPlan,
+        source_variable: &str,
+        target_variable: &str,
+        types: &[String],
+        direction: &RelationshipDirection,
+        min_hops: u32,
+        max_hops: u32,
+        target_properties: &HashMap<String, crate::ast::PropertyValue>,
+    ) -> Result<Option<LogicalPlan>> {
+        use crate::csr_expand::{CsrExpandNode, Neighbors};
+        use datafusion::logical_expr::Extension;
+        if max_hops == 0 {
+            return Ok(None);
+        }
+        let Some(catalog) = &self.adjacency else {
+            return Ok(None);
+        };
+        let (source_label, source_map) = self.get_target_node_mapping(ctx, source_variable)?;
+        let (target_label, target_map) = self.get_target_node_mapping(ctx, target_variable)?;
+        let Some(walk) = crate::csr_traversal::Traversal::new(
+            &self.config,
+            catalog,
+            types,
+            direction,
+            &source_label,
+            &target_label,
+            min_hops,
+            max_hops,
+        ) else {
+            return Ok(None);
+        };
+        let rel_type = &types[0];
+        let rel_map = self.get_relationship_mapping(rel_type)?;
+        let source_key = qualify_column(source_variable, &source_map.id_field);
+        if !input
+            .schema()
+            .field_with_unqualified_name(&source_key)
+            .is_ok_and(|f| crate::csr_expand::is_supported_id_type(f.data_type()))
+        {
+            return Ok(None);
+        }
+        let adjacency = match direction {
+            RelationshipDirection::Outgoing => Neighbors::directed(
+                catalog
+                    .get(rel_type, true)
+                    .expect("validated traversal")
+                    .clone(),
+            ),
+            RelationshipDirection::Incoming => Neighbors::directed(
+                catalog
+                    .get(rel_type, false)
+                    .expect("validated traversal")
+                    .clone(),
+            ),
+            RelationshipDirection::Undirected => Neighbors::undirected(
+                catalog
+                    .get(rel_type, true)
+                    .expect("validated traversal")
+                    .clone(),
+                catalog
+                    .get(rel_type, false)
+                    .expect("validated traversal")
+                    .clone(),
+            ),
+        };
+        let cat = self.get_catalog()?;
+        let target = target_properties
+            .is_empty()
+            .then(|| {
+                self.csr_target_lookup(cat, &input, target_variable, &target_label, target_map)
+            })
+            .flatten();
+        let fused = target.is_some();
+        let bound_target = qualify_column(target_variable, &target_map.id_field);
+        let closing = input
+            .schema()
+            .field_with_unqualified_name(&bound_target)
+            .is_ok();
+        let alias = ctx.next_relationship_instance(rel_type)?.alias.clone();
+        let output = |name| {
+            arrow_schema::Field::new(
+                qualify_column(&alias, name),
+                arrow_schema::DataType::Int64,
+                true,
+            )
+        };
+        let mut node = CsrExpandNode::try_new(
+            input,
+            source_key,
+            output(Self::get_source_join_key(direction, rel_map)),
+            output(Self::get_target_join_key(direction, rel_map)),
+            adjacency,
+            target,
+        )?
+        .with_traversal(walk);
+        if closing && target_properties.is_empty() {
+            node = node.with_closing_column(bound_target);
+        }
+        let plan = LogicalPlan::Extension(Extension {
+            node: Arc::new(node),
+        });
+        if fused || (closing && target_properties.is_empty()) {
+            return Ok(Some(plan));
+        }
+        self.join_relationship_to_target(
+            LogicalPlanBuilder::from(plan),
+            cat,
+            &TargetJoinParams {
+                target_variable,
+                target_label: &target_label,
+                rel_qualifier: &alias,
+                node_map: target_map,
+                rel_map,
+                direction,
+                target_properties,
+            },
+        )
+        .map(Some)
     }
 
     /// Build a single-hop expansion on top of an existing plan (one hop of a
@@ -712,6 +923,7 @@ mod tests {
             input: Box::new(scan_a),
             source_variable: "a".into(),
             target_variable: "b".into(),
+            target_label: "Person".to_string(),
             relationship_types: vec!["KNOWS".into()],
             direction: crate::ast::RelationshipDirection::Outgoing,
             relationship_variable: Some("r".into()),
@@ -747,6 +959,7 @@ mod tests {
             input: Box::new(scan_a),
             source_variable: "a".into(),
             target_variable: "b".into(),
+            target_label: "Person".to_string(),
             relationship_types: vec!["KNOWS".into()],
             direction: crate::ast::RelationshipDirection::Outgoing,
             relationship_variable: None,
@@ -782,6 +995,7 @@ mod tests {
             input: Box::new(scan_a),
             source_variable: "a".into(),
             target_variable: "b".into(),
+            target_label: "Person".to_string(),
             relationship_types: vec!["KNOWS".into()],
             direction: crate::ast::RelationshipDirection::Outgoing,
             relationship_variable: None,
@@ -831,6 +1045,7 @@ mod tests {
             input: Box::new(scan_a),
             source_variable: "a".into(),
             target_variable: "b".into(),
+            target_label: "Person".to_string(),
             relationship_types: vec!["KNOWS".into()],
             direction: crate::ast::RelationshipDirection::Outgoing,
             relationship_variable: None,
@@ -879,6 +1094,7 @@ mod tests {
             input: Box::new(scan_a),
             source_variable: "a".into(),
             target_variable: "b".into(),
+            target_label: "Person".to_string(),
             relationship_types: vec!["KNOWS".into()],
             direction: crate::ast::RelationshipDirection::Outgoing,
             relationship_variable: None,
@@ -928,6 +1144,7 @@ mod tests {
             input: Box::new(scan_a),
             source_variable: "a".into(),
             target_variable: "b".into(),
+            target_label: "Person".to_string(),
             relationship_types: vec!["KNOWS".into()],
             direction: crate::ast::RelationshipDirection::Outgoing,
             relationship_variable: None,
@@ -977,6 +1194,7 @@ mod tests {
             input: Box::new(scan_a),
             source_variable: "a".into(),
             target_variable: "b".into(),
+            target_label: "Person".to_string(),
             relationship_types: vec!["KNOWS".into()],
             direction: crate::ast::RelationshipDirection::Outgoing,
             relationship_variable: None,
@@ -1026,6 +1244,7 @@ mod tests {
             input: Box::new(scan_a),
             source_variable: "a".into(),
             target_variable: "b".into(),
+            target_label: "Person".to_string(),
             relationship_types: vec!["KNOWS".into()],
             direction: crate::ast::RelationshipDirection::Outgoing,
             relationship_variable: None,
