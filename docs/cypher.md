@@ -348,9 +348,9 @@ traversed that relationship backwards. Property access, `keys()` and node `label
 A zero-hop path has one node and an empty relationship list. All path functions return null for a null path.
 
 `RETURN path` produces an Arrow struct with `length`, `nodes`, `node_records` and `relationships` fields.
-Entity records store user properties in `__lance_graph_properties` and `{label, id}` identity metadata
-in `__lance_graph_identity`. Relationship records also carry the node records `__lance_graph_start` and
-`__lance_graph_end`. These metadata fields are distinct from user properties, even if a property has the
+Entity records store user properties in `__lance_csr_properties` and `{label, id}` identity metadata
+in `__lance_csr_identity`. Relationship records also carry the node records `__lance_csr_start` and
+`__lance_csr_end`. These metadata fields are distinct from user properties, even if a property has the
 same name. `keys(entity)` lists only non-null user properties; `keys(map)` includes null-valued keys.
 Prefer the Cypher property and endpoint functions when writing queries. Relationship identities identify actual occurrences within this query's inventory, not persistent
 IDs that can be compared across queries or refreshes. Rich paths support the same signed integer and

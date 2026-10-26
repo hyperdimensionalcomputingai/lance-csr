@@ -81,7 +81,7 @@ def test_zero_path_records(engine, shortest):
     assert rows[0]["length"] == 0
     assert rows[0]["ids"] == [3]
     assert rows[0]["edges"] == []
-    assert rows[0]["p"]["node_records"][0]["__lance_graph_properties"]["name"] == "c"
+    assert rows[0]["p"]["node_records"][0]["__lance_csr_properties"]["name"] == "c"
 
 
 def test_named_trails_do_not_reuse_a_relationship(engine):
@@ -194,8 +194,8 @@ def test_identical_parallel_occurrences_are_distinct():
     ).to_pylist()
     relationships = [r["p"]["relationships"][0] for r in rows]
     assert len(relationships) == 2
-    assert len({r["__lance_graph_identity"]["id"] for r in relationships}) == 2
-    assert [r["__lance_graph_properties"]["weight"] for r in relationships] == [5, 5]
+    assert len({r["__lance_csr_identity"]["id"] for r in relationships}) == 2
+    assert [r["__lance_csr_properties"]["weight"] for r in relationships] == [5, 5]
 
 
 @pytest.mark.parametrize("bad_type", [pa.string(), pa.uint64()])
@@ -316,18 +316,18 @@ def test_entity_metadata_does_not_shadow_properties():
             "Person": pa.table(
                 {"id": [1, 2], "nullable": pa.array([None, None], pa.string())}
             ),
-            "R": pa.table({"src": [1], "dst": [2], "__lance_graph_identity": [42]}),
+            "R": pa.table({"src": [1], "dst": [2], "__lance_csr_identity": [42]}),
         },
     )
     rows = engine.execute(
         "MATCH p = (a:Person)-[:R]->(b:Person) UNWIND relationships(p) AS r "
-        "RETURN r.__lance_graph_identity AS user_value, keys(r) AS properties, "
+        "RETURN r.__lance_csr_identity AS user_value, keys(r) AS properties, "
         "keys(startNode(r)) AS node_properties, keys({nullable: null}) AS map_keys"
     ).to_pylist()
     assert rows == [
         {
             "user_value": 42,
-            "properties": ["__lance_graph_identity", "dst", "src"],
+            "properties": ["__lance_csr_identity", "dst", "src"],
             "node_properties": ["id"],
             "map_keys": ["nullable"],
         }
@@ -344,8 +344,8 @@ def test_multiple_path_operators_share_occurrence_identity(engine):
     ids = {}
     for row in rows:
         for edge in row.values():
-            weight = edge["__lance_graph_properties"]["weight"]
-            identity = edge["__lance_graph_identity"]
+            weight = edge["__lance_csr_properties"]["weight"]
+            identity = edge["__lance_csr_identity"]
             assert ids.setdefault(weight, identity) == identity
     assert ids[5] != ids[7]
 
@@ -460,7 +460,7 @@ def test_path_alias_retains_actual_relationship_values(engine, suffix):
     rows = engine.execute(query).to_pylist()
     edges = [row.get("edges", row.get("path", {}).get("relationships")) for row in rows]
     assert sorted(
-        [r["__lance_graph_properties"]["weight"] for r in path] for path in edges
+        [r["__lance_csr_properties"]["weight"] for r in path] for path in edges
     ) == [
         [5, 11],
         [7, 11],
