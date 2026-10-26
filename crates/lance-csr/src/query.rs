@@ -5,7 +5,6 @@
 
 mod deadline;
 
-#[doc(hidden)]
 pub use deadline::with_execution_deadline;
 
 use crate::ast::CypherQuery as CypherAST;
