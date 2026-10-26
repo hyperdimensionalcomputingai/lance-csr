@@ -423,7 +423,7 @@ async fn expand_level(
     let mut work = 0_usize;
     for &node in frontier {
         let mut position = crate::csr_expand::NeighborPosition::default();
-        while let Some(candidate) = adjacency.next_candidate(node, &mut position) {
+        for candidate in adjacency.candidates_from(node, &mut position) {
             work += 1;
             if work.is_multiple_of(1024) {
                 crate::csr_expand::cooperative_yield().await;
