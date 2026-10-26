@@ -143,12 +143,12 @@ See [Repeated queries](lance.md#repeated-queries) for the scope and limits.
 | `config` | The graph mapping. |
 | `datasets` | See [Datasets](#datasets). Lance datasets are pinned to the version passed in and not read here. |
 | `use_csr` | Build the experimental [CSR index](csr.md) for relationship types with integer endpoints, and node indexes for labels with unique integer keys. Default `False`. |
-| `target_partitions` | Optional positive integer target for DataFusion query partitioning. `None` keeps DataFusion's default. Keyword-only; preserved by `refresh()`. It is not a thread or memory limit. See [Query parallelism](lance.md#query-parallelism). |
+| `target_partitions` | Optional integer target from 1 to 1024 for DataFusion query partitioning. `None` keeps DataFusion's default. Keyword-only; preserved by `refresh()`. It is not a thread or memory limit. See [Query parallelism](lance.md#query-parallelism). |
 
 Raises `ValueError` if `datasets` is empty, a configured key or endpoint column is missing, or a Lance dataset
 was opened through a namespace client and can't be reopened by URI. Raises `RuntimeError` if a dataset can't
 be opened. For `target_partitions`, booleans and non-integers other than `None` raise `TypeError`;
-zero, negative values and integers outside the platform's unsigned integer range raise `ValueError`.
+values outside 1 to 1024 raise `ValueError`.
 
 `#!python execute(query: str, params: dict | None = None, *, timeout: float | None = None) -> pyarrow.Table`
 :   Runs `query` and returns the whole result. `params` binds `$name` parameters: `int`, `float`, `str`,

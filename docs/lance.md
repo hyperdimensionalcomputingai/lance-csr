@@ -98,7 +98,7 @@ These rules apply with and without CSR. They do not promise a speedup for a part
 ## Query parallelism
 
 `CypherEngine(..., target_partitions=None)` keeps DataFusion's default query partitioning. If you have
-measured your workload, you can choose a positive target explicitly:
+measured your workload, you can choose a target from 1 to 1024 explicitly:
 
 ```python
 serial_engine = CypherEngine(
