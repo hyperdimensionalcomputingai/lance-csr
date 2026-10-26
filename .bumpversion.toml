@@ -1,5 +1,5 @@
 [tool.bumpversion]
-current_version = "0.2.0"
+current_version = "0.3.0"
 parse = "(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)(-(?P<pre_label>alpha|beta|rc)\\.(?P<pre_n>\\d+))?"
 serialize = [
     "{major}.{minor}.{patch}-{pre_label}.{pre_n}",
@@ -29,22 +29,22 @@ first_value = "0"
 
 # Rust Cargo.toml files
 [[tool.bumpversion.files]]
-filename = "crates/lance-graph/Cargo.toml"
+filename = "crates/lance-csr/Cargo.toml"
 search = 'version = "{current_version}"'
 replace = 'version = "{new_version}"'
 
 [[tool.bumpversion.files]]
-filename = "crates/lance-graph-catalog/Cargo.toml"
+filename = "crates/lance-csr-catalog/Cargo.toml"
 search = 'version = "{current_version}"'
 replace = 'version = "{new_version}"'
 
 [[tool.bumpversion.files]]
-filename = "crates/lance-graph-benches/Cargo.toml"
+filename = "crates/lance-csr-benches/Cargo.toml"
 search = 'version = "{current_version}"'
 replace = 'version = "{new_version}"'
 
 [[tool.bumpversion.files]]
-filename = "crates/lance-graph-python/Cargo.toml"
+filename = "crates/lance-csr-python/Cargo.toml"
 search = 'version = "{current_version}"'
 replace = 'version = "{new_version}"'
 

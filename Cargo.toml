@@ -1,9 +1,9 @@
 [workspace]
 members = [
-    "crates/lance-graph",
-    "crates/lance-graph-catalog",
-    "crates/lance-graph-benches",
+    "crates/lance-csr",
+    "crates/lance-csr-catalog",
+    "crates/lance-csr-benches",
 ]
 # Python package needs to be built by maturin.
-exclude = ["crates/lance-graph-python"]
+exclude = ["crates/lance-csr-python"]
 resolver = "2"

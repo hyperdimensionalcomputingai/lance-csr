@@ -36,6 +36,9 @@ def main():
     # outside sys.prefix, so check for site-packages itself).
     extension = Path(_internal.__file__).resolve()
     assert "site-packages" in extension.parts, extension
+    package = extension.parent
+    for relative in ("py.typed", "_internal/__init__.pyi", "_internal/graph.pyi"):
+        assert (package / relative).is_file(), f"Missing typing file: {relative}"
 
     config = (
         GraphConfig.builder()

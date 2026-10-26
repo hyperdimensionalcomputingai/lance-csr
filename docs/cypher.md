@@ -105,6 +105,8 @@ print(rows)  # 4
 
 - Batches are computed as you read them. Scans, filters and projections stream with bounded memory; joins,
   sorts and aggregations may still buffer their inputs.
+- CSR expansion visits neighbours and fetches their properties a chunk at a time, including when one node
+  has many neighbours. See [CSR memory cost](csr.md#turning-it-on) for what it keeps in memory.
 - Planning errors (a syntax error, an unknown label) raise immediately. Execution errors raise while reading.
 - The reader keeps its snapshot alive, so a concurrent [`refresh()`](lance.md#refresh) doesn't affect it.
 - Dropping the reader cancels the remaining work.
@@ -177,13 +179,18 @@ read-only subset of openCypher, enough to run all 14 (IC14 without `reduce()`).
 | `WHERE` | After `MATCH`, `OPTIONAL MATCH` (filters inside the optional part) or `WITH`. |
 | `WITH [DISTINCT]` | With `ORDER BY`, `LIMIT` and `WHERE`; chain as many as you need. No `SKIP` inside `WITH`. |
 | `UNWIND list AS x` | |
-| `RETURN [DISTINCT]` | With `AS` aliases. |
+| `RETURN [DISTINCT]` | With `AS` aliases. Without reading clauses, expressions run on one implicit row. |
 | `ORDER BY`, `SKIP`, `LIMIT` | `SKIP` and `LIMIT` take integer literals, not parameters. |
 
 !!! failure "Not supported"
 
-    Writes (`CREATE`, `MERGE`, `SET`, `DELETE`, `REMOVE`), `UNION`, `CALL`, `FOREACH`, and queries with
-    neither `MATCH` nor `UNWIND`.
+    Writes (`CREATE`, `MERGE`, `SET`, `DELETE`, `REMOVE`), `UNION`, `CALL`, and `FOREACH`.
+
+Integer list literals retain signed 64-bit values: `RETURN [1, 2, 3] AS ids` returns integers, and
+`UNWIND [1131, 19791209300775] AS id RETURN id` preserves both IDs exactly. Numeric literals with a decimal
+point or exponent, such as `[0.1, 1e-3]`, form float32 vectors. Whole-number lists can also be used as query
+vectors; conversion to float32 happens inside the vector operation. A configured engine is still required
+for standalone `RETURN` queries.
 
 ### Patterns
 
