@@ -1,0 +1,24 @@
+{
+  "before_proof_head": "0189c99aac4de1ff7ea85a9032bd9824f965f1b8",
+  "current_owner_head": "a641cf25cbe34db25245ce2543140af5b735d30e",
+  "unchanged_files": [
+    {
+      "file": "crates/lance-graph/src/query/deadline.rs",
+      "sha256": "5c4f278ee1b9210a26fbe89233102e71f34e4d8d5d7493ce1c7b4cb16a459f6e"
+    },
+    {
+      "file": "crates/lance-graph/src/query.rs",
+      "sha256": "174cf16251d2aac74eea30ae7e646e2c79c1cd499f25de02c20037087a8ce06d"
+    },
+    {
+      "file": "crates/lance-graph-python/src/executor.rs",
+      "sha256": "297d4281193a26a0f3fab795e235fc9d2a7678b7d5769efdf6af8af0ef2957f6"
+    },
+    {
+      "file": "crates/lance-graph-python/src/graph.rs",
+      "sha256": "41f8e931b1c705a017c61e78ef028055bacf7a6d23ec300a119ca82ba269a28a"
+    }
+  ],
+  "scope": "The timed join guard, its context entry points, deadline propagation and Python stream/watchdog ownership are byte-identical. CSR scan kernels changed and have separate native bounded-work tests and workload comparisons.",
+  "reuse": "Earlier controlled join CPU proof is retained with its original head, not relabeled as a new measurement."
+}

@@ -1,0 +1,38 @@
+{
+  "status": "complete",
+  "initial_failed_gate_preserved": true,
+  "protocol_provenance_correction": {
+    "created_utc": "2026-10-26T07:18:01.613280+00:00",
+    "selection_sha256": "8dd87548bfb6546f24eb3b5ef5bb08c83a2916d5f44214d2557d7df3c097ed75",
+    "correction": "The rule text inherited a reference to a twelve-pair entity pilot. No twelve-pair IC6 pilot was performed. This IC6 study fixed 32 fresh comparison pairs and 32 unchanged-parent control pairs before executing them. The initial two-pair IC6 gate and diagnostic sampling are excluded.",
+    "unchanged": "Sample size, commands, acceptance interval, control criterion and prohibition on optional stopping are unchanged. No formal interim pair results were inspected before this correction."
+  },
+  "rule": "32 fresh paired process means per comparison and unchanged-wheel control, fixed in advance. The12-pair pilot sets the sample size only and is excluded from this formal interval. Paired log-ratio95% Student t(31)=2.039513 interval: upper<=1.10 does not substantiate10%regression; lower>1.10 confirms; overlapping remains inconclusive. Control must include1.0. Report every run; no optional stopping. Execute only after builds/tests have stopped.",
+  "selection_sha256": "8dd87548bfb6546f24eb3b5ef5bb08c83a2916d5f44214d2557d7df3c097ed75",
+  "plan_sha256": "cfb38d665f07947b69e1168a5c057107c455574cac91f354341a4654c1c37dd8",
+  "golden_checks_passed": 128,
+  "summaries": [
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-scan-budget-release",
+      "query": 6,
+      "mode": "memory",
+      "pairs": 32,
+      "geometric_mean_after_over_before": 0.9417435676370945,
+      "confidence_95_lower": 0.9064783608675977,
+      "confidence_95_upper": 0.9783807153840958,
+      "status": "10_percent_regression_not_substantiated"
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-prerequisites-release",
+      "query": 6,
+      "mode": "memory",
+      "pairs": 32,
+      "geometric_mean_after_over_before": 1.028032462522469,
+      "confidence_95_lower": 0.987687997337369,
+      "confidence_95_upper": 1.070024893335844,
+      "status": "control_consistent_with_equality"
+    }
+  ]
+}

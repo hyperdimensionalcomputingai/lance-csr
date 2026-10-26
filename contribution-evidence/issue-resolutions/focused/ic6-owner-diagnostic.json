@@ -1,0 +1,45 @@
+{
+  "purpose": "Diagnostic CPU sampling only; no sampling timings enter acceptance. The fixed-size study separately retains all process-level observations and a control.",
+  "files": [
+    {
+      "path": "/private/tmp/lance-csr-submissions/ic6-owner-sampling-r1/issue-19-prerequisites-release-ready.json",
+      "sha256": "f71c2c29e0240ecc47c2581cc6aa6ad4bfc928522179241c938113bc5d27537e",
+      "bytes": 101
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/ic6-owner-sampling-r1/issue-19-prerequisites-release-sample-driver.json",
+      "sha256": "4822f809cefe07638069da6c304798964bb4dc48cd8e06af5de34faeea1ccf04",
+      "bytes": 323
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/ic6-owner-sampling-r1/issue-19-prerequisites-release-sample.txt",
+      "sha256": "d7ed216458e10e280f3ab2c2be47edc373f8905bf861dd57b27d9eb0e79f4b68",
+      "bytes": 3359897
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/ic6-owner-sampling-r1/issue-19-prerequisites-release.log",
+      "sha256": "c14e7c20d903fe0fac979c39fbdf7169920c1b33e75ae3c2642e0a17ec1118bc",
+      "bytes": 60
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/ic6-owner-sampling-r1/issue-19-scan-budget-release-ready.json",
+      "sha256": "b8769924a471d7a35d8ea585cd6b35fcd60e29ea565cdf3d53421ac98a89324d",
+      "bytes": 101
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/ic6-owner-sampling-r1/issue-19-scan-budget-release-sample-driver.json",
+      "sha256": "6bb068c81064a2567b1bedcf4bae45a6231af27dd3c7abac1daa20bf38cfc820",
+      "bytes": 321
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/ic6-owner-sampling-r1/issue-19-scan-budget-release-sample.txt",
+      "sha256": "bed3805e33e8d507f5b24c211d585c9aaa1998802f4a964857105c791df0c159",
+      "bytes": 3063834
+    },
+    {
+      "path": "/private/tmp/lance-csr-submissions/ic6-owner-sampling-r1/issue-19-scan-budget-release.log",
+      "sha256": "37429670f81281b7bd350e894c272f8e75cd3ee394d245a737a22b5480ad94d0",
+      "bytes": 60
+    }
+  ]
+}

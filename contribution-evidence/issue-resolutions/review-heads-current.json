@@ -16,7 +16,10 @@
       "diffstat": "9 files changed, 210 insertions(+), 54 deletions(-)",
       "acceptance": "complete_for_frozen_head",
       "original_phase": "issue-3-cp313",
-      "author": "David Hughes <stugorf@gmail.com>"
+      "author": "David Hughes <stugorf@gmail.com>",
+      "proposed_branch": "codex/issue-3-integer-lists",
+      "proposed_base_branch": "main",
+      "review_status": "ready_for_individual_review"
     },
     {
       "issue": 11,
@@ -33,7 +36,10 @@
       "diffstat": "5 files changed, 413 insertions(+), 149 deletions(-)",
       "acceptance": "complete_for_corrected_head",
       "original_phase": "issue-11-clean-r2",
-      "author": "David Hughes <stugorf@gmail.com>"
+      "author": "David Hughes <stugorf@gmail.com>",
+      "proposed_branch": "codex/issue-11-inline-local-cursors",
+      "proposed_base_branch": "main",
+      "review_status": "ready_for_individual_review"
     },
     {
       "issue": 12,
@@ -51,7 +57,10 @@
       "diffstat": "4 files changed, 134 insertions(+), 18 deletions(-)",
       "acceptance": "complete_for_frozen_head",
       "original_phase": "issue-12",
-      "author": "David Hughes <stugorf@gmail.com>"
+      "author": "David Hughes <stugorf@gmail.com>",
+      "proposed_branch": "codex/issue-12-refresh-corrected",
+      "proposed_base_branch": "main",
+      "review_status": "ready_for_individual_review"
     },
     {
       "issue": 13,
@@ -68,7 +77,10 @@
       "diffstat": "15 files changed, 1090 insertions(+), 93 deletions(-)",
       "acceptance": "own_parent_passed_main_IC3_IC9_lazy_held_combined_passed",
       "original_phase": "issue-13",
-      "author": "David Hughes <stugorf@gmail.com>"
+      "author": "David Hughes <stugorf@gmail.com>",
+      "proposed_branch": "codex/issue-13-cancellation-boundaries",
+      "proposed_base_branch": "codex/issue-11-bounded-csr",
+      "review_status": "coordinated_draft_requires_tested_integration"
     },
     {
       "issue": 14,
@@ -85,7 +97,10 @@
       "diffstat": "16 files changed, 853 insertions(+), 70 deletions(-)",
       "acceptance": "complete_for_frozen_head",
       "original_phase": "issue-14-curated",
-      "author": "David Hughes <stugorf@gmail.com>"
+      "author": "David Hughes <stugorf@gmail.com>",
+      "proposed_branch": "codex/issue-14-curated",
+      "proposed_base_branch": "codex/issue-14-prerequisites",
+      "review_status": "ready_for_individual_review"
     },
     {
       "issue": 15,
@@ -102,7 +117,10 @@
       "diffstat": "9 files changed, 231 insertions(+), 16 deletions(-)",
       "acceptance": "held_for_performance",
       "original_phase": "issue-15-option-release",
-      "author": "David Hughes <stugorf@gmail.com>"
+      "author": "David Hughes <stugorf@gmail.com>",
+      "proposed_branch": "codex/issue-15-target-partitions",
+      "proposed_base_branch": "codex/issue-20-final-corrections",
+      "review_status": "coordinated_draft_requires_tested_integration"
     },
     {
       "issue": 16,
@@ -119,7 +137,10 @@
       "diffstat": "4 files changed, 191 insertions(+), 6 deletions(-)",
       "acceptance": "held_for_performance",
       "original_phase": "issue-16",
-      "author": "David Hughes <stugorf@gmail.com>"
+      "author": "David Hughes <stugorf@gmail.com>",
+      "proposed_branch": "codex/issue-16-filter-column-reuse",
+      "proposed_base_branch": "codex/issue-13-iterative-csr",
+      "review_status": "coordinated_draft_requires_tested_integration"
     },
     {
       "issue": 17,
@@ -136,7 +157,10 @@
       "diffstat": "5 files changed, 311 insertions(+), 25 deletions(-)",
       "acceptance": "held_for_performance",
       "original_phase": "issue-17",
-      "author": "David Hughes <stugorf@gmail.com>"
+      "author": "David Hughes <stugorf@gmail.com>",
+      "proposed_branch": "codex/issue-17-bidirectional-shortest-path",
+      "proposed_base_branch": "codex/issue-11-bounded-csr",
+      "review_status": "coordinated_draft_requires_tested_integration"
     },
     {
       "issue": 18,
@@ -153,24 +177,30 @@
       "diffstat": "9 files changed, 301 insertions(+), 8 deletions(-)",
       "acceptance": "complete_for_frozen_head",
       "original_phase": "issue-18-curated",
-      "author": "David Hughes <stugorf@gmail.com>"
+      "author": "David Hughes <stugorf@gmail.com>",
+      "proposed_branch": "codex/issue-18-curated",
+      "proposed_base_branch": "codex/issue-18-prerequisites",
+      "review_status": "ready_for_individual_review"
     },
     {
       "issue": 19,
       "group": "query deadlines",
-      "phase": "issue-19-empty-work-release",
-      "head": "b84e62866aa94effa07bb0742a4b26c3dc83c9d5",
+      "phase": "issue-19-scan-budget-release",
+      "head": "a641cf25cbe34db25245ce2543140af5b735d30e",
       "head_branches": [
-        "codex/issue-19-local-cursor-quanta"
+        "codex/issue-19-scan-budget"
       ],
       "base": "81ef524be83db4abb626394dd4940121a45751e2",
       "base_branches": [
         "codex/issue-19-prerequisites"
       ],
       "diffstat": "15 files changed, 1059 insertions(+), 119 deletions(-)",
-      "acceptance": "qualified_final_benchmarks_running",
+      "acceptance": "complete_for_corrected_head_including_fixed_size_IC6_investigation",
       "original_phase": "issue-19",
-      "author": "David Hughes <stugorf@gmail.com>"
+      "author": "David Hughes <stugorf@gmail.com>",
+      "proposed_branch": "codex/issue-19-scan-budget",
+      "proposed_base_branch": "codex/issue-19-prerequisites",
+      "review_status": "coordinated_draft_requires_tested_integration"
     },
     {
       "issue": 20,
@@ -187,7 +217,10 @@
       "diffstat": "9 files changed, 272 insertions(+), 51 deletions(-)",
       "acceptance": "complete_for_frozen_head",
       "original_phase": "issue-20-containers-curated",
-      "author": "David Hughes <stugorf@gmail.com>"
+      "author": "David Hughes <stugorf@gmail.com>",
+      "proposed_branch": "codex/issue-20-containers-curated",
+      "proposed_base_branch": "codex/issue-20-parameter-prerequisites",
+      "review_status": "ready_for_individual_review"
     },
     {
       "issue": 20,
@@ -204,7 +237,10 @@
       "diffstat": "8 files changed, 190 insertions(+), 33 deletions(-)",
       "acceptance": "complete_for_frozen_head",
       "original_phase": "issue-20-pagination-curated",
-      "author": "David Hughes <stugorf@gmail.com>"
+      "author": "David Hughes <stugorf@gmail.com>",
+      "proposed_branch": "codex/issue-20-pagination-curated",
+      "proposed_base_branch": "codex/issue-20-containers-curated",
+      "review_status": "ready_for_individual_review"
     },
     {
       "issue": 20,
@@ -221,7 +257,10 @@
       "diffstat": "12 files changed, 582 insertions(+), 9 deletions(-)",
       "acceptance": "complete_for_frozen_head",
       "original_phase": "issue-20-math-delivery",
-      "author": "David Hughes <stugorf@gmail.com>"
+      "author": "David Hughes <stugorf@gmail.com>",
+      "proposed_branch": "codex/issue-20-math-delivery",
+      "proposed_base_branch": "codex/issue-20-pagination-curated",
+      "review_status": "ready_for_individual_review"
     },
     {
       "issue": 20,
@@ -238,7 +277,10 @@
       "diffstat": "11 files changed, 759 insertions(+), 46 deletions(-)",
       "acceptance": "complete_for_frozen_head",
       "original_phase": "issue-20-string-list-delivery",
-      "author": "David Hughes <stugorf@gmail.com>"
+      "author": "David Hughes <stugorf@gmail.com>",
+      "proposed_branch": "codex/issue-20-string-list-delivery",
+      "proposed_base_branch": "codex/issue-20-math-delivery",
+      "review_status": "ready_for_individual_review"
     },
     {
       "issue": 20,
@@ -255,7 +297,10 @@
       "diffstat": "6 files changed, 330 insertions(+), 23 deletions(-)",
       "acceptance": "complete_for_frozen_head",
       "original_phase": "issue-20-entities-delivery",
-      "author": "David Hughes <stugorf@gmail.com>"
+      "author": "David Hughes <stugorf@gmail.com>",
+      "proposed_branch": "codex/issue-20-entities-delivery",
+      "proposed_base_branch": "codex/issue-20-string-list-delivery",
+      "review_status": "ready_for_individual_review"
     },
     {
       "issue": 20,
@@ -272,7 +317,10 @@
       "diffstat": "17 files changed, 1116 insertions(+), 75 deletions(-)",
       "acceptance": "complete_for_frozen_head",
       "original_phase": "issue-20-folds-delivery",
-      "author": "David Hughes <stugorf@gmail.com>"
+      "author": "David Hughes <stugorf@gmail.com>",
+      "proposed_branch": "codex/issue-20-folds-delivery",
+      "proposed_base_branch": "codex/issue-20-entities-delivery",
+      "review_status": "ready_for_individual_review"
     },
     {
       "issue": 20,
@@ -290,7 +338,10 @@
       "diffstat": "14 files changed, 467 insertions(+), 40 deletions(-)",
       "acceptance": "complete_for_frozen_head",
       "original_phase": "issue-20-union-delivery",
-      "author": "David Hughes <stugorf@gmail.com>"
+      "author": "David Hughes <stugorf@gmail.com>",
+      "proposed_branch": "codex/issue-20-union-delivery",
+      "proposed_base_branch": "codex/issue-20-union-delivery-prerequisites",
+      "review_status": "ready_for_individual_review"
     },
     {
       "issue": 20,
@@ -307,7 +358,10 @@
       "diffstat": "29 files changed, 3007 insertions(+), 85 deletions(-)",
       "acceptance": "held_for_performance",
       "original_phase": "issue-20-paths-curated-head",
-      "author": "David Hughes <stugorf@gmail.com>"
+      "author": "David Hughes <stugorf@gmail.com>",
+      "proposed_branch": "codex/issue-20-path-null-recheck",
+      "proposed_base_branch": "codex/issue-20-paths-curated-base",
+      "review_status": "coordinated_draft_requires_tested_integration"
     },
     {
       "issue": 20,
@@ -324,7 +378,10 @@
       "diffstat": "21 files changed, 1544 insertions(+), 19 deletions(-)",
       "acceptance": "held_for_performance",
       "original_phase": "issue-20-call-delivery-release",
-      "author": "David Hughes <stugorf@gmail.com>"
+      "author": "David Hughes <stugorf@gmail.com>",
+      "proposed_branch": "codex/issue-20-call-delivery",
+      "proposed_base_branch": "codex/issue-20-call-prerequisites",
+      "review_status": "coordinated_draft_requires_tested_integration"
     },
     {
       "issue": 21,
@@ -342,7 +399,10 @@
       "diffstat": "3 files changed, 127 insertions(+), 4 deletions(-)",
       "acceptance": "complete_for_frozen_head",
       "original_phase": "issue-21-delivery",
-      "author": "David Hughes <stugorf@gmail.com>"
+      "author": "David Hughes <stugorf@gmail.com>",
+      "proposed_branch": "codex/issue-21-delivery",
+      "proposed_base_branch": "codex/issue-20-string-list-delivery",
+      "review_status": "ready_for_individual_review"
     },
     {
       "issue": 22,
@@ -359,7 +419,10 @@
       "diffstat": "11 files changed, 482 insertions(+), 5 deletions(-)",
       "acceptance": "complete_for_frozen_head",
       "original_phase": "issue-22-cp313",
-      "author": "David Hughes <stugorf@gmail.com>"
+      "author": "David Hughes <stugorf@gmail.com>",
+      "proposed_branch": "codex/issue-22-python-stubs",
+      "proposed_base_branch": "main",
+      "review_status": "ready_for_individual_review"
     },
     {
       "issue": 23,
@@ -376,7 +439,10 @@
       "diffstat": "5 files changed, 75 insertions(+), 34 deletions(-)",
       "acceptance": "complete_for_frozen_head",
       "original_phase": "issue-23-accessors",
-      "author": "David Hughes <stugorf@gmail.com>"
+      "author": "David Hughes <stugorf@gmail.com>",
+      "proposed_branch": "codex/issue-23-config-accessors",
+      "proposed_base_branch": "main",
+      "review_status": "ready_for_individual_review"
     },
     {
       "issue": 23,
@@ -393,14 +459,19 @@
       "diffstat": "6 files changed, 560 insertions(+), 33 deletions(-)",
       "acceptance": "complete_for_frozen_head",
       "original_phase": "issue-23-types",
-      "author": "David Hughes <stugorf@gmail.com>"
+      "author": "David Hughes <stugorf@gmail.com>",
+      "proposed_branch": "codex/issue-23-expression-types",
+      "proposed_base_branch": "codex/issue-23-config-accessors",
+      "review_status": "ready_for_individual_review"
     }
   ],
   "combined_final": {
     "head": "7d2ef3e11b3858cc4571db315df4e848a37bdb82",
     "branch": "codex/issue-resolution-final",
     "phase": "candidate-final-release",
-    "status": "all_source_release_correctness_paired_performance_and_supporting_proofs_passed"
+    "status": "source_release_full_workloads_paired_gates_and_supporting_proofs_passed",
+    "source_worktree": "/private/tmp/lance-csr-resolution-accepted",
+    "private_fixed_hop_work_quantum": 1024
   },
   "superseded_csr_prototype": {
     "head": "e8ca5df46d4e13ec90581bc0cb905059373fe44b",
@@ -408,5 +479,14 @@
     "source_and_release_qualification": "passed",
     "performance_acceptance": "held_by_repeated_Q30_regression",
     "measurement": "local-cursor-q30-repeats-r1"
+  },
+  "rejected_combined_budget_variant": {
+    "head": "891d8d7ba1c2d6943a17a877c287514d550201c6",
+    "branch": "codex/issue-resolution-budget-integration",
+    "phase": "candidate-budget-release",
+    "correctness": "passed",
+    "performance": "blocked_by_lazy_Q30_30_ratios_1.1267_and_1.1785",
+    "private_fixed_hop_work_quantum": 8192,
+    "reason": "Retain the already qualified smaller-budget combined source; no source or baseline is discarded."
   }
 }

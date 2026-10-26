@@ -1,0 +1,162 @@
+{
+  "comparisons": [
+    {
+      "before": "main-cp313",
+      "after": "issue-19-scan-budget-release",
+      "suite": "q30",
+      "mode": "memory",
+      "speedup": 0.9695424152901142,
+      "flags_above_10_percent": [
+        1,
+        2,
+        3,
+        26,
+        27
+      ],
+      "report": "/private/tmp/lance-csr-submissions/scan-budget-comparison-tables-r1/issue-19-scan-budget-release-vs-main-cp313-q30-memory.json",
+      "primary": true
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-19-scan-budget-release",
+      "suite": "q30",
+      "mode": "lazy",
+      "speedup": 0.9687494204276268,
+      "flags_above_10_percent": [
+        3,
+        7,
+        8,
+        21,
+        30
+      ],
+      "report": "/private/tmp/lance-csr-submissions/scan-budget-comparison-tables-r1/issue-19-scan-budget-release-vs-main-cp313-q30-lazy.json",
+      "primary": true
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-19-scan-budget-release",
+      "suite": "ic",
+      "mode": "memory",
+      "speedup": 1.145627705406885,
+      "flags_above_10_percent": [],
+      "report": "/private/tmp/lance-csr-submissions/scan-budget-comparison-tables-r1/issue-19-scan-budget-release-vs-main-cp313-ic-memory.json",
+      "primary": true
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-19-scan-budget-release",
+      "suite": "ic",
+      "mode": "lazy",
+      "speedup": 1.113260313254694,
+      "flags_above_10_percent": [
+        5,
+        6
+      ],
+      "report": "/private/tmp/lance-csr-submissions/scan-budget-comparison-tables-r1/issue-19-scan-budget-release-vs-main-cp313-ic-lazy.json",
+      "primary": true
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-scan-budget-release",
+      "suite": "q30",
+      "mode": "memory",
+      "speedup": 0.9852070514795689,
+      "flags_above_10_percent": [
+        1,
+        2,
+        3,
+        20,
+        27
+      ],
+      "report": "/private/tmp/lance-csr-submissions/scan-budget-comparison-tables-r1/issue-19-scan-budget-release-vs-issue-19-prerequisites-release-q30-memory.json",
+      "primary": true
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-scan-budget-release",
+      "suite": "q30",
+      "mode": "lazy",
+      "speedup": 1.0102113248408513,
+      "flags_above_10_percent": [
+        8,
+        21
+      ],
+      "report": "/private/tmp/lance-csr-submissions/scan-budget-comparison-tables-r1/issue-19-scan-budget-release-vs-issue-19-prerequisites-release-q30-lazy.json",
+      "primary": true
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-scan-budget-release",
+      "suite": "ic",
+      "mode": "memory",
+      "speedup": 1.0424901380557017,
+      "flags_above_10_percent": [],
+      "report": "/private/tmp/lance-csr-submissions/scan-budget-comparison-tables-r1/issue-19-scan-budget-release-vs-issue-19-prerequisites-release-ic-memory.json",
+      "primary": true
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-scan-budget-release",
+      "suite": "ic",
+      "mode": "lazy",
+      "speedup": 0.9756855634230457,
+      "flags_above_10_percent": [
+        5,
+        6
+      ],
+      "report": "/private/tmp/lance-csr-submissions/scan-budget-comparison-tables-r1/issue-19-scan-budget-release-vs-issue-19-prerequisites-release-ic-lazy.json",
+      "primary": true
+    },
+    {
+      "before": "issue-19-empty-work-release",
+      "after": "issue-19-scan-budget-release",
+      "suite": "q30",
+      "mode": "memory",
+      "speedup": 0.994162237804895,
+      "flags_above_10_percent": [
+        2,
+        3,
+        20,
+        27
+      ],
+      "report": "/private/tmp/lance-csr-submissions/scan-budget-comparison-tables-r1/issue-19-scan-budget-release-vs-issue-19-empty-work-release-q30-memory.json",
+      "primary": false
+    },
+    {
+      "before": "issue-19-empty-work-release",
+      "after": "issue-19-scan-budget-release",
+      "suite": "q30",
+      "mode": "lazy",
+      "speedup": 1.0206396959252995,
+      "flags_above_10_percent": [
+        8,
+        21
+      ],
+      "report": "/private/tmp/lance-csr-submissions/scan-budget-comparison-tables-r1/issue-19-scan-budget-release-vs-issue-19-empty-work-release-q30-lazy.json",
+      "primary": false
+    },
+    {
+      "before": "issue-19-empty-work-release",
+      "after": "issue-19-scan-budget-release",
+      "suite": "ic",
+      "mode": "memory",
+      "speedup": 1.0148073597273057,
+      "flags_above_10_percent": [
+        2
+      ],
+      "report": "/private/tmp/lance-csr-submissions/scan-budget-comparison-tables-r1/issue-19-scan-budget-release-vs-issue-19-empty-work-release-ic-memory.json",
+      "primary": false
+    },
+    {
+      "before": "issue-19-empty-work-release",
+      "after": "issue-19-scan-budget-release",
+      "suite": "ic",
+      "mode": "lazy",
+      "speedup": 0.9949794255626334,
+      "flags_above_10_percent": [],
+      "report": "/private/tmp/lance-csr-submissions/scan-budget-comparison-tables-r1/issue-19-scan-budget-release-vs-issue-19-empty-work-release-ic-lazy.json",
+      "primary": false
+    }
+  ],
+  "status": "first_pass_only"
+}

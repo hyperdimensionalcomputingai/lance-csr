@@ -1,27 +1,13 @@
 # perf(graph): search shortest paths from both ends
 
-Resolves #17. A source with one target in an input batch uses complete-layer bidirectional search when reverse adjacency is available. The smaller frontier expands first. The two predecessor graphs join at one depth cut, retaining every shortest alternative and the multiplicity of parallel edges.
+Resolves #17. Bound endpoint pairs expand complete smaller-frontier layers bidirectionally when reverse adjacency is available. Both predecessor graphs retain every shortest alternative and parallel-edge multiplicity, joining at a correct depth cut. Shared one-to-many source searches keep their forward search. Directed fallback and relationship-alternation semantics remain unchanged.
 
-Sources with multiple targets retain the shared forward search. Directed queries without a CSR retain the existing forward adjacency build; undirected queries can search both ends of their symmetric adjacency. No Python API or relationship-alternation semantics change. This submission depends on #11 (local base e127755).
+Native tests compare independently expected results across every directed three-node graph, endpoint pairs and hop bounds. Separate cases cover odd/even distances, several meeting nodes, duplicates, cycles, self-loops, equal endpoints, no path and a wide middle layer. Python tests cover incoming/outgoing/undirected, optional and shared-source queries with and without CSR. Guides document the execution strategy and tie behavior; Python signatures do not change.
 
-The guide documents the selected search and shortest-path tie behavior. Rust tests compare every directed graph on three nodes, all endpoint pairs and hop bounds, in both directed and undirected mode. Separate cases cover multiple meeting nodes, duplicate relationships, self-loops, cycles, odd/even path lengths and a wide middle layer that need not be expanded. Python tests exercise outgoing, incoming and undirected all-shortest queries and shared-source queries, with and without CSR.
+Head `09a92e424bd8a7dffc0c3ff6a82838dc088de59e`; frozen base `e127755c872949733c69435047384c9d17fb572b`. Workspace tests/Clippy, 341 Python tests, formatting, lint/typing, strict documentation, spelling and all 13 affected guide blocks pass. The [optimized wheel receipt](../release-receipts/issue-17/release-proof.json) records archive/installed identity and 118 installed focused tests outside the checkout.
 
-## Validation
+Both full workloads pass unchanged goldens in memory and lazy modes. Against the actual parent, IC13 after/before ratios are 0.240 memory and 0.302 lazy; IC14 ratios are 0.704 and 0.682. These are retained first-pass measurements, with complete [per-query tables](../comparisons-original/issue-17-vs-issue-11-clean-r2-ic-lazy.json). The independent wide-middle fixture visits 102 depth-map states versus 10,101 forward states; this is a synthetic algorithm-work proof, not instrumented SF1 edge visits.
 
-- Passed: isolated `cargo test --locked -p lance-graph --lib shortest_path::tests`: 4 tests. Log: `/private/tmp/lance-csr-runtime/issue-17-rust-isolated.log`.
-- Passed: `cargo fmt --all --check`; changed Python test passes Ruff lint and format checks; `git diff --check`.
-- Passed: `uv run --project docs --locked zensical build --strict` and `uvx typos@1.26.0 .`.
-- Passed: isolated rebuilt extension; `python -m pytest -q python/tests/test_engine_paths.py python/tests/test_engine_csr.py`: 106 tests (`issue-17-python-tests.log`).
-- Passed: isolated `cargo test --workspace --locked` and `cargo clippy --workspace --all-targets -- -D warnings` (`issue-17-workspace-tests.log`, `issue-17-clippy.log`).
-- Passed: `make lint`; `python ../docs/check_snippets.py csr.md cypher.md`: all 13 affected guide blocks.
-- Passed: standalone full Python suite: 341 tests (`/private/tmp/lance-csr-runtime/issue-17-python-full.log`).
-- Passed: binding-manifest release clean and rebuild of all three local crates at `09a92e4`, installed extension byte match, real Arrow/Lance/CSR/shortest/refresh smoke outside the source tree without Rust, and 118 installed-wheel tests. Build Python 3.13.17; consumer Python 3.12.9. Wheel SHA256 `20b5c6cb724d846ff2f54649f9773db6a5e85ee51ae5b8321aeb371a04bba9c8`; immutable proof `/private/tmp/lance-csr-submissions/wheels/issue-17/release-proof.json`. Final combined integration reproduction remains separate.
-- Pending: same-input correctness and before/after timings for IC13, IC14 and both required GDC SF1 suites, with manifests/checksums and hardware/settings recorded. The wide-layer unit test establishes visited-node behavior, not a measured speed claim.
-
-## Frozen review and acceptance
-
-Head `09a92e424bd8a7dffc0c3ff6a82838dc088de59e`; actual dependency base `e127755c872949733c69435047384c9d17fb572b`. The [release proof](../release-receipts/issue-17/release-proof.json) records wheel SHA-256 `20b5c6cb724d846ff2f54649f9773db6a5e85ee51ae5b8321aeb371a04bba9c8` and installed/archive binary identity. Its outside-checkout consumer passed 118 tests; smoke and typing details are recorded in that exact receipt.
-
-The complete Q30 and IC suites passed unchanged golden checks against main and the actual parent, using both memory and lazy input modes. First-pass tables are retained without recalculation. The measured regression gate remains held; the [draft index](README.md) and [gate ledger](../review-readiness-original.json) identify the remaining CSR or corrected-owner checks. Passing correctness does not waive a repeated slowdown above 10%. Reproduction commands, dataset checksums, hardware, dependencies and all per-query results accompany the evidence bundle.
+Immediate-parent gates pass. The frozen head's inherited main Q30 flag remains recorded; the qualified combined source applies the corrected CSR kernel. Keep this as a coordinated draft until its target matches the [integration record](../INTEGRATION.md), with requalification after any base/conflict-resolution change.
 
 Submitted by David Hughes (@stugorf), with AI Collaboration.

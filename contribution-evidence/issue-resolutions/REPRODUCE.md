@@ -92,3 +92,14 @@ Raw evidence retains its original CSV line endings and reference-query whitespac
 ## Review the frozen integration
 
 Use [the integration record](INTEGRATION.md) and `review-heads-current.json` to select a focused head and its exact base. Keep original measurements with their original heads; the final combined receipt proves the shared corrections together. Revalidate the actual result whenever a branch base or conflict resolution changes.
+
+## Installed wheel and strict consumer
+
+Copy `reproduction/installed-consumer/` and the selected source's `python/python/tests/` into a fresh directory outside that checkout, naming the copied tests directory `tests`. The preserved verifier checks every installed package payload against the archive, runs the real Python suite and invokes strict Pyright. Resolve/cache the locked dependencies before using offline mode.
+
+```bash
+LANCE_CSR_UV_BIN="$(command -v uv)"
+PATH=/usr/bin:/bin "$LANCE_CSR_UV_BIN" run --offline --no-project --python 3.13.17 --with "$CANDIDATE_WHEEL" --with pytest==9.1.1 --with pyarrow==26.0.0 --with pylance==13.0.0 --with pyright==1.1.414 --with pyarrow-stubs==20.0.0.20260819 python -I verify.py "$CANDIDATE_WHEEL"
+```
+
+Repeat on Python 3.12.9. The author used this outside-checkout, no-Rust check for the selected combined release. The verifier's digest matches that release receipt; a different platform requires a corresponding local wheel and remains a new qualification.

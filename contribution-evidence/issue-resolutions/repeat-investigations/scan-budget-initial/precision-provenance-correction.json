@@ -1,0 +1,6 @@
+{
+  "created_utc": "2026-10-26T07:18:01.613280+00:00",
+  "selection_sha256": "8dd87548bfb6546f24eb3b5ef5bb08c83a2916d5f44214d2557d7df3c097ed75",
+  "correction": "The rule text inherited a reference to a twelve-pair entity pilot. No twelve-pair IC6 pilot was performed. This IC6 study fixed 32 fresh comparison pairs and 32 unchanged-parent control pairs before executing them. The initial two-pair IC6 gate and diagnostic sampling are excluded.",
+  "unchanged": "Sample size, commands, acceptance interval, control criterion and prohibition on optional stopping are unchanged. No formal interim pair results were inspected before this correction."
+}

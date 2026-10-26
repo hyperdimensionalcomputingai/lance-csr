@@ -1,0 +1,358 @@
+{
+  "purpose": "Fixed-size precision study of the sole remaining scan-budget parent flag, IC6 memory. The initial paired gate remains blocked and is retained. Diagnostic sampling suggested run-to-run variability; sampling timings are excluded from acceptance.",
+  "rule": "32 fresh paired process means per comparison and unchanged-wheel control, fixed in advance. The12-pair pilot sets the sample size only and is excluded from this formal interval. Paired log-ratio95% Student t(31)=2.039513 interval: upper<=1.10 does not substantiate10%regression; lower>1.10 confirms; overlapping remains inconclusive. Control must include1.0. Report every run; no optional stopping. Execute only after builds/tests have stopped.",
+  "groups": [
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-scan-budget-release",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        6
+      ],
+      "block": 1,
+      "unchanged_wheel_control": false
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-prerequisites-release",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        6
+      ],
+      "block": 1,
+      "unchanged_wheel_control": true
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-prerequisites-release",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        6
+      ],
+      "block": 2,
+      "unchanged_wheel_control": true
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-scan-budget-release",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        6
+      ],
+      "block": 2,
+      "unchanged_wheel_control": false
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-scan-budget-release",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        6
+      ],
+      "block": 3,
+      "unchanged_wheel_control": false
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-prerequisites-release",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        6
+      ],
+      "block": 3,
+      "unchanged_wheel_control": true
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-prerequisites-release",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        6
+      ],
+      "block": 4,
+      "unchanged_wheel_control": true
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-scan-budget-release",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        6
+      ],
+      "block": 4,
+      "unchanged_wheel_control": false
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-scan-budget-release",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        6
+      ],
+      "block": 5,
+      "unchanged_wheel_control": false
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-prerequisites-release",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        6
+      ],
+      "block": 5,
+      "unchanged_wheel_control": true
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-prerequisites-release",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        6
+      ],
+      "block": 6,
+      "unchanged_wheel_control": true
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-scan-budget-release",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        6
+      ],
+      "block": 6,
+      "unchanged_wheel_control": false
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-scan-budget-release",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        6
+      ],
+      "block": 7,
+      "unchanged_wheel_control": false
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-prerequisites-release",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        6
+      ],
+      "block": 7,
+      "unchanged_wheel_control": true
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-prerequisites-release",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        6
+      ],
+      "block": 8,
+      "unchanged_wheel_control": true
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-scan-budget-release",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        6
+      ],
+      "block": 8,
+      "unchanged_wheel_control": false
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-scan-budget-release",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        6
+      ],
+      "block": 9,
+      "unchanged_wheel_control": false
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-prerequisites-release",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        6
+      ],
+      "block": 9,
+      "unchanged_wheel_control": true
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-prerequisites-release",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        6
+      ],
+      "block": 10,
+      "unchanged_wheel_control": true
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-scan-budget-release",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        6
+      ],
+      "block": 10,
+      "unchanged_wheel_control": false
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-scan-budget-release",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        6
+      ],
+      "block": 11,
+      "unchanged_wheel_control": false
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-prerequisites-release",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        6
+      ],
+      "block": 11,
+      "unchanged_wheel_control": true
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-prerequisites-release",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        6
+      ],
+      "block": 12,
+      "unchanged_wheel_control": true
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-scan-budget-release",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        6
+      ],
+      "block": 12,
+      "unchanged_wheel_control": false
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-scan-budget-release",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        6
+      ],
+      "block": 13,
+      "unchanged_wheel_control": false
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-prerequisites-release",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        6
+      ],
+      "block": 13,
+      "unchanged_wheel_control": true
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-prerequisites-release",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        6
+      ],
+      "block": 14,
+      "unchanged_wheel_control": true
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-scan-budget-release",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        6
+      ],
+      "block": 14,
+      "unchanged_wheel_control": false
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-scan-budget-release",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        6
+      ],
+      "block": 15,
+      "unchanged_wheel_control": false
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-prerequisites-release",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        6
+      ],
+      "block": 15,
+      "unchanged_wheel_control": true
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-prerequisites-release",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        6
+      ],
+      "block": 16,
+      "unchanged_wheel_control": true
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-scan-budget-release",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        6
+      ],
+      "block": 16,
+      "unchanged_wheel_control": false
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "status": "complete",
+  "runner_sha256": "8bfefda0add9930c60ef7c5525588461303d9c475a69909284cb0aa5b6b9a10e",
+  "runs": [
+    {
+      "label": "acceptance",
+      "command": [
+        "python3",
+        "/private/tmp/lance-csr-submissions/run_combined_budget_acceptance_r1.py"
+      ],
+      "returncode": 0,
+      "log_sha256": "fb8e2a4564c1cbba4f9dc9b98b4bb26d9a229116740671dd69d5cc3fcdd76254"
+    },
+    {
+      "label": "paired-report",
+      "command": [
+        "python3",
+        "/private/tmp/lance-csr-submissions/summarize_combined_budget_r1.py",
+        "/private/tmp/lance-csr-submissions",
+        "/private/tmp/lance-csr-submissions/combined-budget-repeat-summary-r1"
+      ],
+      "returncode": 0,
+      "log_sha256": "1d12251a9780263aea14eb651b9c0c84c7404d7143b47efca98b8ab103d2c647"
+    },
+    {
+      "label": "combined-call-deadline",
+      "command": [
+        "/Users/davidhughes/.local/bin/uv",
+        "run",
+        "--offline",
+        "--no-sync",
+        "--with",
+        "/private/tmp/lance-csr-submissions/wheels/candidate-budget-release/lance_csr-0.2.0-cp312-abi3-macosx_11_0_arm64.whl",
+        "python",
+        "-I",
+        "/private/tmp/lance-csr-submissions/measure_call_deadline_v1.py",
+        "/private/tmp/lance-csr-submissions/wheels/candidate-budget-release/release-proof.json"
+      ],
+      "returncode": 0,
+      "log_sha256": "f29d7ea7da7a1ed2d673f1ec32d4df70c8f8893694218be33f876457212b89c0"
+    },
+    {
+      "label": "canonical-ic14",
+      "command": [
+        "/Users/davidhughes/.local/bin/uv",
+        "run",
+        "--offline",
+        "--no-sync",
+        "--with",
+        "/private/tmp/lance-csr-submissions/wheels/candidate-budget-release/lance_csr-0.2.0-cp312-abi3-macosx_11_0_arm64.whl",
+        "python",
+        "-I",
+        "/private/tmp/lance-csr-runtime/prove_ic14_typed_r5.py",
+        "/private/tmp/lance-csr-submissions/combined-budget-final-proof-r1/ic14-final-budget"
+      ],
+      "returncode": 0,
+      "log_sha256": "7f3345ec1539ffdb4c04ade28f73d0b1872ac02cbf2379881c058d35f956234f"
+    }
+  ]
+}

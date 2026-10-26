@@ -1,0 +1,153 @@
+{
+  "comparisons": [
+    {
+      "before": "main-cp313",
+      "after": "candidate-budget-release",
+      "suite": "q30",
+      "mode": "memory",
+      "speedup": 1.0489776255540104,
+      "flags_above_10_percent": [
+        3
+      ],
+      "report": "/private/tmp/lance-csr-submissions/combined-budget-comparison-tables-r1/candidate-budget-release-vs-main-cp313-q30-memory.json",
+      "primary": true
+    },
+    {
+      "before": "main-cp313",
+      "after": "candidate-budget-release",
+      "suite": "q30",
+      "mode": "lazy",
+      "speedup": 0.958743421345329,
+      "flags_above_10_percent": [
+        6,
+        13,
+        19,
+        26,
+        27,
+        30
+      ],
+      "report": "/private/tmp/lance-csr-submissions/combined-budget-comparison-tables-r1/candidate-budget-release-vs-main-cp313-q30-lazy.json",
+      "primary": true
+    },
+    {
+      "before": "main-cp313",
+      "after": "candidate-budget-release",
+      "suite": "ic",
+      "mode": "memory",
+      "speedup": 1.4556148757121998,
+      "flags_above_10_percent": [],
+      "report": "/private/tmp/lance-csr-submissions/combined-budget-comparison-tables-r1/candidate-budget-release-vs-main-cp313-ic-memory.json",
+      "primary": true
+    },
+    {
+      "before": "main-cp313",
+      "after": "candidate-budget-release",
+      "suite": "ic",
+      "mode": "lazy",
+      "speedup": 1.3332190167888924,
+      "flags_above_10_percent": [],
+      "report": "/private/tmp/lance-csr-submissions/combined-budget-comparison-tables-r1/candidate-budget-release-vs-main-cp313-ic-lazy.json",
+      "primary": true
+    },
+    {
+      "before": "candidate-final-release",
+      "after": "candidate-budget-release",
+      "suite": "q30",
+      "mode": "memory",
+      "speedup": 1.0239259677232602,
+      "flags_above_10_percent": [
+        3
+      ],
+      "report": "/private/tmp/lance-csr-submissions/combined-budget-comparison-tables-r1/candidate-budget-release-vs-candidate-final-release-q30-memory.json",
+      "primary": true
+    },
+    {
+      "before": "candidate-final-release",
+      "after": "candidate-budget-release",
+      "suite": "q30",
+      "mode": "lazy",
+      "speedup": 1.0180047173143563,
+      "flags_above_10_percent": [
+        12,
+        19,
+        26
+      ],
+      "report": "/private/tmp/lance-csr-submissions/combined-budget-comparison-tables-r1/candidate-budget-release-vs-candidate-final-release-q30-lazy.json",
+      "primary": true
+    },
+    {
+      "before": "candidate-final-release",
+      "after": "candidate-budget-release",
+      "suite": "ic",
+      "mode": "memory",
+      "speedup": 1.0446144567393356,
+      "flags_above_10_percent": [],
+      "report": "/private/tmp/lance-csr-submissions/combined-budget-comparison-tables-r1/candidate-budget-release-vs-candidate-final-release-ic-memory.json",
+      "primary": true
+    },
+    {
+      "before": "candidate-final-release",
+      "after": "candidate-budget-release",
+      "suite": "ic",
+      "mode": "lazy",
+      "speedup": 0.9830477241297034,
+      "flags_above_10_percent": [
+        3,
+        13
+      ],
+      "report": "/private/tmp/lance-csr-submissions/combined-budget-comparison-tables-r1/candidate-budget-release-vs-candidate-final-release-ic-lazy.json",
+      "primary": true
+    },
+    {
+      "before": "candidate-bfbbb24",
+      "after": "candidate-budget-release",
+      "suite": "q30",
+      "mode": "memory",
+      "speedup": 1.0557789631866104,
+      "flags_above_10_percent": [
+        3
+      ],
+      "report": "/private/tmp/lance-csr-submissions/combined-budget-comparison-tables-r1/candidate-budget-release-vs-candidate-bfbbb24-q30-memory.json",
+      "primary": false
+    },
+    {
+      "before": "candidate-bfbbb24",
+      "after": "candidate-budget-release",
+      "suite": "q30",
+      "mode": "lazy",
+      "speedup": 1.0219333694575958,
+      "flags_above_10_percent": [
+        12,
+        19,
+        26
+      ],
+      "report": "/private/tmp/lance-csr-submissions/combined-budget-comparison-tables-r1/candidate-budget-release-vs-candidate-bfbbb24-q30-lazy.json",
+      "primary": false
+    },
+    {
+      "before": "candidate-bfbbb24",
+      "after": "candidate-budget-release",
+      "suite": "ic",
+      "mode": "memory",
+      "speedup": 1.524665196740635,
+      "flags_above_10_percent": [],
+      "report": "/private/tmp/lance-csr-submissions/combined-budget-comparison-tables-r1/candidate-budget-release-vs-candidate-bfbbb24-ic-memory.json",
+      "primary": false
+    },
+    {
+      "before": "candidate-bfbbb24",
+      "after": "candidate-budget-release",
+      "suite": "ic",
+      "mode": "lazy",
+      "speedup": 1.2924094835523492,
+      "flags_above_10_percent": [
+        3,
+        5,
+        9
+      ],
+      "report": "/private/tmp/lance-csr-submissions/combined-budget-comparison-tables-r1/candidate-budget-release-vs-candidate-bfbbb24-ic-lazy.json",
+      "primary": false
+    }
+  ],
+  "status": "first_pass_only"
+}

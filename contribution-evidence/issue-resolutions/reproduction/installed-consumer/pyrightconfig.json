@@ -1,0 +1,8 @@
+{
+  "include": [
+    "public_api.py"
+  ],
+  "typeCheckingMode": "strict",
+  "reportUnnecessaryTypeIgnoreComment": "error",
+  "pythonVersion": "3.12"
+}

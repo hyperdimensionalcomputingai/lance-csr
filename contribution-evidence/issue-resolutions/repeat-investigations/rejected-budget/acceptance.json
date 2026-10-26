@@ -1,0 +1,214 @@
+{
+  "repeat_status": "complete",
+  "rule": "Both complete suites/modes first; every predeclared historical target and every new primary flag gets two fresh forward/reversed pairs. Both ratios above1.10 block acceptance, even without a first-pass flag. No optional stopping.",
+  "first_index_sha256": "466173a662438788c5a3fa54977cdc2d025425e76b1ba75e70b80a8240a36c7a",
+  "repeat_plan_sha256": "e1683967666817d5a5b2d51dc18173cafbb09dd5536ced2af312cd88a9f0ee0a",
+  "comparisons": [
+    {
+      "before": "main-cp313",
+      "after": "candidate-budget-release",
+      "suite": "q30",
+      "mode": "memory",
+      "speedup": 1.0489776255540104,
+      "flags_above_10_percent": [
+        3
+      ],
+      "report": "/private/tmp/lance-csr-submissions/combined-budget-comparison-tables-r1/candidate-budget-release-vs-main-cp313-q30-memory.json",
+      "primary": true,
+      "first_report_sha256": "6fac0aefbd02a4910b14290c7ea4262dc92b989d770d7d17fda176ab084fb9bd",
+      "repeat_group": 1,
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "main-cp313",
+      "after": "candidate-budget-release",
+      "suite": "q30",
+      "mode": "lazy",
+      "speedup": 0.958743421345329,
+      "flags_above_10_percent": [
+        6,
+        13,
+        19,
+        26,
+        27,
+        30
+      ],
+      "report": "/private/tmp/lance-csr-submissions/combined-budget-comparison-tables-r1/candidate-budget-release-vs-main-cp313-q30-lazy.json",
+      "primary": true,
+      "first_report_sha256": "64ff3e1c8514b18951c17700ec77f12b323414a36b02956879bd47b67e589b1e",
+      "repeat_group": 2,
+      "repeatable_regressions": [
+        30
+      ],
+      "acceptance": "blocked_by_repeatable_regression"
+    },
+    {
+      "before": "main-cp313",
+      "after": "candidate-budget-release",
+      "suite": "ic",
+      "mode": "memory",
+      "speedup": 1.4556148757121998,
+      "flags_above_10_percent": [],
+      "report": "/private/tmp/lance-csr-submissions/combined-budget-comparison-tables-r1/candidate-budget-release-vs-main-cp313-ic-memory.json",
+      "primary": true,
+      "first_report_sha256": "890ce4a91115b4c9af5793a1f1e83c2fee66eda699b02e905adaed2e1c285ad4",
+      "repeat_group": 3,
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "main-cp313",
+      "after": "candidate-budget-release",
+      "suite": "ic",
+      "mode": "lazy",
+      "speedup": 1.3332190167888924,
+      "flags_above_10_percent": [],
+      "report": "/private/tmp/lance-csr-submissions/combined-budget-comparison-tables-r1/candidate-budget-release-vs-main-cp313-ic-lazy.json",
+      "primary": true,
+      "first_report_sha256": "6cbc820491e1664c59181a4384464a4e5760c30a85575911ea05912f2c8ae0f6",
+      "repeat_group": 4,
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "candidate-final-release",
+      "after": "candidate-budget-release",
+      "suite": "q30",
+      "mode": "memory",
+      "speedup": 1.0239259677232602,
+      "flags_above_10_percent": [
+        3
+      ],
+      "report": "/private/tmp/lance-csr-submissions/combined-budget-comparison-tables-r1/candidate-budget-release-vs-candidate-final-release-q30-memory.json",
+      "primary": true,
+      "first_report_sha256": "a159816e532c0077ffc105c381cdf5cdd00a41d00cd79dea7ecef739ea5d9b51",
+      "repeat_group": 5,
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "candidate-final-release",
+      "after": "candidate-budget-release",
+      "suite": "q30",
+      "mode": "lazy",
+      "speedup": 1.0180047173143563,
+      "flags_above_10_percent": [
+        12,
+        19,
+        26
+      ],
+      "report": "/private/tmp/lance-csr-submissions/combined-budget-comparison-tables-r1/candidate-budget-release-vs-candidate-final-release-q30-lazy.json",
+      "primary": true,
+      "first_report_sha256": "c5ead9b2042670e0cdd96e1ae149e65dff9f24ceb45f27aba520c50d9d3b903b",
+      "repeat_group": 6,
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "candidate-final-release",
+      "after": "candidate-budget-release",
+      "suite": "ic",
+      "mode": "memory",
+      "speedup": 1.0446144567393356,
+      "flags_above_10_percent": [],
+      "report": "/private/tmp/lance-csr-submissions/combined-budget-comparison-tables-r1/candidate-budget-release-vs-candidate-final-release-ic-memory.json",
+      "primary": true,
+      "first_report_sha256": "dd1a521de627d1412c7b96ef8a7742a3d8484124b9a4a410628cad8396ee91cc",
+      "repeat_group": 7,
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "candidate-final-release",
+      "after": "candidate-budget-release",
+      "suite": "ic",
+      "mode": "lazy",
+      "speedup": 0.9830477241297034,
+      "flags_above_10_percent": [
+        3,
+        13
+      ],
+      "report": "/private/tmp/lance-csr-submissions/combined-budget-comparison-tables-r1/candidate-budget-release-vs-candidate-final-release-ic-lazy.json",
+      "primary": true,
+      "first_report_sha256": "3c2595b7c5e5b80e1e67cefad0fcd5bdccc38d316722855012db1417808dc2b2",
+      "repeat_group": 8,
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "candidate-bfbbb24",
+      "after": "candidate-budget-release",
+      "suite": "q30",
+      "mode": "memory",
+      "speedup": 1.0557789631866104,
+      "flags_above_10_percent": [
+        3
+      ],
+      "report": "/private/tmp/lance-csr-submissions/combined-budget-comparison-tables-r1/candidate-budget-release-vs-candidate-bfbbb24-q30-memory.json",
+      "primary": false,
+      "first_report_sha256": "8d530c6145ab4a4dfc8ff09da25e27847790429d66095ea38737dadc396a75ce",
+      "repeat_group": null,
+      "repeatable_regressions": [],
+      "acceptance": "pending_repeat"
+    },
+    {
+      "before": "candidate-bfbbb24",
+      "after": "candidate-budget-release",
+      "suite": "q30",
+      "mode": "lazy",
+      "speedup": 1.0219333694575958,
+      "flags_above_10_percent": [
+        12,
+        19,
+        26
+      ],
+      "report": "/private/tmp/lance-csr-submissions/combined-budget-comparison-tables-r1/candidate-budget-release-vs-candidate-bfbbb24-q30-lazy.json",
+      "primary": false,
+      "first_report_sha256": "62d60c82478e43c18d41df5c4e1d4e2b928ace8b8163a76661b1a3ccbd00c962",
+      "repeat_group": null,
+      "repeatable_regressions": [],
+      "acceptance": "pending_repeat"
+    },
+    {
+      "before": "candidate-bfbbb24",
+      "after": "candidate-budget-release",
+      "suite": "ic",
+      "mode": "memory",
+      "speedup": 1.524665196740635,
+      "flags_above_10_percent": [],
+      "report": "/private/tmp/lance-csr-submissions/combined-budget-comparison-tables-r1/candidate-budget-release-vs-candidate-bfbbb24-ic-memory.json",
+      "primary": false,
+      "first_report_sha256": "1404df10817d5a4672eb0bcdd0597e964e7899d1dd031583a04ab01c3f186672",
+      "repeat_group": null,
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "candidate-bfbbb24",
+      "after": "candidate-budget-release",
+      "suite": "ic",
+      "mode": "lazy",
+      "speedup": 1.2924094835523492,
+      "flags_above_10_percent": [
+        3,
+        5,
+        9
+      ],
+      "report": "/private/tmp/lance-csr-submissions/combined-budget-comparison-tables-r1/candidate-budget-release-vs-candidate-bfbbb24-ic-lazy.json",
+      "primary": false,
+      "first_report_sha256": "291bcdfe0b06f0f66d3f7feb70b6ea19748ec819356c759e9052b235a780aa64",
+      "repeat_group": null,
+      "repeatable_regressions": [],
+      "acceptance": "pending_repeat"
+    }
+  ],
+  "completed_repeat_groups": 8,
+  "total_repeat_groups": 8,
+  "repeat_golden_checks": 120,
+  "limits": [
+    "First-pass suite geometric means are retained unchanged.",
+    "All new first-pass flags and predeclared historical targets receive paired repeats; both ratios above 1.10 block acceptance even without a first-pass flag.",
+    "Comparisons of prerequisite-only cohorts are contextual, not independently submitted changes."
+  ]
+}

@@ -6,8 +6,8 @@
     "cpu_and_memory": "hw.model: Mac16,6\nhw.memsize: 137438953472\nhw.physicalcpu: 16\nhw.logicalcpu: 16\n"
   },
   "origin_manifests": [
-    "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json",
-    "/private/tmp/lance-csr-submissions/acceptance-final-heads-r1/manifest.json"
+    "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json",
+    "/private/tmp/lance-csr-submissions/acceptance-combined-budget-r1/manifest.json"
   ],
   "cells": [
     {
@@ -139,7 +139,7 @@
       "log_sha256": "46aa2bdd4a95fe9081a4b8a1972d070735b9fd81cf3aa4243e62f2984a8b8170",
       "peak_process_rss_bytes": 2842345472,
       "report_sha256": "10611c2c7f23bdd39a95d6b4461de9aa81801e51c73131da3f4f9a1d40e2f2ca",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "main-cp313-q30-lazy",
@@ -270,7 +270,7 @@
       "log_sha256": "6c98a5f892f6b59686ee61cfb06d4c8a59dc724fb51815c6b06149a8cdb979fd",
       "peak_process_rss_bytes": 1526611968,
       "report_sha256": "a0159b75270172a0fee90ff93fd1aa69a6523eabc6b715f78c99a3c68b5b8e88",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "main-cp313-ic-memory",
@@ -407,7 +407,7 @@
       "log_sha256": "344952a066ac2829991ac6c023fb6159edd250d859afb37fdb2b5cb5712c7eec",
       "peak_process_rss_bytes": 3176022016,
       "report_sha256": "551b95ceb723bea2a535dcbf30800760366446e9267e96126533e0840b5fd457",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "main-cp313-ic-lazy",
@@ -544,7 +544,7 @@
       "log_sha256": "827310d210a2e085c2809d60dd60b473ea77c2b22ebf0ee2c7b942ac915d9aeb",
       "peak_process_rss_bytes": 2122727424,
       "report_sha256": "d54bccf1c20dd9a2f4bfcbdf2dedb1f28daf38db240b5abba6856d15ecfd4a52",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-3-cp313-q30-memory",
@@ -675,7 +675,7 @@
       "log_sha256": "b31a858e3c1de3191231d5626fc7d771b1a60d76808739f49baafbb792249b82",
       "peak_process_rss_bytes": 2715516928,
       "report_sha256": "28cc2694938f4f97fed079a016a615455e504c0b3d73af364abd2f72be3dc485",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-3-cp313-q30-lazy",
@@ -806,7 +806,7 @@
       "log_sha256": "cdb93212658a2b300c4385d24eca9250897aca20dffb9bc381bb29e697b5b393",
       "peak_process_rss_bytes": 1516666880,
       "report_sha256": "eaf47725df964c241b03257665b55a3319dea92b572f3ab901f5749b58e6d213",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-3-cp313-ic-memory",
@@ -943,7 +943,7 @@
       "log_sha256": "31a8f9a344ef7728180fa0fe91f8a892f5aca0d41e090fe322b3cceee1ca5581",
       "peak_process_rss_bytes": 3217883136,
       "report_sha256": "4e1ae1609accebdf31c6c40277bb2908ebf2fd4af0a43f699a12b817fc6e8ed7",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-3-cp313-ic-lazy",
@@ -1080,7 +1080,7 @@
       "log_sha256": "6f58cd93825389fc25c47ab1bb501c88f14f2f962c9a83cadb3aeaa64a425c93",
       "peak_process_rss_bytes": 2073788416,
       "report_sha256": "efe13c107c3d624ccd47b16152e5f4564554f4feb7038faa9ec1b12ffbc62bef",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-11-clean-r2-q30-memory",
@@ -1211,7 +1211,7 @@
       "log_sha256": "d25474bf2d2bf0f899adeb02062400dd68b1007925063891d33b746777890cb9",
       "peak_process_rss_bytes": 2758017024,
       "report_sha256": "6a54136c34fa9e53a5823a4ef4a64df5aa854e883ab8c793ada8d22336b49200",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-11-clean-r2-q30-lazy",
@@ -1342,7 +1342,7 @@
       "log_sha256": "5ffbe036dcc2a2b55b006bbea6e088045ce5918f06d3f5ae4800a487453178c3",
       "peak_process_rss_bytes": 1447493632,
       "report_sha256": "2cc212a1a4ba92cb7cb218bae9b5c745ec7aaad0199447c16c198221aceffcc1",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-11-clean-r2-ic-memory",
@@ -1479,7 +1479,7 @@
       "log_sha256": "700ed85e98d4ba6decfe8bdade7fc9b7d72ce39b08f71bce2735b58972e65e23",
       "peak_process_rss_bytes": 3066281984,
       "report_sha256": "6e00febec19ad5df719c487392ed2cf1954749236c9e0fecaef73c9e00a25094",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-11-clean-r2-ic-lazy",
@@ -1616,7 +1616,7 @@
       "log_sha256": "a02ef72e757fe1a0c4cb97fe9dc2911248caeab1a19c705c8bdff27e43483516",
       "peak_process_rss_bytes": 1967243264,
       "report_sha256": "266120259e4d493ac6cd984ed6d84b1d2eee24f4c525b3bacb5589c7587a787c",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-12-q30-memory",
@@ -1747,7 +1747,7 @@
       "log_sha256": "32bdb2582bc45cde387fd1602d7c1a56504df55e45e86de02479507416b93794",
       "peak_process_rss_bytes": 2748432384,
       "report_sha256": "2046b3773d5b826d6eb5c631c41dc7fff553b8c25014ae1bab39e540b2cead2e",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-12-q30-lazy",
@@ -1878,7 +1878,7 @@
       "log_sha256": "7a7d19cf9321fb8948ee630701b937290c9d9510eef92e0919c0169016de488c",
       "peak_process_rss_bytes": 1526513664,
       "report_sha256": "ae6f21d3de1cff605e1bb981b0bfb6adef2f898f8a26e2e4ae85e738958798ba",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-12-ic-memory",
@@ -2015,7 +2015,7 @@
       "log_sha256": "cb3d651170f39a3d44c20972c27f3b75b2290a7c3558c0414e10dbd35a5f3279",
       "peak_process_rss_bytes": 3149873152,
       "report_sha256": "c72d5c2fbc24fb0ea4e374c275d69e535d640dbb9acebaa91f6968c767ee2ad4",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-12-ic-lazy",
@@ -2152,7 +2152,7 @@
       "log_sha256": "28e348e87ee5a949818199c983bf18c1f14fcc3a2cd3843b22f08c559eddf846",
       "peak_process_rss_bytes": 2114502656,
       "report_sha256": "e8e9fcb4ce82953ba94ed819cd32d528645c8d47798ce9f271b490eabc91dd75",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-13-q30-memory",
@@ -2283,7 +2283,7 @@
       "log_sha256": "174815d7098d4e96dcbf65f13e96380e0c35577c440dc30017a092a6979391d3",
       "peak_process_rss_bytes": 2814476288,
       "report_sha256": "9f52a9b760d4c5ff24cf7038f20a5b6f70a73c98d63803e187ac99d6d8638521",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-13-q30-lazy",
@@ -2414,7 +2414,7 @@
       "log_sha256": "fb9a2c1653f21339cd527cd1283cca067750a962d611a9efbd970d2cb31e7d91",
       "peak_process_rss_bytes": 1511669760,
       "report_sha256": "4de3b51c590ac0c3af0125932bea3462abf485ed8fa501cea174a8cbdcdd2d30",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-13-ic-memory",
@@ -2551,7 +2551,7 @@
       "log_sha256": "efbc7b44cc1349ef7f14fd95fff6b563b65ac55f36d0433931839ee65d06aa5a",
       "peak_process_rss_bytes": 3211345920,
       "report_sha256": "5a9da9b7109b138330764d4fc9c5c8f5aa208280bcd8216ab17c4be0d859a5b2",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-13-ic-lazy",
@@ -2688,7 +2688,7 @@
       "log_sha256": "315fcb251f6b1b9f5233923fc2fc77a8291be5f978535f39a59c57cc31f03302",
       "peak_process_rss_bytes": 1903640576,
       "report_sha256": "73e8af737a06d48b2d1c01d9b76db08a836b7aaed04e76bbade087f20ecdf20a",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-16-q30-memory",
@@ -2819,7 +2819,7 @@
       "log_sha256": "a2a1639ccebcaacaa0e1862374f0f509f82f2ada3cfd237dc51487337829b892",
       "peak_process_rss_bytes": 2754838528,
       "report_sha256": "b93bb7cf640b59e3e4e7b39da5870975d47c067a30b2ba2abb70d8f9b2396b83",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-16-q30-lazy",
@@ -2950,7 +2950,7 @@
       "log_sha256": "d9dbe57a6b205d6110d22c25315537a3894483e9062253dbf294a7edd0d04d9f",
       "peak_process_rss_bytes": 1575288832,
       "report_sha256": "9ea9bb2a7c75e04011c1bbed6ad472df2f36570760c69a829d655ce1651b5879",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-16-ic-memory",
@@ -3087,7 +3087,7 @@
       "log_sha256": "3be4d5131477944797edd73de57d0bc8b03f2fd1030e8967a3773324ec267334",
       "peak_process_rss_bytes": 3010674688,
       "report_sha256": "8ed5008521d3b589545ce2180a21fdab96e0d9cb381f2919c0fa06b706b79a53",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-16-ic-lazy",
@@ -3224,7 +3224,7 @@
       "log_sha256": "da3d600515f547f59fe48658b398ce3c14f887ad7f4e52ce7f6dad8930c94f73",
       "peak_process_rss_bytes": 1919893504,
       "report_sha256": "273b88e8070eb93d4ab54838d1b60b113454ae593dc89f48cb590ebdb190eac2",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-17-q30-memory",
@@ -3355,7 +3355,7 @@
       "log_sha256": "0790d9dd21e8db6cd2af1d9e026f1b13de5da0f1e653bda6f70f913a89f9ad0e",
       "peak_process_rss_bytes": 2663071744,
       "report_sha256": "3033480d83213531a213fb800dbb688cb4d4f15468adf6ab139a84f2f68ad9f9",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-17-q30-lazy",
@@ -3486,7 +3486,7 @@
       "log_sha256": "7adacdf3359a5e182e98b330e4eafbd772ce0ef3b2eec4448e248f4d6b53e644",
       "peak_process_rss_bytes": 1572651008,
       "report_sha256": "be949c63c2efa8091500788069926cf705610c6a5442f05dab36526a4b2938df",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-17-ic-memory",
@@ -3623,7 +3623,7 @@
       "log_sha256": "7dd752c780aa003267d1f8467f80f15dc0220ee689bc9979d51b2863db6d62c9",
       "peak_process_rss_bytes": 3025911808,
       "report_sha256": "5f941a2d4ce8147fddfc79b2b48d162c4b5249ff1d4511d83f1209cc0a2a21af",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-17-ic-lazy",
@@ -3760,7 +3760,7 @@
       "log_sha256": "d8f902f9cc3ee8615f7b04fa7140d285894447fe3595bc5cbb74854148b6bc50",
       "peak_process_rss_bytes": 1942044672,
       "report_sha256": "4f3cec043ca9b55f029fc380da9db1da39cbe49948a80475386429a291a2e112",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-19-q30-memory",
@@ -3891,7 +3891,7 @@
       "log_sha256": "4db4abf8eccb695a44c4b33cf3b2a70565e0a7d71d1ebfdf2a4d89eeee87ccf0",
       "peak_process_rss_bytes": 2752512000,
       "report_sha256": "6e0059f2d3a88fd3c2dd26d5f7a6d8a2dde14f4ccb993d54fa38c66be594bc88",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-19-q30-lazy",
@@ -4022,7 +4022,7 @@
       "log_sha256": "58981ca55c72dab180a1bd8928f3cde36148a48f3fafadccdc62a22ca85f207a",
       "peak_process_rss_bytes": 1534033920,
       "report_sha256": "7ab18035ed2fa6700baa126240eb99750cf8c6f99ad1c1c7661e7281978d13dd",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-19-ic-memory",
@@ -4159,7 +4159,7 @@
       "log_sha256": "586c0a892884b2b48efd48b6558f6e7f0845684cf51cbc924632f80e7d7dae91",
       "peak_process_rss_bytes": 3009904640,
       "report_sha256": "e876140b97faaee2eef64fc0e439f575da66731e5add825c0c9ede64fbb5f9e5",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-19-ic-lazy",
@@ -4296,7 +4296,7 @@
       "log_sha256": "04166781e3a465178a63d2fa8d31c977417cb7214356588f23885aca26ba087c",
       "peak_process_rss_bytes": 1966817280,
       "report_sha256": "8bd5aabc19555e2a9ab081d595e6024fce00ca11ed8172f4b20d9558a480b17d",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-22-cp313-q30-memory",
@@ -4427,7 +4427,7 @@
       "log_sha256": "2067f24b2d1477c9ebedb8cb404589c983f402301cdd0a94ccdbeb9e02501ac3",
       "peak_process_rss_bytes": 2674147328,
       "report_sha256": "27cb96df42638300e4f54348f43eea642c9a1e10a5f1cbc36c3284243f53b853",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-22-cp313-q30-lazy",
@@ -4558,7 +4558,7 @@
       "log_sha256": "518d25c44a9f0cea0bbd1cbddfe838a9c3af2349dfbbd51a043762ee4005c745",
       "peak_process_rss_bytes": 1439481856,
       "report_sha256": "824043c5d3a468d225b803c1897cd3cfd366b7be44b6eb04b9002bb8775300d1",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-22-cp313-ic-memory",
@@ -4695,7 +4695,7 @@
       "log_sha256": "64ef4805ac2bcb08e7c85ecd286a2d75974c694c71309f8daf44b8da2524bdb1",
       "peak_process_rss_bytes": 3102752768,
       "report_sha256": "cc43960cb73d02e5f73e024ea9e90be4038bfa8a513313bbd63a53c855e032dc",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-22-cp313-ic-lazy",
@@ -4832,7 +4832,7 @@
       "log_sha256": "1fb8d81d7d7fc9f8de6331fd11516af1034f8e9b440e701d7e71ccaa3b58f725",
       "peak_process_rss_bytes": 2117599232,
       "report_sha256": "2beabe0ca79f9ef72f69f84cf5ae7cba47a5407b59e05626e69c5c646d6f05b8",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-23-accessors-q30-memory",
@@ -4963,7 +4963,7 @@
       "log_sha256": "755701ccdf67141e444846954f8b57efdd2de3afd39b9d6e2c16624c4803a688",
       "peak_process_rss_bytes": 2714222592,
       "report_sha256": "fe16c6af7b17ad0f75f64ca95e92ff3a33356de6f00d594064d8d602e299d338",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-23-accessors-q30-lazy",
@@ -5094,7 +5094,7 @@
       "log_sha256": "6108b293ee8630bea31af263cdf758b6e10de7715ea823b3518260b527807253",
       "peak_process_rss_bytes": 1541324800,
       "report_sha256": "c79f70e295f7ad2e9af87499fe3ebcdeaa6b21ea338493bd192d680991295975",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-23-accessors-ic-memory",
@@ -5231,7 +5231,7 @@
       "log_sha256": "6d80a4e992f8926245dbcfbff9cf4136f5b8da7d45537e167b23f40a4ec9f75d",
       "peak_process_rss_bytes": 3194421248,
       "report_sha256": "6566fa797de7ae0e6358315932ab6b4dff471a2516588e386ff8e1d0d9a1ddff",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-23-accessors-ic-lazy",
@@ -5368,7 +5368,7 @@
       "log_sha256": "0b99b9c18ec48d23df8ccb1fb671d508734b6efef3bb9bb6cbb7a52518d6370d",
       "peak_process_rss_bytes": 2041266176,
       "report_sha256": "bb5607a0bb3a6df58f4dc514220075aa84c138a2e84a32e14e1cc3a7a0904cb9",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-23-types-q30-memory",
@@ -5499,7 +5499,7 @@
       "log_sha256": "7fd79d66f8e60d569a84e07c3a403183930d18d852443ad27e013074ba713c4c",
       "peak_process_rss_bytes": 2707701760,
       "report_sha256": "81601f7733e3831574bbdc8191a8509f8422207cebf5b296c882274448f63910",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-23-types-q30-lazy",
@@ -5630,7 +5630,7 @@
       "log_sha256": "eaaac3ad137dd362dcf04624c2db1d81af2006aa9c062ded5391e4ccfed2f86f",
       "peak_process_rss_bytes": 1552711680,
       "report_sha256": "434a057a37a25944622d09fce374b1e143242d8ea18649f463237d1e7ec808f5",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-23-types-ic-memory",
@@ -5767,7 +5767,7 @@
       "log_sha256": "97e75ad7d45239bea1141579f8b182eb556f1b0c5d43839a40a4673c74bd8699",
       "peak_process_rss_bytes": 3081502720,
       "report_sha256": "87a68c50c6350233586aa62753241d6f8afafb1d1065e774edbdf7b013b2aed5",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-23-types-ic-lazy",
@@ -5904,7 +5904,7 @@
       "log_sha256": "cd29a57f645821dcc84a373239cced367fc7956df6a1bde7287173f62d89597d",
       "peak_process_rss_bytes": 2037809152,
       "report_sha256": "9e18604eaf44dbb78f40ca3ec55dddcc32f8ac769ec35c0ed4c5efbb8c7ac8f2",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-parameter-prerequisites-q30-memory",
@@ -6035,7 +6035,7 @@
       "log_sha256": "0e88fc839f438234821b81230c4d107f0ab51a8194df00d8fdc13fb9f9d479d7",
       "peak_process_rss_bytes": 2696462336,
       "report_sha256": "ac60b90227ea14baaeeee1733eac42b9d50c763a86e426df4a0e45e3ab7a2b32",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-parameter-prerequisites-q30-lazy",
@@ -6166,7 +6166,7 @@
       "log_sha256": "295fe07ebe6e9a60e65dd2e966881e47c3415a43daadd9463ea207c184107259",
       "peak_process_rss_bytes": 1496612864,
       "report_sha256": "e3ca0ff5a2652acb54e6117f93cdc36d1f612c7a460f5e4a9f9880cdcd6d5c74",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-parameter-prerequisites-ic-memory",
@@ -6303,7 +6303,7 @@
       "log_sha256": "7db0ace5c615c709e2c9cf6819df70d9ae5de7e2faef43a25503e48e4d173583",
       "peak_process_rss_bytes": 3225731072,
       "report_sha256": "0fbeda9f476bde11efc383124c12b0e2c413fb5555f869d3d490b7424df4dd42",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-parameter-prerequisites-ic-lazy",
@@ -6440,7 +6440,7 @@
       "log_sha256": "bed96205406b266ffa7cc296e25b60cb108f5af37be8e6fc4fda21197cde38f9",
       "peak_process_rss_bytes": 2096906240,
       "report_sha256": "c408d780e89d8aad2b8b18b3e081f92c59ff7e8d9c8562cded843755e8acb188",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-containers-curated-q30-memory",
@@ -6571,7 +6571,7 @@
       "log_sha256": "522d3099044bf6ce45f66840d51e86650ed4b8d298b35ef751148deb0262ffd0",
       "peak_process_rss_bytes": 2676736000,
       "report_sha256": "fba6a0bd94f7d1ccc1e06d0a9fbb5f180542709297e8afe407764d01855c20b1",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-containers-curated-q30-lazy",
@@ -6702,7 +6702,7 @@
       "log_sha256": "ef93ff5e7ec9f0e6287b56b3e843a88b6d936866916983a47bfe4d5666c4c0eb",
       "peak_process_rss_bytes": 1562378240,
       "report_sha256": "05f6fd88af99fed58272e5da9f88c1d16bbc4179618e81914db39d6c6660148a",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-containers-curated-ic-memory",
@@ -6839,7 +6839,7 @@
       "log_sha256": "2a1b41c558492689171513a9636b58827397974cd1c1d30bd1c1d64fb903efd6",
       "peak_process_rss_bytes": 3198517248,
       "report_sha256": "ad55166f51745d6fb697dc10cfadfe1091da9c0d5d9d8bbe67d84a667a00a5f5",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-containers-curated-ic-lazy",
@@ -6976,7 +6976,7 @@
       "log_sha256": "1edd7cae099db91545d4b3f7ca89bdece636205bcad300488075cf9ddd2d7215",
       "peak_process_rss_bytes": 2116468736,
       "report_sha256": "58aa9c75b4f0ce448e76c9b6340d0c524095e4aecbe75cb3faaa75167160c37b",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-pagination-curated-q30-memory",
@@ -7107,7 +7107,7 @@
       "log_sha256": "6ffae6bf6964a49279cf21e216a7e6d4657d6c14b76903505a50b335d5620b2d",
       "peak_process_rss_bytes": 2707079168,
       "report_sha256": "66fa400469dbf4c70e916968d02e8b6691bb1dea7469c6b39b747c5a20c7958b",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-pagination-curated-q30-lazy",
@@ -7238,7 +7238,7 @@
       "log_sha256": "17fc43575f1cf9f32fbe11be9ed0c5996e538c64c34a0ad10371929867cc73f3",
       "peak_process_rss_bytes": 1494827008,
       "report_sha256": "607d25ae0b0707f0229206b20adb27cb395b41ca486726a6ea49480220c016d8",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-pagination-curated-ic-memory",
@@ -7375,7 +7375,7 @@
       "log_sha256": "ca78b7b59e1dfd10b80b5d2891ac5b1d5207363d9bef571eede2dab40cee8662",
       "peak_process_rss_bytes": 3184820224,
       "report_sha256": "072e8e5e01ebdb4d58f3c45187d269655e5a36ef51f006e4828d28d3ace48270",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-pagination-curated-ic-lazy",
@@ -7512,7 +7512,7 @@
       "log_sha256": "ae10bea7c419b97dd9d2089d5a3c64b8962f7622f71ef4ffcbee2ba5e3fc2059",
       "peak_process_rss_bytes": 2128084992,
       "report_sha256": "59fcace69fc4e884279afb6d5a6cf5de3ddce499f6b67376da830c3fd233fa3a",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-14-prerequisites-q30-memory",
@@ -7643,7 +7643,7 @@
       "log_sha256": "fbbf01b9b32c3553440c21364490d0b1b8f2f5971fa63050ec06dc4795c64240",
       "peak_process_rss_bytes": 2655420416,
       "report_sha256": "42d54484d391b51f61986c6b21fb54f3cd8ed9d25edd098e7149759472575fcd",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-14-prerequisites-q30-lazy",
@@ -7774,7 +7774,7 @@
       "log_sha256": "398ffc97a15d6deab80f10d66e277c110df37d414c2fe200de5a1e9ad57557c2",
       "peak_process_rss_bytes": 1569210368,
       "report_sha256": "6f76d8fe1b2d58e1db0cca89c153c54a7d60b8f1326b43ebe9cf9d99c0d4abf6",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-14-prerequisites-ic-memory",
@@ -7911,7 +7911,7 @@
       "log_sha256": "6fb21c2788c6dd9e7ad62a95160b9bda80b2c14a794a865408875ac4c0c53637",
       "peak_process_rss_bytes": 3180380160,
       "report_sha256": "cedbef85e0a3cf80e960fe9e6d2d8887b01481b301805534e53e4d7aba492dbd",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-14-prerequisites-ic-lazy",
@@ -8048,7 +8048,7 @@
       "log_sha256": "0d2fb6177b3c2333483bcd5415304850d3a21e71d88d678fa38d3ebb620b1712",
       "peak_process_rss_bytes": 2079686656,
       "report_sha256": "88a1d9a35383cbab8e8401a712a830424c953f95cf992794a4ad933e87e3630f",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-14-curated-q30-memory",
@@ -8179,7 +8179,7 @@
       "log_sha256": "1450c4e39e8e362952fe061f3f174c40ef81e60f712f168a447ad55f77b5a5b0",
       "peak_process_rss_bytes": 2628452352,
       "report_sha256": "866e92bf8e4a4e38c9c374aed1ab6db0f4ea72b38ecb2291c680a799fdcd07d9",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-14-curated-q30-lazy",
@@ -8310,7 +8310,7 @@
       "log_sha256": "c18fba0d6ac53291a340c078a6665ef2c800482a1e1932f42a3a70315f2fea8a",
       "peak_process_rss_bytes": 1571553280,
       "report_sha256": "d362ab9eef8324a89e3ff82213f963f04e146ca4752aa280ef859c0526f978d2",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-14-curated-ic-memory",
@@ -8447,7 +8447,7 @@
       "log_sha256": "a7f431649404554dd36956f215325619d9b3ee370eaff23618bf40403c63ae53",
       "peak_process_rss_bytes": 3218718720,
       "report_sha256": "fdb4c3b866a778ade87e513b3a2b93493fa4a22669aff5961761964ec01edd11",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-14-curated-ic-lazy",
@@ -8584,7 +8584,7 @@
       "log_sha256": "b0fa716e25c666196a78cee7f0412c075857038f594b61845d824199c5658d76",
       "peak_process_rss_bytes": 2044936192,
       "report_sha256": "f1ae43a5f8432b4236c8522c776a93511ad81e596a2d5e02aa1a12ca28c24e2d",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-18-prerequisites-q30-memory",
@@ -8715,7 +8715,7 @@
       "log_sha256": "906c08f767a821d6ad639db673a6697ec0ccbe0622f9ebe33c1dc3726ebce994",
       "peak_process_rss_bytes": 2706227200,
       "report_sha256": "7e97731d80d92502562a66bb70e10fc7ee8425f8335acf25b2cf7b5807aead07",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-18-prerequisites-q30-lazy",
@@ -8846,7 +8846,7 @@
       "log_sha256": "1308171716c6d1de9b28e3aec03f4b201dc75f5df83a9792fa0c0a2ab5adfbe0",
       "peak_process_rss_bytes": 1512341504,
       "report_sha256": "513afd6056aebf2980d7fb64395702ecdf86a921c377bc7aa47668d413a31e42",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-18-prerequisites-ic-memory",
@@ -8983,7 +8983,7 @@
       "log_sha256": "4e6b8248dddc579c6cd595b5ff44d86c3b7d6675bd00b8fb318b80f5e6aa5c27",
       "peak_process_rss_bytes": 3175727104,
       "report_sha256": "26eda8fd504388e416ce1ca20488a1614ced645505a0197bc15f4b2b65f0cf41",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-18-prerequisites-ic-lazy",
@@ -9120,7 +9120,7 @@
       "log_sha256": "6c8aa60178c12678f0fe09fd1afb8cf1f043e6a85c21c3dc9b2db75000aff4f0",
       "peak_process_rss_bytes": 2035105792,
       "report_sha256": "bf0d2bd220131d0ba19e8b7f90ae33f5aa7b991ce6ffbd2e6794d612e3cad1e4",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-18-curated-q30-memory",
@@ -9251,7 +9251,7 @@
       "log_sha256": "6f6e20c4cc780e1107e444150f200e79e9a445dbb025510f349e9f7f35faeefc",
       "peak_process_rss_bytes": 2732195840,
       "report_sha256": "b5f33e341f3697d08f0001903a871e7437711a17ed34c8233724085ce3e5bbe6",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-18-curated-q30-lazy",
@@ -9382,7 +9382,7 @@
       "log_sha256": "e36bf39f0233c06c432506a3f5db115649de7d1c5d95a8b12d8a24fef9df23e2",
       "peak_process_rss_bytes": 1483964416,
       "report_sha256": "f14fc5df91e844440c8893cbdc7ff9949b798d8e6dbd941f0f51d902c16497f8",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-18-curated-ic-memory",
@@ -9519,7 +9519,7 @@
       "log_sha256": "75b498e1371b627f186b59c69d9593dc7c3dc529a550ae99ae40669f5fead9c9",
       "peak_process_rss_bytes": 3179905024,
       "report_sha256": "2d0228777a43d1a1512e1c5a4fa341acab0e36a816d0b443aaff47abe1c49148",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-18-curated-ic-lazy",
@@ -9656,7 +9656,7 @@
       "log_sha256": "6aaf038b04046012cae222069b1beea8aa801580617bcf5cdc5e8b2298c51212",
       "peak_process_rss_bytes": 2144436224,
       "report_sha256": "f2ac6738de1bc1d38d82fe06052bce1dd013b51cd99cab55f049231185f49b3f",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-math-delivery-q30-memory",
@@ -9787,7 +9787,7 @@
       "log_sha256": "29f9fd64237bfcbe9e324045ec4bfcec23cf5347e249d2ab7a3f47af825f5b94",
       "peak_process_rss_bytes": 2740568064,
       "report_sha256": "bf86f15f02f533c779788feae833c8c731dd50ca17cf9a0e99907f385e347587",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-math-delivery-q30-lazy",
@@ -9918,7 +9918,7 @@
       "log_sha256": "ba2468e66cf67da83f781b2eac94a9f9f9a7dfa693635a49ac27d8fb7ea44656",
       "peak_process_rss_bytes": 1503133696,
       "report_sha256": "9e196d488dada676ab1ad6bcb87d8662862c0748ff4b4ba2e98056a08c9f1280",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-math-delivery-ic-memory",
@@ -10055,7 +10055,7 @@
       "log_sha256": "82a5b513743b417ce2ad4aa420b644d8d9039b2f7cfd254f22da68a011a1b45a",
       "peak_process_rss_bytes": 3197911040,
       "report_sha256": "0d88a543610e21819008f37aefb81213a5d6fa0925851541132a2de84dac22ef",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-math-delivery-ic-lazy",
@@ -10192,7 +10192,7 @@
       "log_sha256": "5801428f7b21923b74f5bc6dd1d5d6b9143bdc594d8fab73ea18afe7c6d5f1f5",
       "peak_process_rss_bytes": 2044411904,
       "report_sha256": "4e79ef51d0eec40e3d6644b054d35a15de28d7b339a1b238e6e176e429f99b7c",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-string-list-delivery-q30-memory",
@@ -10323,7 +10323,7 @@
       "log_sha256": "f35ea23278d761ef72b81a2761a48357558c6d62754a0bc239dd3de70ec35ce1",
       "peak_process_rss_bytes": 2775662592,
       "report_sha256": "934958551cbc6bb6b35ddbf673d2ed92652d89eb10cbe4993fb1e0e838222688",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-string-list-delivery-q30-lazy",
@@ -10454,7 +10454,7 @@
       "log_sha256": "755032ffce2ec6425eb10db6748786fcf17311814aa032b5ae08b71e804824cd",
       "peak_process_rss_bytes": 1492942848,
       "report_sha256": "23aecd3fbb0f76ee0f300490de50d7ed0b9620834fac8e5cf2ecaceb8ce18641",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-string-list-delivery-ic-memory",
@@ -10591,7 +10591,7 @@
       "log_sha256": "64f75a39c8a7ca647237a2527710810707626941afd50412057bda68efddf09f",
       "peak_process_rss_bytes": 3194863616,
       "report_sha256": "4158250805ef8b1c7250008ffd57e9cd6b5b3fc25eb29456cc42a7d1e0df207f",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-string-list-delivery-ic-lazy",
@@ -10728,7 +10728,7 @@
       "log_sha256": "b14e85da3d50cd4b25a6d5abeebc7eef82d61bac77c56c86e7409208b9439fa2",
       "peak_process_rss_bytes": 2007990272,
       "report_sha256": "cb2c6958bd1bdc64dcd2019d4d89351678a99415ddce52fd048d0866fadf8664",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-entities-delivery-q30-memory",
@@ -10859,7 +10859,7 @@
       "log_sha256": "dda5d6e03a675be28dd09e461ab689d3c501ad8bf3f9680f4f924dfa6880a6fe",
       "peak_process_rss_bytes": 2738601984,
       "report_sha256": "e15f15efe880eea1d7f63c6dfbf48c7a9fd14d6c9660c0324f818e6befdaab2a",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-entities-delivery-q30-lazy",
@@ -10990,7 +10990,7 @@
       "log_sha256": "e0b62ee15fc185614d8ad180368bab23ffda365c5475ef989695db773714ae8c",
       "peak_process_rss_bytes": 1518239744,
       "report_sha256": "7c246e291af74816d67f7132bb6c0b4da72d86a0f149c02569b5ac4eb562a78b",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-entities-delivery-ic-memory",
@@ -11127,7 +11127,7 @@
       "log_sha256": "b1e06b78341addd73c7525250ba26a9897a1b75b62cb594a8b74683fc446dfec",
       "peak_process_rss_bytes": 3202629632,
       "report_sha256": "d50d3750195581e786786d122de7422c4b4d1fc31c9fd52bf21d444c13021ebd",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-entities-delivery-ic-lazy",
@@ -11264,7 +11264,7 @@
       "log_sha256": "4a7d260d4d6552076656c40794779283cb2b9e38f66fa4aa7ab3e286f5c655ed",
       "peak_process_rss_bytes": 2074951680,
       "report_sha256": "20ef7afb3ca3d7f289e393b6bd05abdb5c2c262f9cc1e62c53a247d66e4cbbf6",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-folds-delivery-q30-memory",
@@ -11395,7 +11395,7 @@
       "log_sha256": "e2d7b1f6d72e276b0e8a59843d6a1723d02d4bc5b6adc318f40da70be10d26e7",
       "peak_process_rss_bytes": 2835775488,
       "report_sha256": "daf6aff2ba6ad91babe40d99db1ba7ac423c590a51c5cf11cb0c50c5be267ab9",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-folds-delivery-q30-lazy",
@@ -11526,7 +11526,7 @@
       "log_sha256": "417207ae1bb2197b683e1c21e0dbf4c717c07954125cf23ae4cae13b9f384824",
       "peak_process_rss_bytes": 1440088064,
       "report_sha256": "4161f57203da21ac16877a25de0cf2478fb3318cc12a66073735830db6091134",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-folds-delivery-ic-memory",
@@ -11663,7 +11663,7 @@
       "log_sha256": "dbb65a9c3f808a18990ab4d0c548d056415d50a0618a0b9489adaea0b0d1cd14",
       "peak_process_rss_bytes": 3188506624,
       "report_sha256": "a2177c45ac013eeb09649d336e2531116fd9b4acc750d84f5977a2dfa8f92b1a",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-folds-delivery-ic-lazy",
@@ -11800,7 +11800,7 @@
       "log_sha256": "decad287bcd8deb447dc560c3af0d84875dcc9328e2b599608a9ecbd8b4de63a",
       "peak_process_rss_bytes": 2042363904,
       "report_sha256": "9ec5d7c2c700bb1f2ab991c5971e14639e359837015fcc1202fa6b8b6a1e357a",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-21-delivery-q30-memory",
@@ -11931,7 +11931,7 @@
       "log_sha256": "a82b5d44ee094175e8bbf832d0505707d93ae39ea6c957396f1d4ed103589c6e",
       "peak_process_rss_bytes": 2718040064,
       "report_sha256": "0e13ca07e5b3a014b047a7d43c9e343754d7ecac917c838fffe6fdd25d553227",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-21-delivery-q30-lazy",
@@ -12062,7 +12062,7 @@
       "log_sha256": "e3401d7877c53583de5a972b313e9d3e7b2b887a14b304d77e5584073f2858ac",
       "peak_process_rss_bytes": 1606860800,
       "report_sha256": "0cc3f83a546de28b00171b2bab778c8a415e8f3a351ec3d5943f593ce44299b5",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-21-delivery-ic-memory",
@@ -12199,7 +12199,7 @@
       "log_sha256": "e1ff71d5dd73e5da965685d9478cff36533acb9850cd270adebf9a5dd2af941a",
       "peak_process_rss_bytes": 3165454336,
       "report_sha256": "decf56888ae57d90cdb7ec23c3b362f7b1ee7c8048c0b4bf02518db945936213",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-21-delivery-ic-lazy",
@@ -12336,7 +12336,7 @@
       "log_sha256": "e43503ab1e258ef1d5a8575b059e5315b85257608d6865d0f422861a677e68bb",
       "peak_process_rss_bytes": 2066972672,
       "report_sha256": "78d56c019574a5e271603fe77cfaed6e03be948ced01307d5ded3126afefa156",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-union-delivery-q30-memory",
@@ -12467,7 +12467,7 @@
       "log_sha256": "d9e30f6ce9a4dfa98ecbb64abb9a45c531f67e5403918ae9cabd2fffea1d72eb",
       "peak_process_rss_bytes": 2732736512,
       "report_sha256": "ffeaacc284fef6872b6d0d559ee4c2da16f01b46242f8e922a76ea73c7086ca2",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-union-delivery-q30-lazy",
@@ -12598,7 +12598,7 @@
       "log_sha256": "06b34d5c1a139b48942b0831ae4dda81574b39c33f21e41b40e9a9a119c82782",
       "peak_process_rss_bytes": 1538260992,
       "report_sha256": "a0f5ac86b3f33ac2c4a948e8b4aa86fe0b1750ee101a9d205d8c078eeb542777",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-union-delivery-ic-memory",
@@ -12735,7 +12735,7 @@
       "log_sha256": "394735d8690b31a81e1fb46bbc1159f270a1410a406b3c19ad32c03febc58317",
       "peak_process_rss_bytes": 3198828544,
       "report_sha256": "efe695654711830ab71387efa6178746b1f687b71c54f0b86e041d9afb2cbf1c",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-union-delivery-ic-lazy",
@@ -12872,7 +12872,7 @@
       "log_sha256": "d4888fbb08f9c7029ff6f8051b308a8cdfc6b70efea4711becb5cdb7c7a04de3",
       "peak_process_rss_bytes": 2172092416,
       "report_sha256": "52db331ed0f07568b6002009bf5ae940ffdcf55816ee3727774ffb2beaf8d64a",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "candidate-91d6b48-q30-memory",
@@ -13003,7 +13003,7 @@
       "log_sha256": "2c34b8a7d2d5e72e205bb65d174364188ba83c4f5da49a6936500df8533297cb",
       "peak_process_rss_bytes": 2800975872,
       "report_sha256": "b848952cb260d7069731a6c0feece7cb39346421e235f59c4925b2fdf9dadf66",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "candidate-91d6b48-q30-lazy",
@@ -13134,7 +13134,7 @@
       "log_sha256": "1c54187182a3d55da456b110c01056727777401bfc6329f4ee143dce18d7f7f0",
       "peak_process_rss_bytes": 1562017792,
       "report_sha256": "8199eda9abbb1505a48cf095b8592f8c8f424c9f6ebe7981300afcb57a9372d3",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "candidate-91d6b48-ic-memory",
@@ -13271,7 +13271,7 @@
       "log_sha256": "26f8d2e2d4a6894aceeef35282d3306d89926e8bc89f3d3b33b4cf4994326b96",
       "peak_process_rss_bytes": 3008282624,
       "report_sha256": "a4408c2cc77c79ec53b6e3c4b3f45a6ae148f3f69a8b566330ef09d88b2853fb",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "candidate-91d6b48-ic-lazy",
@@ -13408,7 +13408,7 @@
       "log_sha256": "89a03df50047f6971d2dbe76ec7371c8a3f6877579caefb010e54f88c4ca3052",
       "peak_process_rss_bytes": 1900445696,
       "report_sha256": "770c778dc5aab54da8f51bebe2ba2914734714e0e508b08cc5679c439d708813",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "candidate-bfbbb24-q30-memory",
@@ -13539,7 +13539,7 @@
       "log_sha256": "8da5fbefed4a02f0971f74546ce568507a5c09456fcab502702506e94b5ffc67",
       "peak_process_rss_bytes": 2716549120,
       "report_sha256": "a2949f1b6eeba9abbda413632fe4d95f583114ea8695b3208120077c1ea4cb5a",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "candidate-bfbbb24-q30-lazy",
@@ -13670,7 +13670,7 @@
       "log_sha256": "d82ab2af5438642e628603dcf27663a6cd1242fe211a040ad672c3ef333624b7",
       "peak_process_rss_bytes": 1597587456,
       "report_sha256": "fa6307c6a824f67d42838e0721f9cefca5c307062ad452d833877d338477066a",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "candidate-bfbbb24-ic-memory",
@@ -13807,7 +13807,7 @@
       "log_sha256": "123060676410cb61fd41630c4a65cc0e9dc0b2c9428109473e48eef5b79447cd",
       "peak_process_rss_bytes": 3077095424,
       "report_sha256": "5fcee0ab96eb8c12a4ce79e7f4e6cb398720ed8fb964c245b7cfda72aa8722c5",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "candidate-bfbbb24-ic-lazy",
@@ -13944,7 +13944,7 @@
       "log_sha256": "22dfc5a98441058e33e64382ec6ca6243ea4ccf82d0551972342fe2df710e129",
       "peak_process_rss_bytes": 1993457664,
       "report_sha256": "c3994321fd5d4855ea7a66e7ad646228e98c9b33253f2e17ecd89f82cd3f91e3",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-15-option-release-q30-memory",
@@ -14075,7 +14075,7 @@
       "log_sha256": "5d4ab84b982820067e4025befcd4fae5655e866671cd0c9a83437744b991fb5c",
       "peak_process_rss_bytes": 2731868160,
       "report_sha256": "0da06504816ef58082f22a115555ed4c5de4d010928fcbd548c843e5740938b2",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-15-option-release-q30-lazy",
@@ -14206,7 +14206,7 @@
       "log_sha256": "0bb818e5d6fd818221aa676a9b4043e6f28ddfe4ffeb38775e63c7b0729b1007",
       "peak_process_rss_bytes": 1432780800,
       "report_sha256": "ab61c338b8d5ad917ab25db0b00e81599961b0e94bf02ac969dac7c61d312816",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-15-option-release-ic-memory",
@@ -14343,7 +14343,7 @@
       "log_sha256": "dde2f0f8a6e77761f1a63004b47be6cafafd7006df5eefc2dfbaa6454f0331fe",
       "peak_process_rss_bytes": 3068166144,
       "report_sha256": "2811aeace257397d6874e1b3a818c3a9a67b56b42d3283f9def6268f9fc83933",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-15-option-release-ic-lazy",
@@ -14480,7 +14480,7 @@
       "log_sha256": "783f5d65a55943f0f7c4306ad2a474fb700cda18df1a8ee710d8b4d0e7d4a57b",
       "peak_process_rss_bytes": 1922826240,
       "report_sha256": "ae84acc050def774f57cdac5a1cfd9a6491bc07ee4acee5cf0c6d6a8edea52b4",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-19-prerequisites-release-q30-memory",
@@ -14611,7 +14611,7 @@
       "log_sha256": "f69de0b8020eba23ae5980318a422cb5e46a4fb1443e352d20d4ea34b17aac94",
       "peak_process_rss_bytes": 2678341632,
       "report_sha256": "f09bfec3bdf5287fed968b0a9e3b68c3320cf8ac7571858943dd35c090b86a63",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-19-prerequisites-release-q30-lazy",
@@ -14742,7 +14742,7 @@
       "log_sha256": "c34167152e63726c08a7f42e12d22e46e21ebdf459eacc4050aebcfe4a6f5bf0",
       "peak_process_rss_bytes": 1343389696,
       "report_sha256": "e4b225713714bbe272df556d764494ba9df046fef82619c49cacbc3da15101e9",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-19-prerequisites-release-ic-memory",
@@ -14879,7 +14879,7 @@
       "log_sha256": "67dc567c1936e3240b4dcf78166fbf30c8f903442b30d5d8aabea7bc5bb809f8",
       "peak_process_rss_bytes": 3020505088,
       "report_sha256": "6544173ea09707dd4628dc51ebeba555445b10c5b40a0fb7d9adf9810cebbfba",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-19-prerequisites-release-ic-lazy",
@@ -15016,7 +15016,7 @@
       "log_sha256": "fad4cc82f6c5b5bfe3aba183609fe1bbdbe04823a15c5a85d2daec7fe8d02aab",
       "peak_process_rss_bytes": 1977352192,
       "report_sha256": "c2ab3ec02da5c7559b0b5d5d33dc97bbdd9e124b436bacd0dd8e9ef4531835d6",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-paths-curated-base-q30-memory",
@@ -15147,7 +15147,7 @@
       "log_sha256": "aad71bde36ce96817cb95c64d37c98f584d5b3c34f94019048f515283c6df664",
       "peak_process_rss_bytes": 2813165568,
       "report_sha256": "f4d670c4ae034c86b818c945bc6881d097962159387bc1a1f56598a344e0c4ff",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-paths-curated-base-q30-lazy",
@@ -15278,7 +15278,7 @@
       "log_sha256": "79d2afbfebc519887324f5bb162a8ca832789224230974fafb9b776df9280428",
       "peak_process_rss_bytes": 1538097152,
       "report_sha256": "1c077c81d43e7a8f8431556ea863a396bc3b4b6e555f925d13a966d956ac1b71",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-paths-curated-base-ic-memory",
@@ -15415,7 +15415,7 @@
       "log_sha256": "6d2b3b02db271e941566dbe21da514d3aaf95236b828f967349e96648ac46e7b",
       "peak_process_rss_bytes": 3083419648,
       "report_sha256": "e0d554761c4db73d352620f180f6194d0a38a174e2c0c59b841e313a337b4687",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-paths-curated-base-ic-lazy",
@@ -15552,7 +15552,7 @@
       "log_sha256": "c96299e2faa3fadd401486504f9d7b1cb5760960e1751d2106d88e51ff73ec40",
       "peak_process_rss_bytes": 1966129152,
       "report_sha256": "5271e62c13b21b3c9a4f9af8da51890a874801649069d53be1d9189b75bca955",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-paths-curated-head-q30-memory",
@@ -15683,7 +15683,7 @@
       "log_sha256": "31bfb0496d7e87d1ad2f863053d6735a2f1451ceb4f4f0c9d030e48134426780",
       "peak_process_rss_bytes": 2819850240,
       "report_sha256": "1641bb5af22745300d32d51174603cb042b0622620b9fbac24ec271950e9a9b9",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-paths-curated-head-q30-lazy",
@@ -15814,7 +15814,7 @@
       "log_sha256": "5cc309cecfeadab9ea2685ec6089cc60d599f70a45ebff805b9b13cd224fdbfa",
       "peak_process_rss_bytes": 1564672000,
       "report_sha256": "1fd12a12aa9623991a4ebc27b808296d1ceb8cd54e9e995810ac19fe79398b54",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-paths-curated-head-ic-memory",
@@ -15951,7 +15951,7 @@
       "log_sha256": "b60930090ed14144d61fc5f6def357cf4596430d906778d458f0c7dbb066867c",
       "peak_process_rss_bytes": 3091529728,
       "report_sha256": "b9e06b797a42b16eeabad754694b87b9a2ffbf9010b3c82d5dd1724bc1782bdc",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-paths-curated-head-ic-lazy",
@@ -16088,7 +16088,7 @@
       "log_sha256": "99f2448127ed55d77b80244822e6cf23791eaa33e086130862f2252fcba237eb",
       "peak_process_rss_bytes": 1948581888,
       "report_sha256": "644fcde6160e9764d51c38c276913ab26978e5dd64c857edf65ff5b42589e7a2",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-call-prerequisites-release-q30-memory",
@@ -16219,7 +16219,7 @@
       "log_sha256": "b2b3421cfcd6ec4d0bc22e0543e2986b58cc078149219142de40fd83f15d78df",
       "peak_process_rss_bytes": 2756460544,
       "report_sha256": "0fc919f615f2c85df2ec1afcc2fbb04d2a628c7a1bbfbd8b11181eb95fabb2cc",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-call-prerequisites-release-q30-lazy",
@@ -16350,7 +16350,7 @@
       "log_sha256": "18357032c4ef1404313d5753495ed7a0cd9278eea55dc012cd4bef3727fe7f1d",
       "peak_process_rss_bytes": 1518010368,
       "report_sha256": "63a89d6ea18e31574f6a6d55ea953336d6d433dbceba5bd0263031331a87222a",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-call-prerequisites-release-ic-memory",
@@ -16487,7 +16487,7 @@
       "log_sha256": "d309879566c8cb492e771515eb44ddc792d8e56ef731dd1e1a0ee563c2b06508",
       "peak_process_rss_bytes": 3073261568,
       "report_sha256": "571b066ede9cc07f988a2b56cfc38ba7bdbef51a611f1d3f69447cca49641ee0",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-call-prerequisites-release-ic-lazy",
@@ -16624,7 +16624,7 @@
       "log_sha256": "58756b93642f99d259d479a1707d30f3036e79dd06070aeb934de4d0f763c072",
       "peak_process_rss_bytes": 1916403712,
       "report_sha256": "85481813255be3df6ab13732cc4d1f310eed0b229d745cf2c07024ff9a28eb98",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-call-delivery-release-q30-memory",
@@ -16755,7 +16755,7 @@
       "log_sha256": "6898af545d9dda9d1d4281405c0e30b346a0ba6cb4c9b16d1cc0ff1f6dfff30a",
       "peak_process_rss_bytes": 2779070464,
       "report_sha256": "6164356515ea1bb800a070eb2216e9bbc82b6a2ef8b9c783e831abaa09235300",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-call-delivery-release-q30-lazy",
@@ -16886,7 +16886,7 @@
       "log_sha256": "88aa497ee63d7c24476ce96c96ccfe013bf7fc31cd9d4c8f4dcb641bc5c0ac00",
       "peak_process_rss_bytes": 1583333376,
       "report_sha256": "3c849a910098dbee4f3e98c4af06bceb64002b126bcb5ca42d616a2c92c92134",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-call-delivery-release-ic-memory",
@@ -17023,7 +17023,7 @@
       "log_sha256": "971749d501feaeceee4dfcbb30f4e611089edf7a4a1242b1d43278c07027ae70",
       "peak_process_rss_bytes": 3164880896,
       "report_sha256": "37c9f985ffceaba19d97203053d5c2f8d81be00b6356bde94b33f99f0eba270b",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-call-delivery-release-ic-lazy",
@@ -17160,7 +17160,7 @@
       "log_sha256": "78e477060cdccef845ad2844c88bf21daaa53015d857085b0dcf1f0e85cb617a",
       "peak_process_rss_bytes": 1953349632,
       "report_sha256": "1681567e9706a4a07356d7e10f192c25f82a24d4b133c74c0fe054bc65767fcf",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-11-cursor-inlining-release-q30-memory",
@@ -17291,7 +17291,7 @@
       "log_sha256": "cb5edcbbff168f4ad222288d7918c1c93de41c73c9a36404ad39fff5cbfdd1e1",
       "peak_process_rss_bytes": 2734424064,
       "report_sha256": "92651cca9f28906c6d0571fca915d5329dfa667180688eb5533e6626ec0be8e1",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-11-cursor-inlining-release-q30-lazy",
@@ -17422,7 +17422,7 @@
       "log_sha256": "8641ca522e36d3e230827d0dc27c2ef067bb21197f2dd81b2b91ec983d7f1833",
       "peak_process_rss_bytes": 1518190592,
       "report_sha256": "f86eb0fe8e54b94023e39fa89e7ae6046b85b369c9f15e7927952f3ec1a08d02",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-11-cursor-inlining-release-ic-memory",
@@ -17559,7 +17559,7 @@
       "log_sha256": "c0a1919be6fe0055da05a4bf45c33aed262eeacf258bdfa098deb5f0c36d1e25",
       "peak_process_rss_bytes": 3137159168,
       "report_sha256": "5a9bb5ccc1ac18181d27ccb994eac5cd024256f44ca67570ab3f8bd0509f5410",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-11-cursor-inlining-release-ic-lazy",
@@ -17696,7 +17696,7 @@
       "log_sha256": "f3ffef0087ca2f0e005ea714e520d0609de08cf150e83338723cb4f8732e8287",
       "peak_process_rss_bytes": 1966489600,
       "report_sha256": "63078901d5b8629065b496fb8e4dc028567bab663e11795de4e2a35998a7544c",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-19-corrected-q30-memory",
@@ -17827,7 +17827,7 @@
       "log_sha256": "7c667d841c5067370b259b135e37c80eaaa7bdd58d76ff95bbed6627bbf0486b",
       "peak_process_rss_bytes": 2745188352,
       "report_sha256": "990976de703419a97c51dbefe828705c88c93dc88ba0703df1a4745ed8bc89fd",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-19-corrected-q30-lazy",
@@ -17958,7 +17958,7 @@
       "log_sha256": "d4ddeae7ee936ca5ddeee8a2627f2fa1a11d5e432e5c58acbf5e1b3abd8b712d",
       "peak_process_rss_bytes": 1544781824,
       "report_sha256": "c3c02533d1f83d67d52f0615dc66e608b2b7ff0eaedf56116fb947ce6307ea5d",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-19-corrected-ic-memory",
@@ -18095,7 +18095,7 @@
       "log_sha256": "a7e592b5e031e7a2a2e553701fff35db1dde434acd637744dfb3d9372215488e",
       "peak_process_rss_bytes": 3066003456,
       "report_sha256": "48751235aae0bfee91d4fa191cc0c696dfc2d17c997f99eeb426f728fa0a2b94",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-19-corrected-ic-lazy",
@@ -18232,7 +18232,7 @@
       "log_sha256": "8611ec751ac768456604250585a68786a178fc35166e5aad8916266f20ee1f74",
       "peak_process_rss_bytes": 1930575872,
       "report_sha256": "a1a121b5abaca9c7a46856a7643d36df3f537f988c2af34573ab79384d1dadc3",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-path-null-corrected-q30-memory",
@@ -18363,7 +18363,7 @@
       "log_sha256": "1808dde0171c5d0982f6238bd322ea916fcdfc21f6e5ac2605af5b4f6379d632",
       "peak_process_rss_bytes": 2641969152,
       "report_sha256": "b7cd79f0d9247219515ea62cd527282500105bf15183957e654287f5e4c58521",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-path-null-corrected-q30-lazy",
@@ -18494,7 +18494,7 @@
       "log_sha256": "6a5cd22ab43b89ada1f3e71930ac14c6248d6d161da07641bb152812e158ddb1",
       "peak_process_rss_bytes": 1599258624,
       "report_sha256": "63f0b5508c0488fa9c4a24108f9b680226a4c4f88fd7be27186dc5819cb0f256",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-path-null-corrected-ic-memory",
@@ -18631,7 +18631,7 @@
       "log_sha256": "ad3168a8bde5d05e678e2ecf494e593e2cd35dc58734f470a3c39504e3b4f749",
       "peak_process_rss_bytes": 3042508800,
       "report_sha256": "dd181380ce7f3e10e05d86853cd9d7f06f9367b956d976610aacdf568f454c11",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-20-path-null-corrected-ic-lazy",
@@ -18768,7 +18768,7 @@
       "log_sha256": "4303d32f3a7fe8331d0387a7c3cecff16188097c811a22fc74b0a3c7d6cf592e",
       "peak_process_rss_bytes": 1966063616,
       "report_sha256": "f4b7fd7f788d5f13c4784fdc7940dbc9baa5b901524e2b1569e7c06686d2c866",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-11-inline-always-release-q30-memory",
@@ -18899,7 +18899,7 @@
       "log_sha256": "d7dbf77a92429c71aa50fd4e1f6b1f907e5b99f8a255781fa34208c0ea527af2",
       "peak_process_rss_bytes": 2777792512,
       "report_sha256": "344fc188e67764e28b636640336c1983203c66b10a795acf8a0ba03ecab6642d",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-11-inline-always-release-q30-lazy",
@@ -19030,7 +19030,7 @@
       "log_sha256": "361963b7a9594a1cefeaaeeb7c86dc06a6f81d341293a8cdb9612922e3a7867c",
       "peak_process_rss_bytes": 1599193088,
       "report_sha256": "40716295f95d0de7fc1061ca55d130ffcb407d2bc9a20cb49a8d60af31e8a396",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-11-inline-always-release-ic-memory",
@@ -19167,7 +19167,7 @@
       "log_sha256": "3c50d3a8429e080cc6eea6dfb78c1f85a4e407a560f2c4f9612fc09bfae2ffa5",
       "peak_process_rss_bytes": 3070083072,
       "report_sha256": "5d533ecf72e2c1399c1fa4094617d0e7113feca478eb9381f9120b0d30432bfb",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-11-inline-always-release-ic-lazy",
@@ -19304,7 +19304,7 @@
       "log_sha256": "2aa67bcf803a78d1c272d5e37dc0035f661f95429d44c179de7d12400180ef59",
       "peak_process_rss_bytes": 1922170880,
       "report_sha256": "00737a7066e05213b59aa4d6d5efe3af2e9dc611653f0eee64835136a8ded436",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-11-slice-release-q30-memory",
@@ -19435,7 +19435,7 @@
       "log_sha256": "0d1915e8a3dbeff347bb249dbc2d27257596012b75e9cd4a3020e069d94444e1",
       "peak_process_rss_bytes": 2780594176,
       "report_sha256": "3b632fb173d88c1a6c60ad15c6a8e0510b1d2b733d25888f98bb8793f2cc15bf",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-11-slice-release-q30-lazy",
@@ -19566,7 +19566,7 @@
       "log_sha256": "e028606d442b4fa9a3652535d8aa56519865982d0791ffcd01b467b81d0c7dea",
       "peak_process_rss_bytes": 1538572288,
       "report_sha256": "4095dfee964a73227616806428e5ce66d6048b90f4649bc8f3d060103790f523",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-11-slice-release-ic-memory",
@@ -19703,7 +19703,7 @@
       "log_sha256": "04a3a380af2b7a84ca9f34ec75486fdaf26aaaa3996014ef66fbb0d3956a4c76",
       "peak_process_rss_bytes": 3063545856,
       "report_sha256": "60d76a5a988dae506e361ffb935028a46c33f7d058a03be57ba96fd9f76c8ef6",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-11-slice-release-ic-lazy",
@@ -19840,7 +19840,7 @@
       "log_sha256": "a9fe9333363d69ecea3473e5aeb636457b03ee6c4c067897a15c1e11a2bf2633",
       "peak_process_rss_bytes": 1935900672,
       "report_sha256": "c2d139e653818395f4d877722180a032980b39cfbf325324ef0ef9dda55d7fa1",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-11-fold-release-q30-memory",
@@ -19971,7 +19971,7 @@
       "log_sha256": "1d852dff937662d0844516cab389f008aa9655ca9ae71c0f6e9ba98dbb83f940",
       "peak_process_rss_bytes": 2736947200,
       "report_sha256": "e2e9e3a97ba66d4df9248d528e4febdb25a7a7094f5b44ab1df97e252aa15589",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-11-fold-release-q30-lazy",
@@ -20102,7 +20102,7 @@
       "log_sha256": "aac27e17ed881f7c75600baed8bfa6ede4adc6c48b99f3a73070b4470d88f076",
       "peak_process_rss_bytes": 1506263040,
       "report_sha256": "c3894e666f3a882a9e4a4bfb8a6b7126a013cb1b8b54a0d6908aa03493d47047",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-11-fold-release-ic-memory",
@@ -20239,7 +20239,7 @@
       "log_sha256": "9a049db3ee6bca451adeb589f2ced5f234a701d6bb7921f317cb7e6a3bbf53d2",
       "peak_process_rss_bytes": 3086499840,
       "report_sha256": "ca554eb11488dc53726ff059ab180656c52aeaaf00a66d530067a49a307a8d15",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-11-fold-release-ic-lazy",
@@ -20376,7 +20376,7 @@
       "log_sha256": "4acfa080c35aa8c3c1955e42f5d9c9644424e1681a65d934725c82a28a3d1714",
       "peak_process_rss_bytes": 1900265472,
       "report_sha256": "4f1271a8d3866616a75ddb9091702e227bb25ffb41a2977814c4094b48c6e490",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-11-local-cursor-release-q30-memory",
@@ -20507,7 +20507,7 @@
       "log_sha256": "1beb4b316b19e967ac6a873c32e0c57dac8e571f294002522abf6c56a1ecc365",
       "peak_process_rss_bytes": 2739355648,
       "report_sha256": "3893de04b77866e76dcbfff3cab9cafa033ed6655f46ae1ca4e31f847a8c7925",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-11-local-cursor-release-q30-lazy",
@@ -20638,7 +20638,7 @@
       "log_sha256": "5ff598ea1e00ec215bc6ccdc88c9d71cab75dccefe8355032225f8bd6fae7637",
       "peak_process_rss_bytes": 1507213312,
       "report_sha256": "ff734f663e90a15312050fbf2c160f285abee1b53aec85bb13c25ef737675390",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-11-local-cursor-release-ic-memory",
@@ -20775,7 +20775,7 @@
       "log_sha256": "d42764cc71546ce1823a75f56792b3d0cc005cfd17ff1723ff6b362039f43e48",
       "peak_process_rss_bytes": 3090923520,
       "report_sha256": "bb4a9bd623ff9e9637515005aae4b879c0bb9ba84d03ca5234a6a636b96c639a",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-11-local-cursor-release-ic-lazy",
@@ -20912,7 +20912,7 @@
       "log_sha256": "014fdefc0a43a7f7e34e74871168d306f265a8afa58c66f4cd8c3d18d62c8d71",
       "peak_process_rss_bytes": 1929396224,
       "report_sha256": "1a1828dc7987107381a09c90924845ad8890a935ce0fc7bf3ba977b6d08c5aab",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-11-fused-cursor-release-q30-memory",
@@ -21043,7 +21043,7 @@
       "log_sha256": "0eb2a7080b9c8eb2ea3a29493a96a2e2b439fdb29e321c30efd775d13c908692",
       "peak_process_rss_bytes": 2694135808,
       "report_sha256": "3063f4e32124dfd9149ff690f5901450223a292d3048d2f639294b7dd4392276",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-11-fused-cursor-release-q30-lazy",
@@ -21174,7 +21174,7 @@
       "log_sha256": "78367aa6f23394a423d401a1dc9ad61b1098c392087943ea57ad602544d2d54b",
       "peak_process_rss_bytes": 1591345152,
       "report_sha256": "b2baba791bcc9d04e61946bad7d5e01154267d7a832d5d358462c2d81212e4e3",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-11-fused-cursor-release-ic-memory",
@@ -21311,7 +21311,7 @@
       "log_sha256": "a0117bb01fe88745ca6602fb45ccd1473968c7f2d21f8dea51b014ac87714293",
       "peak_process_rss_bytes": 3095134208,
       "report_sha256": "9d7951760bfcf99cf5a9fbc6de6514fc66f9d320eebb0b7f77c92fe56cd65545",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-11-fused-cursor-release-ic-lazy",
@@ -21448,7 +21448,7 @@
       "log_sha256": "772f15a5c31e27d45fa37c5c198845abdb9398d37131239a75081be055e26878",
       "peak_process_rss_bytes": 1979088896,
       "report_sha256": "31aee35b569178339302dd062ab5a73801f99eadcbc01f2cfaa5889064934ee3",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-19-local-quanta-release-q30-memory",
@@ -21579,7 +21579,7 @@
       "log_sha256": "c8cf15c9e135e72681d59797bd828eb3a1433f9d0e22fa506641c0363ba24d9f",
       "peak_process_rss_bytes": 2781036544,
       "report_sha256": "da322d210d09a04ea3233a72090a24410e97cebfcd77b94adf7a90b1c83c2009",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-19-local-quanta-release-q30-lazy",
@@ -21710,7 +21710,7 @@
       "log_sha256": "871cb422f2bd7585d5db4db19919636d6a2e1452e96fe300830d924aa045772e",
       "peak_process_rss_bytes": 1503821824,
       "report_sha256": "7d1097ac958d30311ccadba153aac5538c0fd2de15ddb37bbb39ec287457e1a0",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-19-local-quanta-release-ic-memory",
@@ -21847,7 +21847,7 @@
       "log_sha256": "c1d329a88d720b5ef418bce29f3cd98fc25a5f377499382a1c879882f6355529",
       "peak_process_rss_bytes": 3075883008,
       "report_sha256": "446c6381c3f5cb79c1455bb1fffff51b69c29c55db41241a14b2af5dc1f22810",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-19-local-quanta-release-ic-lazy",
@@ -21984,7 +21984,7 @@
       "log_sha256": "a3a80ae0026e37bbd67b438021ed6ae4965f0f26d074a4db60790aefc8164f72",
       "peak_process_rss_bytes": 1941438464,
       "report_sha256": "acb43448f207deda8eb65042daa7dd468418e81165cc77262fe8e388acabc8d3",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r6/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-13-cancellation-release-q30-memory",
@@ -22115,7 +22115,7 @@
       "log_sha256": "a3a69b02ec6026f082d33812b1ba2b4d249f53ff119d7c5d95678adf97ebdb49",
       "peak_process_rss_bytes": 2713370624,
       "report_sha256": "4abc1af7e7c829fe39ca336736b73cc7e411d207d0bc05f4af2b192fd3d0aabd",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/acceptance-final-heads-r1/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-13-cancellation-release-q30-lazy",
@@ -22246,7 +22246,7 @@
       "log_sha256": "20e8ff38b41af507d7ffd34cd135851e7001042912d6fdba8cfc74200b664cd1",
       "peak_process_rss_bytes": 1549451264,
       "report_sha256": "a937f4194e1b7d4c499bbecd03d035d80eaf117dfbc48b16c469b068a827e3d8",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/acceptance-final-heads-r1/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-13-cancellation-release-ic-memory",
@@ -22383,7 +22383,7 @@
       "log_sha256": "54df437855ad73235d567d7be07946f123c97a2b2f9d0a6cbf0dc9dbfc953879",
       "peak_process_rss_bytes": 3068002304,
       "report_sha256": "6402364a50804d0392b0cd195fb613b239a8989af2dbe9f2d2c299ef92e35801",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/acceptance-final-heads-r1/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-13-cancellation-release-ic-lazy",
@@ -22520,7 +22520,7 @@
       "log_sha256": "d54497f72d5a6c0939921ef9cc48e28c19953a1d0e1882001df654c887c80d99",
       "peak_process_rss_bytes": 1965277184,
       "report_sha256": "7c666f0886555268c882eaa1e24df4b5a1d057d456a6d99c67b8bab3b7dd3b42",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/acceptance-final-heads-r1/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-19-empty-work-release-q30-memory",
@@ -22651,7 +22651,7 @@
       "log_sha256": "05d4351f55b203aced7284425d692e6c218ef835b02958c152f25397c3b5a01f",
       "peak_process_rss_bytes": 2788900864,
       "report_sha256": "e2068f2d01b6932499c218d04b070e7775ebe73083028325eff386398d593a69",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/acceptance-final-heads-r1/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-19-empty-work-release-q30-lazy",
@@ -22782,7 +22782,7 @@
       "log_sha256": "0c7c1171dcbaa019d81864ccf06214cd741f28e1f1becc745da51333c19fa268",
       "peak_process_rss_bytes": 1511358464,
       "report_sha256": "97c2a035987207492b57e4dff0a318e0abd7719cec4701969533d260ee22d562",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/acceptance-final-heads-r1/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-19-empty-work-release-ic-memory",
@@ -22919,7 +22919,7 @@
       "log_sha256": "321c64b6e2f29f6a2c8954313c15c487a24dab205a9a531607001de1dd2376a8",
       "peak_process_rss_bytes": 3137454080,
       "report_sha256": "c5dbac882a5f64490da16f55fa8eb54681cafc004221ccca8cf91f9b45285c98",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/acceptance-final-heads-r1/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "issue-19-empty-work-release-ic-lazy",
@@ -23056,7 +23056,7 @@
       "log_sha256": "8f823c31c6646a1435fd5ba73c220f5438d07c3b85d8215f1b75b90573f32c6e",
       "peak_process_rss_bytes": 1967570944,
       "report_sha256": "3b4078bd3851cff6d0e084938c6437e8fe9e38ef717c0414bb3c98354cebdd92",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/acceptance-final-heads-r1/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "candidate-final-release-q30-memory",
@@ -23187,7 +23187,7 @@
       "log_sha256": "7a502c862b87c781a73736036a782efbd997632eb1f3a226a7e2e39eeed0408a",
       "peak_process_rss_bytes": 2767192064,
       "report_sha256": "f3c5e6fe35c1b0aa84a881124003c6f015f6f2dbe409485abe90c2c8c0f78ec6",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/acceptance-final-heads-r1/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "candidate-final-release-q30-lazy",
@@ -23318,7 +23318,7 @@
       "log_sha256": "a45866f7dfdd53e8d2ab4be9edbd7d27a53e6d76fbf077420aa1a33f2a5287aa",
       "peak_process_rss_bytes": 1540554752,
       "report_sha256": "55d5bd800e9b8c28aeddc7aec9f04402878be7c7ebf20b686fb76060a6f9c29a",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/acceptance-final-heads-r1/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "candidate-final-release-ic-memory",
@@ -23455,7 +23455,7 @@
       "log_sha256": "e7028922d50c5b1295b602fe9dc05e350e8943d810e3615a4ea03cd31dad533d",
       "peak_process_rss_bytes": 3160195072,
       "report_sha256": "9251549bb87c0ae08fb2ab4dc2e02cb7e78d39560da5ab1317cd61133b7f5d55",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/acceptance-final-heads-r1/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
     },
     {
       "label": "candidate-final-release-ic-lazy",
@@ -23592,7 +23592,1079 @@
       "log_sha256": "c71af02ad97dfd7d594fb026608058e5af0ae66c7246a60cb183b869501aef52",
       "peak_process_rss_bytes": 1952284672,
       "report_sha256": "097f4a064adecde8c8b8b47e04a4e30668536f1f45758184a382217033c0a0fb",
-      "origin_manifest": "/private/tmp/lance-csr-submissions/acceptance-final-heads-r1/manifest.json"
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
+    },
+    {
+      "label": "issue-19-scan-budget-release-q30-memory",
+      "phase": "issue-19-scan-budget-release",
+      "suite": "q30",
+      "mode": "memory",
+      "query_count": 30,
+      "cwd": "/private/tmp/lance-csr-benchmark-q30/lance_csr",
+      "proof": "/private/tmp/lance-csr-submissions/wheels/issue-19-scan-budget-release/release-proof.json",
+      "proof_sha256": "7854adb7af1143917f47e7b913ffe12e0a4d270e839e31e0a0107f439f140235",
+      "build_context": "/private/tmp/lance-csr-submissions/wheels/issue-19-scan-budget-release/build-context.json",
+      "build_context_sha256": "06b1df6f1fdfad843eb6a5b1249b00befe4b47e47e3fe48081d8083fa02ee316",
+      "source_commit": "a641cf25cbe34db25245ce2543140af5b735d30e",
+      "wheel": "/private/tmp/lance-csr-submissions/wheels/issue-19-scan-budget-release/lance_csr-0.2.0-cp312-abi3-macosx_11_0_arm64.whl",
+      "source_lock_sha256": {
+        "Cargo.lock": "42a6003cfe02f165444dff9167812b49a81415c0caac4e361faef02effd1296f",
+        "crates/lance-graph-python/Cargo.lock": "2639fe466b2ced50664ac4139021281deb7571f771f7e9fb9b55520e4c7032d3",
+        "python/uv.lock": "5e8fa115746bb8e3c92902d7c72d8bdf67232be60ed95bca3cc3ef046b167adc",
+        "docs/uv.lock": "7a8f487b45af7094337d89c2a68aa92d5256d421b97565b960554fadd3980932"
+      },
+      "extension_sha256": "e839ed4bc123a60b5f5f1f401288b43ad550e8951644667d5110ba350ea0f82d",
+      "suite_revision": "6260689aa1fba4eeb4e99958430386b2fcd13f71",
+      "data_manifests": {
+        "Comment.lance/_versions/18446744073709551613.manifest": "5521f17aef9f7c0d7d5fdddd82f410ccda39a1607367151a0a1f237625086437",
+        "Comment.lance/_versions/18446744073709551614.manifest": "5935ff2a6234220ea58a3ee578f4ea95b05c26bde70b4d9eb973fce46df3927c",
+        "Forum.lance/_versions/18446744073709551613.manifest": "7a84a5d02e7a4bef23e908e0a2556872bcdc70083116edc7b2ec340edb3fbf79",
+        "Forum.lance/_versions/18446744073709551614.manifest": "76114159aea86742ef4978d006da037e36c7805121cbd9601d5b37b5d9b487d8",
+        "Organisation.lance/_versions/18446744073709551613.manifest": "944a0ebf52ea24bbc586c361e81a3f911c6a59f53489995fa73a0ba1875c49b5",
+        "Organisation.lance/_versions/18446744073709551614.manifest": "31a974340f83eddc859223e317b2d0c40fc4f074119c3b5de485ff50fd72e0b5",
+        "Person.lance/_versions/18446744073709551613.manifest": "ab1b42ac94e166793c4ddcdf2fce4e1c1418fd28622b3b6e17e29b8ac2a2676e",
+        "Person.lance/_versions/18446744073709551614.manifest": "6fd3751dafcf03650c084f81f2b61ef3e75f0a79b0a6f14390c172412e9c9cdb",
+        "Place.lance/_versions/18446744073709551613.manifest": "40650d015e91d942facc7deedbdaa941eecd5cb94fed67d4411c8e7ab27b2db1",
+        "Place.lance/_versions/18446744073709551614.manifest": "3075a202daed468b60172a8e8686ceaae6fd743546b8e7be28b7a899d1dbf574",
+        "Post.lance/_versions/18446744073709551613.manifest": "60f69b5e2da26556414e6de861ed97cd2d09c0501785d2a1f9ebd58d3ffc072f",
+        "Post.lance/_versions/18446744073709551614.manifest": "a499fd25016c983d9f76eb1f63d6afa10cc9877f2425171ba5e0fd28ae435482",
+        "Tag.lance/_versions/18446744073709551613.manifest": "ec843bb5e117039ab572a59be3ac6e5e26a133910cc5bd0d65ae764d65ee3c39",
+        "Tag.lance/_versions/18446744073709551614.manifest": "58e794e6606f5fd0b98a9aa308f746260c1955de2adf0c6011f0d6ea74baf84f",
+        "Tagclass.lance/_versions/18446744073709551613.manifest": "938f55362e881dfe727107a4f73867ff2ca4c4725a155804bbb0d5ffc602aabd",
+        "Tagclass.lance/_versions/18446744073709551614.manifest": "c802ed61535f57daed8c69395fae12099941db9071515283a7969a79cfb8f852",
+        "comment_hasCreator_person.lance/_versions/18446744073709551614.manifest": "0f2e04ef1348af894e8cff027eb33d28466e212a39fd2808199a95f4bb4b23b7",
+        "comment_hasTag_tag.lance/_versions/18446744073709551614.manifest": "75253470d3d33eccc3d4b2b8acbd9e94724e7817fcdddaacbb96381c16d7660c",
+        "comment_isLocatedIn_place.lance/_versions/18446744073709551614.manifest": "4c7a1a75c244b44981663c8af43d13831c4b9b898ad8e7526c0381ebe96dce04",
+        "comment_replyOf_comment.lance/_versions/18446744073709551614.manifest": "ffdfdcf4e4da0a2b1f932b6e959b33794d297c1d7d559ecd52238bc85be09c1a",
+        "comment_replyOf_post.lance/_versions/18446744073709551614.manifest": "ee42293666d3eeba5cee761054567e480a1d9c14f896f44e25bdfb4086d9d3bc",
+        "forum_containerOf_post.lance/_versions/18446744073709551614.manifest": "f16243070deef914a8626b2ac3d4b6479500c8a1f093b00fddb03f7bd2624658",
+        "forum_hasMember_person.lance/_versions/18446744073709551614.manifest": "ae57dc8f05cd793b53412707c27871aa85102060e5151ed74f1cf100dec047c9",
+        "forum_hasModerator_person.lance/_versions/18446744073709551614.manifest": "dc0c9fa3ea3dd746ffd4dec706c5d7d2d11af415c246cec560e0f0ff9fd2260e",
+        "forum_hasTag_tag.lance/_versions/18446744073709551614.manifest": "ecf8e02e091553f118e2f864a2105752a3a1287f829e44ebada2684ba36a39d2",
+        "organisation_isLocatedIn_place.lance/_versions/18446744073709551614.manifest": "44ddcfc3e66dc2849ff0100a34952315674f4ee0aa5691b8fcb5f002237be617",
+        "person_hasInterest_tag.lance/_versions/18446744073709551614.manifest": "b586763aaccfa129552c3da50eadde98537554babf3af1f19971e89c055d9439",
+        "person_isLocatedIn_place.lance/_versions/18446744073709551614.manifest": "c7b7eb1adfeae79ec3daf880abe61b49c148404172b682b400338132813ef46f",
+        "person_knows_person.lance/_versions/18446744073709551614.manifest": "e4921d1a76f3f2fc7d3d9ea679aaeded427dec568f8146d7717fbbae4f8de321",
+        "person_likes_comment.lance/_versions/18446744073709551614.manifest": "37899a8ff7c28c4f34ef2712a672c179b9a5cbb22b8a631930c16e9b6846c373",
+        "person_likes_post.lance/_versions/18446744073709551614.manifest": "78b67e4e5ccd59e4b134c379ede3fe55fa5426c2d6ee20c7ef2aaf2ef5b97296",
+        "person_studyAt_organisation.lance/_versions/18446744073709551614.manifest": "aa13f8571b4d5784b9c63e7674f1cde1a29c81a4358e972d10944d8cb61f34b9",
+        "person_workAt_organisation.lance/_versions/18446744073709551614.manifest": "7a72ad3495b7b31bd19238ac8d8ecd39b505c1e163aa0a91384cc5ba9a0e20bd",
+        "place_isPartOf_place.lance/_versions/18446744073709551614.manifest": "271be73d21eb2df90af232b5ebed9b2111ba101cd1928b0d2d31e0c7c5151e18",
+        "post_hasCreator_person.lance/_versions/18446744073709551614.manifest": "74b7df2dd6f2d60d65ddf52c4ecccb8b09037852a04bd41717c9e8e7987dbdb6",
+        "post_hasTag_tag.lance/_versions/18446744073709551614.manifest": "b49fa37a9860efe51959ec734199f7d7247d4aa82fb19e3e3e576c187843c439",
+        "post_isLocatedIn_place.lance/_versions/18446744073709551614.manifest": "669d3a6fbe61ca9064754de85176c0aad838b5bd997dd6e8a6825fdb58faba87",
+        "tag_hasType_tagclass.lance/_versions/18446744073709551614.manifest": "750e994fdf781b556907478eaca81f2b62758e8e74b8d7ab3303f39f7c8a9f1d",
+        "tagclass_isSubclassOf_tagclass.lance/_versions/18446744073709551614.manifest": "e4c78cb5132534413a791c774d5facbaa62655f2abaf3eb326888b5f988b7388"
+      },
+      "status": "passed",
+      "runtime": {
+        "python": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+        "extension": "/Users/davidhughes/.cache/uv/archive-v0/6yJvHmNqLQJhn5-y/lib/python3.13/site-packages/lance_csr/_internal.abi3.so",
+        "extension_sha256": "e839ed4bc123a60b5f5f1f401288b43ad550e8951644667d5110ba350ea0f82d",
+        "packages": {
+          "lance-namespace": "0.11.1",
+          "pylance": "13.0.0",
+          "numpy": "2.5.4",
+          "tzdata": "2026.5",
+          "lance-namespace-urllib3-client": "0.11.1",
+          "urllib3": "2.8.0",
+          "pydantic_core": "2.50.1",
+          "lance-csr": "0.2.0",
+          "annotated-types": "0.8.0",
+          "typing-inspection": "0.4.4",
+          "pyarrow": "23.0.0",
+          "typing_extensions": "4.16.0",
+          "pydantic": "2.14.1",
+          "python-dateutil": "3.0.0",
+          "six": "1.17.0",
+          "polars-runtime-32": "1.37.1",
+          "packaging": "26.3",
+          "polars": "1.37.1",
+          "pygments": "2.21.0",
+          "iniconfig": "2.3.1",
+          "pytest-benchmark": "5.3.0",
+          "pluggy": "1.7.0",
+          "pytest": "9.1.1",
+          "py-cpuinfo2": "10.1.1"
+        },
+        "distribution": "{\"url\":\"file:///private/tmp/lance-csr-submissions/wheels/issue-19-scan-budget-release/lance_csr-0.2.0-cp312-abi3-macosx_11_0_arm64.whl\",\"archive_info\":{}}"
+      },
+      "command": [
+        "/Users/davidhughes/.local/bin/uv",
+        "run",
+        "--offline",
+        "--no-sync",
+        "--with",
+        "/private/tmp/lance-csr-submissions/wheels/issue-19-scan-budget-release/lance_csr-0.2.0-cp312-abi3-macosx_11_0_arm64.whl",
+        "pytest",
+        "benchmark_query.py",
+        "-q",
+        "--benchmark-min-rounds=5",
+        "--benchmark-min-time=0.000005",
+        "--benchmark-max-time=1.0",
+        "--benchmark-timer=time.perf_counter",
+        "--benchmark-calibration-precision=10",
+        "--benchmark-warmup=off",
+        "--benchmark-warmup-iterations=5",
+        "--benchmark-disable-gc",
+        "--benchmark-sort=fullname",
+        "--benchmark-save-data",
+        "--benchmark-json=/private/tmp/lance-csr-submissions/acceptance-scan-budget-r1/issue-19-scan-budget-release-q30-memory.json"
+      ],
+      "started_utc": "2026-10-26T07:06:28.891523+00:00",
+      "load_average_before": [
+        4.134765625,
+        5.4375,
+        6.6572265625
+      ],
+      "returncode": 0,
+      "elapsed_seconds": 35.06797833368182,
+      "log": "/private/tmp/lance-csr-submissions/acceptance-scan-budget-r1/issue-19-scan-budget-release-q30-memory.log",
+      "log_sha256": "dd72d55f6c5a7159a6f41874fe8811232468c386e823161ca0e1b75e6f1625e5",
+      "peak_process_rss_bytes": 2719596544,
+      "report_sha256": "87ff0724e12fb08e593d54b73533cf38abe2a5368f2756b860fbd7fb0a6677ca",
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
+    },
+    {
+      "label": "issue-19-scan-budget-release-q30-lazy",
+      "phase": "issue-19-scan-budget-release",
+      "suite": "q30",
+      "mode": "lazy",
+      "query_count": 30,
+      "cwd": "/private/tmp/lance-csr-benchmark-q30/lance_csr",
+      "proof": "/private/tmp/lance-csr-submissions/wheels/issue-19-scan-budget-release/release-proof.json",
+      "proof_sha256": "7854adb7af1143917f47e7b913ffe12e0a4d270e839e31e0a0107f439f140235",
+      "build_context": "/private/tmp/lance-csr-submissions/wheels/issue-19-scan-budget-release/build-context.json",
+      "build_context_sha256": "06b1df6f1fdfad843eb6a5b1249b00befe4b47e47e3fe48081d8083fa02ee316",
+      "source_commit": "a641cf25cbe34db25245ce2543140af5b735d30e",
+      "wheel": "/private/tmp/lance-csr-submissions/wheels/issue-19-scan-budget-release/lance_csr-0.2.0-cp312-abi3-macosx_11_0_arm64.whl",
+      "source_lock_sha256": {
+        "Cargo.lock": "42a6003cfe02f165444dff9167812b49a81415c0caac4e361faef02effd1296f",
+        "crates/lance-graph-python/Cargo.lock": "2639fe466b2ced50664ac4139021281deb7571f771f7e9fb9b55520e4c7032d3",
+        "python/uv.lock": "5e8fa115746bb8e3c92902d7c72d8bdf67232be60ed95bca3cc3ef046b167adc",
+        "docs/uv.lock": "7a8f487b45af7094337d89c2a68aa92d5256d421b97565b960554fadd3980932"
+      },
+      "extension_sha256": "e839ed4bc123a60b5f5f1f401288b43ad550e8951644667d5110ba350ea0f82d",
+      "suite_revision": "6260689aa1fba4eeb4e99958430386b2fcd13f71",
+      "data_manifests": {
+        "Comment.lance/_versions/18446744073709551613.manifest": "5521f17aef9f7c0d7d5fdddd82f410ccda39a1607367151a0a1f237625086437",
+        "Comment.lance/_versions/18446744073709551614.manifest": "5935ff2a6234220ea58a3ee578f4ea95b05c26bde70b4d9eb973fce46df3927c",
+        "Forum.lance/_versions/18446744073709551613.manifest": "7a84a5d02e7a4bef23e908e0a2556872bcdc70083116edc7b2ec340edb3fbf79",
+        "Forum.lance/_versions/18446744073709551614.manifest": "76114159aea86742ef4978d006da037e36c7805121cbd9601d5b37b5d9b487d8",
+        "Organisation.lance/_versions/18446744073709551613.manifest": "944a0ebf52ea24bbc586c361e81a3f911c6a59f53489995fa73a0ba1875c49b5",
+        "Organisation.lance/_versions/18446744073709551614.manifest": "31a974340f83eddc859223e317b2d0c40fc4f074119c3b5de485ff50fd72e0b5",
+        "Person.lance/_versions/18446744073709551613.manifest": "ab1b42ac94e166793c4ddcdf2fce4e1c1418fd28622b3b6e17e29b8ac2a2676e",
+        "Person.lance/_versions/18446744073709551614.manifest": "6fd3751dafcf03650c084f81f2b61ef3e75f0a79b0a6f14390c172412e9c9cdb",
+        "Place.lance/_versions/18446744073709551613.manifest": "40650d015e91d942facc7deedbdaa941eecd5cb94fed67d4411c8e7ab27b2db1",
+        "Place.lance/_versions/18446744073709551614.manifest": "3075a202daed468b60172a8e8686ceaae6fd743546b8e7be28b7a899d1dbf574",
+        "Post.lance/_versions/18446744073709551613.manifest": "60f69b5e2da26556414e6de861ed97cd2d09c0501785d2a1f9ebd58d3ffc072f",
+        "Post.lance/_versions/18446744073709551614.manifest": "a499fd25016c983d9f76eb1f63d6afa10cc9877f2425171ba5e0fd28ae435482",
+        "Tag.lance/_versions/18446744073709551613.manifest": "ec843bb5e117039ab572a59be3ac6e5e26a133910cc5bd0d65ae764d65ee3c39",
+        "Tag.lance/_versions/18446744073709551614.manifest": "58e794e6606f5fd0b98a9aa308f746260c1955de2adf0c6011f0d6ea74baf84f",
+        "Tagclass.lance/_versions/18446744073709551613.manifest": "938f55362e881dfe727107a4f73867ff2ca4c4725a155804bbb0d5ffc602aabd",
+        "Tagclass.lance/_versions/18446744073709551614.manifest": "c802ed61535f57daed8c69395fae12099941db9071515283a7969a79cfb8f852",
+        "comment_hasCreator_person.lance/_versions/18446744073709551614.manifest": "0f2e04ef1348af894e8cff027eb33d28466e212a39fd2808199a95f4bb4b23b7",
+        "comment_hasTag_tag.lance/_versions/18446744073709551614.manifest": "75253470d3d33eccc3d4b2b8acbd9e94724e7817fcdddaacbb96381c16d7660c",
+        "comment_isLocatedIn_place.lance/_versions/18446744073709551614.manifest": "4c7a1a75c244b44981663c8af43d13831c4b9b898ad8e7526c0381ebe96dce04",
+        "comment_replyOf_comment.lance/_versions/18446744073709551614.manifest": "ffdfdcf4e4da0a2b1f932b6e959b33794d297c1d7d559ecd52238bc85be09c1a",
+        "comment_replyOf_post.lance/_versions/18446744073709551614.manifest": "ee42293666d3eeba5cee761054567e480a1d9c14f896f44e25bdfb4086d9d3bc",
+        "forum_containerOf_post.lance/_versions/18446744073709551614.manifest": "f16243070deef914a8626b2ac3d4b6479500c8a1f093b00fddb03f7bd2624658",
+        "forum_hasMember_person.lance/_versions/18446744073709551614.manifest": "ae57dc8f05cd793b53412707c27871aa85102060e5151ed74f1cf100dec047c9",
+        "forum_hasModerator_person.lance/_versions/18446744073709551614.manifest": "dc0c9fa3ea3dd746ffd4dec706c5d7d2d11af415c246cec560e0f0ff9fd2260e",
+        "forum_hasTag_tag.lance/_versions/18446744073709551614.manifest": "ecf8e02e091553f118e2f864a2105752a3a1287f829e44ebada2684ba36a39d2",
+        "organisation_isLocatedIn_place.lance/_versions/18446744073709551614.manifest": "44ddcfc3e66dc2849ff0100a34952315674f4ee0aa5691b8fcb5f002237be617",
+        "person_hasInterest_tag.lance/_versions/18446744073709551614.manifest": "b586763aaccfa129552c3da50eadde98537554babf3af1f19971e89c055d9439",
+        "person_isLocatedIn_place.lance/_versions/18446744073709551614.manifest": "c7b7eb1adfeae79ec3daf880abe61b49c148404172b682b400338132813ef46f",
+        "person_knows_person.lance/_versions/18446744073709551614.manifest": "e4921d1a76f3f2fc7d3d9ea679aaeded427dec568f8146d7717fbbae4f8de321",
+        "person_likes_comment.lance/_versions/18446744073709551614.manifest": "37899a8ff7c28c4f34ef2712a672c179b9a5cbb22b8a631930c16e9b6846c373",
+        "person_likes_post.lance/_versions/18446744073709551614.manifest": "78b67e4e5ccd59e4b134c379ede3fe55fa5426c2d6ee20c7ef2aaf2ef5b97296",
+        "person_studyAt_organisation.lance/_versions/18446744073709551614.manifest": "aa13f8571b4d5784b9c63e7674f1cde1a29c81a4358e972d10944d8cb61f34b9",
+        "person_workAt_organisation.lance/_versions/18446744073709551614.manifest": "7a72ad3495b7b31bd19238ac8d8ecd39b505c1e163aa0a91384cc5ba9a0e20bd",
+        "place_isPartOf_place.lance/_versions/18446744073709551614.manifest": "271be73d21eb2df90af232b5ebed9b2111ba101cd1928b0d2d31e0c7c5151e18",
+        "post_hasCreator_person.lance/_versions/18446744073709551614.manifest": "74b7df2dd6f2d60d65ddf52c4ecccb8b09037852a04bd41717c9e8e7987dbdb6",
+        "post_hasTag_tag.lance/_versions/18446744073709551614.manifest": "b49fa37a9860efe51959ec734199f7d7247d4aa82fb19e3e3e576c187843c439",
+        "post_isLocatedIn_place.lance/_versions/18446744073709551614.manifest": "669d3a6fbe61ca9064754de85176c0aad838b5bd997dd6e8a6825fdb58faba87",
+        "tag_hasType_tagclass.lance/_versions/18446744073709551614.manifest": "750e994fdf781b556907478eaca81f2b62758e8e74b8d7ab3303f39f7c8a9f1d",
+        "tagclass_isSubclassOf_tagclass.lance/_versions/18446744073709551614.manifest": "e4c78cb5132534413a791c774d5facbaa62655f2abaf3eb326888b5f988b7388"
+      },
+      "status": "passed",
+      "runtime": {
+        "python": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+        "extension": "/Users/davidhughes/.cache/uv/archive-v0/6yJvHmNqLQJhn5-y/lib/python3.13/site-packages/lance_csr/_internal.abi3.so",
+        "extension_sha256": "e839ed4bc123a60b5f5f1f401288b43ad550e8951644667d5110ba350ea0f82d",
+        "packages": {
+          "lance-namespace": "0.11.1",
+          "pylance": "13.0.0",
+          "numpy": "2.5.4",
+          "tzdata": "2026.5",
+          "lance-namespace-urllib3-client": "0.11.1",
+          "urllib3": "2.8.0",
+          "pydantic_core": "2.50.1",
+          "lance-csr": "0.2.0",
+          "annotated-types": "0.8.0",
+          "typing-inspection": "0.4.4",
+          "pyarrow": "23.0.0",
+          "typing_extensions": "4.16.0",
+          "pydantic": "2.14.1",
+          "python-dateutil": "3.0.0",
+          "six": "1.17.0",
+          "polars-runtime-32": "1.37.1",
+          "packaging": "26.3",
+          "polars": "1.37.1",
+          "pygments": "2.21.0",
+          "iniconfig": "2.3.1",
+          "pytest-benchmark": "5.3.0",
+          "pluggy": "1.7.0",
+          "pytest": "9.1.1",
+          "py-cpuinfo2": "10.1.1"
+        },
+        "distribution": "{\"url\":\"file:///private/tmp/lance-csr-submissions/wheels/issue-19-scan-budget-release/lance_csr-0.2.0-cp312-abi3-macosx_11_0_arm64.whl\",\"archive_info\":{}}"
+      },
+      "command": [
+        "/Users/davidhughes/.local/bin/uv",
+        "run",
+        "--offline",
+        "--no-sync",
+        "--with",
+        "/private/tmp/lance-csr-submissions/wheels/issue-19-scan-budget-release/lance_csr-0.2.0-cp312-abi3-macosx_11_0_arm64.whl",
+        "pytest",
+        "benchmark_query.py",
+        "-q",
+        "--benchmark-min-rounds=5",
+        "--benchmark-min-time=0.000005",
+        "--benchmark-max-time=1.0",
+        "--benchmark-timer=time.perf_counter",
+        "--benchmark-calibration-precision=10",
+        "--benchmark-warmup=off",
+        "--benchmark-warmup-iterations=5",
+        "--benchmark-disable-gc",
+        "--benchmark-sort=fullname",
+        "--benchmark-save-data",
+        "--benchmark-json=/private/tmp/lance-csr-submissions/acceptance-scan-budget-r1/issue-19-scan-budget-release-q30-lazy.json"
+      ],
+      "started_utc": "2026-10-26T07:07:04.156606+00:00",
+      "load_average_before": [
+        5.84912109375,
+        5.6435546875,
+        6.67822265625
+      ],
+      "returncode": 0,
+      "elapsed_seconds": 26.26555316708982,
+      "log": "/private/tmp/lance-csr-submissions/acceptance-scan-budget-r1/issue-19-scan-budget-release-q30-lazy.log",
+      "log_sha256": "e7f68d5941447c78f2e6462bc5933e3707c936a77207feb9fd45036a413cb88c",
+      "peak_process_rss_bytes": 1469579264,
+      "report_sha256": "86a3d09f06542c7f0ef5b31518973c6026174f64399762b552d4641660b6f044",
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
+    },
+    {
+      "label": "issue-19-scan-budget-release-ic-memory",
+      "phase": "issue-19-scan-budget-release",
+      "suite": "ic",
+      "mode": "memory",
+      "query_count": 14,
+      "cwd": "/private/tmp/lance-csr-benchmark-ic/lance_csr",
+      "proof": "/private/tmp/lance-csr-submissions/wheels/issue-19-scan-budget-release/release-proof.json",
+      "proof_sha256": "7854adb7af1143917f47e7b913ffe12e0a4d270e839e31e0a0107f439f140235",
+      "build_context": "/private/tmp/lance-csr-submissions/wheels/issue-19-scan-budget-release/build-context.json",
+      "build_context_sha256": "06b1df6f1fdfad843eb6a5b1249b00befe4b47e47e3fe48081d8083fa02ee316",
+      "source_commit": "a641cf25cbe34db25245ce2543140af5b735d30e",
+      "wheel": "/private/tmp/lance-csr-submissions/wheels/issue-19-scan-budget-release/lance_csr-0.2.0-cp312-abi3-macosx_11_0_arm64.whl",
+      "source_lock_sha256": {
+        "Cargo.lock": "42a6003cfe02f165444dff9167812b49a81415c0caac4e361faef02effd1296f",
+        "crates/lance-graph-python/Cargo.lock": "2639fe466b2ced50664ac4139021281deb7571f771f7e9fb9b55520e4c7032d3",
+        "python/uv.lock": "5e8fa115746bb8e3c92902d7c72d8bdf67232be60ed95bca3cc3ef046b167adc",
+        "docs/uv.lock": "7a8f487b45af7094337d89c2a68aa92d5256d421b97565b960554fadd3980932"
+      },
+      "extension_sha256": "e839ed4bc123a60b5f5f1f401288b43ad550e8951644667d5110ba350ea0f82d",
+      "suite_revision": "c185123edd58b37b417bc4deb2fec643fdbd5e61",
+      "data_manifests": {
+        "Comment.lance/_versions/18446744073709551613.manifest": "e016e222bedf0f6a7c711aa396f4edca6fc46e0b48f628f09fb081fb027e7619",
+        "Comment.lance/_versions/18446744073709551614.manifest": "f3d95e03d8a35f3a2dc080af9e9257b0fa68423c4f08c149df2da68e2cc76a08",
+        "Forum.lance/_versions/18446744073709551613.manifest": "dd201ef2f2637f16e55db5f3a569342760247ce8a8b8d94e4389ca0cbc9d5980",
+        "Forum.lance/_versions/18446744073709551614.manifest": "3a0485e5e81b6ce388606cc1fd2fb55971eb4eb8e7a4dd4754b44275bd4da73d",
+        "Organisation.lance/_versions/18446744073709551613.manifest": "ee48b92138d5dc5a86d982a556b14a5f96453f91a0b5085fe9d7da5e5337be12",
+        "Organisation.lance/_versions/18446744073709551614.manifest": "5e77fa7957aabb0009e6dc1908add66582b9f3f2c56c1bd5b9f25fe2aec66c61",
+        "Person.lance/_versions/18446744073709551613.manifest": "5597ae7450b09c64de32e12e0089c82f8ab0866b4d20f38546d49c5b8bda482a",
+        "Person.lance/_versions/18446744073709551614.manifest": "8657c428b1917bfe23ceb95dc9da88489086ae72ce6919d329d4d7d90b30d7b4",
+        "Place.lance/_versions/18446744073709551613.manifest": "df4432aecadf7cba093c3be2b206c5c27a4df97da0bb38eecca2fe3f57bf7560",
+        "Place.lance/_versions/18446744073709551614.manifest": "c90d3847e297b8b6b2aa3c076f0774c877ef7057d1142229d44b969a93c921b3",
+        "Post.lance/_versions/18446744073709551613.manifest": "827704b2ac9da898cf7516a88f5cc578b364388a3066f8fffb4960cf96455331",
+        "Post.lance/_versions/18446744073709551614.manifest": "c33d01cd7631c2f94c4be98ac9a2786650ec12b854af48f0aa05898aa5a392d3",
+        "Tag.lance/_versions/18446744073709551613.manifest": "e50d9be5c2db4430f584b910e8f966dc908b829012f96c6e2f515fc5162c5503",
+        "Tag.lance/_versions/18446744073709551614.manifest": "5e019cc2e3615ba4b618c6580af8bcd584dfec5ed6a217690097f4349c28f8b0",
+        "Tagclass.lance/_versions/18446744073709551613.manifest": "96fac74c00fcdc858d8227efabb4acfd690ebe730ea18fbc890dc0848d1a7b23",
+        "Tagclass.lance/_versions/18446744073709551614.manifest": "cf02088a058961524d72b65689df2c46028845afd7153b0d0480822a149fcfd8",
+        "comment_hasCreator_person.lance/_versions/18446744073709551614.manifest": "05161633c15faae5151d339cb5ab37b5d80525df96dcb93abee5737f43332f17",
+        "comment_hasTag_tag.lance/_versions/18446744073709551614.manifest": "4f9ff2b732b5588a7305e74b6bccf17104ea7ddf173c7351656da43ca3ae7200",
+        "comment_isLocatedIn_place.lance/_versions/18446744073709551614.manifest": "3c6e8d011d87ecffd50f14d9d7156239e97697ec19dd5bec405c7b96286523eb",
+        "comment_replyOf_comment.lance/_versions/18446744073709551614.manifest": "c0915c212794d6cff270c558a1809eab07bfe65df4391458bfacad2e14da6b65",
+        "comment_replyOf_post.lance/_versions/18446744073709551614.manifest": "0332e0b28c07348494b9eb7f4720e6f424af1d972ccd6279ee225aee80a12cc3",
+        "forum_containerOf_post.lance/_versions/18446744073709551614.manifest": "b0a0e3b5ffa8119a6242bc2bb95dcba4d60aa7efbfb5480f26b947067d5b06b3",
+        "forum_hasMember_person.lance/_versions/18446744073709551614.manifest": "d6c356a646249c16068b4e2bda9a074c49dc7a849ad989dc7e951856f69507d2",
+        "forum_hasModerator_person.lance/_versions/18446744073709551614.manifest": "bba880567a210bfa5f9692529648aedaa14071d48c897f2a5191587862c6f899",
+        "forum_hasTag_tag.lance/_versions/18446744073709551614.manifest": "cdf7657f9b9ba3a52bd553338f46e563b2212b02ecf225444266ff1d7cb02546",
+        "organisation_isLocatedIn_place.lance/_versions/18446744073709551614.manifest": "627ee495a513d354fbe0737bf087b8adf992f442ba2db892f8fecd7cd31b8763",
+        "person_hasInterest_tag.lance/_versions/18446744073709551614.manifest": "902ad28473b0f508df62c547a1b8aa20c819c2c6c737b5a6bed86393d72adc4c",
+        "person_isLocatedIn_place.lance/_versions/18446744073709551614.manifest": "f875a0747298ebd7e9ded573c190f1705ff847944d15027e6f1abb557db66d39",
+        "person_knows_person.lance/_versions/18446744073709551614.manifest": "0326e4d7a4be196d05700ac3ae4978eb3ea4c594f0c711bda239c4cd8037f9c0",
+        "person_likes_comment.lance/_versions/18446744073709551614.manifest": "28f83983f50e01bf8143161f25a363444ed3532b216916d8916a452c619c863a",
+        "person_likes_post.lance/_versions/18446744073709551614.manifest": "25beed9c29f824d40a41e654a01a31afd46d25892fabaaa3a6d1ec7df5bdd363",
+        "person_studyAt_organisation.lance/_versions/18446744073709551614.manifest": "89f228f72bec8a544b77377f1d3d2f08839094487b4f8eb27ea3b7649d9c1a05",
+        "person_workAt_organisation.lance/_versions/18446744073709551614.manifest": "87424aff3d303d8b4b8c0bc63d91da879dfd46a4e74ee9c67cef2435e85a67dd",
+        "place_isPartOf_place.lance/_versions/18446744073709551614.manifest": "2f23ffe532f073faf92c90056704f57bff6725b7f5c5e3d7937bb8a7cac28e9f",
+        "post_hasCreator_person.lance/_versions/18446744073709551614.manifest": "cf9e55ccfedbf4587e41e67830fb9f50c57c1498ad3ec364335c96ecaf2a5881",
+        "post_hasTag_tag.lance/_versions/18446744073709551614.manifest": "3604df3735b5f2a875dac572201c0b36f2961f98521d6dc346938eceb876112e",
+        "post_isLocatedIn_place.lance/_versions/18446744073709551614.manifest": "0285ed7f18405e53cc35eb315cb4d80d1c2864433dbeac229cdd99118e304e78",
+        "tag_hasType_tagclass.lance/_versions/18446744073709551614.manifest": "cc003345377c2b96f53a41ca8ed7f3af683851f9b71702dce45879bbaca69d0c",
+        "tagclass_isSubclassOf_tagclass.lance/_versions/18446744073709551614.manifest": "c74eb8012474e3c0a6a617fa17e3df8fde3bae7114e333c78cead8ea512b6078"
+      },
+      "status": "passed",
+      "runtime": {
+        "python": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+        "extension": "/Users/davidhughes/.cache/uv/archive-v0/RE6hRALh6vuZAgvE/lib/python3.13/site-packages/lance_csr/_internal.abi3.so",
+        "extension_sha256": "e839ed4bc123a60b5f5f1f401288b43ad550e8951644667d5110ba350ea0f82d",
+        "packages": {
+          "lance-namespace": "0.11.1",
+          "pylance": "13.0.0",
+          "pyarrow": "26.0.0",
+          "numpy": "2.5.4",
+          "tzdata": "2026.5",
+          "lance-namespace-urllib3-client": "0.11.1",
+          "urllib3": "2.8.0",
+          "pydantic_core": "2.50.1",
+          "lance-csr": "0.2.0",
+          "annotated-types": "0.8.0",
+          "typing-inspection": "0.4.4",
+          "typing_extensions": "4.16.0",
+          "pydantic": "2.14.1",
+          "python-dateutil": "3.0.0",
+          "six": "1.17.0",
+          "neo4j": "6.4.1",
+          "packaging": "26.3",
+          "pygments": "2.21.0",
+          "pytz": "2026.5",
+          "ladybug": "0.21.2",
+          "polars-runtime-32": "2.0.0",
+          "polars": "2.0.0",
+          "iniconfig": "2.3.1",
+          "pytest-asyncio": "1.4.0",
+          "pytest-benchmark": "5.3.0",
+          "pluggy": "1.7.0",
+          "pytest": "9.1.1",
+          "python-dotenv": "1.2.4",
+          "py-cpuinfo2": "10.1.1",
+          "kuzu": "0.11.3"
+        },
+        "distribution": "{\"url\":\"file:///private/tmp/lance-csr-submissions/wheels/issue-19-scan-budget-release/lance_csr-0.2.0-cp312-abi3-macosx_11_0_arm64.whl\",\"archive_info\":{}}"
+      },
+      "command": [
+        "/Users/davidhughes/.local/bin/uv",
+        "run",
+        "--offline",
+        "--no-sync",
+        "--with",
+        "/private/tmp/lance-csr-submissions/wheels/issue-19-scan-budget-release/lance_csr-0.2.0-cp312-abi3-macosx_11_0_arm64.whl",
+        "pytest",
+        "benchmark_query.py",
+        "-q",
+        "--benchmark-min-rounds=5",
+        "--benchmark-min-time=0.000005",
+        "--benchmark-max-time=1.0",
+        "--benchmark-timer=time.perf_counter",
+        "--benchmark-calibration-precision=10",
+        "--benchmark-warmup=off",
+        "--benchmark-warmup-iterations=5",
+        "--benchmark-disable-gc",
+        "--benchmark-sort=fullname",
+        "--benchmark-save-data",
+        "--benchmark-json=/private/tmp/lance-csr-submissions/acceptance-scan-budget-r1/issue-19-scan-budget-release-ic-memory.json"
+      ],
+      "started_utc": "2026-10-26T07:07:32.842800+00:00",
+      "load_average_before": [
+        5.40869140625,
+        5.55859375,
+        6.6171875
+      ],
+      "returncode": 0,
+      "elapsed_seconds": 26.11921179201454,
+      "log": "/private/tmp/lance-csr-submissions/acceptance-scan-budget-r1/issue-19-scan-budget-release-ic-memory.log",
+      "log_sha256": "6ed87f47e7deee01c802e2c066f5606c0bde5ccd0fd36203b2be4b8723dfb6ab",
+      "peak_process_rss_bytes": 3069542400,
+      "report_sha256": "6581f68586a4f1cd2d545dc74eb0f14da4713a7362971b5862ef9e571efb41d5",
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
+    },
+    {
+      "label": "issue-19-scan-budget-release-ic-lazy",
+      "phase": "issue-19-scan-budget-release",
+      "suite": "ic",
+      "mode": "lazy",
+      "query_count": 14,
+      "cwd": "/private/tmp/lance-csr-benchmark-ic/lance_csr",
+      "proof": "/private/tmp/lance-csr-submissions/wheels/issue-19-scan-budget-release/release-proof.json",
+      "proof_sha256": "7854adb7af1143917f47e7b913ffe12e0a4d270e839e31e0a0107f439f140235",
+      "build_context": "/private/tmp/lance-csr-submissions/wheels/issue-19-scan-budget-release/build-context.json",
+      "build_context_sha256": "06b1df6f1fdfad843eb6a5b1249b00befe4b47e47e3fe48081d8083fa02ee316",
+      "source_commit": "a641cf25cbe34db25245ce2543140af5b735d30e",
+      "wheel": "/private/tmp/lance-csr-submissions/wheels/issue-19-scan-budget-release/lance_csr-0.2.0-cp312-abi3-macosx_11_0_arm64.whl",
+      "source_lock_sha256": {
+        "Cargo.lock": "42a6003cfe02f165444dff9167812b49a81415c0caac4e361faef02effd1296f",
+        "crates/lance-graph-python/Cargo.lock": "2639fe466b2ced50664ac4139021281deb7571f771f7e9fb9b55520e4c7032d3",
+        "python/uv.lock": "5e8fa115746bb8e3c92902d7c72d8bdf67232be60ed95bca3cc3ef046b167adc",
+        "docs/uv.lock": "7a8f487b45af7094337d89c2a68aa92d5256d421b97565b960554fadd3980932"
+      },
+      "extension_sha256": "e839ed4bc123a60b5f5f1f401288b43ad550e8951644667d5110ba350ea0f82d",
+      "suite_revision": "c185123edd58b37b417bc4deb2fec643fdbd5e61",
+      "data_manifests": {
+        "Comment.lance/_versions/18446744073709551613.manifest": "e016e222bedf0f6a7c711aa396f4edca6fc46e0b48f628f09fb081fb027e7619",
+        "Comment.lance/_versions/18446744073709551614.manifest": "f3d95e03d8a35f3a2dc080af9e9257b0fa68423c4f08c149df2da68e2cc76a08",
+        "Forum.lance/_versions/18446744073709551613.manifest": "dd201ef2f2637f16e55db5f3a569342760247ce8a8b8d94e4389ca0cbc9d5980",
+        "Forum.lance/_versions/18446744073709551614.manifest": "3a0485e5e81b6ce388606cc1fd2fb55971eb4eb8e7a4dd4754b44275bd4da73d",
+        "Organisation.lance/_versions/18446744073709551613.manifest": "ee48b92138d5dc5a86d982a556b14a5f96453f91a0b5085fe9d7da5e5337be12",
+        "Organisation.lance/_versions/18446744073709551614.manifest": "5e77fa7957aabb0009e6dc1908add66582b9f3f2c56c1bd5b9f25fe2aec66c61",
+        "Person.lance/_versions/18446744073709551613.manifest": "5597ae7450b09c64de32e12e0089c82f8ab0866b4d20f38546d49c5b8bda482a",
+        "Person.lance/_versions/18446744073709551614.manifest": "8657c428b1917bfe23ceb95dc9da88489086ae72ce6919d329d4d7d90b30d7b4",
+        "Place.lance/_versions/18446744073709551613.manifest": "df4432aecadf7cba093c3be2b206c5c27a4df97da0bb38eecca2fe3f57bf7560",
+        "Place.lance/_versions/18446744073709551614.manifest": "c90d3847e297b8b6b2aa3c076f0774c877ef7057d1142229d44b969a93c921b3",
+        "Post.lance/_versions/18446744073709551613.manifest": "827704b2ac9da898cf7516a88f5cc578b364388a3066f8fffb4960cf96455331",
+        "Post.lance/_versions/18446744073709551614.manifest": "c33d01cd7631c2f94c4be98ac9a2786650ec12b854af48f0aa05898aa5a392d3",
+        "Tag.lance/_versions/18446744073709551613.manifest": "e50d9be5c2db4430f584b910e8f966dc908b829012f96c6e2f515fc5162c5503",
+        "Tag.lance/_versions/18446744073709551614.manifest": "5e019cc2e3615ba4b618c6580af8bcd584dfec5ed6a217690097f4349c28f8b0",
+        "Tagclass.lance/_versions/18446744073709551613.manifest": "96fac74c00fcdc858d8227efabb4acfd690ebe730ea18fbc890dc0848d1a7b23",
+        "Tagclass.lance/_versions/18446744073709551614.manifest": "cf02088a058961524d72b65689df2c46028845afd7153b0d0480822a149fcfd8",
+        "comment_hasCreator_person.lance/_versions/18446744073709551614.manifest": "05161633c15faae5151d339cb5ab37b5d80525df96dcb93abee5737f43332f17",
+        "comment_hasTag_tag.lance/_versions/18446744073709551614.manifest": "4f9ff2b732b5588a7305e74b6bccf17104ea7ddf173c7351656da43ca3ae7200",
+        "comment_isLocatedIn_place.lance/_versions/18446744073709551614.manifest": "3c6e8d011d87ecffd50f14d9d7156239e97697ec19dd5bec405c7b96286523eb",
+        "comment_replyOf_comment.lance/_versions/18446744073709551614.manifest": "c0915c212794d6cff270c558a1809eab07bfe65df4391458bfacad2e14da6b65",
+        "comment_replyOf_post.lance/_versions/18446744073709551614.manifest": "0332e0b28c07348494b9eb7f4720e6f424af1d972ccd6279ee225aee80a12cc3",
+        "forum_containerOf_post.lance/_versions/18446744073709551614.manifest": "b0a0e3b5ffa8119a6242bc2bb95dcba4d60aa7efbfb5480f26b947067d5b06b3",
+        "forum_hasMember_person.lance/_versions/18446744073709551614.manifest": "d6c356a646249c16068b4e2bda9a074c49dc7a849ad989dc7e951856f69507d2",
+        "forum_hasModerator_person.lance/_versions/18446744073709551614.manifest": "bba880567a210bfa5f9692529648aedaa14071d48c897f2a5191587862c6f899",
+        "forum_hasTag_tag.lance/_versions/18446744073709551614.manifest": "cdf7657f9b9ba3a52bd553338f46e563b2212b02ecf225444266ff1d7cb02546",
+        "organisation_isLocatedIn_place.lance/_versions/18446744073709551614.manifest": "627ee495a513d354fbe0737bf087b8adf992f442ba2db892f8fecd7cd31b8763",
+        "person_hasInterest_tag.lance/_versions/18446744073709551614.manifest": "902ad28473b0f508df62c547a1b8aa20c819c2c6c737b5a6bed86393d72adc4c",
+        "person_isLocatedIn_place.lance/_versions/18446744073709551614.manifest": "f875a0747298ebd7e9ded573c190f1705ff847944d15027e6f1abb557db66d39",
+        "person_knows_person.lance/_versions/18446744073709551614.manifest": "0326e4d7a4be196d05700ac3ae4978eb3ea4c594f0c711bda239c4cd8037f9c0",
+        "person_likes_comment.lance/_versions/18446744073709551614.manifest": "28f83983f50e01bf8143161f25a363444ed3532b216916d8916a452c619c863a",
+        "person_likes_post.lance/_versions/18446744073709551614.manifest": "25beed9c29f824d40a41e654a01a31afd46d25892fabaaa3a6d1ec7df5bdd363",
+        "person_studyAt_organisation.lance/_versions/18446744073709551614.manifest": "89f228f72bec8a544b77377f1d3d2f08839094487b4f8eb27ea3b7649d9c1a05",
+        "person_workAt_organisation.lance/_versions/18446744073709551614.manifest": "87424aff3d303d8b4b8c0bc63d91da879dfd46a4e74ee9c67cef2435e85a67dd",
+        "place_isPartOf_place.lance/_versions/18446744073709551614.manifest": "2f23ffe532f073faf92c90056704f57bff6725b7f5c5e3d7937bb8a7cac28e9f",
+        "post_hasCreator_person.lance/_versions/18446744073709551614.manifest": "cf9e55ccfedbf4587e41e67830fb9f50c57c1498ad3ec364335c96ecaf2a5881",
+        "post_hasTag_tag.lance/_versions/18446744073709551614.manifest": "3604df3735b5f2a875dac572201c0b36f2961f98521d6dc346938eceb876112e",
+        "post_isLocatedIn_place.lance/_versions/18446744073709551614.manifest": "0285ed7f18405e53cc35eb315cb4d80d1c2864433dbeac229cdd99118e304e78",
+        "tag_hasType_tagclass.lance/_versions/18446744073709551614.manifest": "cc003345377c2b96f53a41ca8ed7f3af683851f9b71702dce45879bbaca69d0c",
+        "tagclass_isSubclassOf_tagclass.lance/_versions/18446744073709551614.manifest": "c74eb8012474e3c0a6a617fa17e3df8fde3bae7114e333c78cead8ea512b6078"
+      },
+      "status": "passed",
+      "runtime": {
+        "python": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+        "extension": "/Users/davidhughes/.cache/uv/archive-v0/RE6hRALh6vuZAgvE/lib/python3.13/site-packages/lance_csr/_internal.abi3.so",
+        "extension_sha256": "e839ed4bc123a60b5f5f1f401288b43ad550e8951644667d5110ba350ea0f82d",
+        "packages": {
+          "lance-namespace": "0.11.1",
+          "pylance": "13.0.0",
+          "pyarrow": "26.0.0",
+          "numpy": "2.5.4",
+          "tzdata": "2026.5",
+          "lance-namespace-urllib3-client": "0.11.1",
+          "urllib3": "2.8.0",
+          "pydantic_core": "2.50.1",
+          "lance-csr": "0.2.0",
+          "annotated-types": "0.8.0",
+          "typing-inspection": "0.4.4",
+          "typing_extensions": "4.16.0",
+          "pydantic": "2.14.1",
+          "python-dateutil": "3.0.0",
+          "six": "1.17.0",
+          "neo4j": "6.4.1",
+          "packaging": "26.3",
+          "pygments": "2.21.0",
+          "pytz": "2026.5",
+          "ladybug": "0.21.2",
+          "polars-runtime-32": "2.0.0",
+          "polars": "2.0.0",
+          "iniconfig": "2.3.1",
+          "pytest-asyncio": "1.4.0",
+          "pytest-benchmark": "5.3.0",
+          "pluggy": "1.7.0",
+          "pytest": "9.1.1",
+          "python-dotenv": "1.2.4",
+          "py-cpuinfo2": "10.1.1",
+          "kuzu": "0.11.3"
+        },
+        "distribution": "{\"url\":\"file:///private/tmp/lance-csr-submissions/wheels/issue-19-scan-budget-release/lance_csr-0.2.0-cp312-abi3-macosx_11_0_arm64.whl\",\"archive_info\":{}}"
+      },
+      "command": [
+        "/Users/davidhughes/.local/bin/uv",
+        "run",
+        "--offline",
+        "--no-sync",
+        "--with",
+        "/private/tmp/lance-csr-submissions/wheels/issue-19-scan-budget-release/lance_csr-0.2.0-cp312-abi3-macosx_11_0_arm64.whl",
+        "pytest",
+        "benchmark_query.py",
+        "-q",
+        "--benchmark-min-rounds=5",
+        "--benchmark-min-time=0.000005",
+        "--benchmark-max-time=1.0",
+        "--benchmark-timer=time.perf_counter",
+        "--benchmark-calibration-precision=10",
+        "--benchmark-warmup=off",
+        "--benchmark-warmup-iterations=5",
+        "--benchmark-disable-gc",
+        "--benchmark-sort=fullname",
+        "--benchmark-save-data",
+        "--benchmark-json=/private/tmp/lance-csr-submissions/acceptance-scan-budget-r1/issue-19-scan-budget-release-ic-lazy.json"
+      ],
+      "started_utc": "2026-10-26T07:07:59.153893+00:00",
+      "load_average_before": [
+        4.7939453125,
+        5.39306640625,
+        6.51953125
+      ],
+      "returncode": 0,
+      "elapsed_seconds": 25.9045797502622,
+      "log": "/private/tmp/lance-csr-submissions/acceptance-scan-budget-r1/issue-19-scan-budget-release-ic-lazy.log",
+      "log_sha256": "05c68c5873127a05c9b1f8c5c71c097adb5a79385f344df3dc6ed1e1b0b8e7d9",
+      "peak_process_rss_bytes": 1969307648,
+      "report_sha256": "ab2efe6ff3ae11cd99e7c1e720f43aa3ee6e2d25abd5be22e26d96a6a0598022",
+      "origin_manifest": "/private/tmp/lance-csr-submissions/frozen-acceptance-combined-r9/manifest.json"
+    },
+    {
+      "label": "candidate-budget-release-q30-memory",
+      "phase": "candidate-budget-release",
+      "suite": "q30",
+      "mode": "memory",
+      "query_count": 30,
+      "cwd": "/private/tmp/lance-csr-benchmark-q30/lance_csr",
+      "proof": "/private/tmp/lance-csr-submissions/wheels/candidate-budget-release/release-proof.json",
+      "proof_sha256": "50eac10997854827edd3e7d042ffdd3aa76ec5cc99f225de36ab848c3c85fd20",
+      "build_context": "/private/tmp/lance-csr-submissions/wheels/candidate-budget-release/build-context.json",
+      "build_context_sha256": "fd66f46badef1979c308dd433a9f66d41bd99bc51e499aacc887b499cfec0f23",
+      "source_commit": "891d8d7ba1c2d6943a17a877c287514d550201c6",
+      "wheel": "/private/tmp/lance-csr-submissions/wheels/candidate-budget-release/lance_csr-0.2.0-cp312-abi3-macosx_11_0_arm64.whl",
+      "source_lock_sha256": {
+        "Cargo.lock": "cd600c064c42e13470c83747ca308f96e45ecaf851dab790d6390646007f18ab",
+        "crates/lance-graph-python/Cargo.lock": "2639fe466b2ced50664ac4139021281deb7571f771f7e9fb9b55520e4c7032d3",
+        "python/uv.lock": "5e8fa115746bb8e3c92902d7c72d8bdf67232be60ed95bca3cc3ef046b167adc",
+        "docs/uv.lock": "7a8f487b45af7094337d89c2a68aa92d5256d421b97565b960554fadd3980932"
+      },
+      "extension_sha256": "a50cb46ebffca183e0549b6bb7ce6dc6840357a3590658f268779b7296143cb0",
+      "suite_revision": "6260689aa1fba4eeb4e99958430386b2fcd13f71",
+      "data_manifests": {
+        "Comment.lance/_versions/18446744073709551613.manifest": "5521f17aef9f7c0d7d5fdddd82f410ccda39a1607367151a0a1f237625086437",
+        "Comment.lance/_versions/18446744073709551614.manifest": "5935ff2a6234220ea58a3ee578f4ea95b05c26bde70b4d9eb973fce46df3927c",
+        "Forum.lance/_versions/18446744073709551613.manifest": "7a84a5d02e7a4bef23e908e0a2556872bcdc70083116edc7b2ec340edb3fbf79",
+        "Forum.lance/_versions/18446744073709551614.manifest": "76114159aea86742ef4978d006da037e36c7805121cbd9601d5b37b5d9b487d8",
+        "Organisation.lance/_versions/18446744073709551613.manifest": "944a0ebf52ea24bbc586c361e81a3f911c6a59f53489995fa73a0ba1875c49b5",
+        "Organisation.lance/_versions/18446744073709551614.manifest": "31a974340f83eddc859223e317b2d0c40fc4f074119c3b5de485ff50fd72e0b5",
+        "Person.lance/_versions/18446744073709551613.manifest": "ab1b42ac94e166793c4ddcdf2fce4e1c1418fd28622b3b6e17e29b8ac2a2676e",
+        "Person.lance/_versions/18446744073709551614.manifest": "6fd3751dafcf03650c084f81f2b61ef3e75f0a79b0a6f14390c172412e9c9cdb",
+        "Place.lance/_versions/18446744073709551613.manifest": "40650d015e91d942facc7deedbdaa941eecd5cb94fed67d4411c8e7ab27b2db1",
+        "Place.lance/_versions/18446744073709551614.manifest": "3075a202daed468b60172a8e8686ceaae6fd743546b8e7be28b7a899d1dbf574",
+        "Post.lance/_versions/18446744073709551613.manifest": "60f69b5e2da26556414e6de861ed97cd2d09c0501785d2a1f9ebd58d3ffc072f",
+        "Post.lance/_versions/18446744073709551614.manifest": "a499fd25016c983d9f76eb1f63d6afa10cc9877f2425171ba5e0fd28ae435482",
+        "Tag.lance/_versions/18446744073709551613.manifest": "ec843bb5e117039ab572a59be3ac6e5e26a133910cc5bd0d65ae764d65ee3c39",
+        "Tag.lance/_versions/18446744073709551614.manifest": "58e794e6606f5fd0b98a9aa308f746260c1955de2adf0c6011f0d6ea74baf84f",
+        "Tagclass.lance/_versions/18446744073709551613.manifest": "938f55362e881dfe727107a4f73867ff2ca4c4725a155804bbb0d5ffc602aabd",
+        "Tagclass.lance/_versions/18446744073709551614.manifest": "c802ed61535f57daed8c69395fae12099941db9071515283a7969a79cfb8f852",
+        "comment_hasCreator_person.lance/_versions/18446744073709551614.manifest": "0f2e04ef1348af894e8cff027eb33d28466e212a39fd2808199a95f4bb4b23b7",
+        "comment_hasTag_tag.lance/_versions/18446744073709551614.manifest": "75253470d3d33eccc3d4b2b8acbd9e94724e7817fcdddaacbb96381c16d7660c",
+        "comment_isLocatedIn_place.lance/_versions/18446744073709551614.manifest": "4c7a1a75c244b44981663c8af43d13831c4b9b898ad8e7526c0381ebe96dce04",
+        "comment_replyOf_comment.lance/_versions/18446744073709551614.manifest": "ffdfdcf4e4da0a2b1f932b6e959b33794d297c1d7d559ecd52238bc85be09c1a",
+        "comment_replyOf_post.lance/_versions/18446744073709551614.manifest": "ee42293666d3eeba5cee761054567e480a1d9c14f896f44e25bdfb4086d9d3bc",
+        "forum_containerOf_post.lance/_versions/18446744073709551614.manifest": "f16243070deef914a8626b2ac3d4b6479500c8a1f093b00fddb03f7bd2624658",
+        "forum_hasMember_person.lance/_versions/18446744073709551614.manifest": "ae57dc8f05cd793b53412707c27871aa85102060e5151ed74f1cf100dec047c9",
+        "forum_hasModerator_person.lance/_versions/18446744073709551614.manifest": "dc0c9fa3ea3dd746ffd4dec706c5d7d2d11af415c246cec560e0f0ff9fd2260e",
+        "forum_hasTag_tag.lance/_versions/18446744073709551614.manifest": "ecf8e02e091553f118e2f864a2105752a3a1287f829e44ebada2684ba36a39d2",
+        "organisation_isLocatedIn_place.lance/_versions/18446744073709551614.manifest": "44ddcfc3e66dc2849ff0100a34952315674f4ee0aa5691b8fcb5f002237be617",
+        "person_hasInterest_tag.lance/_versions/18446744073709551614.manifest": "b586763aaccfa129552c3da50eadde98537554babf3af1f19971e89c055d9439",
+        "person_isLocatedIn_place.lance/_versions/18446744073709551614.manifest": "c7b7eb1adfeae79ec3daf880abe61b49c148404172b682b400338132813ef46f",
+        "person_knows_person.lance/_versions/18446744073709551614.manifest": "e4921d1a76f3f2fc7d3d9ea679aaeded427dec568f8146d7717fbbae4f8de321",
+        "person_likes_comment.lance/_versions/18446744073709551614.manifest": "37899a8ff7c28c4f34ef2712a672c179b9a5cbb22b8a631930c16e9b6846c373",
+        "person_likes_post.lance/_versions/18446744073709551614.manifest": "78b67e4e5ccd59e4b134c379ede3fe55fa5426c2d6ee20c7ef2aaf2ef5b97296",
+        "person_studyAt_organisation.lance/_versions/18446744073709551614.manifest": "aa13f8571b4d5784b9c63e7674f1cde1a29c81a4358e972d10944d8cb61f34b9",
+        "person_workAt_organisation.lance/_versions/18446744073709551614.manifest": "7a72ad3495b7b31bd19238ac8d8ecd39b505c1e163aa0a91384cc5ba9a0e20bd",
+        "place_isPartOf_place.lance/_versions/18446744073709551614.manifest": "271be73d21eb2df90af232b5ebed9b2111ba101cd1928b0d2d31e0c7c5151e18",
+        "post_hasCreator_person.lance/_versions/18446744073709551614.manifest": "74b7df2dd6f2d60d65ddf52c4ecccb8b09037852a04bd41717c9e8e7987dbdb6",
+        "post_hasTag_tag.lance/_versions/18446744073709551614.manifest": "b49fa37a9860efe51959ec734199f7d7247d4aa82fb19e3e3e576c187843c439",
+        "post_isLocatedIn_place.lance/_versions/18446744073709551614.manifest": "669d3a6fbe61ca9064754de85176c0aad838b5bd997dd6e8a6825fdb58faba87",
+        "tag_hasType_tagclass.lance/_versions/18446744073709551614.manifest": "750e994fdf781b556907478eaca81f2b62758e8e74b8d7ab3303f39f7c8a9f1d",
+        "tagclass_isSubclassOf_tagclass.lance/_versions/18446744073709551614.manifest": "e4c78cb5132534413a791c774d5facbaa62655f2abaf3eb326888b5f988b7388"
+      },
+      "status": "passed",
+      "runtime": {
+        "python": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+        "extension": "/Users/davidhughes/.cache/uv/archive-v0/wZS-2AMhfvUYDSLK/lib/python3.13/site-packages/lance_csr/_internal.abi3.so",
+        "extension_sha256": "a50cb46ebffca183e0549b6bb7ce6dc6840357a3590658f268779b7296143cb0",
+        "packages": {
+          "lance-namespace": "0.11.1",
+          "pylance": "13.0.0",
+          "numpy": "2.5.4",
+          "tzdata": "2026.5",
+          "lance-namespace-urllib3-client": "0.11.1",
+          "urllib3": "2.8.0",
+          "pydantic_core": "2.50.1",
+          "lance-csr": "0.2.0",
+          "annotated-types": "0.8.0",
+          "typing-inspection": "0.4.4",
+          "pyarrow": "23.0.0",
+          "typing_extensions": "4.16.0",
+          "pydantic": "2.14.1",
+          "python-dateutil": "3.0.0",
+          "six": "1.17.0",
+          "polars-runtime-32": "1.37.1",
+          "packaging": "26.3",
+          "polars": "1.37.1",
+          "pygments": "2.21.0",
+          "iniconfig": "2.3.1",
+          "pytest-benchmark": "5.3.0",
+          "pluggy": "1.7.0",
+          "pytest": "9.1.1",
+          "py-cpuinfo2": "10.1.1"
+        },
+        "distribution": "{\"url\":\"file:///private/tmp/lance-csr-submissions/wheels/candidate-budget-release/lance_csr-0.2.0-cp312-abi3-macosx_11_0_arm64.whl\",\"archive_info\":{}}"
+      },
+      "command": [
+        "/Users/davidhughes/.local/bin/uv",
+        "run",
+        "--offline",
+        "--no-sync",
+        "--with",
+        "/private/tmp/lance-csr-submissions/wheels/candidate-budget-release/lance_csr-0.2.0-cp312-abi3-macosx_11_0_arm64.whl",
+        "pytest",
+        "benchmark_query.py",
+        "-q",
+        "--benchmark-min-rounds=5",
+        "--benchmark-min-time=0.000005",
+        "--benchmark-max-time=1.0",
+        "--benchmark-timer=time.perf_counter",
+        "--benchmark-calibration-precision=10",
+        "--benchmark-warmup=off",
+        "--benchmark-warmup-iterations=5",
+        "--benchmark-disable-gc",
+        "--benchmark-sort=fullname",
+        "--benchmark-save-data",
+        "--benchmark-json=/private/tmp/lance-csr-submissions/acceptance-combined-budget-r1/candidate-budget-release-q30-memory.json"
+      ],
+      "started_utc": "2026-10-26T07:35:53.164173+00:00",
+      "load_average_before": [
+        5.09130859375,
+        6.099609375,
+        6.09814453125
+      ],
+      "returncode": 0,
+      "elapsed_seconds": 32.51568362489343,
+      "log": "/private/tmp/lance-csr-submissions/acceptance-combined-budget-r1/candidate-budget-release-q30-memory.log",
+      "log_sha256": "853230a928ce71ecadc7f07adb795fd6b22024b70e2c773d2bb63678c709a744",
+      "peak_process_rss_bytes": 2704359424,
+      "report_sha256": "4be7c9757bf24f843151c6f878ad6f75642c54079a6d1b89073941c5385a6232",
+      "origin_manifest": "/private/tmp/lance-csr-submissions/acceptance-combined-budget-r1/manifest.json"
+    },
+    {
+      "label": "candidate-budget-release-q30-lazy",
+      "phase": "candidate-budget-release",
+      "suite": "q30",
+      "mode": "lazy",
+      "query_count": 30,
+      "cwd": "/private/tmp/lance-csr-benchmark-q30/lance_csr",
+      "proof": "/private/tmp/lance-csr-submissions/wheels/candidate-budget-release/release-proof.json",
+      "proof_sha256": "50eac10997854827edd3e7d042ffdd3aa76ec5cc99f225de36ab848c3c85fd20",
+      "build_context": "/private/tmp/lance-csr-submissions/wheels/candidate-budget-release/build-context.json",
+      "build_context_sha256": "fd66f46badef1979c308dd433a9f66d41bd99bc51e499aacc887b499cfec0f23",
+      "source_commit": "891d8d7ba1c2d6943a17a877c287514d550201c6",
+      "wheel": "/private/tmp/lance-csr-submissions/wheels/candidate-budget-release/lance_csr-0.2.0-cp312-abi3-macosx_11_0_arm64.whl",
+      "source_lock_sha256": {
+        "Cargo.lock": "cd600c064c42e13470c83747ca308f96e45ecaf851dab790d6390646007f18ab",
+        "crates/lance-graph-python/Cargo.lock": "2639fe466b2ced50664ac4139021281deb7571f771f7e9fb9b55520e4c7032d3",
+        "python/uv.lock": "5e8fa115746bb8e3c92902d7c72d8bdf67232be60ed95bca3cc3ef046b167adc",
+        "docs/uv.lock": "7a8f487b45af7094337d89c2a68aa92d5256d421b97565b960554fadd3980932"
+      },
+      "extension_sha256": "a50cb46ebffca183e0549b6bb7ce6dc6840357a3590658f268779b7296143cb0",
+      "suite_revision": "6260689aa1fba4eeb4e99958430386b2fcd13f71",
+      "data_manifests": {
+        "Comment.lance/_versions/18446744073709551613.manifest": "5521f17aef9f7c0d7d5fdddd82f410ccda39a1607367151a0a1f237625086437",
+        "Comment.lance/_versions/18446744073709551614.manifest": "5935ff2a6234220ea58a3ee578f4ea95b05c26bde70b4d9eb973fce46df3927c",
+        "Forum.lance/_versions/18446744073709551613.manifest": "7a84a5d02e7a4bef23e908e0a2556872bcdc70083116edc7b2ec340edb3fbf79",
+        "Forum.lance/_versions/18446744073709551614.manifest": "76114159aea86742ef4978d006da037e36c7805121cbd9601d5b37b5d9b487d8",
+        "Organisation.lance/_versions/18446744073709551613.manifest": "944a0ebf52ea24bbc586c361e81a3f911c6a59f53489995fa73a0ba1875c49b5",
+        "Organisation.lance/_versions/18446744073709551614.manifest": "31a974340f83eddc859223e317b2d0c40fc4f074119c3b5de485ff50fd72e0b5",
+        "Person.lance/_versions/18446744073709551613.manifest": "ab1b42ac94e166793c4ddcdf2fce4e1c1418fd28622b3b6e17e29b8ac2a2676e",
+        "Person.lance/_versions/18446744073709551614.manifest": "6fd3751dafcf03650c084f81f2b61ef3e75f0a79b0a6f14390c172412e9c9cdb",
+        "Place.lance/_versions/18446744073709551613.manifest": "40650d015e91d942facc7deedbdaa941eecd5cb94fed67d4411c8e7ab27b2db1",
+        "Place.lance/_versions/18446744073709551614.manifest": "3075a202daed468b60172a8e8686ceaae6fd743546b8e7be28b7a899d1dbf574",
+        "Post.lance/_versions/18446744073709551613.manifest": "60f69b5e2da26556414e6de861ed97cd2d09c0501785d2a1f9ebd58d3ffc072f",
+        "Post.lance/_versions/18446744073709551614.manifest": "a499fd25016c983d9f76eb1f63d6afa10cc9877f2425171ba5e0fd28ae435482",
+        "Tag.lance/_versions/18446744073709551613.manifest": "ec843bb5e117039ab572a59be3ac6e5e26a133910cc5bd0d65ae764d65ee3c39",
+        "Tag.lance/_versions/18446744073709551614.manifest": "58e794e6606f5fd0b98a9aa308f746260c1955de2adf0c6011f0d6ea74baf84f",
+        "Tagclass.lance/_versions/18446744073709551613.manifest": "938f55362e881dfe727107a4f73867ff2ca4c4725a155804bbb0d5ffc602aabd",
+        "Tagclass.lance/_versions/18446744073709551614.manifest": "c802ed61535f57daed8c69395fae12099941db9071515283a7969a79cfb8f852",
+        "comment_hasCreator_person.lance/_versions/18446744073709551614.manifest": "0f2e04ef1348af894e8cff027eb33d28466e212a39fd2808199a95f4bb4b23b7",
+        "comment_hasTag_tag.lance/_versions/18446744073709551614.manifest": "75253470d3d33eccc3d4b2b8acbd9e94724e7817fcdddaacbb96381c16d7660c",
+        "comment_isLocatedIn_place.lance/_versions/18446744073709551614.manifest": "4c7a1a75c244b44981663c8af43d13831c4b9b898ad8e7526c0381ebe96dce04",
+        "comment_replyOf_comment.lance/_versions/18446744073709551614.manifest": "ffdfdcf4e4da0a2b1f932b6e959b33794d297c1d7d559ecd52238bc85be09c1a",
+        "comment_replyOf_post.lance/_versions/18446744073709551614.manifest": "ee42293666d3eeba5cee761054567e480a1d9c14f896f44e25bdfb4086d9d3bc",
+        "forum_containerOf_post.lance/_versions/18446744073709551614.manifest": "f16243070deef914a8626b2ac3d4b6479500c8a1f093b00fddb03f7bd2624658",
+        "forum_hasMember_person.lance/_versions/18446744073709551614.manifest": "ae57dc8f05cd793b53412707c27871aa85102060e5151ed74f1cf100dec047c9",
+        "forum_hasModerator_person.lance/_versions/18446744073709551614.manifest": "dc0c9fa3ea3dd746ffd4dec706c5d7d2d11af415c246cec560e0f0ff9fd2260e",
+        "forum_hasTag_tag.lance/_versions/18446744073709551614.manifest": "ecf8e02e091553f118e2f864a2105752a3a1287f829e44ebada2684ba36a39d2",
+        "organisation_isLocatedIn_place.lance/_versions/18446744073709551614.manifest": "44ddcfc3e66dc2849ff0100a34952315674f4ee0aa5691b8fcb5f002237be617",
+        "person_hasInterest_tag.lance/_versions/18446744073709551614.manifest": "b586763aaccfa129552c3da50eadde98537554babf3af1f19971e89c055d9439",
+        "person_isLocatedIn_place.lance/_versions/18446744073709551614.manifest": "c7b7eb1adfeae79ec3daf880abe61b49c148404172b682b400338132813ef46f",
+        "person_knows_person.lance/_versions/18446744073709551614.manifest": "e4921d1a76f3f2fc7d3d9ea679aaeded427dec568f8146d7717fbbae4f8de321",
+        "person_likes_comment.lance/_versions/18446744073709551614.manifest": "37899a8ff7c28c4f34ef2712a672c179b9a5cbb22b8a631930c16e9b6846c373",
+        "person_likes_post.lance/_versions/18446744073709551614.manifest": "78b67e4e5ccd59e4b134c379ede3fe55fa5426c2d6ee20c7ef2aaf2ef5b97296",
+        "person_studyAt_organisation.lance/_versions/18446744073709551614.manifest": "aa13f8571b4d5784b9c63e7674f1cde1a29c81a4358e972d10944d8cb61f34b9",
+        "person_workAt_organisation.lance/_versions/18446744073709551614.manifest": "7a72ad3495b7b31bd19238ac8d8ecd39b505c1e163aa0a91384cc5ba9a0e20bd",
+        "place_isPartOf_place.lance/_versions/18446744073709551614.manifest": "271be73d21eb2df90af232b5ebed9b2111ba101cd1928b0d2d31e0c7c5151e18",
+        "post_hasCreator_person.lance/_versions/18446744073709551614.manifest": "74b7df2dd6f2d60d65ddf52c4ecccb8b09037852a04bd41717c9e8e7987dbdb6",
+        "post_hasTag_tag.lance/_versions/18446744073709551614.manifest": "b49fa37a9860efe51959ec734199f7d7247d4aa82fb19e3e3e576c187843c439",
+        "post_isLocatedIn_place.lance/_versions/18446744073709551614.manifest": "669d3a6fbe61ca9064754de85176c0aad838b5bd997dd6e8a6825fdb58faba87",
+        "tag_hasType_tagclass.lance/_versions/18446744073709551614.manifest": "750e994fdf781b556907478eaca81f2b62758e8e74b8d7ab3303f39f7c8a9f1d",
+        "tagclass_isSubclassOf_tagclass.lance/_versions/18446744073709551614.manifest": "e4c78cb5132534413a791c774d5facbaa62655f2abaf3eb326888b5f988b7388"
+      },
+      "status": "passed",
+      "runtime": {
+        "python": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+        "extension": "/Users/davidhughes/.cache/uv/archive-v0/wZS-2AMhfvUYDSLK/lib/python3.13/site-packages/lance_csr/_internal.abi3.so",
+        "extension_sha256": "a50cb46ebffca183e0549b6bb7ce6dc6840357a3590658f268779b7296143cb0",
+        "packages": {
+          "lance-namespace": "0.11.1",
+          "pylance": "13.0.0",
+          "numpy": "2.5.4",
+          "tzdata": "2026.5",
+          "lance-namespace-urllib3-client": "0.11.1",
+          "urllib3": "2.8.0",
+          "pydantic_core": "2.50.1",
+          "lance-csr": "0.2.0",
+          "annotated-types": "0.8.0",
+          "typing-inspection": "0.4.4",
+          "pyarrow": "23.0.0",
+          "typing_extensions": "4.16.0",
+          "pydantic": "2.14.1",
+          "python-dateutil": "3.0.0",
+          "six": "1.17.0",
+          "polars-runtime-32": "1.37.1",
+          "packaging": "26.3",
+          "polars": "1.37.1",
+          "pygments": "2.21.0",
+          "iniconfig": "2.3.1",
+          "pytest-benchmark": "5.3.0",
+          "pluggy": "1.7.0",
+          "pytest": "9.1.1",
+          "py-cpuinfo2": "10.1.1"
+        },
+        "distribution": "{\"url\":\"file:///private/tmp/lance-csr-submissions/wheels/candidate-budget-release/lance_csr-0.2.0-cp312-abi3-macosx_11_0_arm64.whl\",\"archive_info\":{}}"
+      },
+      "command": [
+        "/Users/davidhughes/.local/bin/uv",
+        "run",
+        "--offline",
+        "--no-sync",
+        "--with",
+        "/private/tmp/lance-csr-submissions/wheels/candidate-budget-release/lance_csr-0.2.0-cp312-abi3-macosx_11_0_arm64.whl",
+        "pytest",
+        "benchmark_query.py",
+        "-q",
+        "--benchmark-min-rounds=5",
+        "--benchmark-min-time=0.000005",
+        "--benchmark-max-time=1.0",
+        "--benchmark-timer=time.perf_counter",
+        "--benchmark-calibration-precision=10",
+        "--benchmark-warmup=off",
+        "--benchmark-warmup-iterations=5",
+        "--benchmark-disable-gc",
+        "--benchmark-sort=fullname",
+        "--benchmark-save-data",
+        "--benchmark-json=/private/tmp/lance-csr-submissions/acceptance-combined-budget-r1/candidate-budget-release-q30-lazy.json"
+      ],
+      "started_utc": "2026-10-26T07:36:25.886962+00:00",
+      "load_average_before": [
+        4.54931640625,
+        5.8662109375,
+        6.0126953125
+      ],
+      "returncode": 0,
+      "elapsed_seconds": 24.354842790868133,
+      "log": "/private/tmp/lance-csr-submissions/acceptance-combined-budget-r1/candidate-budget-release-q30-lazy.log",
+      "log_sha256": "dc7e0a21b447aff431deb71aa0ec21bb7fe03208ee83f827b28c2aa9d3ec68ce",
+      "peak_process_rss_bytes": 1501790208,
+      "report_sha256": "38703a237ea7e92f41d9b4df09528bef433b380aa98a8cc57e9eed3fab867fe2",
+      "origin_manifest": "/private/tmp/lance-csr-submissions/acceptance-combined-budget-r1/manifest.json"
+    },
+    {
+      "label": "candidate-budget-release-ic-memory",
+      "phase": "candidate-budget-release",
+      "suite": "ic",
+      "mode": "memory",
+      "query_count": 14,
+      "cwd": "/private/tmp/lance-csr-benchmark-ic/lance_csr",
+      "proof": "/private/tmp/lance-csr-submissions/wheels/candidate-budget-release/release-proof.json",
+      "proof_sha256": "50eac10997854827edd3e7d042ffdd3aa76ec5cc99f225de36ab848c3c85fd20",
+      "build_context": "/private/tmp/lance-csr-submissions/wheels/candidate-budget-release/build-context.json",
+      "build_context_sha256": "fd66f46badef1979c308dd433a9f66d41bd99bc51e499aacc887b499cfec0f23",
+      "source_commit": "891d8d7ba1c2d6943a17a877c287514d550201c6",
+      "wheel": "/private/tmp/lance-csr-submissions/wheels/candidate-budget-release/lance_csr-0.2.0-cp312-abi3-macosx_11_0_arm64.whl",
+      "source_lock_sha256": {
+        "Cargo.lock": "cd600c064c42e13470c83747ca308f96e45ecaf851dab790d6390646007f18ab",
+        "crates/lance-graph-python/Cargo.lock": "2639fe466b2ced50664ac4139021281deb7571f771f7e9fb9b55520e4c7032d3",
+        "python/uv.lock": "5e8fa115746bb8e3c92902d7c72d8bdf67232be60ed95bca3cc3ef046b167adc",
+        "docs/uv.lock": "7a8f487b45af7094337d89c2a68aa92d5256d421b97565b960554fadd3980932"
+      },
+      "extension_sha256": "a50cb46ebffca183e0549b6bb7ce6dc6840357a3590658f268779b7296143cb0",
+      "suite_revision": "c185123edd58b37b417bc4deb2fec643fdbd5e61",
+      "data_manifests": {
+        "Comment.lance/_versions/18446744073709551613.manifest": "e016e222bedf0f6a7c711aa396f4edca6fc46e0b48f628f09fb081fb027e7619",
+        "Comment.lance/_versions/18446744073709551614.manifest": "f3d95e03d8a35f3a2dc080af9e9257b0fa68423c4f08c149df2da68e2cc76a08",
+        "Forum.lance/_versions/18446744073709551613.manifest": "dd201ef2f2637f16e55db5f3a569342760247ce8a8b8d94e4389ca0cbc9d5980",
+        "Forum.lance/_versions/18446744073709551614.manifest": "3a0485e5e81b6ce388606cc1fd2fb55971eb4eb8e7a4dd4754b44275bd4da73d",
+        "Organisation.lance/_versions/18446744073709551613.manifest": "ee48b92138d5dc5a86d982a556b14a5f96453f91a0b5085fe9d7da5e5337be12",
+        "Organisation.lance/_versions/18446744073709551614.manifest": "5e77fa7957aabb0009e6dc1908add66582b9f3f2c56c1bd5b9f25fe2aec66c61",
+        "Person.lance/_versions/18446744073709551613.manifest": "5597ae7450b09c64de32e12e0089c82f8ab0866b4d20f38546d49c5b8bda482a",
+        "Person.lance/_versions/18446744073709551614.manifest": "8657c428b1917bfe23ceb95dc9da88489086ae72ce6919d329d4d7d90b30d7b4",
+        "Place.lance/_versions/18446744073709551613.manifest": "df4432aecadf7cba093c3be2b206c5c27a4df97da0bb38eecca2fe3f57bf7560",
+        "Place.lance/_versions/18446744073709551614.manifest": "c90d3847e297b8b6b2aa3c076f0774c877ef7057d1142229d44b969a93c921b3",
+        "Post.lance/_versions/18446744073709551613.manifest": "827704b2ac9da898cf7516a88f5cc578b364388a3066f8fffb4960cf96455331",
+        "Post.lance/_versions/18446744073709551614.manifest": "c33d01cd7631c2f94c4be98ac9a2786650ec12b854af48f0aa05898aa5a392d3",
+        "Tag.lance/_versions/18446744073709551613.manifest": "e50d9be5c2db4430f584b910e8f966dc908b829012f96c6e2f515fc5162c5503",
+        "Tag.lance/_versions/18446744073709551614.manifest": "5e019cc2e3615ba4b618c6580af8bcd584dfec5ed6a217690097f4349c28f8b0",
+        "Tagclass.lance/_versions/18446744073709551613.manifest": "96fac74c00fcdc858d8227efabb4acfd690ebe730ea18fbc890dc0848d1a7b23",
+        "Tagclass.lance/_versions/18446744073709551614.manifest": "cf02088a058961524d72b65689df2c46028845afd7153b0d0480822a149fcfd8",
+        "comment_hasCreator_person.lance/_versions/18446744073709551614.manifest": "05161633c15faae5151d339cb5ab37b5d80525df96dcb93abee5737f43332f17",
+        "comment_hasTag_tag.lance/_versions/18446744073709551614.manifest": "4f9ff2b732b5588a7305e74b6bccf17104ea7ddf173c7351656da43ca3ae7200",
+        "comment_isLocatedIn_place.lance/_versions/18446744073709551614.manifest": "3c6e8d011d87ecffd50f14d9d7156239e97697ec19dd5bec405c7b96286523eb",
+        "comment_replyOf_comment.lance/_versions/18446744073709551614.manifest": "c0915c212794d6cff270c558a1809eab07bfe65df4391458bfacad2e14da6b65",
+        "comment_replyOf_post.lance/_versions/18446744073709551614.manifest": "0332e0b28c07348494b9eb7f4720e6f424af1d972ccd6279ee225aee80a12cc3",
+        "forum_containerOf_post.lance/_versions/18446744073709551614.manifest": "b0a0e3b5ffa8119a6242bc2bb95dcba4d60aa7efbfb5480f26b947067d5b06b3",
+        "forum_hasMember_person.lance/_versions/18446744073709551614.manifest": "d6c356a646249c16068b4e2bda9a074c49dc7a849ad989dc7e951856f69507d2",
+        "forum_hasModerator_person.lance/_versions/18446744073709551614.manifest": "bba880567a210bfa5f9692529648aedaa14071d48c897f2a5191587862c6f899",
+        "forum_hasTag_tag.lance/_versions/18446744073709551614.manifest": "cdf7657f9b9ba3a52bd553338f46e563b2212b02ecf225444266ff1d7cb02546",
+        "organisation_isLocatedIn_place.lance/_versions/18446744073709551614.manifest": "627ee495a513d354fbe0737bf087b8adf992f442ba2db892f8fecd7cd31b8763",
+        "person_hasInterest_tag.lance/_versions/18446744073709551614.manifest": "902ad28473b0f508df62c547a1b8aa20c819c2c6c737b5a6bed86393d72adc4c",
+        "person_isLocatedIn_place.lance/_versions/18446744073709551614.manifest": "f875a0747298ebd7e9ded573c190f1705ff847944d15027e6f1abb557db66d39",
+        "person_knows_person.lance/_versions/18446744073709551614.manifest": "0326e4d7a4be196d05700ac3ae4978eb3ea4c594f0c711bda239c4cd8037f9c0",
+        "person_likes_comment.lance/_versions/18446744073709551614.manifest": "28f83983f50e01bf8143161f25a363444ed3532b216916d8916a452c619c863a",
+        "person_likes_post.lance/_versions/18446744073709551614.manifest": "25beed9c29f824d40a41e654a01a31afd46d25892fabaaa3a6d1ec7df5bdd363",
+        "person_studyAt_organisation.lance/_versions/18446744073709551614.manifest": "89f228f72bec8a544b77377f1d3d2f08839094487b4f8eb27ea3b7649d9c1a05",
+        "person_workAt_organisation.lance/_versions/18446744073709551614.manifest": "87424aff3d303d8b4b8c0bc63d91da879dfd46a4e74ee9c67cef2435e85a67dd",
+        "place_isPartOf_place.lance/_versions/18446744073709551614.manifest": "2f23ffe532f073faf92c90056704f57bff6725b7f5c5e3d7937bb8a7cac28e9f",
+        "post_hasCreator_person.lance/_versions/18446744073709551614.manifest": "cf9e55ccfedbf4587e41e67830fb9f50c57c1498ad3ec364335c96ecaf2a5881",
+        "post_hasTag_tag.lance/_versions/18446744073709551614.manifest": "3604df3735b5f2a875dac572201c0b36f2961f98521d6dc346938eceb876112e",
+        "post_isLocatedIn_place.lance/_versions/18446744073709551614.manifest": "0285ed7f18405e53cc35eb315cb4d80d1c2864433dbeac229cdd99118e304e78",
+        "tag_hasType_tagclass.lance/_versions/18446744073709551614.manifest": "cc003345377c2b96f53a41ca8ed7f3af683851f9b71702dce45879bbaca69d0c",
+        "tagclass_isSubclassOf_tagclass.lance/_versions/18446744073709551614.manifest": "c74eb8012474e3c0a6a617fa17e3df8fde3bae7114e333c78cead8ea512b6078"
+      },
+      "status": "passed",
+      "runtime": {
+        "python": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+        "extension": "/Users/davidhughes/.cache/uv/archive-v0/OrG8AoVc-F-9xeBB/lib/python3.13/site-packages/lance_csr/_internal.abi3.so",
+        "extension_sha256": "a50cb46ebffca183e0549b6bb7ce6dc6840357a3590658f268779b7296143cb0",
+        "packages": {
+          "lance-namespace": "0.11.1",
+          "pylance": "13.0.0",
+          "pyarrow": "26.0.0",
+          "numpy": "2.5.4",
+          "tzdata": "2026.5",
+          "lance-namespace-urllib3-client": "0.11.1",
+          "urllib3": "2.8.0",
+          "pydantic_core": "2.50.1",
+          "lance-csr": "0.2.0",
+          "annotated-types": "0.8.0",
+          "typing-inspection": "0.4.4",
+          "typing_extensions": "4.16.0",
+          "pydantic": "2.14.1",
+          "python-dateutil": "3.0.0",
+          "six": "1.17.0",
+          "neo4j": "6.4.1",
+          "packaging": "26.3",
+          "pygments": "2.21.0",
+          "pytz": "2026.5",
+          "ladybug": "0.21.2",
+          "polars-runtime-32": "2.0.0",
+          "polars": "2.0.0",
+          "iniconfig": "2.3.1",
+          "pytest-asyncio": "1.4.0",
+          "pytest-benchmark": "5.3.0",
+          "pluggy": "1.7.0",
+          "pytest": "9.1.1",
+          "python-dotenv": "1.2.4",
+          "py-cpuinfo2": "10.1.1",
+          "kuzu": "0.11.3"
+        },
+        "distribution": "{\"url\":\"file:///private/tmp/lance-csr-submissions/wheels/candidate-budget-release/lance_csr-0.2.0-cp312-abi3-macosx_11_0_arm64.whl\",\"archive_info\":{}}"
+      },
+      "command": [
+        "/Users/davidhughes/.local/bin/uv",
+        "run",
+        "--offline",
+        "--no-sync",
+        "--with",
+        "/private/tmp/lance-csr-submissions/wheels/candidate-budget-release/lance_csr-0.2.0-cp312-abi3-macosx_11_0_arm64.whl",
+        "pytest",
+        "benchmark_query.py",
+        "-q",
+        "--benchmark-min-rounds=5",
+        "--benchmark-min-time=0.000005",
+        "--benchmark-max-time=1.0",
+        "--benchmark-timer=time.perf_counter",
+        "--benchmark-calibration-precision=10",
+        "--benchmark-warmup=off",
+        "--benchmark-warmup-iterations=5",
+        "--benchmark-disable-gc",
+        "--benchmark-sort=fullname",
+        "--benchmark-save-data",
+        "--benchmark-json=/private/tmp/lance-csr-submissions/acceptance-combined-budget-r1/candidate-budget-release-ic-memory.json"
+      ],
+      "started_utc": "2026-10-26T07:36:52.803821+00:00",
+      "load_average_before": [
+        5.67431640625,
+        6.00732421875,
+        6.05712890625
+      ],
+      "returncode": 0,
+      "elapsed_seconds": 23.30790008418262,
+      "log": "/private/tmp/lance-csr-submissions/acceptance-combined-budget-r1/candidate-budget-release-ic-memory.log",
+      "log_sha256": "72b6fb6cb49858b0e2d32a74fa3b723911732814ae2962287f0343f2a931a7fe",
+      "peak_process_rss_bytes": 3099033600,
+      "report_sha256": "8674bfbd61cbb21121a7a08346604486d5ab4781b5f7498714fe7b6e293f6ada",
+      "origin_manifest": "/private/tmp/lance-csr-submissions/acceptance-combined-budget-r1/manifest.json"
+    },
+    {
+      "label": "candidate-budget-release-ic-lazy",
+      "phase": "candidate-budget-release",
+      "suite": "ic",
+      "mode": "lazy",
+      "query_count": 14,
+      "cwd": "/private/tmp/lance-csr-benchmark-ic/lance_csr",
+      "proof": "/private/tmp/lance-csr-submissions/wheels/candidate-budget-release/release-proof.json",
+      "proof_sha256": "50eac10997854827edd3e7d042ffdd3aa76ec5cc99f225de36ab848c3c85fd20",
+      "build_context": "/private/tmp/lance-csr-submissions/wheels/candidate-budget-release/build-context.json",
+      "build_context_sha256": "fd66f46badef1979c308dd433a9f66d41bd99bc51e499aacc887b499cfec0f23",
+      "source_commit": "891d8d7ba1c2d6943a17a877c287514d550201c6",
+      "wheel": "/private/tmp/lance-csr-submissions/wheels/candidate-budget-release/lance_csr-0.2.0-cp312-abi3-macosx_11_0_arm64.whl",
+      "source_lock_sha256": {
+        "Cargo.lock": "cd600c064c42e13470c83747ca308f96e45ecaf851dab790d6390646007f18ab",
+        "crates/lance-graph-python/Cargo.lock": "2639fe466b2ced50664ac4139021281deb7571f771f7e9fb9b55520e4c7032d3",
+        "python/uv.lock": "5e8fa115746bb8e3c92902d7c72d8bdf67232be60ed95bca3cc3ef046b167adc",
+        "docs/uv.lock": "7a8f487b45af7094337d89c2a68aa92d5256d421b97565b960554fadd3980932"
+      },
+      "extension_sha256": "a50cb46ebffca183e0549b6bb7ce6dc6840357a3590658f268779b7296143cb0",
+      "suite_revision": "c185123edd58b37b417bc4deb2fec643fdbd5e61",
+      "data_manifests": {
+        "Comment.lance/_versions/18446744073709551613.manifest": "e016e222bedf0f6a7c711aa396f4edca6fc46e0b48f628f09fb081fb027e7619",
+        "Comment.lance/_versions/18446744073709551614.manifest": "f3d95e03d8a35f3a2dc080af9e9257b0fa68423c4f08c149df2da68e2cc76a08",
+        "Forum.lance/_versions/18446744073709551613.manifest": "dd201ef2f2637f16e55db5f3a569342760247ce8a8b8d94e4389ca0cbc9d5980",
+        "Forum.lance/_versions/18446744073709551614.manifest": "3a0485e5e81b6ce388606cc1fd2fb55971eb4eb8e7a4dd4754b44275bd4da73d",
+        "Organisation.lance/_versions/18446744073709551613.manifest": "ee48b92138d5dc5a86d982a556b14a5f96453f91a0b5085fe9d7da5e5337be12",
+        "Organisation.lance/_versions/18446744073709551614.manifest": "5e77fa7957aabb0009e6dc1908add66582b9f3f2c56c1bd5b9f25fe2aec66c61",
+        "Person.lance/_versions/18446744073709551613.manifest": "5597ae7450b09c64de32e12e0089c82f8ab0866b4d20f38546d49c5b8bda482a",
+        "Person.lance/_versions/18446744073709551614.manifest": "8657c428b1917bfe23ceb95dc9da88489086ae72ce6919d329d4d7d90b30d7b4",
+        "Place.lance/_versions/18446744073709551613.manifest": "df4432aecadf7cba093c3be2b206c5c27a4df97da0bb38eecca2fe3f57bf7560",
+        "Place.lance/_versions/18446744073709551614.manifest": "c90d3847e297b8b6b2aa3c076f0774c877ef7057d1142229d44b969a93c921b3",
+        "Post.lance/_versions/18446744073709551613.manifest": "827704b2ac9da898cf7516a88f5cc578b364388a3066f8fffb4960cf96455331",
+        "Post.lance/_versions/18446744073709551614.manifest": "c33d01cd7631c2f94c4be98ac9a2786650ec12b854af48f0aa05898aa5a392d3",
+        "Tag.lance/_versions/18446744073709551613.manifest": "e50d9be5c2db4430f584b910e8f966dc908b829012f96c6e2f515fc5162c5503",
+        "Tag.lance/_versions/18446744073709551614.manifest": "5e019cc2e3615ba4b618c6580af8bcd584dfec5ed6a217690097f4349c28f8b0",
+        "Tagclass.lance/_versions/18446744073709551613.manifest": "96fac74c00fcdc858d8227efabb4acfd690ebe730ea18fbc890dc0848d1a7b23",
+        "Tagclass.lance/_versions/18446744073709551614.manifest": "cf02088a058961524d72b65689df2c46028845afd7153b0d0480822a149fcfd8",
+        "comment_hasCreator_person.lance/_versions/18446744073709551614.manifest": "05161633c15faae5151d339cb5ab37b5d80525df96dcb93abee5737f43332f17",
+        "comment_hasTag_tag.lance/_versions/18446744073709551614.manifest": "4f9ff2b732b5588a7305e74b6bccf17104ea7ddf173c7351656da43ca3ae7200",
+        "comment_isLocatedIn_place.lance/_versions/18446744073709551614.manifest": "3c6e8d011d87ecffd50f14d9d7156239e97697ec19dd5bec405c7b96286523eb",
+        "comment_replyOf_comment.lance/_versions/18446744073709551614.manifest": "c0915c212794d6cff270c558a1809eab07bfe65df4391458bfacad2e14da6b65",
+        "comment_replyOf_post.lance/_versions/18446744073709551614.manifest": "0332e0b28c07348494b9eb7f4720e6f424af1d972ccd6279ee225aee80a12cc3",
+        "forum_containerOf_post.lance/_versions/18446744073709551614.manifest": "b0a0e3b5ffa8119a6242bc2bb95dcba4d60aa7efbfb5480f26b947067d5b06b3",
+        "forum_hasMember_person.lance/_versions/18446744073709551614.manifest": "d6c356a646249c16068b4e2bda9a074c49dc7a849ad989dc7e951856f69507d2",
+        "forum_hasModerator_person.lance/_versions/18446744073709551614.manifest": "bba880567a210bfa5f9692529648aedaa14071d48c897f2a5191587862c6f899",
+        "forum_hasTag_tag.lance/_versions/18446744073709551614.manifest": "cdf7657f9b9ba3a52bd553338f46e563b2212b02ecf225444266ff1d7cb02546",
+        "organisation_isLocatedIn_place.lance/_versions/18446744073709551614.manifest": "627ee495a513d354fbe0737bf087b8adf992f442ba2db892f8fecd7cd31b8763",
+        "person_hasInterest_tag.lance/_versions/18446744073709551614.manifest": "902ad28473b0f508df62c547a1b8aa20c819c2c6c737b5a6bed86393d72adc4c",
+        "person_isLocatedIn_place.lance/_versions/18446744073709551614.manifest": "f875a0747298ebd7e9ded573c190f1705ff847944d15027e6f1abb557db66d39",
+        "person_knows_person.lance/_versions/18446744073709551614.manifest": "0326e4d7a4be196d05700ac3ae4978eb3ea4c594f0c711bda239c4cd8037f9c0",
+        "person_likes_comment.lance/_versions/18446744073709551614.manifest": "28f83983f50e01bf8143161f25a363444ed3532b216916d8916a452c619c863a",
+        "person_likes_post.lance/_versions/18446744073709551614.manifest": "25beed9c29f824d40a41e654a01a31afd46d25892fabaaa3a6d1ec7df5bdd363",
+        "person_studyAt_organisation.lance/_versions/18446744073709551614.manifest": "89f228f72bec8a544b77377f1d3d2f08839094487b4f8eb27ea3b7649d9c1a05",
+        "person_workAt_organisation.lance/_versions/18446744073709551614.manifest": "87424aff3d303d8b4b8c0bc63d91da879dfd46a4e74ee9c67cef2435e85a67dd",
+        "place_isPartOf_place.lance/_versions/18446744073709551614.manifest": "2f23ffe532f073faf92c90056704f57bff6725b7f5c5e3d7937bb8a7cac28e9f",
+        "post_hasCreator_person.lance/_versions/18446744073709551614.manifest": "cf9e55ccfedbf4587e41e67830fb9f50c57c1498ad3ec364335c96ecaf2a5881",
+        "post_hasTag_tag.lance/_versions/18446744073709551614.manifest": "3604df3735b5f2a875dac572201c0b36f2961f98521d6dc346938eceb876112e",
+        "post_isLocatedIn_place.lance/_versions/18446744073709551614.manifest": "0285ed7f18405e53cc35eb315cb4d80d1c2864433dbeac229cdd99118e304e78",
+        "tag_hasType_tagclass.lance/_versions/18446744073709551614.manifest": "cc003345377c2b96f53a41ca8ed7f3af683851f9b71702dce45879bbaca69d0c",
+        "tagclass_isSubclassOf_tagclass.lance/_versions/18446744073709551614.manifest": "c74eb8012474e3c0a6a617fa17e3df8fde3bae7114e333c78cead8ea512b6078"
+      },
+      "status": "passed",
+      "runtime": {
+        "python": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+        "extension": "/Users/davidhughes/.cache/uv/archive-v0/OrG8AoVc-F-9xeBB/lib/python3.13/site-packages/lance_csr/_internal.abi3.so",
+        "extension_sha256": "a50cb46ebffca183e0549b6bb7ce6dc6840357a3590658f268779b7296143cb0",
+        "packages": {
+          "lance-namespace": "0.11.1",
+          "pylance": "13.0.0",
+          "pyarrow": "26.0.0",
+          "numpy": "2.5.4",
+          "tzdata": "2026.5",
+          "lance-namespace-urllib3-client": "0.11.1",
+          "urllib3": "2.8.0",
+          "pydantic_core": "2.50.1",
+          "lance-csr": "0.2.0",
+          "annotated-types": "0.8.0",
+          "typing-inspection": "0.4.4",
+          "typing_extensions": "4.16.0",
+          "pydantic": "2.14.1",
+          "python-dateutil": "3.0.0",
+          "six": "1.17.0",
+          "neo4j": "6.4.1",
+          "packaging": "26.3",
+          "pygments": "2.21.0",
+          "pytz": "2026.5",
+          "ladybug": "0.21.2",
+          "polars-runtime-32": "2.0.0",
+          "polars": "2.0.0",
+          "iniconfig": "2.3.1",
+          "pytest-asyncio": "1.4.0",
+          "pytest-benchmark": "5.3.0",
+          "pluggy": "1.7.0",
+          "pytest": "9.1.1",
+          "python-dotenv": "1.2.4",
+          "py-cpuinfo2": "10.1.1",
+          "kuzu": "0.11.3"
+        },
+        "distribution": "{\"url\":\"file:///private/tmp/lance-csr-submissions/wheels/candidate-budget-release/lance_csr-0.2.0-cp312-abi3-macosx_11_0_arm64.whl\",\"archive_info\":{}}"
+      },
+      "command": [
+        "/Users/davidhughes/.local/bin/uv",
+        "run",
+        "--offline",
+        "--no-sync",
+        "--with",
+        "/private/tmp/lance-csr-submissions/wheels/candidate-budget-release/lance_csr-0.2.0-cp312-abi3-macosx_11_0_arm64.whl",
+        "pytest",
+        "benchmark_query.py",
+        "-q",
+        "--benchmark-min-rounds=5",
+        "--benchmark-min-time=0.000005",
+        "--benchmark-max-time=1.0",
+        "--benchmark-timer=time.perf_counter",
+        "--benchmark-calibration-precision=10",
+        "--benchmark-warmup=off",
+        "--benchmark-warmup-iterations=5",
+        "--benchmark-disable-gc",
+        "--benchmark-sort=fullname",
+        "--benchmark-save-data",
+        "--benchmark-json=/private/tmp/lance-csr-submissions/acceptance-combined-budget-r1/candidate-budget-release-ic-lazy.json"
+      ],
+      "started_utc": "2026-10-26T07:37:16.302130+00:00",
+      "load_average_before": [
+        5.1630859375,
+        5.86083984375,
+        6.001953125
+      ],
+      "returncode": 0,
+      "elapsed_seconds": 26.128238084260374,
+      "log": "/private/tmp/lance-csr-submissions/acceptance-combined-budget-r1/candidate-budget-release-ic-lazy.log",
+      "log_sha256": "170613a3e9fc1051592fd74deae3f0dd67bf02310d3b0b51c0f5c214f2764d52",
+      "peak_process_rss_bytes": 1982578688,
+      "report_sha256": "c340122fce5cd1a185ff9199dce5142bd4e1402cd0bd16485571e4a71d640d95",
+      "origin_manifest": "/private/tmp/lance-csr-submissions/acceptance-combined-budget-r1/manifest.json"
     }
   ],
   "reuse": "One shared main baseline; each distinct release cohort measured once in both suites/modes. Original artifacts unchanged."
