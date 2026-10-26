@@ -502,6 +502,18 @@ rejects graph patterns, comprehensions, and aggregation. Compute such a list bef
 These semantics follow the pinned [Cypher 4.4 list reference](https://neo4j.com/docs/cypher-manual/4.4/functions/list/#functions-reduce)
 and [predicate reference](https://neo4j.com/docs/cypher-manual/4.4/functions/predicate/).
 
+Aggregate results can be compared in `RETURN` or `WITH`, combined with `AND`, `OR` and `NOT`,
+or used in a `CASE` condition. For example:
+
+```cypher
+MATCH (p:Person) WHERE p.id = 99
+RETURN count(DISTINCT p.id) > 0 AS present
+```
+
+If no rows match, this returns one row with `present = false`. A global `count` returns `0`
+on empty input, and `count(DISTINCT value)` skips nulls and duplicate values. These rules
+also apply when a filter constrains the counted property to a constant.
+
 ### Example: a little of everything
 
 ```python
