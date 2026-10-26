@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The lance-csr Authors
 
-//! Internal deadline propagation from the Python bridge into physical join work.
+//! Cooperative query deadlines: checkpoints in join work that stop a query once its deadline passes.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -28,8 +28,39 @@ tokio::task_local! {
     static EXECUTION_DEADLINE: Option<Instant>;
 }
 
-/// Internal cross-crate bridge plumbing; no deadline is published into an engine snapshot.
-#[doc(hidden)]
+/// Run `future` with a cooperative query deadline.
+///
+/// Queries planned inside `future` (for example [`CypherEngine::execute`] or
+/// [`CypherEngine::execute_stream`]) get deadline checks in their joins: nested-loop
+/// joins (joins with non-equality conditions) check `deadline` while evaluating
+/// candidates and fail with a `"Query timeout exceeded"` execution error, even when no
+/// rows match; cross joins yield to the runtime between batches. `None` sets no
+/// deadline. The deadline is never stored in the engine; it applies only to work inside
+/// `future`.
+///
+/// Yielding only lets a timer stop the work, and other operators are not checked, so
+/// pair this with [`tokio::time::timeout_at`] on the same deadline:
+///
+/// ```no_run
+/// # use std::collections::HashMap;
+/// # async fn example(engine: &lance_csr::CypherEngine) -> lance_csr::Result<()> {
+/// use std::time::Duration;
+/// use lance_csr::query::with_execution_deadline;
+/// use tokio::time::{timeout_at, Instant};
+///
+/// let deadline = Instant::now() + Duration::from_secs(2);
+/// let text = "MATCH (a), (b) WHERE a.id < b.id RETURN count(*) AS n";
+/// let query = engine.execute(text, HashMap::new());
+/// match timeout_at(deadline, with_execution_deadline(Some(deadline), query)).await {
+///     Ok(result) => println!("{:?}", result?),
+///     Err(_) => println!("timed out"),
+/// }
+/// # Ok(())
+/// # }
+/// ```
+///
+/// [`CypherEngine::execute`]: crate::CypherEngine::execute
+/// [`CypherEngine::execute_stream`]: crate::CypherEngine::execute_stream
 pub async fn with_execution_deadline<F: Future>(deadline: Option<Instant>, future: F) -> F::Output {
     EXECUTION_DEADLINE.scope(deadline, future).await
 }

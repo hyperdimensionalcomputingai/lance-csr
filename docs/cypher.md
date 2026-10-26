@@ -141,6 +141,7 @@ Initial expiry raises `TimeoutError`. Reading an expired native Arrow reader rai
 with `Query timeout exceeded`; partial output already read remains valid. Close readers when you stop
 consuming them. Timed cross joins yield between batches, and nested-loop joins check the deadline
 while evaluating candidates, including when no rows match. See the [API reference](api-reference.md) for validation and cooperative cancellation limits.
+From Rust, use `with_execution_deadline`; see [Timeouts](rust.md#timeouts).
 
 ### `explain(query, params=None)`
 

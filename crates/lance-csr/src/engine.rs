@@ -1200,6 +1200,33 @@ mod tests {
         assert_eq!(cached(), PLAN_CACHE_ENTRIES);
     }
 
+    #[tokio::test]
+    async fn execution_deadline_stops_nested_loop_joins() {
+        let engine = CypherEngine::new(person_config(), people_engine_sources(), false)
+            .await
+            .unwrap();
+        // A non-equality join plans as a nested-loop join, whose filter checks the deadline.
+        let query = "MATCH (a:Person), (b:Person) WHERE a.id < b.id RETURN count(*) AS n";
+        let expired = crate::query::with_execution_deadline(
+            Some(tokio::time::Instant::now()),
+            engine.execute(query, HashMap::new()),
+        )
+        .await;
+        let message = expired.unwrap_err().to_string();
+        assert!(message.contains("Query timeout exceeded"), "{message}");
+        // No deadline, or a distant one, leaves the same query untouched.
+        let later = tokio::time::Instant::now() + std::time::Duration::from_secs(60);
+        for deadline in [None, Some(later)] {
+            let batch = crate::query::with_execution_deadline(
+                deadline,
+                engine.execute(query, HashMap::new()),
+            )
+            .await
+            .unwrap();
+            assert_eq!(batch.num_rows(), 1);
+        }
+    }
+
     async fn write_people(uri: &str, ids: Vec<i64>, mode: WriteMode) {
         let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)]));
         let batch =

@@ -107,8 +107,22 @@ different exception depending on the variant:
 - Building the CSR in `new()` and `refresh()` is CPU-heavy work inside an async function, so it holds a
   runtime worker thread until it finishes. In an application with its own runtime (a desktop or web backend),
   run those two calls with `tokio::task::spawn_blocking` so other tasks keep running.
-- Dropping a query's future, or the stream from `execute_stream`, cancels the rest of that query. There are no
-  built-in timeouts; wrap a call in `tokio::time::timeout` if you need one.
+- Dropping a query's future, or the stream from `execute_stream`, cancels the rest of that query.
+
+## Timeouts
+
+`lance_csr::query::with_execution_deadline` runs a query with a cooperative deadline, the same mechanism behind
+Python's `timeout=`. Inside it, nested-loop joins (joins with non-equality conditions) check the deadline while
+evaluating candidates and fail with a `Query timeout exceeded` error, even when no rows match, and cross joins
+yield to the runtime between batches. Yielding only lets a timer stop the work, and other operators aren't
+checked, so also race the query against the same deadline with `tokio::time::timeout_at`:
+
+```rust
+--8<-- "crates/lance-csr/examples/embedded_query.rs:timeout"
+```
+
+The deadline applies only to work inside the call; it isn't stored in the engine. A timed-out query surfaces as
+`Err(Elapsed)` from `timeout_at`, or as an execution error from a join checkpoint; treat both as a timeout.
 
 ## Python and Rust side by side
 
@@ -120,6 +134,8 @@ different exception depending on the variant:
 | `engine.execute(query, params)` → `pyarrow.Table` | `engine.execute(query, params).await` → `RecordBatch` |
 | `engine.execute_batches(...)` → `RecordBatchReader` | `engine.execute_stream(...).await` → stream |
 | `engine.refresh()` | `engine.refresh().await` |
+| `engine.execute(query, timeout=2.0)` | `timeout_at(deadline, with_execution_deadline(Some(deadline), engine.execute(...)))` |
+| `CypherEngine(..., target_partitions=4)` | `CypherEngine::with_target_partitions(config, sources, use_csr, Some(4)).await` |
 | `engine.csr_stats()` → `dict` | `engine.csr_stats()` → `HashMap<String, CsrStats>` |
 | `ValueError`, `RuntimeError`, ... | `GraphError` variants |
 
