@@ -32,7 +32,7 @@ classifiers = [
 python-source = "python"
 module-name = "lance_csr._internal"
 python-packages = ["lance_csr"]
-manifest-path = "../crates/lance-graph-python/Cargo.toml"
+manifest-path = "../crates/lance-csr-python/Cargo.toml"
 
 [build-system]
 requires = ["maturin>=1.4"]

@@ -39,4 +39,4 @@ jobs:
       - name: Run tests
         run: cargo test --workspace
       - name: Check benchmarks
-        run: cargo check -p lance-graph-benches --benches
+        run: cargo check -p lance-csr-benches --benches

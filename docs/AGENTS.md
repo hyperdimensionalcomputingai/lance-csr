@@ -34,7 +34,7 @@ the internals. The CSR index is the project's distinguishing feature, so it gets
 ## Accuracy comes first
 
 - **Document what exists on `main`.** Read the code, tests and docstrings before writing. The Python API is
-  defined in `crates/lance-graph-python/src/graph.rs`; the Cypher surface in `crates/lance-graph/src/`
+  defined in `crates/lance-csr-python/src/graph.rs`; the Cypher surface in `crates/lance-csr/src/`
   (`parser.rs`, `semantic.rs`, `logical_plan.rs`). Never describe planned features as shipped.
 - **Every Python example runs.** `check_snippets.py` executes each page's `python` blocks in order, in one
   namespace, in a temporary directory. Run it against a local build before you commit:

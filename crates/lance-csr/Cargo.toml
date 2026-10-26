@@ -1,0 +1,48 @@
+[package]
+name = "lance-csr"
+version = "0.2.0"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["The lance-csr Authors"]
+repository = "https://github.com/hyperdimensionalcomputingai/lance-csr"
+readme = "README.md"
+description = "Graph query engine for Lance datasets with Cypher support"
+keywords = ["lance", "graph", "cypher", "query", "datafusion"]
+categories = ["database", "data-structures", "science"]
+
+[dependencies]
+ahash = "0.8"
+arrow = { version = "58", features = ["prettyprint"] }
+arrow-array = "58"
+arrow-schema = "58"
+async-trait = "0.1"
+datafusion = { version = "54", default-features = false, features = [
+    "nested_expressions",
+    "regex_expressions",
+    "unicode_expressions",
+    "crypto_expressions",
+    "encoding_expressions",
+    "datetime_expressions",
+    "string_expressions",
+    "parquet",
+] }
+datafusion-common = "54"
+datafusion-expr = "54"
+datafusion-sql = "54"
+datafusion-functions-aggregate = "54"
+futures = "0.3"
+lance-csr-catalog = { path = "../lance-csr-catalog", version = "0.2.0" }
+lance = "13.0.0"
+lance-linalg = "13.0.0"
+lance-namespace = "13.0.0"
+lance-table = "13.0.0"
+nom = "7.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+snafu = "0.8"
+
+[dev-dependencies]
+futures = "0.3"
+lance-arrow = "13.0.0"
+tempfile = "3"
+tokio = { version = "1.37", features = ["macros", "rt-multi-thread"] }

@@ -76,7 +76,7 @@ DataFusion as extension operators, falling back to a join for any hop the CSR ca
 
 ## Repository layout
 
-- `crates/lance-graph` – the Cypher-capable query engine implemented in Rust
+- `crates/lance-csr` – the Cypher-capable query engine implemented in Rust
 - `python/` – PyO3 bindings and Python packages:
   - `lance_csr` – thin wrapper around the Rust query engine
 
