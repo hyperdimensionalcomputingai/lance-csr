@@ -6,7 +6,7 @@ Parser, semantic, Rust execution and Python tests cover valid counts, lexical sc
 
 Frozen head `90c141a0979bea1291baba501d49677a8dabb516` compares with typed-container head `89f96a422a6a2e566b68496269f63b6f00ef908c`. The exact source passed its Rust workspace, all-target Clippy, 455 Python tests, lint/types, strict documentation, executable snippets and pinned spelling checks. Its optimized wheel passed all 455 tests outside the source checkout, binary/archive identity, typing and no-Rust smoke checks.
 
-Release identity: `../release-receipts/issue-20-pagination-curated/release-proof.json`. Complete Q30/IC golden checks passed in memory and lazy modes; final paired-repeat acceptance and performance tables must be linked before publication. The #20 tracker remains open for its other finite feature groups.
+Release identity: `../release-receipts/issue-20-pagination-curated/release-proof.json`. Complete Q30/IC golden checks passed in memory and lazy modes; final paired acceptance and per-query performance tables are linked below. The #20 tracker remains open for its other finite feature groups.
 
 ## Frozen review and acceptance
 

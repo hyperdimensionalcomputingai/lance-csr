@@ -6,7 +6,7 @@ Regression cases exercise RETURN, IN, UNWIND, map properties, comprehensions, in
 
 Frozen head `89f96a422a6a2e566b68496269f63b6f00ef908c` compares with `4b157120db78fad823e494deea2dba5c82729f59`, the explicit integer-literal/stub prerequisite. Only container conversion, recursive typing, tests and documentation belong to this diff. The exact source passed the full 411-test Python suite and its Rust/static/documentation checks. The optimized wheel passed all 411 tests outside the checkout, installed-binary hash checks, strict consumer typing and the no-Rust Arrow/Lance/CSR smoke.
 
-Release identity: `../release-receipts/issue-20-containers-curated/release-proof.json`. Complete Q30/IC golden checks passed in memory and lazy modes; final paired-repeat acceptance and performance tables must be linked before publication. The #20 tracker remains open for its other finite feature groups.
+Release identity: `../release-receipts/issue-20-containers-curated/release-proof.json`. Complete Q30/IC golden checks passed in memory and lazy modes; final paired acceptance and per-query performance tables are linked below. The #20 tracker remains open for its other finite feature groups.
 
 ## Frozen review and acceptance
 

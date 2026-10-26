@@ -36,4 +36,6 @@ The larger-budget combined `891d8d7` is rejected for repeated lazy Q30 query 30 
 
 Publication requires owner approval. #19 runner adoption and #23 breaking-release stages remain open; the #20 tracker awaits acceptance of every finite group.
 
+The [current-main supplement](../artifacts/current-main-supplement/README.md) verifies the new `90114f3` contribution/README commit: engine code and locks are unchanged, all five main-target merges are clean, and strict docs/spelling pass on local verification merge `5fe24cd`. The benchmark evidence remains valid; frozen source branches are preserved.
+
 Submitted by David Hughes (@stugorf), with AI Collaboration.

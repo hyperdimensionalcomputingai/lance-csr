@@ -349,5 +349,15 @@
     "23 private fields/validated serde wait for the next breaking release",
     "20 tracker awaits acceptance of every finite group",
     "16 broader decoding and physical disk-I/O attribution remain unverified"
-  ]
+  ],
+  "current_upstream_compatibility": {
+    "remote_main": "90114f3e185b3dbb65ab48933b217ce096a07167",
+    "frozen_benchmark_base": "54e02307a48e467a98d9da2183f5adcb767e7c99",
+    "accepted_engine_code": "7d2ef3e11b3858cc4571db315df4e848a37bdb82",
+    "documentation_verification_merge": "5fe24cd8fb4e2cdb980d77bb6fe281ecdc32cfd9",
+    "engine_tests_locks_workflows_unchanged": true,
+    "current_contribution_guide_and_PR_template_reviewed": true,
+    "strict_docs_and_spelling": "passed",
+    "proof": "current-main-equivalence.json"
+  }
 }

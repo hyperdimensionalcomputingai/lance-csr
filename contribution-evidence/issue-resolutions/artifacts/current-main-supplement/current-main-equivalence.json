@@ -1,0 +1,186 @@
+{
+  "remote_main": "90114f3e185b3dbb65ab48933b217ce096a07167",
+  "frozen_benchmark_base": "54e02307a48e467a98d9da2183f5adcb767e7c99",
+  "accepted_compiled_head": "7d2ef3e11b3858cc4571db315df4e848a37bdb82",
+  "documentation_verification_merge": "5fe24cd8fb4e2cdb980d77bb6fe281ecdc32cfd9",
+  "verification_branch": "codex/issue-resolution-current-main",
+  "only_changed_paths": [
+    ".github/ISSUE_TEMPLATE/bug_report.md",
+    ".github/ISSUE_TEMPLATE/feature_request.md",
+    ".github/pull_request_template.md",
+    "CONTRIBUTING.md",
+    "README.md"
+  ],
+  "code_and_lock_equivalence": [
+    {
+      "scope": "benchmark_baseline",
+      "path": "crates",
+      "git_object": "075bcdf59f2c545e977aa78c677dbff5437ca715",
+      "unchanged": true
+    },
+    {
+      "scope": "benchmark_baseline",
+      "path": "python",
+      "git_object": "f4ccb3642f4181e73adacb3ee82238f00ad976b5",
+      "unchanged": true
+    },
+    {
+      "scope": "benchmark_baseline",
+      "path": "docs",
+      "git_object": "190df6c0e4b1d4b628d3b8774dc47ce529dd3e24",
+      "unchanged": true
+    },
+    {
+      "scope": "benchmark_baseline",
+      "path": ".github/workflows",
+      "git_object": "efdef6648997c209395d0907b12b14e4147585a7",
+      "unchanged": true
+    },
+    {
+      "scope": "benchmark_baseline",
+      "path": "Cargo.toml",
+      "git_object": "666404ea2078d2354f538dfca3168279c2de16e2",
+      "unchanged": true
+    },
+    {
+      "scope": "benchmark_baseline",
+      "path": "Cargo.lock",
+      "git_object": "0f372ba70710901ece44ac3472ae1e2d8645bbb4",
+      "unchanged": true
+    },
+    {
+      "scope": "accepted_combined",
+      "path": "crates",
+      "git_object": "f4b08c18830eece50e9a0aa679320e019ed106dc",
+      "unchanged": true
+    },
+    {
+      "scope": "accepted_combined",
+      "path": "python",
+      "git_object": "ab78aff7999c4120383b682c727c1a3e2a0b2976",
+      "unchanged": true
+    },
+    {
+      "scope": "accepted_combined",
+      "path": "docs",
+      "git_object": "b19e441b0450af6eda1aa58e4f0e4f46692cdca8",
+      "unchanged": true
+    },
+    {
+      "scope": "accepted_combined",
+      "path": ".github/workflows",
+      "git_object": "efdef6648997c209395d0907b12b14e4147585a7",
+      "unchanged": true
+    },
+    {
+      "scope": "accepted_combined",
+      "path": "Cargo.toml",
+      "git_object": "666404ea2078d2354f538dfca3168279c2de16e2",
+      "unchanged": true
+    },
+    {
+      "scope": "accepted_combined",
+      "path": "Cargo.lock",
+      "git_object": "7c613766fb46b77f60418c079c3c63fb065080be",
+      "unchanged": true
+    }
+  ],
+  "main_target_pr_merge_checks": [
+    {
+      "issue": 3,
+      "group": "integer precision",
+      "head": "f71fe3c481b5c8599c24e904d163b8867eae29af",
+      "prospective_merge_tree": "9fb5d3848df092b59325fa1bd0ea771fc94f3882",
+      "changed_from_tested_head": [
+        ".github/ISSUE_TEMPLATE/bug_report.md",
+        ".github/ISSUE_TEMPLATE/feature_request.md",
+        ".github/pull_request_template.md",
+        "CONTRIBUTING.md",
+        "README.md"
+      ],
+      "engine_code_unchanged": true
+    },
+    {
+      "issue": 11,
+      "group": "bounded expansion",
+      "head": "d7ad39819d04acf44907213ba7532df5e93d8869",
+      "prospective_merge_tree": "f902856adc41ab1a2ba18a62ccbdf5d0ffde3094",
+      "changed_from_tested_head": [
+        ".github/ISSUE_TEMPLATE/bug_report.md",
+        ".github/ISSUE_TEMPLATE/feature_request.md",
+        ".github/pull_request_template.md",
+        "CONTRIBUTING.md",
+        "README.md"
+      ],
+      "engine_code_unchanged": true
+    },
+    {
+      "issue": 12,
+      "group": "refresh publication",
+      "head": "58b96fb601eda5f02caff0dc537c1ffa0f18bd15",
+      "prospective_merge_tree": "d3a7eb1ff60a990f8f98d1edb5ef5a1c51ca0589",
+      "changed_from_tested_head": [
+        ".github/ISSUE_TEMPLATE/bug_report.md",
+        ".github/ISSUE_TEMPLATE/feature_request.md",
+        ".github/pull_request_template.md",
+        "CONTRIBUTING.md",
+        "README.md"
+      ],
+      "engine_code_unchanged": true
+    },
+    {
+      "issue": 22,
+      "group": "public stubs",
+      "head": "6175122bd24cc8fe95ddd4cf82d7492975ea6e7d",
+      "prospective_merge_tree": "95f38014277103aa5f1245a0ece401588f9200db",
+      "changed_from_tested_head": [
+        ".github/ISSUE_TEMPLATE/bug_report.md",
+        ".github/ISSUE_TEMPLATE/feature_request.md",
+        ".github/pull_request_template.md",
+        "CONTRIBUTING.md",
+        "README.md"
+      ],
+      "engine_code_unchanged": true
+    },
+    {
+      "issue": 23,
+      "group": "compatible accessors",
+      "head": "96598edac33e9c8dab8bf3b0ec1324308faf589e",
+      "prospective_merge_tree": "9e99bd6d18a1874a62e0e045cd16dc52ac2e487f",
+      "changed_from_tested_head": [
+        ".github/ISSUE_TEMPLATE/bug_report.md",
+        ".github/ISSUE_TEMPLATE/feature_request.md",
+        ".github/pull_request_template.md",
+        "CONTRIBUTING.md",
+        "README.md"
+      ],
+      "engine_code_unchanged": true
+    }
+  ],
+  "documentation_checks": [
+    {
+      "path": "/private/tmp/lance-csr-runtime/current-main-docs-strict-r1.log",
+      "sha256": "8fd84b0ae20c546b3dd58ef141216f5a7f15108d703481a099dbad2ea1b55ad3",
+      "status": "passed"
+    },
+    {
+      "path": "/private/tmp/lance-csr-runtime/current-main-typos-r1.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "status": "passed"
+    }
+  ],
+  "verbatim_fixture_check": {
+    "scope": "Full staged whitespace validation preserves two pinned upstream fixtures: the copyright notice has CRLF and the canonical query has upstream trailing whitespace. Every other staged source/prose file passes diff --check; these exact fixtures are verified byte-for-byte against the qualified source.",
+    "fixtures": [
+      {
+        "file": "python/python/tests/queries/NOTICE.txt",
+        "sha256": "ae123faf9c92773ae36a34c6b58a72cbdaf275cf466eabe55566c55cf01017e3"
+      },
+      {
+        "file": "python/python/tests/queries/ic14.cypher",
+        "sha256": "fa10dace1305088b1ce5e90997155512aca4a100b43d9162e12ed23be11aa2b4"
+      }
+    ]
+  },
+  "decision": "Reuse source, wheel and benchmark evidence for byte-identical engine/test/lock/workflow trees. New contribution guide and PR template reviewed; strict docs/spelling rerun. Frozen submission bases remain unchanged."
+}

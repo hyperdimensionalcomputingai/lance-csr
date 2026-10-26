@@ -33,4 +33,6 @@ Publication awaits owner approval under the approved delivery plan. External run
 
 The [immutable audit archive](artifacts/README.md) is 47.7 MB and includes 46 source refs plus 3,264 raw records. Its receipt audit verifies 871 file/hash pairs with zero mismatches.
 
+The [current-main supplement](artifacts/current-main-supplement/README.md) verifies the new `90114f3` contribution/README commit: engine code and locks are unchanged, all five main-target merges are clean, and strict docs/spelling pass on local verification merge `5fe24cd`. The benchmark evidence remains valid; frozen source branches are preserved.
+
 Submitted by David Hughes (@stugorf), with AI Collaboration.
