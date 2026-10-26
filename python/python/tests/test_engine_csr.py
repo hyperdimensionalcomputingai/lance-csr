@@ -7,6 +7,8 @@ Every query runs on a CSR engine and a join-path engine over the same data; the
 sorted results must be identical.
 """
 
+from itertools import chain
+
 import lance
 import pyarrow as pa
 import pytest
@@ -195,6 +197,39 @@ def test_execute_batches_with_csr(datasets):
     query = "MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN a.id, b.id"
     streamed = pa.Table.from_batches(list(csr.execute_batches(query)))
     assert rows(streamed) == rows(csr.execute(query))
+
+
+def test_high_degree_stream_keeps_its_snapshot_across_deletions(tmp_path):
+    n = 20_000
+    content = "wide property " * 32
+    people = pa.table({"id": range(n + 1), "content": [content] * (n + 1)})
+    edges = pa.table({"src": [0] * n, "dst": [1, 1, *range(2, n)]})
+    knows = lance.write_dataset(edges, tmp_path / "knows.lance")
+    person = lance.write_dataset(people, tmp_path / "person.lance")
+    engine = CypherEngine(CONFIG, {"Person": person, "KNOWS": knows}, use_csr=True)
+    query = (
+        "MATCH (a:Person)-[:KNOWS]->(b:Person) "
+        "WHERE a.id = 0 RETURN b.id AS id, b.content AS content"
+    )
+    reader = engine.execute_batches(query)
+    first = reader.read_next_batch()
+    assert 0 < first.num_rows < n
+    # A live reader retains the old adjacency, including both copies of 0->1.
+    knows.delete("dst = 1")
+    engine.refresh()
+    assert engine.csr_stats()["KNOWS"]["tombstones"] == 2
+    counts = {}
+    for batch in chain([first], reader):
+        for row in batch.to_pylist():
+            assert row["content"] == content
+            counts[row["id"]] = counts.get(row["id"], 0) + 1
+    assert counts == {1: 2, **dict.fromkeys(range(2, n), 1)}
+    assert engine.execute(query).num_rows == n - 2
+
+    reader = engine.execute_batches(query)
+    reader.read_next_batch()
+    reader.close()
+    assert engine.execute(query).num_rows == n - 2
 
 
 def physical_plan(engine, query):

@@ -105,6 +105,8 @@ print(rows)  # 4
 
 - Batches are computed as you read them. Scans, filters and projections stream with bounded memory; joins,
   sorts and aggregations may still buffer their inputs.
+- CSR expansion visits neighbours and fetches their properties a chunk at a time, including when one node
+  has many neighbours. See [CSR memory cost](csr.md#turning-it-on) for what it keeps in memory.
 - Planning errors (a syntax error, an unknown label) raise immediately. Execution errors raise while reading.
 - The reader keeps its snapshot alive, so a concurrent [`refresh()`](lance.md#refresh) doesn't affect it.
 - Dropping the reader cancels the remaining work.
