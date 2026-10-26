@@ -289,7 +289,7 @@ a mixed-label value remains unsupported.
 A path value needs a query-local inventory of the participating node and relationship tables, including
 properties. It therefore materializes those tables, even with `use_csr=True`. Traversal output is emitted
 in batches and named ordinary paths keep a cursor per hop, but inventory memory grows with the graph.
-Queries asking only for shortest-path length or node keys, including homogeneous node-property
+Queries asking only for shortest-path length, node keys or path null checks, including homogeneous node-property
 comprehensions and paths carried through `WITH` aliases, retain the usual CSR execution route when
 the relationship joins the same node label. Cross-label shortest paths use typed identities even for
 length or node keys, so equal numeric keys from different labels cannot become a false zero-hop path.

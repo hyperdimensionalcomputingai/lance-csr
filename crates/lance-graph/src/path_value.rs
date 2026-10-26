@@ -4,7 +4,7 @@
 //! Arrow values for paths and their entities. Properties live in a marked child so
 //! user property names cannot collide with identity or endpoint metadata.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use arrow::array::{Array, ArrayRef, AsArray, Int64Array, ListArray, StructArray, UInt32Array};
@@ -123,6 +123,23 @@ pub(crate) fn paths_array(
     )))
 }
 
+/// Null tests need only the compact path's validity, not its entity inventory.
+fn mask_path_null_checks(predicate: &mut crate::ast::BooleanExpression, names: &HashSet<String>) {
+    use crate::ast::{BooleanExpression as B, PropertyValue, ValueExpression as V};
+    match predicate {
+        B::IsNull(value) | B::IsNotNull(value) if matches!(value, V::Variable(name) if names.contains(&name.to_lowercase())) =>
+        {
+            *value = V::Literal(PropertyValue::Null);
+        }
+        B::And(left, right) | B::Or(left, right) => {
+            mask_path_null_checks(left, names);
+            mask_path_null_checks(right, names);
+        }
+        B::Not(inner) => mask_path_null_checks(inner, names),
+        _ => {}
+    }
+}
+
 /// Homogeneous length/nodes queries, including WITH aliases, keep their CSR plan.
 /// Returned path values, relationship access and containers need actual path records.
 pub(crate) fn needs_values(
@@ -203,6 +220,22 @@ pub(crate) fn needs_values(
     let mut inspect = |expression: &V| {
         let mut value = expression.clone();
         crate::ast::transform_value(&mut value, &mut |v| match v {
+            V::Boolean(predicate) => mask_path_null_checks(predicate, &names),
+            V::Case { whens, .. } => {
+                for (predicate, _) in whens {
+                    mask_path_null_checks(predicate, &names);
+                }
+            }
+            V::ListComprehension {
+                filter: Some(predicate),
+                ..
+            }
+            | V::PatternComprehension {
+                filter: Some(predicate),
+                ..
+            } => {
+                mask_path_null_checks(predicate, &names);
+            }
             V::ScalarFunction { name, args }
                 if matches!(name.to_lowercase().as_str(), "length" | "nodes") =>
             {
@@ -299,6 +332,21 @@ mod tests {
         let prefix = "MATCH p = shortestPath((a:Person)-[:R*]-(b:Person)) ";
         for (suffix, rich) in [
             ("RETURN length(p), nodes(p)", false),
+            ("RETURN p IS NULL, p IS NOT NULL", false),
+            (
+                "RETURN CASE p IS NULL WHEN true THEN -1 ELSE length(p) END",
+                false,
+            ),
+            (
+                "RETURN CASE WHEN p IS NOT NULL THEN length(p) ELSE -1 END",
+                false,
+            ),
+            (
+                "WITH p AS q WHERE q IS NOT NULL OR NOT q IS NULL RETURN length(q)",
+                false,
+            ),
+            ("RETURN p, p IS NULL", true),
+            ("RETURN relationships(p) IS NULL", true),
             ("RETURN [n IN nodes(p) | n.id]", false),
             ("WITH p RETURN nodes(p)", false),
             (
