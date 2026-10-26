@@ -161,14 +161,18 @@ impl TraversalCursor {
             let next = (step.from == frame.label)
                 .then(|| {
                     step.adjacency
-                        .neighbors_from(frame.key, &mut frame.position)
+                        .candidates_from(frame.key, &mut frame.position)
                         .next()
                 })
                 .flatten();
-            let Some(key) = next.map(|n| n as i64) else {
-                frame.step += 1;
-                frame.position = NeighborPosition::default();
-                continue;
+            let key = match next {
+                Some(Some(key)) => key as i64,
+                Some(None) => continue,
+                None => {
+                    frame.step += 1;
+                    frame.position = NeighborPosition::default();
+                    continue;
+                }
             };
             if graph.nodes[step.to].position(key).is_none() {
                 continue;
@@ -269,6 +273,50 @@ mod tests {
         // Tag 1 and Class 1 are different nodes; no extra zero-hop Class 1 result.
         assert_eq!(out, vec![1, 1, 2, 2, 3, 3]);
         assert!(cursor.stack.is_empty());
+    }
+
+    #[tokio::test]
+    async fn cancellation_visits_raw_tombstones_before_returning_the_live_path() {
+        let (config, mut catalog) = graph().await;
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("src", DataType::Int64, false),
+            Field::new("dst", DataType::Int64, false),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(Int64Array::from(vec![1; 5000])),
+                Arc::new(Int64Array::from(vec![1; 5000])),
+            ],
+        )
+        .unwrap();
+        let stream = Box::pin(RecordBatchStreamAdapter::new(
+            schema,
+            futures::stream::iter(vec![Ok(batch)]),
+        ));
+        let base = Adjacency::build(stream, "src", "dst").await.unwrap();
+        catalog.insert(
+            "hasType",
+            true,
+            Arc::new(base.with_changes(&[], &vec![(1, 1); 4999])),
+        );
+        let walk = Traversal::new(
+            &config,
+            &catalog,
+            &["hasType".into()],
+            &RelationshipDirection::Outgoing,
+            "Tag",
+            "Class",
+            1,
+            1,
+        )
+        .unwrap();
+        let mut cursor = TraversalCursor::new(&walk, 1);
+        let mut next = Box::pin(cursor.next(&walk));
+        assert!(futures::poll!(next.as_mut()).is_pending());
+        drop(next);
+        assert_eq!(cursor.next(&walk).await, Some(1));
+        assert_eq!(cursor.next(&walk).await, None);
     }
 
     #[tokio::test]

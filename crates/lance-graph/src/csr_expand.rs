@@ -249,6 +249,7 @@ impl Adjacency {
     }
 
     /// Keep tombstones visible to cancellation without repeating lookups for every edge.
+    #[inline(always)]
     fn candidates_from<'a>(
         &'a self,
         key: i64,
@@ -258,12 +259,14 @@ impl Adjacency {
         let added = self.added.get(&key).map_or(&[][..], Vec::as_slice);
         let removed = self.removed.get(&key).map_or(&[][..], Vec::as_slice);
         let mut removed = &removed[removed.partition_point(|&position| position < *offset)..];
-        base.iter()
-            .chain(added)
-            .enumerate()
-            .skip(*offset)
-            .map(move |(position, &neighbor)| {
-                *offset = position + 1;
+        let added_offset = offset.saturating_sub(base.len());
+        base.get(*offset..)
+            .unwrap_or_default()
+            .iter()
+            .chain(added.get(added_offset..).unwrap_or_default())
+            .map(move |&neighbor| {
+                let position = *offset;
+                *offset += 1;
                 if removed.first() == Some(&position) {
                     removed = &removed[1..];
                     None
@@ -809,7 +812,7 @@ pub struct Neighbors {
 }
 
 /// Occurrence offsets are sufficient to pause even a high-degree source row.
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub(crate) struct NeighborPosition {
     forward: usize,
     reverse: usize,
@@ -835,6 +838,7 @@ impl Neighbors {
             .for_each(f);
     }
 
+    #[inline(always)]
     pub(crate) fn neighbors_from<'a>(
         &'a self,
         key: i64,
@@ -844,6 +848,7 @@ impl Neighbors {
     }
 
     /// Borrow each adjacency once while exposing tombstones and suppressed self-loops as work.
+    #[inline(always)]
     pub(crate) fn candidates_from<'a>(
         &'a self,
         key: i64,
@@ -1229,17 +1234,38 @@ impl BatchExpansion {
         batch_size: usize,
     ) -> ExpandedRows {
         let mut chunk = ExpandedRows::default();
+        loop {
+            if self.fill_chunk(adjacency, target, batch_size, &mut chunk) {
+                cooperative_yield().await;
+            }
+            if self.row == self.keys.len() || chunk.rows.len() == batch_size.max(1) {
+                return chunk;
+            }
+        }
+    }
+
+    /// Keep coroutine state outside the scan while counting deleted occurrences as work.
+    fn fill_chunk(
+        &mut self,
+        adjacency: &Neighbors,
+        target: Option<&TargetLookup>,
+        batch_size: usize,
+        chunk: &mut ExpandedRows,
+    ) -> bool {
+        let mut position = self.position;
+        let mut row = self.row;
         let mut work = 0_usize;
-        while self.row < self.keys.len() {
-            let i = self.row;
+        'rows: while row < self.keys.len() {
+            let i = row;
+            let previous_work = work;
             if self.keys.is_valid(i) && self.bound.as_ref().is_none_or(|b| b.is_valid(i)) {
                 let key = self.keys.value(i);
                 let required = self.bound.as_ref().map(|b| b.value(i));
-                for candidate in adjacency.candidates_from(key, &mut self.position) {
+                for candidate in adjacency
+                    .candidates_from(key, &mut position)
+                    .take(1024 - work)
+                {
                     work += 1;
-                    if work.is_multiple_of(1024) {
-                        cooperative_yield().await;
-                    }
                     let Some(neighbor) = candidate else {
                         continue;
                     };
@@ -1248,24 +1274,34 @@ impl BatchExpansion {
                         continue;
                     }
                     if let Some(target) = target {
-                        // No target row: the inner join would drop this edge too.
-                        let Some(position) = target.rows.position(neighbor) else {
+                        let Some(target_row) = target.rows.position(neighbor) else {
                             continue;
                         };
-                        chunk.target_positions.push(position);
+                        chunk.target_positions.push(target_row);
                     }
                     chunk.rows.push(i as u32);
                     chunk.key_values.push(key);
                     chunk.neighbor_values.push(neighbor);
                     if chunk.rows.len() == batch_size.max(1) {
-                        return chunk;
+                        break 'rows;
                     }
                 }
+                if work == 1024 {
+                    break;
+                }
             }
-            self.row += 1;
-            self.position = NeighborPosition::default();
+            if work == previous_work {
+                work += 1;
+            }
+            row += 1;
+            position = NeighborPosition::default();
+            if work == 1024 {
+                break;
+            }
         }
-        chunk
+        self.row = row;
+        self.position = position;
+        work == 1024
     }
 
     async fn next_path_chunk(
@@ -1275,7 +1311,12 @@ impl BatchExpansion {
         batch_size: usize,
     ) -> ExpandedRows {
         let mut chunk = ExpandedRows::default();
+        let mut source_work = 0_usize;
         while self.row < self.keys.len() {
+            source_work += 1;
+            if source_work.is_multiple_of(1024) {
+                cooperative_yield().await;
+            }
             let i = self.row;
             if self.keys.is_valid(i) && self.bound.as_ref().is_none_or(|b| b.is_valid(i)) {
                 let key = self.keys.value(i);
@@ -1938,6 +1979,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn resumed_neighbors_cross_the_base_and_delta_boundary() {
+        let base = Adjacency::build(
+            edge_stream(vec![Some(1), Some(1)], vec![Some(10), Some(11)]),
+            "src",
+            "dst",
+        )
+        .await
+        .unwrap();
+        let next = base.with_changes(&[(1, 12), (1, 12), (1, 13)], &[(1, 11), (1, 12)]);
+        for (mut offset, expected) in [
+            (0, vec![10, 12, 13]),
+            (1, vec![12, 13]),
+            (2, vec![12, 13]),
+            (3, vec![12, 13]),
+            (4, vec![13]),
+            (5, vec![]),
+            (6, vec![]),
+        ] {
+            assert_eq!(
+                next.neighbors_from(1, &mut offset).collect::<Vec<_>>(),
+                expected
+            );
+        }
+        assert_eq!(neighbors(&base, 1), vec![10, 11]);
+    }
+
+    #[tokio::test]
     async fn debug_output_does_not_grow_with_edges() {
         let n = 10_000;
         let adj = Adjacency::build(
@@ -2043,6 +2111,84 @@ mod tests {
             vec![3]
         );
         assert!(expansion.next_chunk(&adj, None, 1).await.rows.is_empty());
+    }
+
+    #[tokio::test]
+    async fn cancellation_without_edges_in_variable_paths_yields_between_source_rows() {
+        let config = crate::config::GraphConfig::builder()
+            .node_table("Person", "id")
+            .rel_table("KNOWS", "Person", "Person", "src", "dst")
+            .build()
+            .unwrap();
+        let nodes =
+            RecordBatch::try_from_iter([("id", Arc::new(Int64Array::from(vec![1])) as ArrayRef)])
+                .unwrap();
+        let mut catalog = AdjacencyCatalog::default();
+        catalog.insert_nodes(
+            "Person",
+            Arc::new(NodeRows::from_batch(nodes, "id").unwrap().unwrap()),
+        );
+        catalog.insert(
+            "KNOWS",
+            true,
+            Arc::new(
+                Adjacency::build(edge_stream(vec![], vec![]), "src", "dst")
+                    .await
+                    .unwrap(),
+            ),
+        );
+        let walk = crate::csr_traversal::Traversal::new(
+            &config,
+            &catalog,
+            &["KNOWS".into()],
+            &crate::ast::RelationshipDirection::Outgoing,
+            "Person",
+            "Person",
+            1,
+            1,
+        )
+        .unwrap();
+        let input = RecordBatch::try_from_iter([(
+            "id",
+            Arc::new(Int64Array::from(vec![1; 100_000])) as ArrayRef,
+        )])
+        .unwrap();
+        let mut expansion = BatchExpansion::try_new(input, 0, None).unwrap();
+        let mut next = Box::pin(expansion.next_path_chunk(&walk, None, 1));
+        assert!(futures::poll!(next.as_mut()).is_pending());
+        drop(next);
+        assert!(expansion.row > 0 && expansion.row <= 1024);
+        assert!(expansion
+            .next_path_chunk(&walk, None, 1)
+            .await
+            .rows
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn cancellation_without_edges_yields_while_skipping_source_rows() {
+        let adjacency = Neighbors::directed(Arc::new(
+            Adjacency::build(edge_stream(vec![Some(1)], vec![Some(2)]), "src", "dst")
+                .await
+                .unwrap(),
+        ));
+        for missing in [Some(99), None] {
+            let input = RecordBatch::try_from_iter([(
+                "id",
+                Arc::new(Int64Array::from(vec![missing; 100_000])) as ArrayRef,
+            )])
+            .unwrap();
+            let mut expansion = BatchExpansion::try_new(input, 0, None).unwrap();
+            let mut next = Box::pin(expansion.next_chunk(&adjacency, None, 1));
+            assert!(futures::poll!(next.as_mut()).is_pending());
+            drop(next);
+            assert!(expansion.row > 0 && expansion.row <= 1024);
+            assert!(expansion
+                .next_chunk(&adjacency, None, 1)
+                .await
+                .rows
+                .is_empty());
+        }
     }
 
     #[tokio::test]
