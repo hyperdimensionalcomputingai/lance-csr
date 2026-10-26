@@ -1,0 +1,4 @@
+
+# Preserve raw evidence CSV records and the verbatim reference query.
+contribution-evidence/issue-resolutions/**/*.csv whitespace=cr-at-eol
+contribution-evidence/issue-resolutions/correction-proofs/*.query.cypher whitespace=-blank-at-eol,-blank-at-eof
