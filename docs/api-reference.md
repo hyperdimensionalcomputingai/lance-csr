@@ -219,7 +219,7 @@ A parsed Cypher query. Raises `ValueError` if `query_text` doesn't parse. Builde
 
 `#!python to_sql(datasets: dict, dialect: SqlDialect | None = None) -> str`
 :   Exports supported expressions as SQL joins. Raises `NotImplementedError` for runtime-only Cypher
-    functions without a faithful SQL translation, and for typed-null literals outside the Default dialect. See [From Cypher to SQL](sql.md#from-cypher-to-sql).
+    functions without a faithful SQL translation. See [From Cypher to SQL](sql.md#from-cypher-to-sql).
 
 `#!python execute_with_vector_rerank(datasets: dict, vector_search: VectorSearch) -> pyarrow.Table`
 :   Runs the query, then reranks by vector similarity.

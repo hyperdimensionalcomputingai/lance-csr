@@ -100,15 +100,19 @@ def test_sql_export_rejects_runtime_only_cypher_functions(
     "dialect",
     [SqlDialect.Spark, SqlDialect.PostgreSql, SqlDialect.MySql, SqlDialect.Sqlite],
 )
-def test_sql_export_typed_null_requires_default_dialect(scalar_export_env, dialect):
+def test_sql_export_typed_null_is_bare_null_outside_default(scalar_export_env, dialect):
+    # Only the Default dialect has arrow_cast; elsewhere typed nulls export as NULL,
+    # so ordinary queries such as coalesce(..., null) keep exporting.
     config, datasets = scalar_export_env
-    query = CypherQuery("MATCH (p:Person) RETURN round(null) AS value").with_config(
-        config
-    )
-    with pytest.raises(NotImplementedError, match="SQL export of typed null Float64"):
-        query.to_sql(datasets, dialect)
-    bare_null = CypherQuery("MATCH (p:Person) RETURN null AS value").with_config(config)
-    assert "NULL" in bare_null.to_sql(datasets, dialect)
+    for text in [
+        "MATCH (p:Person) RETURN round(null) AS value",
+        "MATCH (p:Person) RETURN coalesce(p.text, null) AS value",
+        "MATCH (p:Person) RETURN CASE WHEN p.id > 1 THEN p.text ELSE null END AS value",
+        "MATCH (p:Person) RETURN null AS value",
+    ]:
+        sql = CypherQuery(text).with_config(config).to_sql(datasets, dialect)
+        assert "NULL" in sql.upper(), sql
+        assert "arrow_cast" not in sql, sql
 
 
 def test_sql_export_checks_filter_functions(scalar_export_env):

@@ -482,8 +482,7 @@ impl CypherQuery {
     ///
     /// # Errors
     /// Returns `GraphError::UnsupportedFeature` for runtime-only Cypher functions
-    /// without a faithful SQL translation or typed nulls outside the Default dialect.
-    /// Constant expressions may be folded first.
+    /// without a faithful SQL translation. Constant expressions may be folded first.
     pub async fn to_sql(
         &self,
         datasets: HashMap<String, arrow::record_batch::RecordBatch>,
@@ -542,14 +541,15 @@ impl CypherQuery {
                         }
                         if let Expr::Literal(value, _) = &expr {
                             let data_type = value.data_type();
-                            if value.is_null() && !data_type.is_null() {
-                                let type_name = data_type.to_string();
-                                if dialect != SqlDialect::Default
-                                    || !type_name.parse::<arrow_schema::DataType>().is_ok_and(|parsed| parsed == data_type)
-                                {
-                                    return not_impl_err!("SQL export of typed null {data_type} requires a faithful Default-dialect Arrow cast");
-                                }
-                                // The unparser emits bare NULL for typed nulls, losing their Arrow type.
+                            let type_name = data_type.to_string();
+                            // The unparser emits bare NULL for typed nulls, losing their Arrow type.
+                            // Only the Default dialect has arrow_cast; elsewhere bare NULL is the
+                            // closest SQL and yields the same null value, as exports always did.
+                            if value.is_null()
+                                && !data_type.is_null()
+                                && dialect == SqlDialect::Default
+                                && type_name.parse::<arrow_schema::DataType>().is_ok_and(|parsed| parsed == data_type)
+                            {
                                 return Ok(Transformed::yes(datafusion::functions::core::arrow_cast().call(vec![
                                     lit(ScalarValue::Null), lit(type_name),
                                 ])));

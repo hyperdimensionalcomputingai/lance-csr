@@ -90,8 +90,8 @@ Integer `abs` also normalizes its result to Int64 in Cypher, while SQL preserves
 Use `CypherQuery.execute` or `CypherEngine.execute` for these expressions.
 
 Constant-folded typed nulls use DataFusion `arrow_cast` in the Default dialect so their Arrow
-result types are preserved. Other dialects raise `NotImplementedError` for typed-null literals;
-a bare Cypher `null` remains an untyped SQL `NULL`.
+result types are preserved. Other dialects have no `arrow_cast`, so typed nulls export as a bare SQL
+`NULL`: the value is the same, but its column type is left to the target database.
 
 List `size` and inclusive `range` retain SQL export support through native expressions, including
 null arguments, integer casts and the optional range step. Constant expressions that the optimizer
