@@ -299,6 +299,22 @@ fn substitute_in_value_expression(
             }
             substitute_in_value_expression(map, parameters)?;
         }
+        ValueExpression::Reduce {
+            initial,
+            list,
+            expression,
+            ..
+        } => {
+            substitute_in_value_expression(initial, parameters)?;
+            substitute_in_value_expression(list, parameters)?;
+            substitute_in_value_expression(expression, parameters)?;
+        }
+        ValueExpression::ListPredicate {
+            list, predicate, ..
+        } => {
+            substitute_in_value_expression(list, parameters)?;
+            substitute_in_value_expression(predicate, parameters)?;
+        }
         ValueExpression::ListComprehension {
             list, filter, map, ..
         } => {

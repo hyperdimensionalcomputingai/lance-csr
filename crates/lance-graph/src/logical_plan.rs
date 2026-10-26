@@ -523,6 +523,22 @@ impl<'a> LogicalPlanner<'a> {
                     self.resolve_value(e);
                 }
             }
+            ValueExpression::Reduce {
+                initial,
+                list,
+                expression,
+                ..
+            } => {
+                self.resolve_value(initial);
+                self.resolve_value(list);
+                self.resolve_value(expression);
+            }
+            ValueExpression::ListPredicate {
+                list, predicate, ..
+            } => {
+                self.resolve_value(list);
+                self.resolve_value(predicate);
+            }
             ValueExpression::Boolean(b) => self.resolve_boolean(b),
             // A node inside a map keeps its properties (see `bind_value`), not just its id.
             ValueExpression::Map(entries) => entries
@@ -807,6 +823,80 @@ impl<'a> LogicalPlanner<'a> {
                 input = self.rewrite_exists_in_value(input, left)?;
                 self.rewrite_exists_in_value(input, right)
             }
+            ValueExpression::Reduce {
+                initial,
+                list,
+                expression,
+                ..
+            } => {
+                input = self.rewrite_exists_in_value(input, initial)?;
+                input = self.rewrite_exists_in_value(input, list)?;
+                self.rewrite_exists_in_value(input, expression)
+            }
+            ValueExpression::ListPredicate {
+                kind,
+                variable,
+                list,
+                predicate,
+            } if crate::ast::needs_relational_evaluation(predicate) => {
+                input = self.rewrite_exists_in_value(input, list)?;
+                let original_list = (**list).clone();
+                let mut map = (**predicate).clone();
+                // The relational comprehension supplies this iterator as a column. Restore
+                // inner lambda bindings after replacing references to the outer iterator.
+                crate::ast::transform_value(&mut map, &mut |value| match value {
+                    ValueExpression::LocalVariable(name) if name == variable => {
+                        *value = ValueExpression::Variable(name.clone());
+                    }
+                    ValueExpression::Field { base, field } if matches!(base.as_ref(), ValueExpression::Variable(name) if name == variable) =>
+                    {
+                        *value = ValueExpression::Property(PropertyRef::new(
+                            variable.clone(),
+                            field.clone(),
+                        ));
+                    }
+                    ValueExpression::Reduce {
+                        accumulator,
+                        variable,
+                        expression,
+                        ..
+                    } => {
+                        crate::ast::mark_locals(expression, &[accumulator, variable]);
+                    }
+                    ValueExpression::ListPredicate {
+                        variable,
+                        predicate,
+                        ..
+                    } => {
+                        crate::ast::mark_locals(predicate, &[variable]);
+                    }
+                    _ => {}
+                });
+                let mut comprehension = ValueExpression::ListComprehension {
+                    variable: variable.clone(),
+                    list: list.clone(),
+                    filter: None,
+                    map: Some(Box::new(map)),
+                };
+                input = self.rewrite_exists_in_value(input, &mut comprehension)?;
+                *expr = ValueExpression::Case {
+                    whens: vec![(
+                        BooleanExpression::IsNull(original_list),
+                        ValueExpression::Literal(PropertyValue::Null),
+                    )],
+                    otherwise: Some(Box::new(ValueExpression::ScalarFunction {
+                        name: format!("__predicate_{kind}"),
+                        args: vec![comprehension],
+                    })),
+                };
+                Ok(input)
+            }
+            ValueExpression::ListPredicate {
+                list, predicate, ..
+            } => {
+                input = self.rewrite_exists_in_value(input, list)?;
+                self.rewrite_exists_in_value(input, predicate)
+            }
             ValueExpression::Boolean(b) => self.rewrite_exists(input, b),
             ValueExpression::Map(entries) => {
                 for (_, v) in entries.iter_mut() {
@@ -1049,9 +1139,6 @@ impl<'a> LogicalPlanner<'a> {
                 }
             }
         }
-        if shared.is_empty() {
-            return Err(unsupported("without a variable bound by an earlier clause"));
-        }
         let mut keys = Vec::with_capacity(shared.len());
         for var in &shared {
             let label = &self.variables[var];
@@ -1068,11 +1155,28 @@ impl<'a> LogicalPlanner<'a> {
             let local = crate::pattern_order::pattern_variables(&clause.patterns);
             let mut scalars: Vec<String> = names
                 .into_iter()
-                .filter(|n| !self.variables.contains_key(*n) && !local.contains(*n))
+                .filter(|n| !local.contains(*n) && !shared.iter().any(|v| v == *n))
                 .map(str::to_string)
                 .collect();
             scalars.sort();
+            for variable in &scalars {
+                // Binding variables distinguish iterator contexts. Untracked aggregate
+                // captures can be re-evaluated in a different order by the seed plan.
+                if !self.variables.contains_key(variable) && !shared.is_empty() {
+                    continue;
+                }
+                keys.push(
+                    self.variables
+                        .get(variable)
+                        .and_then(|label| self.config.get_node_mapping(label))
+                        .map(|mapping| qualify_column(variable, &mapping.id_field))
+                        .unwrap_or_else(|| variable.to_lowercase()),
+                );
+            }
             carried.extend(scalars);
+        }
+        if carried.is_empty() {
+            return Err(unsupported("without a variable bound by an earlier clause"));
         }
         let seed = LogicalOperator::Distinct {
             input: Box::new(LogicalOperator::Project {

@@ -48,6 +48,9 @@ impl ScalarUDFImpl for CypherScalar {
         for (i, t) in types.iter().enumerate() {
             let valid = match self.name.as_str() {
                 "range" => t.is_integer(),
+                "__predicate_all" | "__predicate_any" | "__predicate_none"
+                | "__predicate_single" => list_field(t)
+                    .is_some_and(|f| matches!(f.data_type(), DataType::Boolean | DataType::Null)),
                 "keys" | "__entity_keys" => matches!(t, DataType::Struct(_)),
                 "labels" => false,
                 "size" | "reverse" => is_string(t) || list_field(t).is_some(),
@@ -60,6 +63,9 @@ impl ScalarUDFImpl for CypherScalar {
             }
         }
         Ok(match self.name.as_str() {
+            "__predicate_all" | "__predicate_any" | "__predicate_none" | "__predicate_single" => {
+                DataType::Boolean
+            }
             "size" => DataType::Int64,
             "range" => DataType::List(Arc::new(Field::new("item", DataType::Int64, true))),
             "split" | "keys" | "__entity_keys" | "labels" => {
@@ -84,6 +90,30 @@ impl ScalarUDFImpl for CypherScalar {
                 &output_type,
                 args.number_rows,
             )));
+        }
+        if let Some(kind) = self.name.strip_prefix("__predicate_") {
+            let input = args.args[0].to_array(args.number_rows)?;
+            let mut result = arrow::array::BooleanBuilder::with_capacity(input.len());
+            for row in 0..input.len() {
+                if input.is_null(row) {
+                    result.append_null();
+                    continue;
+                }
+                let values = match input.data_type() {
+                    DataType::List(_) => input.as_list::<i32>().value(row),
+                    DataType::LargeList(_) => input.as_list::<i64>().value(row),
+                    DataType::FixedSizeList(_, _) => input.as_fixed_size_list().value(row),
+                    _ => unreachable!("validated list predicate input"),
+                };
+                let values = cast(&values, &DataType::Boolean)?;
+                result.append_option(super::list_folds::predicate_result(
+                    kind,
+                    values.as_boolean(),
+                    0,
+                    values.len(),
+                ));
+            }
+            return Ok(ColumnarValue::Array(Arc::new(result.finish())));
         }
         if matches!(self.name.as_str(), "keys" | "__entity_keys") {
             let input = args.args[0].to_array(args.number_rows)?;

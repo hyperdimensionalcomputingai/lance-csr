@@ -425,7 +425,7 @@ impl SemanticAnalyzer {
             ValueExpression::Literal(_) => {
                 // Literals are always valid
             }
-            ValueExpression::Variable(var) => {
+            ValueExpression::Variable(var) | ValueExpression::LocalVariable(var) => {
                 // Use case-insensitive lookup
                 if !self.variables.contains_key_ci(var) {
                     return Err(GraphError::PlanError {
@@ -758,6 +758,32 @@ impl SemanticAnalyzer {
                 self.variables = before;
                 result?;
             }
+            ValueExpression::Reduce {
+                accumulator,
+                initial,
+                variable,
+                list,
+                expression,
+            } => {
+                self.analyze_value_expression(initial)?;
+                self.analyze_value_expression(list)?;
+                if accumulator.eq_ignore_ascii_case(variable) {
+                    return Err(GraphError::PlanError {
+                        message: "reduce accumulator and element variables must differ".to_string(),
+                        location: snafu::Location::new(file!(), line!(), column!()),
+                    });
+                }
+                self.analyze_lambda(&[accumulator, variable], expression, false)?;
+            }
+            ValueExpression::ListPredicate {
+                variable,
+                list,
+                predicate,
+                ..
+            } => {
+                self.analyze_value_expression(list)?;
+                self.analyze_lambda(&[variable], predicate, true)?;
+            }
             ValueExpression::ListComprehension {
                 variable,
                 list,
@@ -782,6 +808,34 @@ impl SemanticAnalyzer {
             }
         }
         Ok(())
+    }
+
+    fn analyze_lambda(
+        &mut self,
+        names: &[&String],
+        expression: &ValueExpression,
+        allow_patterns: bool,
+    ) -> Result<()> {
+        let before = self.variables.clone();
+        for name in names {
+            self.variables.remove(&name.to_lowercase());
+            self.register_projection_alias(name);
+        }
+        let mut unsupported =
+            !allow_patterns && crate::ast::needs_relational_evaluation(expression);
+        crate::ast::transform_value(&mut expression.clone(), &mut |value| {
+            unsupported |= matches!(value, ValueExpression::AggregateFunction { .. });
+        });
+        let result = if unsupported {
+            Err(GraphError::UnsupportedFeature {
+                feature: "graph expressions/comprehensions inside a reduce body, or aggregates inside a lambda body; compute the list before the body".to_string(),
+                location: snafu::Location::new(file!(), line!(), column!()),
+            })
+        } else {
+            self.analyze_value_expression(expression)
+        };
+        self.variables = before;
+        result
     }
 
     fn register_projection_alias(&mut self, alias: &str) {
