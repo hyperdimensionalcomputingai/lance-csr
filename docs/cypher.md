@@ -179,7 +179,8 @@ implemented; `ExecutionStrategy.LanceNative` is reserved and raises an error.
 
 The Graph Data Council (GDC), formerly known as the Linked Data Benchmark Council (LDBC), maintains the
 [GDC SNB Interactive](https://ldbcouncil.org/benchmarks/snb/) complex queries. lance-csr implements a large
-read-only subset of openCypher, enough to run all 14 (IC14 without `reduce()`).
+read-only subset of openCypher. The tables below specify its supported surface; relationship-path
+operations needed by the unchanged IC14 query are not yet supported.
 
 ### Clauses
 
@@ -260,7 +261,9 @@ RETURN length(p), nodes(p)
 | Aggregates | `count` (including `count(*)` and `count(DISTINCT x)`), `sum`, `avg`, `min`, `max`, `collect` (including `DISTINCT`; skips nulls) |
 | Strings | `toLower` / `lower`, `toUpper` / `upper`, `toString`, `left`, `right`, `substring`, `replace`, `split`, `trim`, `lTrim`, `rTrim`, `reverse`, `size` |
 | Conversion | `toInteger`, `toFloat`, `coalesce` |
-| Lists | `size`, `head`, `last`, `tail`, `reverse`, `range(start, end [, step])` (inclusive) |
+| Properties | `keys(map)`, `keys(node)`, `keys(relationship)`, `labels(node)` |
+| Lists | `size`, `head`, `last`, `tail`, `reverse`, `range(start, end [, step])` (inclusive), `reduce` |
+| List predicates | `all`, `any`, `none`, `single` |
 | Math | `abs`, `round`, `floor`, `ceil`, `sqrt` |
 | Temporal | `date`, `datetime`, `date_part('month', d)`, `to_epoch_ms`, `duration.inSeconds(a, b).seconds` |
 | Paths | `length(p)`, `nodes(p)` on `shortestPath` variables |
@@ -303,9 +306,62 @@ result = engine.execute("RETURN abs(-5) AS magnitude, round(-1.5) AS rounded, sq
 print(result.to_pylist())  # [{'magnitude': 5, 'rounded': -1.0, 'root': 3.0}]
 ```
 
+`keys` returns the field names in a map, including keys with null values. For a node or relationship,
+it returns its exposed, non-null property names, including the ID or endpoint columns already exposed
+by the engine. Property names use the engine's normalized column spelling. Key order is not guaranteed.
+`keys({})` returns an empty list. `labels(node)` returns the canonical label configured for that node,
+even if the query spells it differently. Both functions preserve aliases carried through `WITH` and
+return null for a missing entity from `OPTIONAL MATCH`.
+
+!!! note "Labels on mixed-label bindings"
+
+    `labels(p)` supports a binding with one configured label. A pattern such as
+    `(p:Person:City)` is rejected with a mixed-label error, including after `WITH p AS x`.
+    The engine does not retain each row's label after this union. It never guesses a label from an ID
+    that might occur in both tables.
+
+```python
+result = engine.execute("""
+    MATCH (p:Person {name: 'Alice'}) WITH p AS person
+    RETURN labels(person) AS labels, size(keys(person)) AS properties
+""")
+print(result.to_pylist())  # [{'labels': ['Person'], 'properties': 3}]
+```
+
 Any other function raises `ValueError` with `Cypher function 'name' is not implemented`. This is a
-bounded function set, not a claim of full Cypher conformance. Remaining functions include `keys`,
-`labels`, `reduce`, the list predicates `any` / `all` / `none` / `single`, and `relationships(p)`.
+bounded function set, not a claim of full Cypher conformance. `relationships(p)` is not supported.
+
+### Ordered reduce and list predicates
+
+`reduce(total = initial, item IN list | expression)` evaluates the expression once per element in
+list order. Each step sees the previous accumulator value. An empty list returns the initial value;
+a null list returns null. Null elements are passed to the expression, so use `coalesce` if you want
+to replace them. The accumulator and iterator names are local to the body: the initial value and
+list still refer to outer variables. The accumulator must keep a compatible Arrow type; integer
+initial values can promote to floating point when the expression requires it.
+
+```python
+result = engine.execute("""
+    RETURN reduce(total = 0, item IN [1, 2, 3] | total * 10 + item) AS ordered,
+           all(item IN [1, 2, 3] WHERE item > 0) AS positive,
+           single(item IN [1, 2, 3] WHERE item = 2) AS exactly_one
+""")
+print(result.to_pylist())  # [{'ordered': 123, 'positive': True, 'exactly_one': True}]
+```
+
+The list predicates use `function(item IN list WHERE predicate)` syntax. `all` requires every
+predicate result to be true, `any` requires at least one, `none` requires no true results, and
+`single` requires exactly one. For an empty list, `all` and `none` are true; `any` and `single` are
+false. A null list returns null. A null predicate result makes the answer null unless a known result
+already decides it: false decides `all`, true decides `any` and `none`, and two true results decide
+`single`. Predicates can inspect null elements explicitly with `item IS NULL`.
+
+Both forms can capture outer values and nest scalar folds or predicates. List predicates also
+support correlated graph predicates such as `EXISTS { MATCH ... }`. A reduce input can be a list
+comprehension, pattern comprehension, or `collect(...)`; its body supports scalar expressions but
+rejects graph patterns, comprehensions, and aggregation. Compute such a list before the body.
+These semantics follow the pinned [Cypher 4.4 list reference](https://neo4j.com/docs/cypher-manual/4.4/functions/list/#functions-reduce)
+and [predicate reference](https://neo4j.com/docs/cypher-manual/4.4/functions/predicate/).
 
 ### Example: a little of everything
 
