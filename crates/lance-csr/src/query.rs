@@ -1862,7 +1862,7 @@ mod tests {
         assert_eq!(query.execute(data(2), None).await.unwrap().num_rows(), 0);
         assert!(query
             .clone()
-            .with_parameter("value", "wrong")
+            .with_parameter("value", true)
             .execute(data(1), None)
             .await
             .unwrap_err()

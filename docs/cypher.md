@@ -538,6 +538,8 @@ aggregation and `OPTIONAL MATCH`.
 | `RuntimeError` | Execution fails, for example when a Lance dataset can't be read. |
 
 Known comparison and arithmetic types are checked against the current dataset schemas before planning.
-For example, comparing a string property with a number reports the expression and both types in a
-`ValueError`. Mixed numeric types and supported date/timestamp coercions remain valid. Types that cannot
-be determined in the current scope are left to the planner, so these checks are not a complete type system.
+For example, adding a number to a string property reports the expression and both types in a
+`ValueError`. Mixed numeric types and supported date/timestamp coercions remain valid. Comparing a string
+with a number is allowed: DataFusion casts the string side, so `p.age = '40'` matches an age of 40, and a
+string that isn't a number raises a `RuntimeError` when the query runs. Types that cannot be determined in
+the current scope are left to the planner, so these checks are not a complete type system.

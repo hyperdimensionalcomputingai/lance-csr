@@ -38,11 +38,6 @@ def engine(request):
 @pytest.mark.parametrize(
     ("query", "expression", "types"),
     [
-        (
-            "MATCH (p:Person) WHERE p.name = 1 RETURN p.id",
-            "p.name = 1",
-            ("Utf8", "Int64"),
-        ),
         ("MATCH (p:Person) RETURN p + 1", "p + 1", ("Node", "Int64")),
         (
             "MATCH (p:Person) WITH p.name AS value RETURN value * 2",
@@ -58,11 +53,6 @@ def engine(request):
         (
             "MATCH (p:Person) RETURN [p IN [p.name] | p + 1]",
             "p + 1",
-            ("Utf8", "Int64"),
-        ),
-        (
-            "MATCH (p:Person)-[r:KNOWS]->(q:Person) WHERE r.label = 1 RETURN q.id",
-            "r.label = 1",
             ("Utf8", "Int64"),
         ),
     ],
@@ -101,18 +91,30 @@ def test_comprehension_shadow_does_not_change_outer_type(engine):
     "query",
     [
         "RETURN left('12', 1) + 1",
-        "RETURN abs(1) = '1'",
-        "WITH sqrt(4) AS value RETURN value = '2'",
         "WITH split('1,2', ',') AS values UNWIND values AS value RETURN value + 1",
         "RETURN last(reverse(['1'])) + 1",
         "WITH tail(['1', '2']) AS values UNWIND values AS value RETURN value + 1",
-        "UNWIND keys({one: 1}) AS key RETURN key = 1",
-        "MATCH (p:Person) UNWIND labels(p) AS label RETURN label = 1",
     ],
 )
-def test_scalar_return_types_reject_string_numeric_coercion(engine, query):
+def test_scalar_return_types_reject_string_numeric_arithmetic(engine, query):
     with pytest.raises(ValueError, match="Type mismatch"):
         engine.execute(query)
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        ("RETURN abs(1) = '1' AS same", [{"same": True}]),
+        ("WITH sqrt(4) AS value RETURN value = '2' AS same", [{"same": True}]),
+        (
+            "MATCH (p:Person) WHERE p.age = '40' RETURN p.name AS name",
+            [{"name": "Bob"}],
+        ),
+    ],
+)
+def test_string_numeric_comparisons_coerce_as_before(engine, query, expected):
+    # DataFusion casts the string side of a string-number comparison.
+    assert engine.execute(query).to_pylist() == expected
 
 
 @pytest.mark.parametrize(

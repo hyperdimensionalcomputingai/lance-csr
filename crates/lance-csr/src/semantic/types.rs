@@ -227,22 +227,11 @@ impl SemanticAnalyzer {
                 | Operator::GtEq
         );
         let compatible = match (&left_type, &right_type) {
-            (Scalar(left), Scalar(right)) => {
-                let string_numeric = (left.is_numeric()
-                    && matches!(
-                        right,
-                        DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View
-                    ))
-                    || (right.is_numeric()
-                        && matches!(
-                            left,
-                            DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View
-                        ));
-                !string_numeric
-                    && BinaryTypeCoercer::new(left, &operator, right)
-                        .get_result_type()
-                        .is_ok()
-            }
+            // DataFusion decides scalar compatibility; it casts the string side of a
+            // string-number comparison, as queries did before this check existed.
+            (Scalar(left), Scalar(right)) => BinaryTypeCoercer::new(left, &operator, right)
+                .get_result_type()
+                .is_ok(),
             (Entity(left, _), Entity(right, _)) => comparison && left == right,
             // Collection comparison rules remain with the planner; arithmetic on entities does not.
             (Entity(..), _) | (_, Entity(..)) => false,
@@ -367,7 +356,6 @@ mod tests {
     #[test]
     fn rejects_known_operand_types_in_their_scope() {
         for (query, expression, types) in [
-            ("MATCH (p:Person) WHERE p.name = 1 RETURN p.id", "p.name = 1", ["Utf8", "Int64"]),
             ("MATCH (p:Person) RETURN p + 1", "p + 1", ["Node", "Int64"]),
             ("MATCH (p:Person) WITH p.name AS value RETURN value * 2", "value * 2", ["Utf8", "Int64"]),
             ("MATCH (p:Person) WITH collect(p.name) AS names UNWIND names AS name RETURN name / 2", "name / 2", ["Utf8", "Int64"]),
@@ -383,16 +371,23 @@ mod tests {
     fn scalar_return_types_follow_with_and_unwind_scopes() {
         for query in [
             "RETURN left('12', 1) + 1",
-            "RETURN abs(1) = '1'",
-            "WITH sqrt(4) AS value RETURN value = '2'",
             "WITH split('1,2', ',') AS values UNWIND values AS value RETURN value + 1",
             "RETURN last(reverse(['1'])) + 1",
             "WITH tail(['1','2']) AS values UNWIND values AS value RETURN value + 1",
-            "UNWIND keys({one: 1}) AS key RETURN key = 1",
-            "MATCH (p:Person) UNWIND labels(p) AS label RETURN label = 1",
         ] {
             let errors = analyze(query).errors.join("\n");
             assert!(errors.contains("Type mismatch"), "{query}: {errors}");
+        }
+        // String-number comparisons are left to DataFusion, which casts the string side.
+        for query in [
+            "RETURN abs(1) = '1'",
+            "WITH sqrt(4) AS value RETURN value = '2'",
+            "UNWIND keys({one: 1}) AS key RETURN key = 1",
+            "MATCH (p:Person) UNWIND labels(p) AS label RETURN label = 1",
+            "MATCH (p:Person) WHERE p.name = 1 RETURN p.id",
+        ] {
+            let errors = analyze(query).errors.join("\n");
+            assert!(!errors.contains("Type mismatch"), "{query}: {errors}");
         }
     }
 

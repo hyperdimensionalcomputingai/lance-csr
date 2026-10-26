@@ -80,7 +80,7 @@ def test_cached_query_still_rejects_missing_or_wrong_types(engine):
     with pytest.raises(ValueError, match="[Pp]arameter"):
         engine.execute(query)
     with pytest.raises(ValueError, match="Type mismatch"):
-        engine.execute(query, {"id": "wrong"})
+        engine.execute(query, {"id": True})
 
 
 @pytest.mark.parametrize(
