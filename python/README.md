@@ -223,7 +223,7 @@ Re-run `make install` after changing Rust code; Python changes apply immediately
 
 ## Repository layout
 
-- `crates/lance-graph-python/src/` – PyO3 bridge that exposes graph APIs to Python
+- `crates/lance-csr-python/src/` – PyO3 bridge that exposes graph APIs to Python
 - `python/python/lance_csr/` – pure-Python wrapper and `__init__`
 - `python/benchmarks/` – catalog-reuse and bounded-memory benchmarks
 - `python/python/tests/` – graph-centric functional tests

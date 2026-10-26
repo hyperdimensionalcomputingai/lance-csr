@@ -11,7 +11,7 @@ flowchart LR
     B --> C["5–6<br/>DataFusion plan, execute"] --> R["Arrow batches"]
 ```
 
-Source paths below are in `crates/lance-graph/src/`.
+Source paths below are in `crates/lance-csr/src/`.
 
 1. **Parse** (`parser.rs`). The query text becomes an abstract syntax tree. Syntax errors raise
    `ValueError` here.

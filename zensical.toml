@@ -33,6 +33,7 @@ nav = [
     { "Vector search" = "vector-search.md" },
     { "SQL queries" = "sql.md" },
   ] },
+  { "Using from Rust" = "rust.md" },
   { "How it works" = "execution.md" },
   { "API reference" = "api-reference.md" },
   { "Benchmarks" = "benchmarks.md" },
@@ -114,6 +115,10 @@ pymdownx.inlinehilite = {}
 pymdownx.keys = {}
 pymdownx.mark = {}
 pymdownx.smartsymbols = {}
+# Rust examples are included from compiled files; a missing file or section fails the build.
+pymdownx.snippets.base_path = ["."]
+pymdownx.snippets.check_paths = true
+pymdownx.snippets.dedent_subsections = true
 pymdownx.superfences.custom_fences = [
   { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
 ]

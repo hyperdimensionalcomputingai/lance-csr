@@ -11,7 +11,8 @@ The benchmark runners and raw results live in two sibling repositories, next to 
 every number on this page can be reproduced from there. lance-csr runs with `use_csr=True` in two modes: *in
 memory* holds every table as Arrow in memory; *lazy* reads the Lance datasets from disk as queries need them (see
 [Lance datasets](lance.md)). Neo4j runs as a server in a Docker VM; the other engines run embedded in the Python
-process.
+process. All numbers were measured through the Python package; the Rust crate runs the same engine and has no
+separate benchmark results.
 
 The tables are generated from the repositories' committed results by `docs/sync_benchmarks.py`, which pins each
 repository to a commit.

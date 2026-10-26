@@ -1,17 +1,17 @@
 # Project structure
 
-lance-csr is a Cargo workspace with Python bindings. The Rust crates keep the `lance-graph*` names of the project
-it was forked from.
+lance-csr is a Cargo workspace with Python bindings. The Rust crates are named `lance-csr*`; the engine and
+catalog crates are published on crates.io.
 
 ```
 .
-├── Cargo.toml                    # Workspace: lance-graph, lance-graph-catalog, lance-graph-benches
+├── Cargo.toml                    # Workspace: lance-csr, lance-csr-catalog, lance-csr-benches
 ├── crates/
-│   ├── lance-graph/              # The engine: Cypher parser, semantic analysis, logical planner,
+│   ├── lance-csr/                # The engine: Cypher parser, semantic analysis, logical planner,
 │   │                             # DataFusion planner, CSR index and traversal operators
-│   ├── lance-graph-catalog/      # Graph source catalog and DirNamespace
-│   ├── lance-graph-python/       # PyO3 bindings (built by maturin; outside the workspace)
-│   └── lance-graph-benches/      # Criterion benchmarks (not published)
+│   ├── lance-csr-catalog/        # Graph source catalog and DirNamespace
+│   ├── lance-csr-python/         # PyO3 bindings (built by maturin; outside the workspace)
+│   └── lance-csr-benches/        # Criterion benchmarks (not published)
 ├── python/
 │   ├── pyproject.toml            # The lance-csr package, built with maturin
 │   ├── python/lance_csr/         # Python package that wraps the bindings
@@ -22,7 +22,7 @@ it was forked from.
 └── docs/                         # Documentation
 ```
 
-A query goes through four stages, all in `crates/lance-graph/src/`:
+A query goes through four stages, all in `crates/lance-csr/src/`:
 
 1. **Parse** (`parser.rs`) the Cypher text into an AST (`ast.rs`).
 2. **Analyze** (`semantic.rs`) variables and scopes, and substitute parameters.
