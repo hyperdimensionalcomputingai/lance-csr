@@ -30,13 +30,13 @@
 //! # }
 //! ```
 
-use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, RwLock};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::{Arc, Mutex, RwLock};
 
 use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
 use datafusion::datasource::{DefaultTableSource, MemTable, TableProvider};
-use datafusion::execution::context::SessionContext;
+use datafusion::execution::context::{SessionConfig, SessionContext};
 use datafusion::execution::session_state::SessionStateBuilder;
 use datafusion::execution::SendableRecordBatchStream;
 use futures::StreamExt;
@@ -165,6 +165,8 @@ pub struct NodeIndexStats {
 /// keep the `Arc` they started with, so they finish on their original snapshot.
 struct EngineState {
     sources: HashMap<String, EngineSource>,
+    /// Unoptimized plan templates for this snapshot; a refresh starts an empty cache.
+    plans: Mutex<VecDeque<CachedQuery>>,
     catalog: Arc<dyn GraphSourceCatalog>,
     context: SessionContext,
     /// CSR adjacencies by relationship type; empty unless the engine uses CSR.
@@ -173,6 +175,36 @@ struct EngineState {
     node_index: HashMap<String, NodeIndexEntry>,
     /// Join-key distinct counts by dataset name, reported to DataFusion's join planner.
     key_stats: HashMap<String, KeyStatsEntry>,
+}
+
+/// Plan templates kept per snapshot.
+const PLAN_CACHE_ENTRIES: usize = 128;
+
+/// A small LRU of unoptimized plans. Values are bound after lookup, before optimization.
+struct CachedQuery {
+    text: String,
+    parameter_types: Vec<(String, u8)>,
+    query: CypherQuery,
+}
+
+// Containers change expression shape; keep them on the uncached path.
+fn parameter_types(parameters: &HashMap<String, JsonValue>) -> Option<Vec<(String, u8)>> {
+    let mut types = parameters
+        .iter()
+        .map(|(name, value)| {
+            let kind = match value {
+                JsonValue::Null => 0,
+                JsonValue::Bool(_) => 1,
+                JsonValue::String(_) => 2,
+                JsonValue::Number(value) if value.is_i64() => 3,
+                JsonValue::Number(value) if value.is_f64() => 4,
+                _ => return None,
+            };
+            Some((name.clone(), kind))
+        })
+        .collect::<Option<Vec<_>>>()?;
+    types.sort_unstable();
+    Some(types)
 }
 
 /// Distinct counts for one dataset's node-id and edge-endpoint columns.
@@ -216,6 +248,10 @@ struct CsrEntry {
 /// Raising it makes refreshes slower as well as lookups.
 // shortcut: fixed threshold, chosen from python/benchmarks/csr_delta_accumulated.py; tune per workload if deltas grow large.
 const CSR_REBUILD_FRACTION: f64 = 0.25;
+
+/// Upper bound for `target_partitions`: far above any core count, below values whose
+/// per-partition setup would exhaust memory instead of returning an error.
+pub const MAX_TARGET_PARTITIONS: usize = 1024;
 
 /// Apply the edge changes between `old`'s snapshot and `source` as a delta.
 ///
@@ -378,12 +414,18 @@ async fn build_engine_state(
     config: &GraphConfig,
     sources: HashMap<String, EngineSource>,
     use_csr: bool,
+    target_partitions: Option<usize>,
     previous: Option<&EngineState>,
 ) -> Result<EngineState> {
+    let mut session_config = SessionConfig::new();
+    if let Some(partitions) = target_partitions {
+        session_config = session_config.with_target_partitions(partitions);
+    }
     // The CSR planner only changes plans that contain CSR nodes, so install it always.
     let ctx = SessionContext::new_with_state(
         SessionStateBuilder::new()
             .with_default_features()
+            .with_config(session_config)
             .with_query_planner(Arc::new(CsrQueryPlanner))
             // Move target-only filters into CSR nodes first, so pruning can then drop
             // the filter columns from the take.
@@ -445,6 +487,7 @@ async fn build_engine_state(
     }
     Ok(EngineState {
         sources,
+        plans: Mutex::default(),
         catalog: Arc::new(catalog),
         context: ctx,
         csr,
@@ -750,6 +793,7 @@ pub struct CypherEngine {
     config: GraphConfig,
     state: RwLock<Arc<EngineState>>,
     use_csr: bool,
+    target_partitions: Option<usize>,
     /// Held for a whole refresh, so a slower refresh can't swap in older data over a newer one.
     refresh_lock: futures::lock::Mutex<()>,
 }
@@ -771,14 +815,41 @@ impl CypherEngine {
         sources: HashMap<String, EngineSource>,
         use_csr: bool,
     ) -> Result<Self> {
+        Self::with_target_partitions(config, sources, use_csr, None).await
+    }
+
+    /// Like [`new`](Self::new), with a target for DataFusion query partitioning.
+    ///
+    /// `Some(n)` sets DataFusion's `target_partitions` for every query, kept across
+    /// [`refresh`](Self::refresh); `None` keeps DataFusion's default (the number of
+    /// cores). It is not a thread or memory limit. In-memory Arrow inputs are still
+    /// sliced into one partition per core.
+    ///
+    /// # Errors
+    /// As [`new`](Self::new), plus [`GraphError::ConfigError`] if `target_partitions`
+    /// is outside `1..=1024`.
+    pub async fn with_target_partitions(
+        config: GraphConfig,
+        sources: HashMap<String, EngineSource>,
+        use_csr: bool,
+        target_partitions: Option<usize>,
+    ) -> Result<Self> {
         if sources.is_empty() {
             return Err(config_error("No input datasets provided".to_string()));
         }
-        let state = build_engine_state(&config, sources, use_csr, None).await?;
+        if let Some(partitions) = target_partitions {
+            if !(1..=MAX_TARGET_PARTITIONS).contains(&partitions) {
+                return Err(config_error(format!(
+                    "target_partitions must be between 1 and {MAX_TARGET_PARTITIONS}"
+                )));
+            }
+        }
+        let state = build_engine_state(&config, sources, use_csr, target_partitions, None).await?;
         Ok(Self {
             config,
             state: RwLock::new(Arc::new(state)),
             use_csr,
+            target_partitions,
             refresh_lock: Default::default(),
         })
     }
@@ -791,21 +862,62 @@ impl CypherEngine {
             .clone()
     }
 
+    /// Parse and configure a query, reusing this snapshot's plan template when
+    /// `use_cache` is set and every parameter is a scalar.
     fn parse(
         &self,
-        query: &str,
+        text: &str,
         params: HashMap<String, JsonValue>,
         state: &EngineState,
+        use_cache: bool,
     ) -> Result<CypherQuery> {
-        let query = CypherQuery::new(query)?
-            .with_parameters(params)
+        let parameters: HashMap<String, JsonValue> = params
+            .into_iter()
+            .map(|(name, value)| (name.to_lowercase(), value))
+            .collect();
+        let key = use_cache.then(|| parameter_types(&parameters)).flatten();
+        if let Some(key) = &key {
+            let mut plans = state.plans.lock().expect("plan cache lock poisoned");
+            if let Some(index) = plans
+                .iter()
+                .position(|entry| entry.text == text && entry.parameter_types == *key)
+            {
+                let entry = plans.remove(index).expect("index from position");
+                let query = entry.query.clone().with_parameters(parameters);
+                plans.push_back(entry);
+                return Ok(query);
+            }
+        }
+        let query = CypherQuery::new(text)?
+            .with_parameters(parameters)
             .with_config(self.config.clone())
             .with_fan_out(state.fan_out());
-        Ok(if self.use_csr {
+        let mut query = if self.use_csr {
             query.with_adjacency(state.adjacency_catalog())
         } else {
             query
-        })
+        };
+        if let Some(parameter_types) = key {
+            // Some operators require literal values during planning. If a template
+            // cannot be built, ordinary planning preserves their existing behavior.
+            if query
+                .prepare_cached_plan(state.catalog.clone())
+                .unwrap_or(false)
+            {
+                let mut plans = state.plans.lock().expect("plan cache lock poisoned");
+                plans
+                    .retain(|entry| entry.text != text || entry.parameter_types != parameter_types);
+                if plans.len() == PLAN_CACHE_ENTRIES {
+                    plans.pop_front();
+                }
+                plans.push_back(CachedQuery {
+                    text: text.to_string(),
+                    parameter_types,
+                    query: query.clone(),
+                });
+            }
+        }
+        Ok(query)
     }
 
     /// Execute a Cypher query and return the whole result as one batch.
@@ -818,7 +930,7 @@ impl CypherEngine {
         params: HashMap<String, JsonValue>,
     ) -> Result<RecordBatch> {
         let state = self.snapshot();
-        self.parse(query, params, &state)?
+        self.parse(query, params, &state, true)?
             .execute_with_catalog_and_context(state.catalog.clone(), state.context.clone())
             .await
     }
@@ -836,7 +948,7 @@ impl CypherEngine {
         params: HashMap<String, JsonValue>,
     ) -> Result<SendableRecordBatchStream> {
         let state = self.snapshot();
-        self.parse(query, params, &state)?
+        self.parse(query, params, &state, true)?
             .execute_stream_with_catalog_and_context(state.catalog.clone(), state.context.clone())
             .await
     }
@@ -844,7 +956,7 @@ impl CypherEngine {
     /// Return the query plan, including the physical plan with pushed-down scans.
     pub async fn explain(&self, query: &str, params: HashMap<String, JsonValue>) -> Result<String> {
         let state = self.snapshot();
-        self.parse(query, params, &state)?
+        self.parse(query, params, &state, false)?
             .explain_with_catalog_and_context(state.catalog.clone(), state.context.clone())
             .await
     }
@@ -855,7 +967,11 @@ impl CypherEngine {
         query: &str,
         vector_search: &VectorSearch,
     ) -> Result<RecordBatch> {
-        let candidates = self.execute(query, HashMap::new()).await?;
+        let state = self.snapshot();
+        let candidates = self
+            .parse(query, HashMap::new(), &state, false)?
+            .execute_with_catalog_and_context(state.catalog.clone(), state.context.clone())
+            .await?;
         vector_search.search(&candidates).await
     }
 
@@ -883,7 +999,14 @@ impl CypherEngine {
                 }
             }
         }
-        let state = build_engine_state(&self.config, sources, self.use_csr, Some(&current)).await?;
+        let state = build_engine_state(
+            &self.config,
+            sources,
+            self.use_csr,
+            self.target_partitions,
+            Some(&current),
+        )
+        .await?;
         *self.state.write().expect("engine state lock poisoned") = Arc::new(state);
         Ok(())
     }
@@ -949,6 +1072,133 @@ mod tests {
     use arrow_array::{Int64Array, RecordBatchIterator};
     use arrow_schema::{DataType, Field, Schema};
     use lance::dataset::{WriteMode, WriteParams};
+
+    fn people_engine_sources() -> HashMap<String, EngineSource> {
+        let batch = RecordBatch::try_from_iter([(
+            "id",
+            Arc::new(Int64Array::from(vec![1, 2, 3])) as arrow_array::ArrayRef,
+        )])
+        .unwrap();
+        HashMap::from([("Person".to_string(), EngineSource::Arrow(batch))])
+    }
+
+    fn person_config() -> GraphConfig {
+        GraphConfig::builder()
+            .node_table("Person", "id")
+            .build()
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn target_partitions_survive_refresh_without_changing_other_defaults() {
+        let defaults = SessionConfig::new();
+        for target_partitions in [None, Some(1), Some(2)] {
+            let engine = CypherEngine::with_target_partitions(
+                person_config(),
+                people_engine_sources(),
+                false,
+                target_partitions,
+            )
+            .await
+            .unwrap();
+            let before = engine.snapshot();
+            engine.refresh().await.unwrap();
+            for snapshot in [before, engine.snapshot()] {
+                let state = snapshot.context.state();
+                assert_eq!(
+                    state.config().target_partitions(),
+                    target_partitions.unwrap_or(defaults.target_partitions())
+                );
+                assert_eq!(
+                    state.config().round_robin_repartition(),
+                    defaults.round_robin_repartition()
+                );
+            }
+        }
+        for out_of_range in [0, MAX_TARGET_PARTITIONS + 1] {
+            let result = CypherEngine::with_target_partitions(
+                person_config(),
+                people_engine_sources(),
+                false,
+                Some(out_of_range),
+            )
+            .await;
+            assert!(matches!(result, Err(GraphError::ConfigError { .. })));
+        }
+    }
+
+    #[tokio::test]
+    async fn plan_cache_reuses_bounds_and_resets_on_refresh() {
+        let engine = CypherEngine::new(person_config(), people_engine_sources(), false)
+            .await
+            .unwrap();
+        let snapshot = engine.snapshot();
+        let cached = || snapshot.plans.lock().unwrap().len();
+        let text = "MATCH (p:Person) WHERE p.id = $value RETURN p.id";
+        for value in [1, 2, 3] {
+            let params = HashMap::from([("value".to_string(), JsonValue::from(value))]);
+            engine.parse(text, params, &snapshot, true).unwrap();
+            assert_eq!(cached(), 1);
+            // The retained template keeps its first parameters: later calls looked it
+            // up and rebound values rather than replacing the entry.
+            assert_eq!(
+                snapshot.plans.lock().unwrap()[0].query.parameters()["value"],
+                JsonValue::from(1)
+            );
+        }
+        // A different scalar type is a different template.
+        for value in [JsonValue::Null, JsonValue::from(1.5)] {
+            let params = HashMap::from([("value".to_string(), value)]);
+            engine.parse(text, params, &snapshot, true).unwrap();
+        }
+        assert_eq!(cached(), 3);
+        // Container parameters stay on the uncached path.
+        let ids = HashMap::from([("ids".to_string(), serde_json::json!([1, 2]))]);
+        engine
+            .parse(
+                "MATCH (p:Person) WHERE p.id IN $ids RETURN p.id",
+                ids,
+                &snapshot,
+                true,
+            )
+            .unwrap();
+        assert_eq!(cached(), 3);
+        // Explain-style parses never cache.
+        engine
+            .parse(
+                "MATCH (p:Person) RETURN p.id",
+                HashMap::new(),
+                &snapshot,
+                false,
+            )
+            .unwrap();
+        assert_eq!(cached(), 3);
+        for limit in 0..130 {
+            let text = format!("MATCH (p:Person) RETURN p.id AS id LIMIT {limit}");
+            engine
+                .parse(&text, HashMap::new(), &snapshot, true)
+                .unwrap();
+        }
+        assert_eq!(cached(), PLAN_CACHE_ENTRIES);
+        assert!(snapshot
+            .plans
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|e| e.text != text));
+
+        // Cached and uncached plans return the same rows.
+        let params = || HashMap::from([("value".to_string(), JsonValue::from(2))]);
+        let first = engine.execute(text, params()).await.unwrap();
+        let again = engine.execute(text, params()).await.unwrap();
+        assert_eq!(first, again);
+        assert_eq!(first.num_rows(), 1);
+
+        // A refresh publishes a new snapshot with an empty cache; the old one is untouched.
+        engine.refresh().await.unwrap();
+        assert!(engine.snapshot().plans.lock().unwrap().is_empty());
+        assert_eq!(cached(), PLAN_CACHE_ENTRIES);
+    }
 
     async fn write_people(uri: &str, ids: Vec<i64>, mode: WriteMode) {
         let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)]));

@@ -35,7 +35,7 @@ use std::sync::Arc;
 use arrow::array::{
     new_empty_array, Array, ArrayRef, AsArray, Int64Array, RecordBatch, UInt32Array, UInt64Array,
 };
-use arrow::compute::{cast, take};
+use arrow::compute::{cast, filter as filter_array, take};
 use arrow::datatypes::{DataType, Field, Int64Type, Schema, SchemaRef};
 use async_trait::async_trait;
 use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
@@ -60,6 +60,21 @@ use datafusion::physical_planner::{DefaultPhysicalPlanner, ExtensionPlanner, Phy
 use futures::StreamExt;
 use lance::dataset::{Dataset, ProjectionRequest};
 use lance_table::format::Fragment;
+
+/// Yield after bounded CPU work without requiring a particular async runtime.
+pub(crate) async fn cooperative_yield() {
+    let mut yielded = false;
+    std::future::poll_fn(|cx| {
+        if yielded {
+            std::task::Poll::Ready(())
+        } else {
+            yielded = true;
+            cx.waker().wake_by_ref();
+            std::task::Poll::Pending
+        }
+    })
+    .await
+}
 
 /// Lance's row-address column (`lance_core::ROW_ADDR`, not re-exported by `lance`).
 const ROW_ADDR: &str = "_rowaddr";
@@ -230,6 +245,16 @@ impl Adjacency {
         key: i64,
         offset: &'a mut usize,
     ) -> impl Iterator<Item = u64> + 'a {
+        self.candidates_from(key, offset).flatten()
+    }
+
+    /// Keep tombstones visible to cancellation without repeating lookups for every edge.
+    #[inline(always)]
+    fn candidates_from<'a>(
+        &'a self,
+        key: i64,
+        offset: &'a mut usize,
+    ) -> impl Iterator<Item = Option<u64>> + 'a {
         let base = self.base_neighbors(key);
         let added = self.added.get(&key).map_or(&[][..], Vec::as_slice);
         let removed = self.removed.get(&key).map_or(&[][..], Vec::as_slice);
@@ -239,7 +264,7 @@ impl Adjacency {
             .unwrap_or_default()
             .iter()
             .chain(added.get(added_offset..).unwrap_or_default())
-            .filter_map(move |&neighbor| {
+            .map(move |&neighbor| {
                 let position = *offset;
                 *offset += 1;
                 if removed.first() == Some(&position) {
@@ -491,6 +516,8 @@ pub struct NodeRows {
     schema: SchemaRef,
     /// Index of the id column in `schema`; its values are reconstructed, never fetched.
     id_index: usize,
+    #[cfg(test)]
+    fetched_cells: std::sync::atomic::AtomicUsize,
 }
 
 enum NodeData {
@@ -533,6 +560,8 @@ impl NodeRows {
             data: NodeData::Lance(dataset),
             schema,
             id_index,
+            #[cfg(test)]
+            fetched_cells: std::sync::atomic::AtomicUsize::new(0),
         }))
     }
 
@@ -551,6 +580,8 @@ impl NodeRows {
             schema: batch.schema(),
             data: NodeData::Memory(batch),
             id_index,
+            #[cfg(test)]
+            fetched_cells: std::sync::atomic::AtomicUsize::new(0),
         }))
     }
 
@@ -558,7 +589,7 @@ impl NodeRows {
         self.positions.len()
     }
 
-    fn position(&self, id: i64) -> Option<u64> {
+    pub(crate) fn position(&self, id: i64) -> Option<u64> {
         self.positions.get(&id).copied()
     }
 
@@ -574,6 +605,11 @@ impl NodeRows {
                 .map(|&c| new_empty_array(self.schema.field(c).data_type()))
                 .collect());
         }
+        #[cfg(test)]
+        self.fetched_cells.fetch_add(
+            positions.len() * columns.len(),
+            std::sync::atomic::Ordering::Relaxed,
+        );
         match &self.data {
             NodeData::Lance(dataset) => {
                 let names = columns.iter().map(|&c| self.schema.field(c).name());
@@ -777,7 +813,7 @@ pub struct Neighbors {
 
 /// Occurrence offsets are sufficient to pause even a high-degree source row.
 #[derive(Clone, Copy, Default)]
-struct NeighborPosition {
+pub(crate) struct NeighborPosition {
     forward: usize,
     reverse: usize,
 }
@@ -803,21 +839,31 @@ impl Neighbors {
     }
 
     #[inline(always)]
-    fn neighbors_from<'a>(
+    pub(crate) fn neighbors_from<'a>(
         &'a self,
         key: i64,
         position: &'a mut NeighborPosition,
     ) -> impl Iterator<Item = u64> + 'a {
-        let forward = self.forward.neighbors_from(key, &mut position.forward);
+        self.candidates_from(key, position).flatten()
+    }
+
+    /// Borrow each adjacency once while exposing tombstones and suppressed self-loops as work.
+    #[inline(always)]
+    pub(crate) fn candidates_from<'a>(
+        &'a self,
+        key: i64,
+        position: &'a mut NeighborPosition,
+    ) -> impl Iterator<Item = Option<u64>> + 'a {
+        let forward = self.forward.candidates_from(key, &mut position.forward);
         let reverse = self
             .reverse
             .as_ref()
-            .map(|r| r.neighbors_from(key, &mut position.reverse));
+            .map(|r| r.candidates_from(key, &mut position.reverse));
         forward.chain(
             reverse
                 .into_iter()
                 .flatten()
-                .filter(move |&n| n as i64 != key),
+                .map(move |candidate| candidate.filter(|&n| n as i64 != key)),
         )
     }
 
@@ -864,6 +910,7 @@ pub struct CsrExpandNode {
     /// Closing edge: input column holding the already-bound target id. Only neighbours
     /// equal to it are kept, replacing a filter after a full expansion.
     closing_column: Option<String>,
+    traversal: Option<Arc<crate::csr_traversal::Traversal>>,
     schema: DFSchemaRef,
 }
 
@@ -893,6 +940,7 @@ impl CsrExpandNode {
             target,
             target_filter: None,
             closing_column: None,
+            traversal: None,
             schema: Arc::new(schema),
         })
     }
@@ -900,6 +948,11 @@ impl CsrExpandNode {
     /// Keep only neighbours equal to the bound target id in `column` (a closing edge).
     pub fn with_closing_column(mut self, column: String) -> Self {
         self.closing_column = Some(column);
+        self
+    }
+
+    pub(crate) fn with_traversal(mut self, traversal: crate::csr_traversal::Traversal) -> Self {
+        self.traversal = Some(Arc::new(traversal));
         self
     }
 
@@ -915,6 +968,7 @@ impl CsrExpandNode {
         )?;
         node.target_filter = self.target_filter.clone();
         node.closing_column = self.closing_column.clone();
+        node.traversal = self.traversal.clone();
         Ok(node)
     }
 
@@ -970,6 +1024,11 @@ impl PartialEq for CsrExpandNode {
             }
             && self.target_filter == other.target_filter
             && self.closing_column == other.closing_column
+            && match (&self.traversal, &other.traversal) {
+                (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+                (None, None) => true,
+                _ => false,
+            }
     }
 }
 impl Eq for CsrExpandNode {}
@@ -1072,6 +1131,9 @@ impl UserDefinedLogicalNodeCore for CsrExpandNode {
         if let Some(column) = &self.closing_column {
             write!(f, ", match={}", column)?;
         }
+        if let Some(walk) = &self.traversal {
+            write!(f, ", iterative hops={}..{}", walk.min_hops, walk.max_hops)?;
+        }
         Ok(())
     }
 
@@ -1096,6 +1158,7 @@ pub struct CsrExpandExec {
     /// The moved target filter, if any.
     target_filter: Option<CompiledTargetFilter>,
     closing_column: Option<String>,
+    traversal: Option<Arc<crate::csr_traversal::Traversal>>,
     schema: SchemaRef,
     properties: Arc<PlanProperties>,
 }
@@ -1109,6 +1172,7 @@ impl CsrExpandExec {
         target: Option<TargetLookup>,
         target_filter: Option<CompiledTargetFilter>,
         closing_column: Option<String>,
+        traversal: Option<Arc<crate::csr_traversal::Traversal>>,
         schema: SchemaRef,
     ) -> Self {
         let properties = Arc::new(PlanProperties::new(
@@ -1124,6 +1188,7 @@ impl CsrExpandExec {
             target,
             target_filter,
             closing_column,
+            traversal,
             schema,
             properties,
         }
@@ -1137,6 +1202,7 @@ struct BatchExpansion {
     bound: Option<Int64Array>,
     row: usize,
     position: NeighborPosition,
+    walk: Option<crate::csr_traversal::TraversalCursor>,
 }
 
 impl BatchExpansion {
@@ -1156,31 +1222,117 @@ impl BatchExpansion {
             bound,
             row: 0,
             position: NeighborPosition::default(),
+            walk: None,
         })
     }
 
     /// Collect only the next chunk; target properties are fetched after this returns.
-    fn next_chunk(
+    async fn next_chunk(
         &mut self,
         adjacency: &Neighbors,
         target: Option<&TargetLookup>,
         batch_size: usize,
     ) -> ExpandedRows {
         let mut chunk = ExpandedRows::default();
+        loop {
+            if self.fill_chunk(adjacency, target, batch_size, &mut chunk) {
+                cooperative_yield().await;
+            }
+            if self.row == self.keys.len() || chunk.rows.len() == batch_size.max(1) {
+                return chunk;
+            }
+        }
+    }
+
+    /// Keep coroutine state outside the scan while counting deleted occurrences as work.
+    fn fill_chunk(
+        &mut self,
+        adjacency: &Neighbors,
+        target: Option<&TargetLookup>,
+        batch_size: usize,
+        chunk: &mut ExpandedRows,
+    ) -> bool {
         let mut position = self.position;
         let mut row = self.row;
+        let mut work = 0_usize;
         'rows: while row < self.keys.len() {
             let i = row;
+            let previous_work = work;
             if self.keys.is_valid(i) && self.bound.as_ref().is_none_or(|b| b.is_valid(i)) {
                 let key = self.keys.value(i);
                 let required = self.bound.as_ref().map(|b| b.value(i));
-                for neighbor in adjacency.neighbors_from(key, &mut position) {
+                for candidate in adjacency
+                    .candidates_from(key, &mut position)
+                    .take(1024 - work)
+                {
+                    work += 1;
+                    let Some(neighbor) = candidate else {
+                        continue;
+                    };
                     let neighbor = neighbor as i64;
                     if required.is_some_and(|r| r != neighbor) {
                         continue;
                     }
                     if let Some(target) = target {
-                        // No target row: the inner join would drop this edge too.
+                        let Some(target_row) = target.rows.position(neighbor) else {
+                            continue;
+                        };
+                        chunk.target_positions.push(target_row);
+                    }
+                    chunk.rows.push(i as u32);
+                    chunk.key_values.push(key);
+                    chunk.neighbor_values.push(neighbor);
+                    if chunk.rows.len() == batch_size.max(1) {
+                        break 'rows;
+                    }
+                }
+                if work == 1024 {
+                    break;
+                }
+            }
+            if work == previous_work {
+                work += 1;
+            }
+            row += 1;
+            position = NeighborPosition::default();
+            if work == 1024 {
+                break;
+            }
+        }
+        self.row = row;
+        self.position = position;
+        work == 1024
+    }
+
+    async fn next_path_chunk(
+        &mut self,
+        graph: &crate::csr_traversal::Traversal,
+        target: Option<&TargetLookup>,
+        batch_size: usize,
+    ) -> ExpandedRows {
+        let mut chunk = ExpandedRows::default();
+        let mut source_work = 0_usize;
+        while self.row < self.keys.len() {
+            source_work += 1;
+            if source_work.is_multiple_of(1024) {
+                cooperative_yield().await;
+            }
+            let i = self.row;
+            if self.keys.is_valid(i) && self.bound.as_ref().is_none_or(|b| b.is_valid(i)) {
+                let key = self.keys.value(i);
+                let walk = self
+                    .walk
+                    .get_or_insert_with(|| crate::csr_traversal::TraversalCursor::new(graph, key));
+                let mut candidates = 0usize;
+                while let Some(neighbor) = walk.next(graph).await {
+                    candidates += 1;
+                    if candidates.is_multiple_of(1024) {
+                        cooperative_yield().await;
+                    }
+                    if self.bound.as_ref().is_some_and(|b| b.value(i) != neighbor) {
+                        continue;
+                    }
+                    if let Some(target) = target {
                         let Some(position) = target.rows.position(neighbor) else {
                             continue;
                         };
@@ -1190,15 +1342,13 @@ impl BatchExpansion {
                     chunk.key_values.push(key);
                     chunk.neighbor_values.push(neighbor);
                     if chunk.rows.len() == batch_size.max(1) {
-                        break 'rows;
+                        return chunk;
                     }
                 }
             }
-            row += 1;
-            position = NeighborPosition::default();
+            self.row += 1;
+            self.walk = None;
         }
-        self.row = row;
-        self.position = position;
         chunk
     }
 }
@@ -1227,15 +1377,40 @@ async fn materialize(
         mut neighbor_values,
         mut target_positions,
     } = expanded;
+    let mut reused = Vec::new();
     if let (Some(target), Some(filter)) = (target, target_filter) {
         // Take only the filter's columns, evaluate, and keep passing rows before
         // taking anything else. Null counts as false, as in a WHERE clause.
-        let taken = target
+        let fetch: Vec<_> = filter
+            .columns
+            .iter()
+            .copied()
+            .filter(|&c| c != target.rows.id_index)
+            .collect();
+        let mut taken = target
             .rows
-            .take(&target_positions, &filter.columns)
+            .take(&target_positions, &fetch)
             .await
-            .map_err(|e| datafusion::common::DataFusionError::External(Box::new(e)))?;
-        let candidates = RecordBatch::try_new(filter.schema.clone(), taken)?;
+            .map_err(|e| datafusion::common::DataFusionError::External(Box::new(e)))?
+            .into_iter();
+        let arrays = filter
+            .columns
+            .iter()
+            .enumerate()
+            .map(|(i, &c)| {
+                if c == target.rows.id_index {
+                    cast(
+                        &Int64Array::from(neighbor_values.clone()),
+                        filter.schema.field(i).data_type(),
+                    )
+                } else {
+                    Ok(taken
+                        .next()
+                        .expect("one fetched array per non-id filter column"))
+                }
+            })
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let candidates = RecordBatch::try_new(filter.schema.clone(), arrays)?;
         let mask = filter
             .predicate
             .evaluate(&candidates)?
@@ -1244,6 +1419,11 @@ async fn materialize(
         let keep: Vec<bool> = (0..mask.len())
             .map(|i| mask.is_valid(i) && mask.value(i))
             .collect();
+        for (i, &column) in filter.columns.iter().enumerate() {
+            if column != target.rows.id_index && target.columns.contains(&column) {
+                reused.push((column, filter_array(candidates.column(i), mask)?));
+            }
+        }
         retain_by_mask(&mut rows, &keep);
         retain_by_mask(&mut key_values, &keep);
         retain_by_mask(&mut neighbor_values, &keep);
@@ -1268,7 +1448,7 @@ async fn materialize(
             .columns
             .iter()
             .copied()
-            .filter(|&c| c != id_index)
+            .filter(|&c| c != id_index && !reused.iter().any(|(column, _)| *column == c))
             .collect();
         let mut fetched = target
             .rows
@@ -1280,6 +1460,8 @@ async fn materialize(
             // The target id equals the neighbour value, so it is never fetched.
             columns.push(if c == id_index {
                 cast(&neighbor_values, field.data_type())?
+            } else if let Some((_, array)) = reused.iter().find(|(column, _)| *column == c) {
+                array.clone()
             } else {
                 fetched.next().expect("one fetched array per non-id column")
             });
@@ -1314,6 +1496,9 @@ impl DisplayAs for CsrExpandExec {
         if let Some(column) = &self.closing_column {
             write!(f, ", match={}", column)?;
         }
+        if let Some(walk) = &self.traversal {
+            write!(f, ", iterative hops={}..{}", walk.min_hops, walk.max_hops)?;
+        }
         Ok(())
     }
 }
@@ -1332,6 +1517,9 @@ impl ExecutionPlan for CsrExpandExec {
         use datafusion::common::stats::Precision;
         let input = self.input.partition_statistics(partition)?;
         let mut stats = datafusion::common::Statistics::new_unknown(&self.schema);
+        if self.traversal.is_some() {
+            return Ok(Arc::new(stats));
+        }
         let degree = self.adjacency.mean_degree();
         stats.num_rows = match input.num_rows {
             Precision::Exact(n) | Precision::Inexact(n) => {
@@ -1365,6 +1553,7 @@ impl ExecutionPlan for CsrExpandExec {
             self.target.clone(),
             self.target_filter.clone(),
             self.closing_column.clone(),
+            self.traversal.clone(),
             self.schema.clone(),
         )))
     }
@@ -1388,6 +1577,7 @@ impl ExecutionPlan for CsrExpandExec {
         let schema = self.schema.clone();
         let out_schema = schema.clone();
         let batch_size = context.session_config().batch_size();
+        let traversal = self.traversal.clone();
         // Keep one input and one materialization in flight per partition. A hub's
         // remaining neighbours stay in the immutable adjacency until the next poll.
         let stream = futures::stream::try_unfold((input, None), move |(mut input, mut pending)| {
@@ -1397,6 +1587,7 @@ impl ExecutionPlan for CsrExpandExec {
                 target_filter.clone(),
                 schema.clone(),
             );
+            let traversal = traversal.clone();
             async move {
                 loop {
                     if pending.is_none() {
@@ -1406,7 +1597,18 @@ impl ExecutionPlan for CsrExpandExec {
                         pending = Some(BatchExpansion::try_new(batch?, key_index, closing_index)?);
                     }
                     let expansion = pending.as_mut().expect("input batch just set");
-                    let chunk = expansion.next_chunk(&adjacency, target.as_deref(), batch_size);
+                    let chunk = match &traversal {
+                        Some(walk) => {
+                            expansion
+                                .next_path_chunk(walk, target.as_deref(), batch_size)
+                                .await
+                        }
+                        None => {
+                            expansion
+                                .next_chunk(&adjacency, target.as_deref(), batch_size)
+                                .await
+                        }
+                    };
                     if chunk.rows.is_empty() {
                         pending = None;
                         continue;
@@ -1441,6 +1643,20 @@ impl ExtensionPlanner for CsrExtensionPlanner {
         physical_inputs: &[Arc<dyn ExecutionPlan>],
         session_state: &SessionState,
     ) -> datafusion::common::Result<Option<Arc<dyn ExecutionPlan>>> {
+        if let Some(node) = node.as_any().downcast_ref::<crate::apply::ApplyNode>() {
+            return Ok(Some(crate::apply::plan_apply(
+                node,
+                physical_inputs,
+                session_state,
+            )));
+        }
+        if let Some(node) = node
+            .as_any()
+            .downcast_ref::<crate::path_match::PathMatchNode>()
+        {
+            return crate::path_match::plan_path_match(node, physical_inputs, session_state)
+                .map(Some);
+        }
         if let Some(node) = node
             .as_any()
             .downcast_ref::<crate::shortest_path::ShortestPathNode>()
@@ -1464,13 +1680,14 @@ impl ExtensionPlanner for CsrExtensionPlanner {
             node.target.clone(),
             target_filter,
             node.closing_column.clone(),
+            node.traversal.clone(),
             Arc::new(node.schema.as_arrow().clone()),
         ))))
     }
 }
 
 /// Query planner that adds [`CsrExtensionPlanner`]; install it on any
-/// `SessionContext` that executes plans built with an [`AdjacencyCatalog`].
+/// `SessionContext` that executes plans built with an [`AdjacencyCatalog`] or CALL subqueries.
 #[derive(Debug, Default)]
 pub struct CsrQueryPlanner;
 
@@ -1873,21 +2090,170 @@ mod tests {
         ]));
         let adj = Neighbors::directed(Arc::new(adj));
         let mut expansion = BatchExpansion::try_new(input.clone(), 0, None).unwrap();
-        let chunk = expansion.next_chunk(&adj, None, 8192);
+        let chunk = expansion.next_chunk(&adj, None, 8192).await;
         let out = materialize(&input, chunk, None, None, &out_schema)
             .await
             .unwrap();
         assert_eq!(out.num_rows(), 2);
         let dst = out.column(2).as_primitive::<arrow::datatypes::Int32Type>();
         assert_eq!(dst.values().to_vec(), vec![2, 3]);
-        assert!(expansion.next_chunk(&adj, None, 8192).rows.is_empty());
+        assert!(expansion.next_chunk(&adj, None, 8192).await.rows.is_empty());
         // Output is split at `batch_size` rows.
         let mut expansion = BatchExpansion::try_new(input, 0, None).unwrap();
-        assert_eq!(expansion.next_chunk(&adj, None, 1).neighbor_values, vec![2]);
+        assert_eq!(
+            expansion.next_chunk(&adj, None, 1).await.neighbor_values,
+            vec![2]
+        );
         assert_eq!(expansion.row, 0);
         assert_eq!(expansion.position.forward, 1);
-        assert_eq!(expansion.next_chunk(&adj, None, 1).neighbor_values, vec![3]);
-        assert!(expansion.next_chunk(&adj, None, 1).rows.is_empty());
+        assert_eq!(
+            expansion.next_chunk(&adj, None, 1).await.neighbor_values,
+            vec![3]
+        );
+        assert!(expansion.next_chunk(&adj, None, 1).await.rows.is_empty());
+    }
+
+    #[tokio::test]
+    async fn cancellation_without_edges_in_variable_paths_yields_between_source_rows() {
+        let config = crate::config::GraphConfig::builder()
+            .node_table("Person", "id")
+            .rel_table("KNOWS", "Person", "Person", "src", "dst")
+            .build()
+            .unwrap();
+        let nodes =
+            RecordBatch::try_from_iter([("id", Arc::new(Int64Array::from(vec![1])) as ArrayRef)])
+                .unwrap();
+        let mut catalog = AdjacencyCatalog::default();
+        catalog.insert_nodes(
+            "Person",
+            Arc::new(NodeRows::from_batch(nodes, "id").unwrap().unwrap()),
+        );
+        catalog.insert(
+            "KNOWS",
+            true,
+            Arc::new(
+                Adjacency::build(edge_stream(vec![], vec![]), "src", "dst")
+                    .await
+                    .unwrap(),
+            ),
+        );
+        let walk = crate::csr_traversal::Traversal::new(
+            &config,
+            &catalog,
+            &["KNOWS".into()],
+            &crate::ast::RelationshipDirection::Outgoing,
+            "Person",
+            "Person",
+            1,
+            1,
+        )
+        .unwrap();
+        let input = RecordBatch::try_from_iter([(
+            "id",
+            Arc::new(Int64Array::from(vec![1; 100_000])) as ArrayRef,
+        )])
+        .unwrap();
+        let mut expansion = BatchExpansion::try_new(input, 0, None).unwrap();
+        let mut next = Box::pin(expansion.next_path_chunk(&walk, None, 1));
+        assert!(futures::poll!(next.as_mut()).is_pending());
+        drop(next);
+        assert!(expansion.row > 0 && expansion.row <= 1024);
+        assert!(expansion
+            .next_path_chunk(&walk, None, 1)
+            .await
+            .rows
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn cancellation_without_edges_yields_while_skipping_source_rows() {
+        let adjacency = Neighbors::directed(Arc::new(
+            Adjacency::build(edge_stream(vec![Some(1)], vec![Some(2)]), "src", "dst")
+                .await
+                .unwrap(),
+        ));
+        for missing in [Some(99), None] {
+            let input = RecordBatch::try_from_iter([(
+                "id",
+                Arc::new(Int64Array::from(vec![missing; 100_000])) as ArrayRef,
+            )])
+            .unwrap();
+            let mut expansion = BatchExpansion::try_new(input, 0, None).unwrap();
+            let mut next = Box::pin(expansion.next_chunk(&adjacency, None, 1));
+            assert!(futures::poll!(next.as_mut()).is_pending());
+            drop(next);
+            assert!(expansion.row > 0 && expansion.row <= 1024);
+            assert!(expansion
+                .next_chunk(&adjacency, None, 1)
+                .await
+                .rows
+                .is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn expansion_yields_before_scanning_all_rejected_neighbors() {
+        let adj = Neighbors::directed(Arc::new(
+            Adjacency::build(
+                edge_stream(vec![Some(1); 100_000], (2..100_002).map(Some).collect()),
+                "src",
+                "dst",
+            )
+            .await
+            .unwrap(),
+        ));
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Int64, false),
+            Field::new("bound", DataType::Int64, false),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(Int64Array::from(vec![1])),
+                Arc::new(Int64Array::from(vec![-1])),
+            ],
+        )
+        .unwrap();
+        let mut expansion = BatchExpansion::try_new(batch, 0, Some(1)).unwrap();
+        let mut next = Box::pin(expansion.next_chunk(&adj, None, 1));
+        assert!(futures::poll!(next.as_mut()).is_pending());
+        drop(next);
+        assert!(expansion.position.forward <= 1024);
+        assert!(expansion.position.forward > 0);
+    }
+
+    #[tokio::test]
+    async fn expansion_yields_and_resumes_through_a_long_tombstone_run() {
+        let n = 5_000;
+        let base = Adjacency::build(
+            edge_stream(vec![Some(1); n], (2..n as i64 + 2).map(Some).collect()),
+            "src",
+            "dst",
+        )
+        .await
+        .unwrap();
+        let removed = (2..n as i64 + 1).map(|id| (1, id)).collect::<Vec<_>>();
+        let adjacency = Neighbors::directed(Arc::new(base.with_changes(&[], &removed)));
+        let input =
+            RecordBatch::try_from_iter([("id", Arc::new(Int64Array::from(vec![1])) as ArrayRef)])
+                .unwrap();
+        let mut expansion = BatchExpansion::try_new(input, 0, None).unwrap();
+        let mut next = Box::pin(expansion.next_chunk(&adjacency, None, 1));
+        assert!(futures::poll!(next.as_mut()).is_pending());
+        drop(next);
+        assert_eq!(expansion.position.forward, 1024);
+        assert_eq!(
+            expansion
+                .next_chunk(&adjacency, None, 1)
+                .await
+                .neighbor_values,
+            vec![n as i64 + 1]
+        );
+        assert!(expansion
+            .next_chunk(&adjacency, None, 1)
+            .await
+            .rows
+            .is_empty());
     }
 
     #[tokio::test]
@@ -1906,7 +2272,7 @@ mod tests {
             RecordBatch::try_from_iter([("id", Arc::new(Int64Array::from(vec![0])) as ArrayRef)])
                 .unwrap();
         let mut expansion = BatchExpansion::try_new(input, 0, None).unwrap();
-        let chunk = expansion.next_chunk(&adj, None, 32);
+        let chunk = expansion.next_chunk(&adj, None, 32).await;
         assert_eq!(
             chunk.neighbor_values,
             (2..=64).step_by(2).collect::<Vec<_>>()
@@ -1915,7 +2281,10 @@ mod tests {
         // The rest of the hub, including its tombstones, has not been visited.
         assert_eq!(expansion.row, 0);
         assert_eq!(expansion.position.forward, 64);
-        assert_eq!(expansion.next_chunk(&adj, None, 32).neighbor_values[0], 66);
+        assert_eq!(
+            expansion.next_chunk(&adj, None, 32).await.neighbor_values[0],
+            66
+        );
         assert_eq!(neighbors(&base, 0).len(), n);
     }
 
@@ -1950,13 +2319,14 @@ mod tests {
         );
         let mut expansion = BatchExpansion::try_new(input, 0, Some(1)).unwrap();
         for _ in 0..2 {
-            let chunk = expansion.next_chunk(&adjacency, Some(&target), 1);
+            let chunk = expansion.next_chunk(&adjacency, Some(&target), 1).await;
             assert_eq!(chunk.rows, vec![0]);
             assert_eq!(chunk.neighbor_values, vec![2]);
             assert_eq!(chunk.target_positions, vec![0]);
         }
         assert!(expansion
             .next_chunk(&adjacency, Some(&target), 1)
+            .await
             .rows
             .is_empty());
     }
@@ -1983,5 +2353,132 @@ mod tests {
         assert_eq!(both.neighbors_from(2, &mut position).next(), Some(1));
         assert_eq!(both.neighbors_from(2, &mut position).next(), Some(1));
         assert_eq!(both.neighbors_from(2, &mut position).next(), None);
+    }
+
+    #[tokio::test]
+    async fn materialization_reuses_filter_columns_for_memory_and_lance() {
+        use arrow::array::{RecordBatchIterator, StringArray};
+        use datafusion::logical_expr::{col, lit};
+        use std::sync::atomic::Ordering;
+
+        let nodes = RecordBatch::try_from_iter([
+            (
+                "id",
+                Arc::new(Int64Array::from(vec![10, 20, 30, 40])) as ArrayRef,
+            ),
+            (
+                "age",
+                Arc::new(Int64Array::from(vec![Some(2), None, Some(5), Some(1)])) as ArrayRef,
+            ),
+            (
+                "name",
+                Arc::new(StringArray::from(vec!["ten", "twenty", "thirty", "forty"])) as ArrayRef,
+            ),
+            (
+                "unused",
+                Arc::new(StringArray::from(vec!["unused payload"; 4])) as ArrayRef,
+            ),
+        ])
+        .unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("nodes.lance");
+        let reader = RecordBatchIterator::new(vec![Ok(nodes.clone())], nodes.schema());
+        let dataset = Dataset::write(
+            reader,
+            path.to_str().unwrap(),
+            None::<lance::dataset::WriteParams>,
+        )
+        .await
+        .unwrap();
+        let sources = [
+            NodeRows::from_batch(nodes.clone(), "id").unwrap().unwrap(),
+            NodeRows::from_lance(Arc::new(dataset), "id")
+                .await
+                .unwrap()
+                .unwrap(),
+        ];
+        let input = RecordBatch::try_from_iter([(
+            "a__id",
+            Arc::new(Int64Array::from(vec![999])) as ArrayRef,
+        )])
+        .unwrap();
+        let state = datafusion::execution::context::SessionContext::new().state();
+        for source in sources {
+            let source = Arc::new(source);
+            for selected in [vec![0, 1, 2], vec![0, 1], vec![2], vec![]] {
+                let fields: Vec<_> = selected
+                    .iter()
+                    .map(|&i| {
+                        let f = nodes.schema().field(i).clone();
+                        Field::new(
+                            format!("b__{}", f.name()),
+                            f.data_type().clone(),
+                            f.is_nullable(),
+                        )
+                    })
+                    .collect();
+                let target = TargetLookup {
+                    variable: "b".into(),
+                    rows: source.clone(),
+                    columns: selected.clone(),
+                    fields: fields.clone(),
+                };
+                let schema = Arc::new(Schema::new(
+                    [
+                        Field::new("a__id", DataType::Int64, false),
+                        Field::new("edge__src", DataType::Int64, false),
+                        Field::new("edge__dst", DataType::Int64, false),
+                    ]
+                    .into_iter()
+                    .chain(fields)
+                    .collect::<Vec<_>>(),
+                ));
+                for threshold in [2, 99] {
+                    source.fetched_cells.store(0, Ordering::Relaxed);
+                    let predicate = col("b__age")
+                        .gt_eq(lit(threshold))
+                        .and(col("b__id").gt_eq(lit(10)));
+                    let filter = target.compile_filter(&predicate, &state).unwrap();
+                    let neighbors = vec![30, 10, 20, 30, 40, 10];
+                    let expanded = ExpandedRows {
+                        rows: vec![0; 6],
+                        key_values: vec![999; 6],
+                        target_positions: neighbors
+                            .iter()
+                            .map(|&n| source.position(n).unwrap())
+                            .collect(),
+                        neighbor_values: neighbors,
+                    };
+                    let out = materialize(&input, expanded, Some(&target), Some(&filter), &schema)
+                        .await
+                        .unwrap();
+                    let expected_rows: Vec<u32> = if threshold == 2 {
+                        vec![2, 0, 2, 0]
+                    } else {
+                        vec![]
+                    };
+                    assert_eq!(out.num_rows(), expected_rows.len());
+                    for (i, &column) in selected.iter().enumerate() {
+                        let expected = take(
+                            nodes.column(column),
+                            &UInt32Array::from(expected_rows.clone()),
+                            None,
+                        )
+                        .unwrap();
+                        assert_eq!(out.column(3 + i).to_data(), expected.to_data());
+                    }
+                    // Only age is read for six candidates; only name needs a later read.
+                    let projection_cells = if selected.contains(&2) {
+                        expected_rows.len()
+                    } else {
+                        0
+                    };
+                    assert_eq!(
+                        source.fetched_cells.load(Ordering::Relaxed),
+                        6 + projection_cells
+                    );
+                }
+            }
+        }
     }
 }

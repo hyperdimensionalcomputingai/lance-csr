@@ -95,7 +95,9 @@ Node index
     output chunk of neighbour positions before fetching properties. It yields that chunk before visiting
     the remaining neighbours, even for a single high-degree node. Deleted edge positions are read from the
     shared snapshot rather than copied for each query; refresh resolves those positions by scanning the
-    affected sources' neighbour lists. The chunk row limit comes from DataFusion's batch
+    affected sources' neighbour lists. Cancellation checkpoints count source rows and frontiers with no surviving edges,
+    deleted edges and suppressed reverse self-loops as work, using borrowed adjacency slices while a chunk is being collected.
+    The chunk row limit comes from DataFusion's batch
     size; wide properties and multiple active partitions still increase working memory. This does not bound
     the resident graph, the input data, or buffering in joins, sorts and aggregations elsewhere in the plan.
 
@@ -121,7 +123,8 @@ When those hold, it covers:
 | --- | --- |
 | `(a)-[:KNOWS]->(b)`, `(a)<-[:KNOWS]-(b)` | :material-check: outgoing or incoming adjacency |
 | `(a)-[:KNOWS]-(b)` | :material-check: both adjacencies |
-| `(a)-[:KNOWS*1..3]->(b)` | :material-check: every unrolled hop |
+| `(a)-[:KNOWS*1..3]->(b)` | :material-check: one iterative expansion for the whole range |
+| <code>(t:Tag)-[:hasType&#124;isSubclassOf*1..3]->(c:TagClass)</code> | :material-check: typed iterative expansion when every type and label is indexed |
 | <code>(a)-[:LIKES_POST&#124;LIKES_COMMENT]->(m)</code> | :material-check: one expansion per branch |
 | `OPTIONAL MATCH (a)-[:KNOWS]->(b)` | :material-check: |
 | `shortestPath((a)-[:KNOWS*]-(b))` | :material-check: the search walks the CSR adjacency |
@@ -131,11 +134,36 @@ When those hold, it covers:
 Everything else in the query (filters, aggregations, sorts and any hop the CSR can't take) is planned by
 DataFusion as usual. You can mix: a three-hop query might run two hops on the CSR and one as a join.
 
+Named path values and `relationships(path)` use a query-local inventory of actual edge occurrences because
+CSR neighbors do not carry edge identity or properties. This also preserves parallel edges when a path
+passes through `collect()` and `UNWIND`. The inventory materializes the participating node and relationship
+tables; bounded traversal batches do not bound that inventory. See [path values](cypher.md#path-values).
+Shortest-path queries within one node label that only read length or node keys keep the CSR route below.
+Relationships crossing labels use typed identities, even for these queries, to distinguish equal keys
+from different labels.
+
 For `shortestPath` and `allShortestPaths`, a source with one target in an input batch searches from both
 ends using the outgoing and incoming CSR. It expands the smaller frontier and finishes the whole layer
 before joining paths, so it keeps all shortest alternatives. Several targets for the same source share
 one forward search. Undirected searches can use both ends without a persistent CSR too; directed searches
 without a CSR keep their forward search over the adjacency built for that query.
+
+### Variable-length traversal
+
+An eligible variable-length path keeps one cursor per hop and yields bounded output batches. Its plan
+contains one `CsrExpandExec` with `iterative hops=...`, rather than a branch for every possible length or
+sequence of relationship types. It preserves duplicate matches and skips missing nodes at intermediate
+hops. A node's label and key travel together, so the same integer key in two labels identifies two nodes.
+
+The iterative path needs CSR indexes for every traversed type and direction, node indexes for every
+intermediate label, and resolved labels for the endpoints. Unsupported index shapes retain the join
+fallback. The 20-hop maximum still applies. `*0..` includes a zero-hop identity match when both labels and
+keys agree. Undirected paths keep the existing rule that rejects immediate backtracking; neither execution
+path enforces full relationship uniqueness on longer cycles.
+
+Traversal state grows with the hop limit, not the number of pending paths. Resident graph indexes, input
+batches, fetched target properties and downstream operators still contribute to query memory. Branching
+graphs can produce exponentially many matches even though traversal resumes between output batches.
 
 !!! tip "Leave relationship variables out unless you need them"
 
@@ -156,6 +184,12 @@ print([line.strip(" |") for line in plan.splitlines() if "CsrExpandExec" in line
 
 The fused lookup needs the target's key to be a **unique integer**. Duplicate keys, or a target that is
 already bound earlier in the query, keep the CSR hop but join for the target's properties.
+
+Only requested target columns are read. A pushed-down target filter reads its own columns first; remaining
+properties are fetched only for neighbours that pass. When a column is used by both the filter and the
+projection, its filtered values are reused within that output batch. Target keys come directly from the
+neighbour IDs, including when a filter reads them. This reuse ends with the batch and keeps no property
+cache across queries or dataset versions.
 
 ### Patterns start at the most selective node
 

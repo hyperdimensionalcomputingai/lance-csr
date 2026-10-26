@@ -18,6 +18,7 @@ arrow-schema = "58"
 async-trait = "0.1"
 datafusion = { version = "54", default-features = false, features = [
     "nested_expressions",
+    "math_expressions",
     "regex_expressions",
     "unicode_expressions",
     "crypto_expressions",
@@ -40,6 +41,7 @@ nom = "7.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 snafu = "0.8"
+tokio = { version = "1.37", features = ["rt", "time"] }
 
 [dev-dependencies]
 futures = "0.3"

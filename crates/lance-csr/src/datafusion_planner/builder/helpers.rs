@@ -81,7 +81,8 @@ impl DataFusionPlanner {
                 }
             }
             // Binary operator: recurse into both left and right
-            LogicalOperator::Join { left, right, .. } => {
+            LogicalOperator::Join { left, right, .. }
+            | LogicalOperator::QueryUnion { left, right, .. } => {
                 Self::collect_variables(left, vars);
                 Self::collect_variables(right, vars);
             }
@@ -94,6 +95,15 @@ impl DataFusionPlanner {
             // The optional side is planned on top of the input's variables.
             LogicalOperator::OptionalMatch { optional, .. } => {
                 Self::collect_variables(optional, vars);
+            }
+            LogicalOperator::PathMatch { input, path } => {
+                Self::collect_variables(input, vars);
+                vars.extend(
+                    std::iter::once(&path.start_node)
+                        .chain(path.segments.iter().map(|s| &s.end_node))
+                        .filter_map(|n| n.variable.clone()),
+                );
+                vars.extend(path.variable.clone());
             }
             LogicalOperator::ShortestPath {
                 input,
@@ -112,6 +122,11 @@ impl DataFusionPlanner {
             LogicalOperator::ListComprehension { input, .. } => {
                 Self::collect_variables(input, vars)
             }
+            LogicalOperator::Apply { input, labels, .. } => {
+                Self::collect_variables(input, vars);
+                vars.extend(labels.keys().cloned());
+            }
+            LogicalOperator::CallInput { labels } => vars.extend(labels.keys().cloned()),
             LogicalOperator::ComprehensionElement | LogicalOperator::SingleRow => {}
         }
     }
@@ -138,14 +153,12 @@ impl DataFusionPlanner {
             }
             LogicalOperator::VariableLengthExpand {
                 input,
-                source_variable,
                 target_variable,
+                target_label,
                 ..
             } => {
                 Self::collect_labels(input, labels);
-                if let Some(label) = labels.get(source_variable).cloned() {
-                    labels.insert(target_variable.clone(), label);
-                }
+                labels.insert(target_variable.clone(), target_label.clone());
             }
             LogicalOperator::Filter { input, .. }
             | LogicalOperator::Project { input, .. }
@@ -153,7 +166,8 @@ impl DataFusionPlanner {
             | LogicalOperator::Limit { input, .. }
             | LogicalOperator::Offset { input, .. }
             | LogicalOperator::Distinct { input } => Self::collect_labels(input, labels),
-            LogicalOperator::Join { left, right, .. } => {
+            LogicalOperator::Join { left, right, .. }
+            | LogicalOperator::QueryUnion { left, right, .. } => {
                 Self::collect_labels(left, labels);
                 Self::collect_labels(right, labels);
             }
@@ -173,9 +187,28 @@ impl DataFusionPlanner {
             LogicalOperator::OptionalMatch { optional, .. } => {
                 Self::collect_labels(optional, labels)
             }
+            LogicalOperator::PathMatch { input, path } => {
+                Self::collect_labels(input, labels);
+                for node in std::iter::once(&path.start_node)
+                    .chain(path.segments.iter().map(|s| &s.end_node))
+                {
+                    if let (Some(variable), Some(label)) = (&node.variable, node.labels.first()) {
+                        labels.insert(variable.clone(), label.clone());
+                    }
+                }
+            }
             LogicalOperator::ShortestPath { input, .. } => Self::collect_labels(input, labels),
             LogicalOperator::Union { .. } => {}
             LogicalOperator::ListComprehension { input, .. } => Self::collect_labels(input, labels),
+            LogicalOperator::Apply {
+                input,
+                labels: exports,
+                ..
+            } => {
+                Self::collect_labels(input, labels);
+                labels.extend(exports.clone());
+            }
+            LogicalOperator::CallInput { labels: imports } => labels.extend(imports.clone()),
             LogicalOperator::ComprehensionElement | LogicalOperator::SingleRow => {}
         }
     }
@@ -303,6 +336,7 @@ mod tests {
             input: Box::new(scan),
             source_variable: "a".into(),
             target_variable: "b".into(),
+            target_label: "Person".to_string(),
             relationship_types: vec!["KNOWS".into()],
             direction: RelationshipDirection::Outgoing,
             relationship_variable: None,

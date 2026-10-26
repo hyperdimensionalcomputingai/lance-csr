@@ -7,6 +7,12 @@ pub fn substitute_parameters(
     query: &mut CypherQuery,
     parameters: &HashMap<String, serde_json::Value>,
 ) -> Result<()> {
+    for branch in &mut query.union_branches {
+        substitute_parameters(&mut branch.query, parameters)?;
+    }
+    substitute_row_count(&mut query.skip, parameters)?;
+    substitute_row_count(&mut query.limit, parameters)?;
+
     // Substitute in READING clauses
     for reading_clause in &mut query.reading_clauses {
         substitute_in_reading_clause(reading_clause, parameters)?;
@@ -53,11 +59,28 @@ pub fn substitute_parameters(
     Ok(())
 }
 
+fn substitute_row_count(
+    count: &mut Option<RowCount>,
+    parameters: &HashMap<String, serde_json::Value>,
+) -> Result<()> {
+    if let Some(RowCount::Parameter(name)) = count {
+        let value = parameters.get(&name.to_lowercase()).and_then(serde_json::Value::as_u64)
+            .filter(|v| usize::try_from(*v).is_ok())
+            .ok_or_else(|| GraphError::PlanError {
+                message: format!("Pagination parameter ${name} must be a supplied nonnegative integer fitting the platform row count"),
+                location: snafu::Location::new(file!(), line!(), column!()),
+            })?;
+        *count = Some(RowCount::Literal(value));
+    }
+    Ok(())
+}
+
 fn substitute_in_reading_clause(
     clause: &mut ReadingClause,
     parameters: &HashMap<String, serde_json::Value>,
 ) -> Result<()> {
     match clause {
+        ReadingClause::Call(query) => substitute_parameters(query, parameters)?,
         ReadingClause::Match(match_clause) => {
             for pattern in &mut match_clause.patterns {
                 substitute_in_graph_pattern(pattern, parameters)?;
@@ -143,6 +166,7 @@ fn substitute_in_with_clause(
     with_clause: &mut WithClause,
     parameters: &HashMap<String, serde_json::Value>,
 ) -> Result<()> {
+    substitute_row_count(&mut with_clause.limit, parameters)?;
     for item in &mut with_clause.items {
         substitute_in_value_expression(&mut item.expression, parameters)?;
     }
@@ -240,29 +264,7 @@ fn substitute_in_value_expression(
                         location: snafu::Location::new(file!(), line!(), column!()),
                     })?;
 
-            // Check for array to VectorLiteral conversion
-            if let serde_json::Value::Array(arr) = param_value {
-                let mut floats = Vec::new();
-                for v in arr {
-                    if let Some(f) = v.as_f64() {
-                        floats.push(f as f32);
-                    } else {
-                        return Err(GraphError::PlanError {
-                            message: format!(
-                                "Parameter ${} is a list but contains non-numeric values. Only float vectors are supported as list parameters currently.",
-                                name
-                            ),
-                            location: snafu::Location::new(file!(), line!(), column!()),
-                        });
-                    }
-                }
-                *expr = ValueExpression::VectorLiteral(floats);
-                return Ok(());
-            }
-
-            // Scalar conversion
-            let prop_val = json_to_property_value(param_value)?;
-            *expr = ValueExpression::Literal(prop_val);
+            *expr = json_to_expression(param_value)?;
         }
         ValueExpression::ScalarFunction { args, .. }
         | ValueExpression::AggregateFunction { args, .. } => {
@@ -301,6 +303,22 @@ fn substitute_in_value_expression(
             }
             substitute_in_value_expression(map, parameters)?;
         }
+        ValueExpression::Reduce {
+            initial,
+            list,
+            expression,
+            ..
+        } => {
+            substitute_in_value_expression(initial, parameters)?;
+            substitute_in_value_expression(list, parameters)?;
+            substitute_in_value_expression(expression, parameters)?;
+        }
+        ValueExpression::ListPredicate {
+            list, predicate, ..
+        } => {
+            substitute_in_value_expression(list, parameters)?;
+            substitute_in_value_expression(predicate, parameters)?;
+        }
         ValueExpression::ListComprehension {
             list, filter, map, ..
         } => {
@@ -317,6 +335,26 @@ fn substitute_in_value_expression(
     Ok(())
 }
 
+/// Keep container parameters in the same representation as literal lists and maps.
+fn json_to_expression(value: &serde_json::Value) -> Result<ValueExpression> {
+    match value {
+        serde_json::Value::Array(values) => Ok(ValueExpression::ScalarFunction {
+            name: "__list".to_string(),
+            args: values
+                .iter()
+                .map(json_to_expression)
+                .collect::<Result<_>>()?,
+        }),
+        serde_json::Value::Object(values) => Ok(ValueExpression::Map(
+            values
+                .iter()
+                .map(|(key, value)| Ok((key.clone(), json_to_expression(value)?)))
+                .collect::<Result<_>>()?,
+        )),
+        _ => Ok(ValueExpression::Literal(json_to_property_value(value)?)),
+    }
+}
+
 fn json_to_property_value(value: &serde_json::Value) -> Result<PropertyValue> {
     match value {
         serde_json::Value::Null => Ok(PropertyValue::Null),
@@ -324,21 +362,78 @@ fn json_to_property_value(value: &serde_json::Value) -> Result<PropertyValue> {
         serde_json::Value::Number(n) => {
             if let Some(i) = n.as_i64() {
                 Ok(PropertyValue::Integer(i))
+            } else if n.is_u64() {
+                Err(GraphError::PlanError {
+                    message: "Integer parameters must fit signed 64-bit values".to_string(),
+                    location: snafu::Location::new(file!(), line!(), column!()),
+                })
             } else if let Some(f) = n.as_f64() {
                 Ok(PropertyValue::Float(f))
             } else {
                 Err(GraphError::PlanError {
-                    message: format!("Number parameter could not be converted to i64 or f64: {}", n),
+                    message: format!(
+                        "Number parameter could not be converted to i64 or f64: {}",
+                        n
+                    ),
                     location: snafu::Location::new(file!(), line!(), column!()),
                 })
             }
         }
         serde_json::Value::String(s) => Ok(PropertyValue::String(s.clone())),
-        serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
-            Err(GraphError::PlanError {
-                message: "Complex types (List, Map) are not fully supported as parameters yet (except float vectors).".to_string(),
-                location: snafu::Location::new(file!(), line!(), column!()),
-            })
+        serde_json::Value::Array(_) | serde_json::Value::Object(_) => Err(GraphError::PlanError {
+            message:
+                "List and map parameters must be used as expressions, not inline property values."
+                    .to_string(),
+            location: snafu::Location::new(file!(), line!(), column!()),
+        }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn pagination_requires_nonnegative_integral_parameters() {
+        let mut query = crate::parser::parse_cypher_query("RETURN 1 LIMIT $n").unwrap();
+        substitute_parameters(&mut query, &HashMap::from([("n".to_string(), json!(0))])).unwrap();
+        assert_eq!(query.limit, Some(RowCount::Literal(0)));
+        for value in [
+            json!(null),
+            json!(-1),
+            json!(1.5),
+            json!(true),
+            json!("1"),
+            json!([]),
+        ] {
+            let mut query = crate::parser::parse_cypher_query("RETURN 1 LIMIT $n").unwrap();
+            assert!(
+                substitute_parameters(&mut query, &HashMap::from([("n".to_string(), value)]))
+                    .is_err()
+            );
         }
+    }
+
+    #[test]
+    fn container_expressions_preserve_ids_and_nesting() {
+        let list = json_to_expression(&json!([19791209300775_i64, null])).unwrap();
+        assert_eq!(
+            list,
+            ValueExpression::ScalarFunction {
+                name: "__list".to_string(),
+                args: vec![
+                    ValueExpression::Literal(PropertyValue::Integer(19791209300775)),
+                    ValueExpression::Literal(PropertyValue::Null)
+                ],
+            }
+        );
+        let map = json_to_expression(&json!({"ids": [19791209300775_i64]})).unwrap();
+        assert!(
+            matches!(map, ValueExpression::Map(entries) if entries.len() == 1 && entries[0].0 == "ids")
+        );
+        assert!(json_to_expression(&json!([])).is_ok());
+        assert!(json_to_expression(&json!({})).is_ok());
+        assert!(json_to_expression(&json!(u64::MAX)).is_err());
     }
 }

@@ -153,9 +153,10 @@ def test_refresh_sees_table_replaced_at_same_location(graph):
     assert count_people(engine) == 3
 
 
-def test_failed_refresh_keeps_previous_snapshot(graph):
+@pytest.mark.parametrize("use_csr", [False, True])
+def test_failed_refresh_keeps_previous_snapshot(graph, use_csr):
     path, person, knows = graph
-    engine = CypherEngine(CONFIG, {"Person": person, "KNOWS": knows})
+    engine = CypherEngine(CONFIG, {"Person": person, "KNOWS": knows}, use_csr=use_csr)
 
     # Dropping the configured id column must not be accepted.
     lance.write_dataset(
@@ -253,6 +254,24 @@ def test_execute_batches_partial_consumption(graph):
     assert reader.read_next_batch().num_rows > 0
     del reader  # dropping a half-read stream must not affect the engine
     assert count_people(engine) == N
+
+
+@pytest.mark.parametrize("use_csr", [False, True])
+def test_execute_batches_keeps_snapshot_across_refresh(graph, use_csr):
+    path, person, knows = graph
+    engine = CypherEngine(CONFIG, {"Person": person, "KNOWS": knows}, use_csr=use_csr)
+    reader = engine.execute_batches("MATCH (p:Person) RETURN p.id")
+    first = reader.read_next_batch()
+
+    lance.write_dataset(people(N, N + 5), path / "person.lance", mode="append")
+    engine.refresh()
+
+    remaining = reader.read_all()
+    assert first.num_rows + remaining.num_rows == N
+    assert pc.sum(first.column(0)).as_py() + (
+        pc.sum(remaining.column(0)).as_py() or 0
+    ) == sum(range(N))
+    assert count_people(engine) == N + 5
 
 
 def test_execute_batches_reports_planning_errors(graph):
