@@ -77,6 +77,20 @@ impl<'a> PlanningContext<'a> {
 }
 
 /// Analyze the logical plan to extract metadata
+/// The label a variable-length target resolves to: its own label, or the source's
+/// when the pattern left it unlabeled (the planner's `"Node"` default), so
+/// `(a:Person)-[:KNOWS*1..2]->(b)` makes `b` a Person, as single-label graphs expect.
+// shortcut: an explicit `(b:Node)` is indistinguishable from the default; make the default an Option if a graph ever needs a real `Node` label on a variable-length target.
+pub(crate) fn variable_length_target_label(
+    target_label: &str,
+    source_label: Option<&String>,
+) -> String {
+    match source_label {
+        Some(source) if target_label == "Node" => source.clone(),
+        _ => target_label.to_string(),
+    }
+}
+
 pub fn analyze(logical_plan: &LogicalOperator) -> Result<QueryAnalysis> {
     let mut analysis = QueryAnalysis::default();
     let mut rel_counter: HashMap<String, usize> = HashMap::new();
@@ -159,9 +173,11 @@ fn analyze_operator(
             // Recursively analyze input first
             analyze_operator(input, analysis, rel_counter)?;
 
-            analysis
-                .var_to_label
-                .insert(target_variable.clone(), target_label.clone());
+            let label = variable_length_target_label(
+                target_label,
+                analysis.var_to_label.get(source_variable),
+            );
+            analysis.var_to_label.insert(target_variable.clone(), label);
 
             // For variable-length paths, register multiple instances (one per hop)
             // We need to register instances for all possible hop counts

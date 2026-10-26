@@ -153,12 +153,17 @@ impl DataFusionPlanner {
             }
             LogicalOperator::VariableLengthExpand {
                 input,
+                source_variable,
                 target_variable,
                 target_label,
                 ..
             } => {
                 Self::collect_labels(input, labels);
-                labels.insert(target_variable.clone(), target_label.clone());
+                let label = crate::datafusion_planner::analysis::variable_length_target_label(
+                    target_label,
+                    labels.get(source_variable),
+                );
+                labels.insert(target_variable.clone(), label);
             }
             LogicalOperator::Filter { input, .. }
             | LogicalOperator::Project { input, .. }
