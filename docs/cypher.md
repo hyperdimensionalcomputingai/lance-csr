@@ -522,6 +522,11 @@ print(result.to_pylist())
 
 ## Case sensitivity
 
+Mixed-case Arrow and Lance fields follow the same identifier rule: `p.firstName`, `p.firstname`
+and `p.FIRSTNAME` refer to the same property, including inline filters and relationship properties.
+Source field names are preserved. Explicit result aliases use the existing lowercase convention.
+
+
 Keywords, function names, variables, labels, relationship types and property names are all
 case-insensitive. `match (P:person) return p.NAME` works, and the output column keeps the spelling you wrote.
 

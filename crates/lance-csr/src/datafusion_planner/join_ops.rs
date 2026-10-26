@@ -8,11 +8,13 @@
 //! join-key construction, filter push-downs, and aliasing conventions so that
 //! higher-level planner code can remain focused on traversal semantics.
 
+use super::scan_ops::source_column;
 use super::DataFusionPlanner;
 use crate::ast::{PropertyValue, RelationshipDirection};
 use crate::case_insensitive::qualify_column;
 use crate::config::{NodeMapping, RelationshipMapping};
 use crate::error::Result;
+use datafusion::common::Column;
 use datafusion::logical_expr::{
     col, BinaryExpr, Expr, JoinType, LogicalPlan, LogicalPlanBuilder, Operator, TableSource,
 };
@@ -62,7 +64,7 @@ impl DataFusionPlanner {
             let lit_expr =
                 self.unresolved_value_expr(&crate::ast::ValueExpression::Literal(v.clone()));
             let filter_expr = Expr::BinaryExpr(BinaryExpr {
-                left: Box::new(col(k.to_lowercase())),
+                left: Box::new(source_column(&target_schema, k)),
                 op: Operator::Eq,
                 right: Box::new(lit_expr),
             });
@@ -76,7 +78,7 @@ impl DataFusionPlanner {
             .iter()
             .map(|field| {
                 let qualified_name = qualify_column(target_variable, field.name());
-                col(field.name()).alias(&qualified_name)
+                col(Column::new_unqualified(field.name())).alias(&qualified_name)
             })
             .collect();
 
