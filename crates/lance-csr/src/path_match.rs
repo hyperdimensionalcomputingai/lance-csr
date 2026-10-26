@@ -182,11 +182,21 @@ impl UserDefinedLogicalNodeCore for PathMatchNode {
         vec![]
     }
     fn prevent_predicate_push_down_columns(&self) -> HashSet<String> {
+        // DataFusion copies a pushed predicate into every input, so only columns that
+        // every input carries may be pushed; others (start-node columns are only in the
+        // first input) stay above this node.
+        // shortcut: a WHERE on start-node columns is not pushed into the first input's scan; push it there directly if path queries with selective start filters get slow.
         self.schema
             .fields()
             .iter()
-            .skip(self.inputs[0].schema().fields().len())
-            .map(|f| f.name().clone())
+            .map(|f| f.name())
+            .filter(|name| {
+                !self
+                    .inputs
+                    .iter()
+                    .all(|input| input.schema().has_column_with_unqualified_name(name))
+            })
+            .cloned()
             .collect()
     }
     fn fmt_for_explain(&self, f: &mut fmt::Formatter) -> fmt::Result {

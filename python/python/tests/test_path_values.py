@@ -605,3 +605,45 @@ def test_cross_label_shortest_inventory_isolates_refresh(cross_label_graph, tmp_
         assert engine.execute(query, {"start": start}).to_pylist() == (
             [{"ids": [1, 2]}] if start == 1 else []
         )
+
+
+@pytest.mark.parametrize("use_csr", [False, True])
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        (
+            "MATCH p = (a:Person)-[:KNOWS]->(b:Person) WHERE a.id = 1 "
+            "RETURN b.name AS name, size(nodes(p)) AS n",
+            [{"name": "B", "n": 2}],
+        ),
+        (
+            "MATCH p = (a:Person)-[:KNOWS]-(b:Person) WHERE a.id = 2 "
+            "RETURN b.name AS name, size(nodes(p)) AS n ORDER BY name",
+            [{"name": "A", "n": 2}, {"name": "C", "n": 2}],
+        ),
+        (
+            "MATCH p = (a:Person)-[:KNOWS*1..2]->(b:Person) WHERE a.name = 'A' "
+            "RETURN b.name AS name, size(nodes(p)) AS n ORDER BY name",
+            [{"name": "B", "n": 2}, {"name": "C", "n": 3}],
+        ),
+        (
+            "MATCH p = (a:Person)-[:KNOWS]->(b:Person) WHERE a.id = 1 AND b.name = 'B' "
+            "RETURN b.name AS name, size(nodes(p)) AS n",
+            [{"name": "B", "n": 2}],
+        ),
+    ],
+)
+def test_path_where_on_start_node(use_csr, query, expected):
+    # The path operator has several inputs; a start-node filter must not be pushed
+    # into the inventory inputs, which lack the start node's columns.
+    config = (
+        GraphConfig.builder()
+        .node_table("Person", "id")
+        .rel_table("KNOWS", "Person", "Person", "src", "dst")
+        .build()
+    )
+    data = {
+        "Person": pa.table({"id": [1, 2, 3], "name": ["A", "B", "C"]}),
+        "KNOWS": pa.table({"src": [1, 2], "dst": [2, 3]}),
+    }
+    assert CypherEngine(config, data, use_csr).execute(query).to_pylist() == expected
