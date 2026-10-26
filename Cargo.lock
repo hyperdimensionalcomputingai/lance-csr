@@ -3947,7 +3947,7 @@ dependencies = [
 
 [[package]]
 name = "lance-csr"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "ahash",
  "arrow",
@@ -3976,7 +3976,7 @@ dependencies = [
 
 [[package]]
 name = "lance-csr-benches"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -3991,7 +3991,7 @@ dependencies = [
 
 [[package]]
 name = "lance-csr-catalog"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "arrow-schema",
  "async-trait",

@@ -1,6 +1,6 @@
 [package]
 name = "lance-csr"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 license = "Apache-2.0"
 authors = ["The lance-csr Authors"]
@@ -32,7 +32,7 @@ datafusion-expr = "54"
 datafusion-sql = "54"
 datafusion-functions-aggregate = "54"
 futures = "0.3"
-lance-csr-catalog = { path = "../lance-csr-catalog", version = "0.3.0" }
+lance-csr-catalog = { path = "../lance-csr-catalog", version = "0.3.1" }
 lance = "13.0.0"
 lance-linalg = "13.0.0"
 lance-namespace = "13.0.0"

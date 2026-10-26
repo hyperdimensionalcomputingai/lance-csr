@@ -1,6 +1,6 @@
 [project]
 name = "lance-csr"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
     "pyarrow>=14",
     "pylance>=13.0.0,<14",
