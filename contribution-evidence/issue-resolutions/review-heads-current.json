@@ -1,5 +1,5 @@
 {
-  "scope": "Current draft heads, separate from immutable original bases and rejected prototypes. No remote publication.",
+  "scope": "Published review heads and immutable original bases; all 23 PRs are drafts. No merge or release.",
   "submissions": [
     {
       "issue": 3,
@@ -498,5 +498,6 @@
     "current_contribution_guide_and_PR_template_reviewed": true,
     "strict_docs_and_spelling": "passed",
     "proof": "current-main-equivalence.json"
-  }
+  },
+  "published_pr_index": "PUBLISHED_PRS.md"
 }

@@ -1,0 +1,554 @@
+{
+  "started_utc": "2026-10-26T12:55:33.724024+00:00",
+  "authorization": "User explicitly authorized commit, push and PR creation; nothing may be merged.",
+  "repository": "hyperdimensionalcomputingai/lance-csr",
+  "author": "stugorf",
+  "evidence_commit": "c1af420aeb60ce3ef07110f2685a0461b82234bb",
+  "status": "verified_23_draft_PRs_open_unmerged",
+  "push_refs": [
+    {
+      "branch": "codex/issue-3-integer-lists",
+      "commit": "f71fe3c481b5c8599c24e904d163b8867eae29af",
+      "roles": [
+        "submission"
+      ]
+    },
+    {
+      "branch": "codex/issue-11-inline-local-cursors",
+      "commit": "d7ad39819d04acf44907213ba7532df5e93d8869",
+      "roles": [
+        "submission"
+      ]
+    },
+    {
+      "branch": "codex/issue-12-refresh-corrected",
+      "commit": "58b96fb601eda5f02caff0dc537c1ffa0f18bd15",
+      "roles": [
+        "submission"
+      ]
+    },
+    {
+      "branch": "codex/issue-13-cancellation-boundaries",
+      "commit": "c6bc5c150a2e198e2346e1870509db0f4ce69887",
+      "roles": [
+        "submission"
+      ]
+    },
+    {
+      "branch": "codex/issue-11-bounded-csr",
+      "commit": "e127755c872949733c69435047384c9d17fb572b",
+      "roles": [
+        "frozen_review_base"
+      ]
+    },
+    {
+      "branch": "codex/issue-14-curated",
+      "commit": "74dd1e5d9ad680b79da40428e2f7e2cc18eb6671",
+      "roles": [
+        "submission"
+      ]
+    },
+    {
+      "branch": "codex/issue-14-prerequisites",
+      "commit": "248def899cea569f57e44fa447ad9ccf5f8f5eab",
+      "roles": [
+        "frozen_review_base"
+      ]
+    },
+    {
+      "branch": "codex/issue-15-target-partitions",
+      "commit": "7461a7774d6cdf74bbd6961efa7ec86b229fa945",
+      "roles": [
+        "submission"
+      ]
+    },
+    {
+      "branch": "codex/issue-20-final-corrections",
+      "commit": "91d6b482a625b671c1e2eef923a4105331dc7ef4",
+      "roles": [
+        "frozen_review_base"
+      ]
+    },
+    {
+      "branch": "codex/issue-16-filter-column-reuse",
+      "commit": "447355dbaf90993d33926afc48ab6712e421505a",
+      "roles": [
+        "submission"
+      ]
+    },
+    {
+      "branch": "codex/issue-13-iterative-csr",
+      "commit": "1bf6d42141b9cc6ee1824d000f49cdc0ebd9d8fe",
+      "roles": [
+        "frozen_review_base"
+      ]
+    },
+    {
+      "branch": "codex/issue-17-bidirectional-shortest-path",
+      "commit": "09a92e424bd8a7dffc0c3ff6a82838dc088de59e",
+      "roles": [
+        "submission"
+      ]
+    },
+    {
+      "branch": "codex/issue-18-curated",
+      "commit": "4bc6eeae6a6f0c71bb23559b3c81387a49970836",
+      "roles": [
+        "submission"
+      ]
+    },
+    {
+      "branch": "codex/issue-18-prerequisites",
+      "commit": "07a0fa1246c1829f4184e7d33c5fa063a4a76f19",
+      "roles": [
+        "frozen_review_base"
+      ]
+    },
+    {
+      "branch": "codex/issue-19-scan-budget",
+      "commit": "a641cf25cbe34db25245ce2543140af5b735d30e",
+      "roles": [
+        "submission"
+      ]
+    },
+    {
+      "branch": "codex/issue-19-prerequisites",
+      "commit": "81ef524be83db4abb626394dd4940121a45751e2",
+      "roles": [
+        "frozen_review_base"
+      ]
+    },
+    {
+      "branch": "codex/issue-20-containers-curated",
+      "commit": "89f96a422a6a2e566b68496269f63b6f00ef908c",
+      "roles": [
+        "submission",
+        "frozen_review_base"
+      ]
+    },
+    {
+      "branch": "codex/issue-20-parameter-prerequisites",
+      "commit": "4b157120db78fad823e494deea2dba5c82729f59",
+      "roles": [
+        "frozen_review_base"
+      ]
+    },
+    {
+      "branch": "codex/issue-20-pagination-curated",
+      "commit": "90c141a0979bea1291baba501d49677a8dabb516",
+      "roles": [
+        "submission",
+        "frozen_review_base"
+      ]
+    },
+    {
+      "branch": "codex/issue-20-math-delivery",
+      "commit": "c53f47c2304f09f48019e0d3facdc7ece62c3a83",
+      "roles": [
+        "submission",
+        "frozen_review_base"
+      ]
+    },
+    {
+      "branch": "codex/issue-20-string-list-delivery",
+      "commit": "d44596967609bce35fad34acafe68753a2913383",
+      "roles": [
+        "submission",
+        "frozen_review_base"
+      ]
+    },
+    {
+      "branch": "codex/issue-20-entities-delivery",
+      "commit": "99d11c0ea0e72ecf592d65165a47101ce281ca3a",
+      "roles": [
+        "submission",
+        "frozen_review_base"
+      ]
+    },
+    {
+      "branch": "codex/issue-20-folds-delivery",
+      "commit": "88dd97e8baa87cc76dbd968b5761252be3bf60ec",
+      "roles": [
+        "submission"
+      ]
+    },
+    {
+      "branch": "codex/issue-20-union-delivery",
+      "commit": "6e62a429da270649aa6877e81fc4a67df941bdc8",
+      "roles": [
+        "submission"
+      ]
+    },
+    {
+      "branch": "codex/issue-20-union-delivery-prerequisites",
+      "commit": "ccfc4fece4c1a099ab5b494f6a4533dfd03acc11",
+      "roles": [
+        "frozen_review_base"
+      ]
+    },
+    {
+      "branch": "codex/issue-20-path-null-recheck",
+      "commit": "d595e377322e2105f7fbd1bb16d11f6afd776198",
+      "roles": [
+        "submission"
+      ]
+    },
+    {
+      "branch": "codex/issue-20-paths-curated-base",
+      "commit": "84fcac65be2d4f5104061da1af16294656875b1a",
+      "roles": [
+        "frozen_review_base"
+      ]
+    },
+    {
+      "branch": "codex/issue-20-call-delivery",
+      "commit": "f2cc84c64898185bf8ea4826b276b61ea8b20b63",
+      "roles": [
+        "submission"
+      ]
+    },
+    {
+      "branch": "codex/issue-20-call-prerequisites",
+      "commit": "32fee35e2aad15167a7d33ec0d9eee9b3d268b5b",
+      "roles": [
+        "frozen_review_base"
+      ]
+    },
+    {
+      "branch": "codex/issue-21-delivery",
+      "commit": "ccfc4fece4c1a099ab5b494f6a4533dfd03acc11",
+      "roles": [
+        "submission"
+      ]
+    },
+    {
+      "branch": "codex/issue-22-python-stubs",
+      "commit": "6175122bd24cc8fe95ddd4cf82d7492975ea6e7d",
+      "roles": [
+        "submission"
+      ]
+    },
+    {
+      "branch": "codex/issue-23-config-accessors",
+      "commit": "96598edac33e9c8dab8bf3b0ec1324308faf589e",
+      "roles": [
+        "submission",
+        "frozen_review_base"
+      ]
+    },
+    {
+      "branch": "codex/issue-23-expression-types",
+      "commit": "1939b6948792ed84eecd0914ff413da792ac2875",
+      "roles": [
+        "submission"
+      ]
+    },
+    {
+      "branch": "codex/issue-resolution-evidence",
+      "commit": "c1af420aeb60ce3ef07110f2685a0461b82234bb",
+      "roles": [
+        "evidence_or_verification"
+      ]
+    },
+    {
+      "branch": "codex/issue-resolution-final",
+      "commit": "7d2ef3e11b3858cc4571db315df4e848a37bdb82",
+      "roles": [
+        "evidence_or_verification"
+      ]
+    },
+    {
+      "branch": "codex/issue-resolution-current-main",
+      "commit": "5fe24cd8fb4e2cdb980d77bb6fe281ecdc32cfd9",
+      "roles": [
+        "evidence_or_verification"
+      ]
+    }
+  ],
+  "pull_requests": [
+    {
+      "issue": 3,
+      "group": "integer precision",
+      "head": "codex/issue-3-integer-lists",
+      "base": "main",
+      "url": "https://github.com/hyperdimensionalcomputingai/lance-csr/pull/30",
+      "number": 30,
+      "draft": true,
+      "created_utc": "2026-10-26T13:01:07.213976+00:00",
+      "body_sha256": "c63923cc9e7290c708d4162212ef53afc215518b6b88dcb6cd4bd0db5c97e6d3"
+    },
+    {
+      "issue": 11,
+      "group": "bounded expansion",
+      "head": "codex/issue-11-inline-local-cursors",
+      "base": "main",
+      "url": "https://github.com/hyperdimensionalcomputingai/lance-csr/pull/31",
+      "number": 31,
+      "draft": true,
+      "created_utc": "2026-10-26T13:02:44.217912+00:00",
+      "body_sha256": "f5031d8c5d7a0ef7ce0eb5255b5f5a4531c7796582d7bcaf2eb2607757627cbb",
+      "recovered_existing": false
+    },
+    {
+      "issue": 12,
+      "group": "refresh publication",
+      "head": "codex/issue-12-refresh-corrected",
+      "base": "main",
+      "url": "https://github.com/hyperdimensionalcomputingai/lance-csr/pull/32",
+      "number": 32,
+      "draft": true,
+      "created_utc": "2026-10-26T13:02:49.346256+00:00",
+      "body_sha256": "8d6951ee498f61cf7f74e5967d2c548cf13ae5ad13ffd60648f547da566b4b71",
+      "recovered_existing": false
+    },
+    {
+      "issue": 13,
+      "group": "iterative paths",
+      "head": "codex/issue-13-cancellation-boundaries",
+      "base": "codex/issue-11-bounded-csr",
+      "url": "https://github.com/hyperdimensionalcomputingai/lance-csr/pull/33",
+      "number": 33,
+      "draft": true,
+      "created_utc": "2026-10-26T13:02:54.063920+00:00",
+      "body_sha256": "2d5837b57c94be318d3d91bf4d16e629433561ac9db67127d845dfa2538c09a0",
+      "recovered_existing": false
+    },
+    {
+      "issue": 14,
+      "group": "plan templates",
+      "head": "codex/issue-14-curated",
+      "base": "codex/issue-14-prerequisites",
+      "url": "https://github.com/hyperdimensionalcomputingai/lance-csr/pull/34",
+      "number": 34,
+      "draft": true,
+      "created_utc": "2026-10-26T13:03:00.063459+00:00",
+      "body_sha256": "35a5d25e2da0cd52db63068ad26b4af6618fbf3daeb0e5e14101d69c2a8e68c3",
+      "recovered_existing": false
+    },
+    {
+      "issue": 15,
+      "group": "partition override",
+      "head": "codex/issue-15-target-partitions",
+      "base": "codex/issue-20-final-corrections",
+      "url": "https://github.com/hyperdimensionalcomputingai/lance-csr/pull/35",
+      "number": 35,
+      "draft": true,
+      "created_utc": "2026-10-26T13:03:10.311933+00:00",
+      "body_sha256": "799d5c2a1a979975c04aeeda36c2a05ea1f520d3323c6d37306c0c124f5e9687",
+      "recovered_existing": false
+    },
+    {
+      "issue": 16,
+      "group": "property read reuse",
+      "head": "codex/issue-16-filter-column-reuse",
+      "base": "codex/issue-13-iterative-csr",
+      "url": "https://github.com/hyperdimensionalcomputingai/lance-csr/pull/36",
+      "number": 36,
+      "draft": true,
+      "created_utc": "2026-10-26T13:04:05.948381+00:00",
+      "body_sha256": "ab9f2c8b0d3d81ab4b46c883d1e86bc04d6d22154360abb448e847aea7cee899",
+      "recovered_existing": false
+    },
+    {
+      "issue": 17,
+      "group": "bidirectional search",
+      "head": "codex/issue-17-bidirectional-shortest-path",
+      "base": "codex/issue-11-bounded-csr",
+      "url": "https://github.com/hyperdimensionalcomputingai/lance-csr/pull/37",
+      "number": 37,
+      "draft": true,
+      "created_utc": "2026-10-26T13:04:10.262268+00:00",
+      "body_sha256": "45639b36b1e90eb82fb8559e379f6e0c543bff22cb8570dd5185c9aedc8e1dba",
+      "recovered_existing": false
+    },
+    {
+      "issue": 18,
+      "group": "comprehension counts",
+      "head": "codex/issue-18-curated",
+      "base": "codex/issue-18-prerequisites",
+      "url": "https://github.com/hyperdimensionalcomputingai/lance-csr/pull/38",
+      "number": 38,
+      "draft": true,
+      "created_utc": "2026-10-26T13:04:15.220372+00:00",
+      "body_sha256": "6590c3862ff42e60f113b4f56b73b336016a4c98dc4d128a8c002bbd9577cc24",
+      "recovered_existing": false
+    },
+    {
+      "issue": 19,
+      "group": "query deadlines",
+      "head": "codex/issue-19-scan-budget",
+      "base": "codex/issue-19-prerequisites",
+      "url": "https://github.com/hyperdimensionalcomputingai/lance-csr/pull/39",
+      "number": 39,
+      "draft": true,
+      "created_utc": "2026-10-26T13:04:20.072875+00:00",
+      "body_sha256": "50e010464a70b8eb695fc0340631cdcaee4256873a53417a70bdbcd369a73ffc",
+      "recovered_existing": false
+    },
+    {
+      "issue": 20,
+      "group": "container parameters",
+      "head": "codex/issue-20-containers-curated",
+      "base": "codex/issue-20-parameter-prerequisites",
+      "url": "https://github.com/hyperdimensionalcomputingai/lance-csr/pull/40",
+      "number": 40,
+      "draft": true,
+      "created_utc": "2026-10-26T13:04:24.761748+00:00",
+      "body_sha256": "b5b554674c4bda84869e02907e947b7ff0878ba6da1d7451115e5ff4583603d0",
+      "recovered_existing": false
+    },
+    {
+      "issue": 20,
+      "group": "pagination parameters",
+      "head": "codex/issue-20-pagination-curated",
+      "base": "codex/issue-20-containers-curated",
+      "url": "https://github.com/hyperdimensionalcomputingai/lance-csr/pull/41",
+      "number": 41,
+      "draft": true,
+      "created_utc": "2026-10-26T13:04:29.575776+00:00",
+      "body_sha256": "4c99001da43561068969a659875fc220cf8b07ee399b8cda7bd91aa348fc9cfd",
+      "recovered_existing": false
+    },
+    {
+      "issue": 20,
+      "group": "math",
+      "head": "codex/issue-20-math-delivery",
+      "base": "codex/issue-20-pagination-curated",
+      "url": "https://github.com/hyperdimensionalcomputingai/lance-csr/pull/42",
+      "number": 42,
+      "draft": true,
+      "created_utc": "2026-10-26T13:06:05.261846+00:00",
+      "body_sha256": "9c54381a3788f9a300dc93138ab52eb9bde3264ae3c03411a655516c0138ff7b",
+      "recovered_existing": false
+    },
+    {
+      "issue": 20,
+      "group": "string/list functions",
+      "head": "codex/issue-20-string-list-delivery",
+      "base": "codex/issue-20-math-delivery",
+      "url": "https://github.com/hyperdimensionalcomputingai/lance-csr/pull/43",
+      "number": 43,
+      "draft": true,
+      "created_utc": "2026-10-26T13:06:10.202474+00:00",
+      "body_sha256": "c55f9748931b5e30d645cac62b11e33661a275df4b7cf9238bbbb5a5f3bbbf7e",
+      "recovered_existing": false
+    },
+    {
+      "issue": 20,
+      "group": "entity metadata",
+      "head": "codex/issue-20-entities-delivery",
+      "base": "codex/issue-20-string-list-delivery",
+      "url": "https://github.com/hyperdimensionalcomputingai/lance-csr/pull/44",
+      "number": 44,
+      "draft": true,
+      "created_utc": "2026-10-26T13:06:15.545293+00:00",
+      "body_sha256": "7e6f665c4cf92c0cf344047ef15104e9d0605ae3e11337823ec17fcdf5b5c715",
+      "recovered_existing": false
+    },
+    {
+      "issue": 20,
+      "group": "reduce/list predicates",
+      "head": "codex/issue-20-folds-delivery",
+      "base": "codex/issue-20-entities-delivery",
+      "url": "https://github.com/hyperdimensionalcomputingai/lance-csr/pull/45",
+      "number": 45,
+      "draft": true,
+      "created_utc": "2026-10-26T13:06:20.860377+00:00",
+      "body_sha256": "6607056b215216713c1972f6e19306dd9f75cb348d9f782e31cc93123fdee3ae",
+      "recovered_existing": false
+    },
+    {
+      "issue": 20,
+      "group": "UNION",
+      "head": "codex/issue-20-union-delivery",
+      "base": "codex/issue-20-union-delivery-prerequisites",
+      "url": "https://github.com/hyperdimensionalcomputingai/lance-csr/pull/46",
+      "number": 46,
+      "draft": true,
+      "created_utc": "2026-10-26T13:06:25.351719+00:00",
+      "body_sha256": "d189e71ecef3ce5ab77228e72818d86f9de8b4928adb0df4de478042cb4e5d47",
+      "recovered_existing": false
+    },
+    {
+      "issue": 20,
+      "group": "path values",
+      "head": "codex/issue-20-path-null-recheck",
+      "base": "codex/issue-20-paths-curated-base",
+      "url": "https://github.com/hyperdimensionalcomputingai/lance-csr/pull/47",
+      "number": 47,
+      "draft": true,
+      "created_utc": "2026-10-26T13:06:30.918083+00:00",
+      "body_sha256": "c5e2001c4478cc6be0e305fcd7aa41204ed35f414e9faae9d6b6dcbd2e5d02fa",
+      "recovered_existing": false
+    },
+    {
+      "issue": 20,
+      "group": "CALL",
+      "head": "codex/issue-20-call-delivery",
+      "base": "codex/issue-20-call-prerequisites",
+      "url": "https://github.com/hyperdimensionalcomputingai/lance-csr/pull/48",
+      "number": 48,
+      "draft": true,
+      "created_utc": "2026-10-26T13:07:28.457900+00:00",
+      "body_sha256": "d7009b4f2b5525bbe8d7d58c6692557c6c1f7a604de4aec0aab8a05cf6c0202c",
+      "recovered_existing": false
+    },
+    {
+      "issue": 21,
+      "group": "alias shadowing",
+      "head": "codex/issue-21-delivery",
+      "base": "codex/issue-20-string-list-delivery",
+      "url": "https://github.com/hyperdimensionalcomputingai/lance-csr/pull/49",
+      "number": 49,
+      "draft": true,
+      "created_utc": "2026-10-26T13:07:36.462099+00:00",
+      "body_sha256": "f7841636dbaef298e765f8db3bb115a9e7fb453dd6ccbf9a6b92ea3e49bac573",
+      "recovered_existing": false
+    },
+    {
+      "issue": 22,
+      "group": "public stubs",
+      "head": "codex/issue-22-python-stubs",
+      "base": "main",
+      "url": "https://github.com/hyperdimensionalcomputingai/lance-csr/pull/50",
+      "number": 50,
+      "draft": true,
+      "created_utc": "2026-10-26T13:07:41.114068+00:00",
+      "body_sha256": "6bbce75c0ef5a474e97e508bd463790f50edcdaf55aa6849a4cf701fed9ca533",
+      "recovered_existing": false
+    },
+    {
+      "issue": 23,
+      "group": "compatible accessors",
+      "head": "codex/issue-23-config-accessors",
+      "base": "main",
+      "url": "https://github.com/hyperdimensionalcomputingai/lance-csr/pull/51",
+      "number": 51,
+      "draft": true,
+      "created_utc": "2026-10-26T13:07:46.094106+00:00",
+      "body_sha256": "ed41541b2f5fecee5dc65c516f5e93b6359413c4225ff4c37136560ac9f12ddb",
+      "recovered_existing": false
+    },
+    {
+      "issue": 23,
+      "group": "expression types",
+      "head": "codex/issue-23-expression-types",
+      "base": "codex/issue-23-config-accessors",
+      "url": "https://github.com/hyperdimensionalcomputingai/lance-csr/pull/52",
+      "number": 52,
+      "draft": true,
+      "created_utc": "2026-10-26T13:07:51.129278+00:00",
+      "body_sha256": "1a665468fd0a7b0abb7fe90528819c992dc4c86b1110eda4fb22e78eb8f64557",
+      "recovered_existing": false
+    }
+  ],
+  "merge_performed": false,
+  "release_performed": false,
+  "push_returncode": 0,
+  "connector_fallback": "GitHub app create PR returned 403; used verified stugorf gh CLI.",
+  "verified_utc": "2026-10-26T13:12:37.637335+00:00",
+  "verified_main_sha": "90114f3e185b3dbb65ab48933b217ce096a07167",
+  "all_remote_refs_match": true,
+  "all_bodies_match": true,
+  "all_chat_attachments_verified": true
+}

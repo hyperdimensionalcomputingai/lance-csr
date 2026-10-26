@@ -1,0 +1,628 @@
+{
+  "repository": "hyperdimensionalcomputingai/lance-csr",
+  "expected_author": "stugorf",
+  "verified_profile": "David Hughes (@stugorf), push permission verified 2026-10-26",
+  "evidence_commit": "c1af420aeb60ce3ef07110f2685a0461b82234bb",
+  "expected_current_remote_main": "90114f3e185b3dbb65ab48933b217ce096a07167",
+  "approval_required": true,
+  "publication_performed": false,
+  "merge_authorized": false,
+  "release_or_PyPI_publication": false,
+  "publication_scope": "Push these explicit source/base/evidence refs without force, then open the 23 prepared draft PRs. Do not update main, create releases, merge or message reviewers. Stop if an existing remote ref differs from the recorded expected commit.",
+  "push_refs": [
+    {
+      "branch": "codex/issue-3-integer-lists",
+      "commit": "f71fe3c481b5c8599c24e904d163b8867eae29af",
+      "roles": [
+        "submission"
+      ]
+    },
+    {
+      "branch": "codex/issue-11-inline-local-cursors",
+      "commit": "d7ad39819d04acf44907213ba7532df5e93d8869",
+      "roles": [
+        "submission"
+      ]
+    },
+    {
+      "branch": "codex/issue-12-refresh-corrected",
+      "commit": "58b96fb601eda5f02caff0dc537c1ffa0f18bd15",
+      "roles": [
+        "submission"
+      ]
+    },
+    {
+      "branch": "codex/issue-13-cancellation-boundaries",
+      "commit": "c6bc5c150a2e198e2346e1870509db0f4ce69887",
+      "roles": [
+        "submission"
+      ]
+    },
+    {
+      "branch": "codex/issue-11-bounded-csr",
+      "commit": "e127755c872949733c69435047384c9d17fb572b",
+      "roles": [
+        "frozen_review_base"
+      ]
+    },
+    {
+      "branch": "codex/issue-14-curated",
+      "commit": "74dd1e5d9ad680b79da40428e2f7e2cc18eb6671",
+      "roles": [
+        "submission"
+      ]
+    },
+    {
+      "branch": "codex/issue-14-prerequisites",
+      "commit": "248def899cea569f57e44fa447ad9ccf5f8f5eab",
+      "roles": [
+        "frozen_review_base"
+      ]
+    },
+    {
+      "branch": "codex/issue-15-target-partitions",
+      "commit": "7461a7774d6cdf74bbd6961efa7ec86b229fa945",
+      "roles": [
+        "submission"
+      ]
+    },
+    {
+      "branch": "codex/issue-20-final-corrections",
+      "commit": "91d6b482a625b671c1e2eef923a4105331dc7ef4",
+      "roles": [
+        "frozen_review_base"
+      ]
+    },
+    {
+      "branch": "codex/issue-16-filter-column-reuse",
+      "commit": "447355dbaf90993d33926afc48ab6712e421505a",
+      "roles": [
+        "submission"
+      ]
+    },
+    {
+      "branch": "codex/issue-13-iterative-csr",
+      "commit": "1bf6d42141b9cc6ee1824d000f49cdc0ebd9d8fe",
+      "roles": [
+        "frozen_review_base"
+      ]
+    },
+    {
+      "branch": "codex/issue-17-bidirectional-shortest-path",
+      "commit": "09a92e424bd8a7dffc0c3ff6a82838dc088de59e",
+      "roles": [
+        "submission"
+      ]
+    },
+    {
+      "branch": "codex/issue-18-curated",
+      "commit": "4bc6eeae6a6f0c71bb23559b3c81387a49970836",
+      "roles": [
+        "submission"
+      ]
+    },
+    {
+      "branch": "codex/issue-18-prerequisites",
+      "commit": "07a0fa1246c1829f4184e7d33c5fa063a4a76f19",
+      "roles": [
+        "frozen_review_base"
+      ]
+    },
+    {
+      "branch": "codex/issue-19-scan-budget",
+      "commit": "a641cf25cbe34db25245ce2543140af5b735d30e",
+      "roles": [
+        "submission"
+      ]
+    },
+    {
+      "branch": "codex/issue-19-prerequisites",
+      "commit": "81ef524be83db4abb626394dd4940121a45751e2",
+      "roles": [
+        "frozen_review_base"
+      ]
+    },
+    {
+      "branch": "codex/issue-20-containers-curated",
+      "commit": "89f96a422a6a2e566b68496269f63b6f00ef908c",
+      "roles": [
+        "submission",
+        "frozen_review_base"
+      ]
+    },
+    {
+      "branch": "codex/issue-20-parameter-prerequisites",
+      "commit": "4b157120db78fad823e494deea2dba5c82729f59",
+      "roles": [
+        "frozen_review_base"
+      ]
+    },
+    {
+      "branch": "codex/issue-20-pagination-curated",
+      "commit": "90c141a0979bea1291baba501d49677a8dabb516",
+      "roles": [
+        "submission",
+        "frozen_review_base"
+      ]
+    },
+    {
+      "branch": "codex/issue-20-math-delivery",
+      "commit": "c53f47c2304f09f48019e0d3facdc7ece62c3a83",
+      "roles": [
+        "submission",
+        "frozen_review_base"
+      ]
+    },
+    {
+      "branch": "codex/issue-20-string-list-delivery",
+      "commit": "d44596967609bce35fad34acafe68753a2913383",
+      "roles": [
+        "submission",
+        "frozen_review_base"
+      ]
+    },
+    {
+      "branch": "codex/issue-20-entities-delivery",
+      "commit": "99d11c0ea0e72ecf592d65165a47101ce281ca3a",
+      "roles": [
+        "submission",
+        "frozen_review_base"
+      ]
+    },
+    {
+      "branch": "codex/issue-20-folds-delivery",
+      "commit": "88dd97e8baa87cc76dbd968b5761252be3bf60ec",
+      "roles": [
+        "submission"
+      ]
+    },
+    {
+      "branch": "codex/issue-20-union-delivery",
+      "commit": "6e62a429da270649aa6877e81fc4a67df941bdc8",
+      "roles": [
+        "submission"
+      ]
+    },
+    {
+      "branch": "codex/issue-20-union-delivery-prerequisites",
+      "commit": "ccfc4fece4c1a099ab5b494f6a4533dfd03acc11",
+      "roles": [
+        "frozen_review_base"
+      ]
+    },
+    {
+      "branch": "codex/issue-20-path-null-recheck",
+      "commit": "d595e377322e2105f7fbd1bb16d11f6afd776198",
+      "roles": [
+        "submission"
+      ]
+    },
+    {
+      "branch": "codex/issue-20-paths-curated-base",
+      "commit": "84fcac65be2d4f5104061da1af16294656875b1a",
+      "roles": [
+        "frozen_review_base"
+      ]
+    },
+    {
+      "branch": "codex/issue-20-call-delivery",
+      "commit": "f2cc84c64898185bf8ea4826b276b61ea8b20b63",
+      "roles": [
+        "submission"
+      ]
+    },
+    {
+      "branch": "codex/issue-20-call-prerequisites",
+      "commit": "32fee35e2aad15167a7d33ec0d9eee9b3d268b5b",
+      "roles": [
+        "frozen_review_base"
+      ]
+    },
+    {
+      "branch": "codex/issue-21-delivery",
+      "commit": "ccfc4fece4c1a099ab5b494f6a4533dfd03acc11",
+      "roles": [
+        "submission"
+      ]
+    },
+    {
+      "branch": "codex/issue-22-python-stubs",
+      "commit": "6175122bd24cc8fe95ddd4cf82d7492975ea6e7d",
+      "roles": [
+        "submission"
+      ]
+    },
+    {
+      "branch": "codex/issue-23-config-accessors",
+      "commit": "96598edac33e9c8dab8bf3b0ec1324308faf589e",
+      "roles": [
+        "submission",
+        "frozen_review_base"
+      ]
+    },
+    {
+      "branch": "codex/issue-23-expression-types",
+      "commit": "1939b6948792ed84eecd0914ff413da792ac2875",
+      "roles": [
+        "submission"
+      ]
+    },
+    {
+      "branch": "codex/issue-resolution-evidence",
+      "commit": "c1af420aeb60ce3ef07110f2685a0461b82234bb",
+      "roles": [
+        "evidence_or_verification"
+      ]
+    },
+    {
+      "branch": "codex/issue-resolution-final",
+      "commit": "7d2ef3e11b3858cc4571db315df4e848a37bdb82",
+      "roles": [
+        "evidence_or_verification"
+      ]
+    },
+    {
+      "branch": "codex/issue-resolution-current-main",
+      "commit": "5fe24cd8fb4e2cdb980d77bb6fe281ecdc32cfd9",
+      "roles": [
+        "evidence_or_verification"
+      ]
+    }
+  ],
+  "requests": [
+    {
+      "issue": 3,
+      "group": "integer precision",
+      "title": "fix(cypher): preserve integer-list precision",
+      "head": "codex/issue-3-integer-lists",
+      "head_commit": "f71fe3c481b5c8599c24e904d163b8867eae29af",
+      "base": "main",
+      "frozen_tested_base_commit": "54e02307a48e467a98d9da2183f5adcb767e7c99",
+      "expected_remote_base_commit": "90114f3e185b3dbb65ab48933b217ce096a07167",
+      "draft": true,
+      "review_state": "ready_for_individual_review",
+      "body_file": "/Users/davidhughes/dev/lance-csr/dist/issue-resolution-publication-2026-10-26/bodies/issue-3.md",
+      "body_sha256": "c63923cc9e7290c708d4162212ef53afc215518b6b88dcb6cd4bd0db5c97e6d3",
+      "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration."
+    },
+    {
+      "issue": 11,
+      "group": "bounded expansion",
+      "title": "fix(csr): stream high-degree expansion in bounded chunks",
+      "head": "codex/issue-11-inline-local-cursors",
+      "head_commit": "d7ad39819d04acf44907213ba7532df5e93d8869",
+      "base": "main",
+      "frozen_tested_base_commit": "54e02307a48e467a98d9da2183f5adcb767e7c99",
+      "expected_remote_base_commit": "90114f3e185b3dbb65ab48933b217ce096a07167",
+      "draft": true,
+      "review_state": "ready_for_individual_review",
+      "body_file": "/Users/davidhughes/dev/lance-csr/dist/issue-resolution-publication-2026-10-26/bodies/issue-11.md",
+      "body_sha256": "f5031d8c5d7a0ef7ce0eb5255b5f5a4531c7796582d7bcaf2eb2607757627cbb",
+      "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration."
+    },
+    {
+      "issue": 12,
+      "group": "refresh publication",
+      "title": "fix(graph): prevent stale concurrent refresh publication",
+      "head": "codex/issue-12-refresh-corrected",
+      "head_commit": "58b96fb601eda5f02caff0dc537c1ffa0f18bd15",
+      "base": "main",
+      "frozen_tested_base_commit": "54e02307a48e467a98d9da2183f5adcb767e7c99",
+      "expected_remote_base_commit": "90114f3e185b3dbb65ab48933b217ce096a07167",
+      "draft": true,
+      "review_state": "ready_for_individual_review",
+      "body_file": "/Users/davidhughes/dev/lance-csr/dist/issue-resolution-publication-2026-10-26/bodies/issue-12.md",
+      "body_sha256": "8d6951ee498f61cf7f74e5967d2c548cf13ae5ad13ffd60648f547da566b4b71",
+      "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration."
+    },
+    {
+      "issue": 13,
+      "group": "iterative paths",
+      "title": "perf(csr): traverse variable-length paths iteratively",
+      "head": "codex/issue-13-cancellation-boundaries",
+      "head_commit": "c6bc5c150a2e198e2346e1870509db0f4ce69887",
+      "base": "codex/issue-11-bounded-csr",
+      "frozen_tested_base_commit": "e127755c872949733c69435047384c9d17fb572b",
+      "expected_remote_base_commit": "e127755c872949733c69435047384c9d17fb572b",
+      "draft": true,
+      "review_state": "coordinated_draft_requires_tested_integration",
+      "body_file": "/Users/davidhughes/dev/lance-csr/dist/issue-resolution-publication-2026-10-26/bodies/issue-13.md",
+      "body_sha256": "2d5837b57c94be318d3d91bf4d16e629433561ac9db67127d845dfa2538c09a0",
+      "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration."
+    },
+    {
+      "issue": 14,
+      "group": "plan templates",
+      "title": "Reuse scalar query templates within each engine snapshot",
+      "head": "codex/issue-14-curated",
+      "head_commit": "74dd1e5d9ad680b79da40428e2f7e2cc18eb6671",
+      "base": "codex/issue-14-prerequisites",
+      "frozen_tested_base_commit": "248def899cea569f57e44fa447ad9ccf5f8f5eab",
+      "expected_remote_base_commit": "248def899cea569f57e44fa447ad9ccf5f8f5eab",
+      "draft": true,
+      "review_state": "ready_for_individual_review",
+      "body_file": "/Users/davidhughes/dev/lance-csr/dist/issue-resolution-publication-2026-10-26/bodies/issue-14-curated.md",
+      "body_sha256": "35a5d25e2da0cd52db63068ad26b4af6618fbf3daeb0e5e14101d69c2a8e68c3",
+      "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration."
+    },
+    {
+      "issue": 15,
+      "group": "partition override",
+      "title": "feat(python): allow an explicit query partition target",
+      "head": "codex/issue-15-target-partitions",
+      "head_commit": "7461a7774d6cdf74bbd6961efa7ec86b229fa945",
+      "base": "codex/issue-20-final-corrections",
+      "frozen_tested_base_commit": "91d6b482a625b671c1e2eef923a4105331dc7ef4",
+      "expected_remote_base_commit": "91d6b482a625b671c1e2eef923a4105331dc7ef4",
+      "draft": true,
+      "review_state": "coordinated_draft_requires_tested_integration",
+      "body_file": "/Users/davidhughes/dev/lance-csr/dist/issue-resolution-publication-2026-10-26/bodies/issue-15-target-partitions.md",
+      "body_sha256": "799d5c2a1a979975c04aeeda36c2a05ea1f520d3323c6d37306c0c124f5e9687",
+      "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration."
+    },
+    {
+      "issue": 16,
+      "group": "property read reuse",
+      "title": "perf(csr): reuse filter columns during target materialization",
+      "head": "codex/issue-16-filter-column-reuse",
+      "head_commit": "447355dbaf90993d33926afc48ab6712e421505a",
+      "base": "codex/issue-13-iterative-csr",
+      "frozen_tested_base_commit": "1bf6d42141b9cc6ee1824d000f49cdc0ebd9d8fe",
+      "expected_remote_base_commit": "1bf6d42141b9cc6ee1824d000f49cdc0ebd9d8fe",
+      "draft": true,
+      "review_state": "coordinated_draft_requires_tested_integration",
+      "body_file": "/Users/davidhughes/dev/lance-csr/dist/issue-resolution-publication-2026-10-26/bodies/issue-16.md",
+      "body_sha256": "ab9f2c8b0d3d81ab4b46c883d1e86bc04d6d22154360abb448e847aea7cee899",
+      "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration."
+    },
+    {
+      "issue": 17,
+      "group": "bidirectional search",
+      "title": "perf(graph): search shortest paths from both ends",
+      "head": "codex/issue-17-bidirectional-shortest-path",
+      "head_commit": "09a92e424bd8a7dffc0c3ff6a82838dc088de59e",
+      "base": "codex/issue-11-bounded-csr",
+      "frozen_tested_base_commit": "e127755c872949733c69435047384c9d17fb572b",
+      "expected_remote_base_commit": "e127755c872949733c69435047384c9d17fb572b",
+      "draft": true,
+      "review_state": "coordinated_draft_requires_tested_integration",
+      "body_file": "/Users/davidhughes/dev/lance-csr/dist/issue-resolution-publication-2026-10-26/bodies/issue-17.md",
+      "body_sha256": "45639b36b1e90eb82fb8559e379f6e0c543bff22cb8570dd5185c9aedc8e1dba",
+      "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration."
+    },
+    {
+      "issue": 18,
+      "group": "comprehension counts",
+      "title": "Count qualifying comprehension elements without building a list",
+      "head": "codex/issue-18-curated",
+      "head_commit": "4bc6eeae6a6f0c71bb23559b3c81387a49970836",
+      "base": "codex/issue-18-prerequisites",
+      "frozen_tested_base_commit": "07a0fa1246c1829f4184e7d33c5fa063a4a76f19",
+      "expected_remote_base_commit": "07a0fa1246c1829f4184e7d33c5fa063a4a76f19",
+      "draft": true,
+      "review_state": "ready_for_individual_review",
+      "body_file": "/Users/davidhughes/dev/lance-csr/dist/issue-resolution-publication-2026-10-26/bodies/issue-18-curated.md",
+      "body_sha256": "6590c3862ff42e60f113b4f56b73b336016a4c98dc4d128a8c002bbd9577cc24",
+      "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration."
+    },
+    {
+      "issue": 19,
+      "group": "query deadlines",
+      "title": "feat(graph): enforce cooperative query deadlines",
+      "head": "codex/issue-19-scan-budget",
+      "head_commit": "a641cf25cbe34db25245ce2543140af5b735d30e",
+      "base": "codex/issue-19-prerequisites",
+      "frozen_tested_base_commit": "81ef524be83db4abb626394dd4940121a45751e2",
+      "expected_remote_base_commit": "81ef524be83db4abb626394dd4940121a45751e2",
+      "draft": true,
+      "review_state": "coordinated_draft_requires_tested_integration",
+      "body_file": "/Users/davidhughes/dev/lance-csr/dist/issue-resolution-publication-2026-10-26/bodies/issue-19-final.md",
+      "body_sha256": "50e010464a70b8eb695fc0340631cdcaee4256873a53417a70bdbcd369a73ffc",
+      "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration."
+    },
+    {
+      "issue": 20,
+      "group": "container parameters",
+      "title": "feat(cypher): support typed list and map parameters",
+      "head": "codex/issue-20-containers-curated",
+      "head_commit": "89f96a422a6a2e566b68496269f63b6f00ef908c",
+      "base": "codex/issue-20-parameter-prerequisites",
+      "frozen_tested_base_commit": "4b157120db78fad823e494deea2dba5c82729f59",
+      "expected_remote_base_commit": "4b157120db78fad823e494deea2dba5c82729f59",
+      "draft": true,
+      "review_state": "ready_for_individual_review",
+      "body_file": "/Users/davidhughes/dev/lance-csr/dist/issue-resolution-publication-2026-10-26/bodies/issue-20-containers-typed.md",
+      "body_sha256": "b5b554674c4bda84869e02907e947b7ff0878ba6da1d7451115e5ff4583603d0",
+      "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration."
+    },
+    {
+      "issue": 20,
+      "group": "pagination parameters",
+      "title": "feat(cypher): bind parameters in SKIP and LIMIT",
+      "head": "codex/issue-20-pagination-curated",
+      "head_commit": "90c141a0979bea1291baba501d49677a8dabb516",
+      "base": "codex/issue-20-containers-curated",
+      "frozen_tested_base_commit": "89f96a422a6a2e566b68496269f63b6f00ef908c",
+      "expected_remote_base_commit": "89f96a422a6a2e566b68496269f63b6f00ef908c",
+      "draft": true,
+      "review_state": "ready_for_individual_review",
+      "body_file": "/Users/davidhughes/dev/lance-csr/dist/issue-resolution-publication-2026-10-26/bodies/issue-20-pagination-typed.md",
+      "body_sha256": "4c99001da43561068969a659875fc220cf8b07ee399b8cda7bd91aa348fc9cfd",
+      "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration."
+    },
+    {
+      "issue": 20,
+      "group": "math",
+      "title": "Add numeric scalar functions with strict Cypher types",
+      "head": "codex/issue-20-math-delivery",
+      "head_commit": "c53f47c2304f09f48019e0d3facdc7ece62c3a83",
+      "base": "codex/issue-20-pagination-curated",
+      "frozen_tested_base_commit": "90c141a0979bea1291baba501d49677a8dabb516",
+      "expected_remote_base_commit": "90c141a0979bea1291baba501d49677a8dabb516",
+      "draft": true,
+      "review_state": "ready_for_individual_review",
+      "body_file": "/Users/davidhughes/dev/lance-csr/dist/issue-resolution-publication-2026-10-26/bodies/issue-20-math-delivery.md",
+      "body_sha256": "9c54381a3788f9a300dc93138ab52eb9bde3264ae3c03411a655516c0138ff7b",
+      "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration."
+    },
+    {
+      "issue": 20,
+      "group": "string/list functions",
+      "title": "Add Cypher string and list scalar functions",
+      "head": "codex/issue-20-string-list-delivery",
+      "head_commit": "d44596967609bce35fad34acafe68753a2913383",
+      "base": "codex/issue-20-math-delivery",
+      "frozen_tested_base_commit": "c53f47c2304f09f48019e0d3facdc7ece62c3a83",
+      "expected_remote_base_commit": "c53f47c2304f09f48019e0d3facdc7ece62c3a83",
+      "draft": true,
+      "review_state": "ready_for_individual_review",
+      "body_file": "/Users/davidhughes/dev/lance-csr/dist/issue-resolution-publication-2026-10-26/bodies/issue-20-string-list-delivery.md",
+      "body_sha256": "c55f9748931b5e30d645cac62b11e33661a275df4b7cf9238bbbb5a5f3bbbf7e",
+      "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration."
+    },
+    {
+      "issue": 20,
+      "group": "entity metadata",
+      "title": "Add map/entity keys and node labels",
+      "head": "codex/issue-20-entities-delivery",
+      "head_commit": "99d11c0ea0e72ecf592d65165a47101ce281ca3a",
+      "base": "codex/issue-20-string-list-delivery",
+      "frozen_tested_base_commit": "d44596967609bce35fad34acafe68753a2913383",
+      "expected_remote_base_commit": "d44596967609bce35fad34acafe68753a2913383",
+      "draft": true,
+      "review_state": "ready_for_individual_review",
+      "body_file": "/Users/davidhughes/dev/lance-csr/dist/issue-resolution-publication-2026-10-26/bodies/issue-20-entities-delivery.md",
+      "body_sha256": "7e6f665c4cf92c0cf344047ef15104e9d0605ae3e11337823ec17fcdf5b5c715",
+      "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration."
+    },
+    {
+      "issue": 20,
+      "group": "reduce/list predicates",
+      "title": "Add ordered reduce and list predicates",
+      "head": "codex/issue-20-folds-delivery",
+      "head_commit": "88dd97e8baa87cc76dbd968b5761252be3bf60ec",
+      "base": "codex/issue-20-entities-delivery",
+      "frozen_tested_base_commit": "99d11c0ea0e72ecf592d65165a47101ce281ca3a",
+      "expected_remote_base_commit": "99d11c0ea0e72ecf592d65165a47101ce281ca3a",
+      "draft": true,
+      "review_state": "ready_for_individual_review",
+      "body_file": "/Users/davidhughes/dev/lance-csr/dist/issue-resolution-publication-2026-10-26/bodies/issue-20-folds-delivery.md",
+      "body_sha256": "6607056b215216713c1972f6e19306dd9f75cb348d9f782e31cc93123fdee3ae",
+      "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration."
+    },
+    {
+      "issue": 20,
+      "group": "UNION",
+      "title": "Add scoped UNION and UNION ALL queries",
+      "head": "codex/issue-20-union-delivery",
+      "head_commit": "6e62a429da270649aa6877e81fc4a67df941bdc8",
+      "base": "codex/issue-20-union-delivery-prerequisites",
+      "frozen_tested_base_commit": "ccfc4fece4c1a099ab5b494f6a4533dfd03acc11",
+      "expected_remote_base_commit": "ccfc4fece4c1a099ab5b494f6a4533dfd03acc11",
+      "draft": true,
+      "review_state": "ready_for_individual_review",
+      "body_file": "/Users/davidhughes/dev/lance-csr/dist/issue-resolution-publication-2026-10-26/bodies/issue-20-union-delivery.md",
+      "body_sha256": "d189e71ecef3ce5ab77228e72818d86f9de8b4928adb0df4de478042cb4e5d47",
+      "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration."
+    },
+    {
+      "issue": 20,
+      "group": "path values",
+      "title": "Preserve named path and relationship values",
+      "head": "codex/issue-20-path-null-recheck",
+      "head_commit": "d595e377322e2105f7fbd1bb16d11f6afd776198",
+      "base": "codex/issue-20-paths-curated-base",
+      "frozen_tested_base_commit": "84fcac65be2d4f5104061da1af16294656875b1a",
+      "expected_remote_base_commit": "84fcac65be2d4f5104061da1af16294656875b1a",
+      "draft": true,
+      "review_state": "coordinated_draft_requires_tested_integration",
+      "body_file": "/Users/davidhughes/dev/lance-csr/dist/issue-resolution-publication-2026-10-26/bodies/issue-20-paths-curated.md",
+      "body_sha256": "c5e2001c4478cc6be0e305fcd7aa41204ed35f414e9faae9d6b6dcbd2e5d02fa",
+      "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration."
+    },
+    {
+      "issue": 20,
+      "group": "CALL",
+      "title": "feat(cypher): support scoped read-only CALL subqueries",
+      "head": "codex/issue-20-call-delivery",
+      "head_commit": "f2cc84c64898185bf8ea4826b276b61ea8b20b63",
+      "base": "codex/issue-20-call-prerequisites",
+      "frozen_tested_base_commit": "32fee35e2aad15167a7d33ec0d9eee9b3d268b5b",
+      "expected_remote_base_commit": "32fee35e2aad15167a7d33ec0d9eee9b3d268b5b",
+      "draft": true,
+      "review_state": "coordinated_draft_requires_tested_integration",
+      "body_file": "/Users/davidhughes/dev/lance-csr/dist/issue-resolution-publication-2026-10-26/bodies/issue-20-call-delivery.md",
+      "body_sha256": "d7009b4f2b5525bbe8d7d58c6692557c6c1f7a604de4aec0aab8a05cf6c0202c",
+      "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration."
+    },
+    {
+      "issue": 21,
+      "group": "alias shadowing",
+      "title": "Fix output aliases that shadow node bindings",
+      "head": "codex/issue-21-delivery",
+      "head_commit": "ccfc4fece4c1a099ab5b494f6a4533dfd03acc11",
+      "base": "codex/issue-20-string-list-delivery",
+      "frozen_tested_base_commit": "d44596967609bce35fad34acafe68753a2913383",
+      "expected_remote_base_commit": "d44596967609bce35fad34acafe68753a2913383",
+      "draft": true,
+      "review_state": "ready_for_individual_review",
+      "body_file": "/Users/davidhughes/dev/lance-csr/dist/issue-resolution-publication-2026-10-26/bodies/issue-21-delivery.md",
+      "body_sha256": "f7841636dbaef298e765f8db3bb115a9e7fb453dd6ccbf9a6b92ea3e49bac573",
+      "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration."
+    },
+    {
+      "issue": 22,
+      "group": "public stubs",
+      "title": "feat(python): ship public API type stubs",
+      "head": "codex/issue-22-python-stubs",
+      "head_commit": "6175122bd24cc8fe95ddd4cf82d7492975ea6e7d",
+      "base": "main",
+      "frozen_tested_base_commit": "54e02307a48e467a98d9da2183f5adcb767e7c99",
+      "expected_remote_base_commit": "90114f3e185b3dbb65ab48933b217ce096a07167",
+      "draft": true,
+      "review_state": "ready_for_individual_review",
+      "body_file": "/Users/davidhughes/dev/lance-csr/dist/issue-resolution-publication-2026-10-26/bodies/issue-22.md",
+      "body_sha256": "6bbce75c0ef5a474e97e508bd463790f50edcdaf55aa6849a4cf701fed9ca533",
+      "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration."
+    },
+    {
+      "issue": 23,
+      "group": "compatible accessors",
+      "title": "refactor(graph): expose read-only mapping accessors",
+      "head": "codex/issue-23-config-accessors",
+      "head_commit": "96598edac33e9c8dab8bf3b0ec1324308faf589e",
+      "base": "main",
+      "frozen_tested_base_commit": "54e02307a48e467a98d9da2183f5adcb767e7c99",
+      "expected_remote_base_commit": "90114f3e185b3dbb65ab48933b217ce096a07167",
+      "draft": true,
+      "review_state": "ready_for_individual_review",
+      "body_file": "/Users/davidhughes/dev/lance-csr/dist/issue-resolution-publication-2026-10-26/bodies/issue-23-accessors.md",
+      "body_sha256": "ed41541b2f5fecee5dc65c516f5e93b6359413c4225ff4c37136560ac9f12ddb",
+      "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration."
+    },
+    {
+      "issue": 23,
+      "group": "expression types",
+      "title": "feat(cypher): reject known incompatible expression types",
+      "head": "codex/issue-23-expression-types",
+      "head_commit": "1939b6948792ed84eecd0914ff413da792ac2875",
+      "base": "codex/issue-23-config-accessors",
+      "frozen_tested_base_commit": "96598edac33e9c8dab8bf3b0ec1324308faf589e",
+      "expected_remote_base_commit": "96598edac33e9c8dab8bf3b0ec1324308faf589e",
+      "draft": true,
+      "review_state": "ready_for_individual_review",
+      "body_file": "/Users/davidhughes/dev/lance-csr/dist/issue-resolution-publication-2026-10-26/bodies/issue-23-types.md",
+      "body_sha256": "1a665468fd0a7b0abb7fe90528819c992dc4c86b1110eda4fb22e78eb8f64557",
+      "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration."
+    }
+  ],
+  "artifact": {
+    "local": "/private/tmp/lance-csr-resolution-evidence/contribution-evidence/issue-resolutions/artifacts/issue-resolution-review-2026-10-26.tar.gz",
+    "bytes": 47675190,
+    "sha256": "b3486fb30a34639c830b5d49353b3838f96369f95df959ac35f85511f7f8b2de",
+    "future_url": "https://github.com/hyperdimensionalcomputingai/lance-csr/raw/c1af420aeb60ce3ef07110f2685a0461b82234bb/contribution-evidence/issue-resolutions/artifacts/issue-resolution-review-2026-10-26.tar.gz"
+  },
+  "preflight": "Recheck authenticated author and remote refs before publishing. Current main differs from frozen main only by verified upstream documentation; code/test/lock equivalence is recorded.",
+  "upstream_documentation_merge": "5fe24cd8fb4e2cdb980d77bb6fe281ecdc32cfd9",
+  "code_equivalence_proof": "contribution-evidence/issue-resolutions/current-main-equivalence.json"
+}

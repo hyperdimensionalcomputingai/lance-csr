@@ -343,7 +343,7 @@
       "combined_verified_head": null
     }
   ],
-  "publication": "awaiting_user_approval_under_the_approved_delivery_plan",
+  "publication": "23_draft_PRs_published_and_verified_no_merges",
   "closure_limits": [
     "19 external runner adoption remains outside read/run authorization",
     "23 private fields/validated serde wait for the next breaking release",
@@ -359,5 +359,7 @@
     "current_contribution_guide_and_PR_template_reviewed": true,
     "strict_docs_and_spelling": "passed",
     "proof": "current-main-equivalence.json"
-  }
+  },
+  "publication_receipt": "publication/publication-receipt.json",
+  "published_pr_index": "PUBLISHED_PRS.md"
 }

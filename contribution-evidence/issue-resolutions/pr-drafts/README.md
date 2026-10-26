@@ -1,6 +1,6 @@
 # Local PR review index
 
-The 23 packets below cover 14 issues. Sixteen are ready for individual review; seven must remain coordinated drafts until their actual targets match the qualified integration. No remote publication has occurred.
+The 23 packets below cover 14 issues. Sixteen are ready for individual review; seven must remain coordinated drafts until their actual targets match the qualified integration. All 23 PRs are now published as drafts; nothing was merged.
 
 [Heads, bases and gates](../review-readiness-current.json) identify exact commits, wheels and dependencies. [Reproduction](../REPRODUCE.md) covers all prerequisites; the [integration decision](../INTEGRATION.md) preserves the smaller cancellation budget after rejecting the larger-budget combined variant.
 
@@ -34,8 +34,10 @@ The selected combined source `7d2ef3e` passes 650 Rust tests, 1,241 Python tests
 
 The larger-budget combined `891d8d7` is rejected for repeated lazy Q30 query 30 regression; it is retained with all passing correctness and failed performance evidence. Standalone #19 uses its own qualified budget against the original parent, so its draft explicitly requires the selected integration resolution.
 
-Publication requires owner approval. #19 runner adoption and #23 breaking-release stages remain open; the #20 tracker awaits acceptance of every finite group.
+Publication was approved and completed; no merge was authorized or performed. #19 runner adoption and #23 breaking-release stages remain open; the #20 tracker awaits acceptance of every finite group.
 
 The [current-main supplement](../artifacts/current-main-supplement/README.md) verifies the new `90114f3` contribution/README commit: engine code and locks are unchanged, all five main-target merges are clean, and strict docs/spelling pass on local verification merge `5fe24cd`. The benchmark evidence remains valid; frozen source branches are preserved.
+
+See the [published PR index](../PUBLISHED_PRS.md) for all 23 links and the verified publication receipt.
 
 Submitted by David Hughes (@stugorf), with AI Collaboration.
