@@ -148,8 +148,8 @@ def test_shortest_paths_shares_a_source_across_targets(use_csr):
         "p IS NULL AS missing",
         "RETURN CASE WHEN p IS NOT NULL THEN length(p) ELSE -1 END AS hops, "
         "p IS NULL AS missing",
-        "WITH p AS q RETURN CASE q IS NULL WHEN true THEN -1 ELSE length(q) END AS hops, "
-        "q IS NULL AS missing",
+        "WITH p AS q RETURN CASE q IS NULL WHEN true THEN -1 "
+        "ELSE length(q) END AS hops, q IS NULL AS missing",
         "WITH p AS q WHERE q IS NOT NULL OR q IS NULL "
         "RETURN coalesce(length(q), -1) AS hops, q IS NULL AS missing",
     ],
