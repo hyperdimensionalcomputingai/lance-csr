@@ -127,9 +127,10 @@ pub(crate) fn paths_array(
 fn mask_path_null_checks(predicate: &mut crate::ast::BooleanExpression, names: &HashSet<String>) {
     use crate::ast::{BooleanExpression as B, PropertyValue, ValueExpression as V};
     match predicate {
-        B::IsNull(value) | B::IsNotNull(value) if matches!(value, V::Variable(name) if names.contains(&name.to_lowercase())) =>
-        {
-            *value = V::Literal(PropertyValue::Null);
+        B::IsNull(value) | B::IsNotNull(value) => {
+            if matches!(&*value, V::Variable(name) if names.contains(&name.to_lowercase())) {
+                *value = V::Literal(PropertyValue::Null);
+            }
         }
         B::And(left, right) | B::Or(left, right) => {
             mask_path_null_checks(left, names);
