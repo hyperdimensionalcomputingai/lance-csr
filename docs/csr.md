@@ -244,4 +244,4 @@ The 25% threshold is fixed: lookups pay a little for every pending delta edge, a
 
 The [benchmarks](benchmarks.md) were all run with `use_csr=True`.
 
-Cancellation checkpoints count source and frontier rows that have no surviving edges, as well as deleted edge occurrences. Queries producing no rows therefore remain cooperative.
+Cancellation checkpoints count source and frontier rows that have no surviving edges, as well as deleted edge occurrences. Queries producing no rows therefore remain cooperative. Fixed-hop expansion checks at most 8,192 raw candidates or missing source rows before yielding, matching the maximum output-chunk size; empty-frontier shortest-path checks retain their smaller bound.

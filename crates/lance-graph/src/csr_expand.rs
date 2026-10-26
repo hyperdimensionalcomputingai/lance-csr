@@ -1231,7 +1231,7 @@ impl BatchExpansion {
                 let required = self.bound.as_ref().map(|b| b.value(i));
                 for candidate in adjacency
                     .candidates_from(key, &mut position)
-                    .take(1024 - work)
+                    .take(8192 - work)
                 {
                     work += 1;
                     let Some(neighbor) = candidate else {
@@ -1254,7 +1254,7 @@ impl BatchExpansion {
                         break 'rows;
                     }
                 }
-                if work == 1024 {
+                if work == 8192 {
                     break;
                 }
             }
@@ -1263,13 +1263,13 @@ impl BatchExpansion {
             }
             row += 1;
             position = NeighborPosition::default();
-            if work == 1024 {
+            if work == 8192 {
                 break;
             }
         }
         self.row = row;
         self.position = position;
-        work == 1024
+        work == 8192
     }
 }
 
@@ -1985,7 +1985,7 @@ mod tests {
             let mut next = Box::pin(expansion.next_chunk(&adjacency, None, 1));
             assert!(futures::poll!(next.as_mut()).is_pending());
             drop(next);
-            assert!(expansion.row > 0 && expansion.row <= 1024);
+            assert!(expansion.row > 0 && expansion.row <= 8192);
             assert!(expansion
                 .next_chunk(&adjacency, None, 1)
                 .await
@@ -2021,13 +2021,13 @@ mod tests {
         let mut next = Box::pin(expansion.next_chunk(&adj, None, 1));
         assert!(futures::poll!(next.as_mut()).is_pending());
         drop(next);
-        assert!(expansion.position.forward <= 1024);
+        assert!(expansion.position.forward <= 8192);
         assert!(expansion.position.forward > 0);
     }
 
     #[tokio::test]
     async fn expansion_yields_and_resumes_through_a_long_tombstone_run() {
-        let n = 5_000;
+        let n = 20_000;
         let base = Adjacency::build(
             edge_stream(vec![Some(1); n], (2..n as i64 + 2).map(Some).collect()),
             "src",
@@ -2044,7 +2044,7 @@ mod tests {
         let mut next = Box::pin(expansion.next_chunk(&adjacency, None, 1));
         assert!(futures::poll!(next.as_mut()).is_pending());
         drop(next);
-        assert_eq!(expansion.position.forward, 1024);
+        assert_eq!(expansion.position.forward, 8192);
         assert_eq!(
             expansion
                 .next_chunk(&adjacency, None, 1)
