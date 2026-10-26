@@ -215,7 +215,7 @@ used by IC14. The tables below specify its supported surface.
 | `UNION`, `UNION ALL` | Combine independent queries with matching output names/order and compatible Arrow types. |
 | `CALL { ... RETURN ... }` | Read-only subquery. Import outer variables with a leading plain `WITH`; see below. |
 | `RETURN [DISTINCT]` | With `AS` aliases. Without reading clauses, expressions run on one implicit row. |
-| `ORDER BY`, `SKIP`, `LIMIT` | `SKIP` and `LIMIT` take nonnegative integer literals or parameters. |
+| `ORDER BY`, `SKIP`, `LIMIT` | Nulls sort last in ascending order and first in descending order, as in openCypher. `SKIP` and `LIMIT` take nonnegative integer literals or parameters. |
 
 !!! failure "Not supported"
 

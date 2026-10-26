@@ -316,7 +316,7 @@ def test_call_union_coerces_numeric_and_null_output_schema(graph):
         "UNWIND [1, 2] AS x CALL { WITH x RETURN x AS n UNION ALL "
         "RETURN $value AS n } RETURN n ORDER BY n"
     )
-    for value, expected in [(2.5, [1.0, 2.0, 2.5, 2.5]), (None, [None, None, 1, 2])]:
+    for value, expected in [(2.5, [1.0, 2.0, 2.5, 2.5]), (None, [1, 2, None, None])]:
         table = engine.execute(query, {"value": value})
         expected_type = pa.float64() if value is not None else pa.int64()
         assert table.schema.field("n").type == expected_type
