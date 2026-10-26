@@ -1,0 +1,58 @@
+{
+  "created_utc": "2026-10-25T19:40:21.624971+00:00",
+  "phase": "issue-17",
+  "source_worktree": "/private/tmp/lance-csr-issue-17",
+  "source_commit": "09a92e424bd8a7dffc0c3ff6a82838dc088de59e",
+  "source_tree_clean": true,
+  "profile": "release",
+  "build_interpreter_path": "/private/tmp/lance-csr-issue-21/python/.venv/bin/python",
+  "build_python": "Python 3.13.17",
+  "consumer_fixture_sha256": {
+    "test_engine_csr.py": "b642b665509d0f34feb9bd20c09187c233fa25db9dfbcdba70ad006a48481b88",
+    "test_engine_csr_delta.py": "724a76f5b30a4633b301a5de983ce70d6d2cad2a9579a890e499f18ea8b972e6",
+    "test_engine_paths.py": "b755daa6ab851426dfe68878c5e5bc82c43aa25c41a7ff017cc27252ed84c1b0"
+  },
+  "wheel_path": "/private/tmp/lance-csr-submissions/wheels/issue-17/lance_csr-0.2.0-cp312-abi3-macosx_11_0_arm64.whl",
+  "wheel_sha256": "20b5c6cb724d846ff2f54649f9773db6a5e85ee51ae5b8321aeb371a04bba9c8",
+  "extension_sha256": "0d0991b5583be5efe05d2f9a45f2ede1ccdd0fa5dd6e26c25a36340f2bae541a",
+  "installed_extension_matches_archive": true,
+  "wheel_tag": "cp312-abi3-macosx_11_0_arm64",
+  "build_python_lock_sha256": "b1ca87e689ae857d94d0021159c386e28bb4e3c8dcc1be4ef62ce8c889db4c7e",
+  "toolchain": {
+    "rustc": "1.96.0 (ac68faa20 2026-05-25)",
+    "cargo": "1.96.0 (30a34c682 2026-05-25)",
+    "maturin": "1.15.0"
+  },
+  "host": {
+    "macos": "26.6.2",
+    "architecture": "arm64"
+  },
+  "build_log": "/private/tmp/lance-csr-runtime/issue-17-release-wheel-build.log",
+  "release_clean_log": "/private/tmp/lance-csr-runtime/issue-17-release-clean.log",
+  "verification_log": "/private/tmp/lance-csr-runtime/issue-17-release-wheel-verification.log",
+  "installed_environment": {
+    "python": "3.12.9 (main, Feb 12 2025, 15:09:19) [Clang 19.1.6 ]",
+    "extension": "/Users/davidhughes/.cache/uv/archive-v0/Pf_IZI64kuIcVV8V/lib/python3.12/site-packages/lance_csr/_internal.abi3.so",
+    "lance-csr": "0.2.0",
+    "pyarrow": "26.0.0",
+    "pylance": "13.0.0"
+  },
+  "focused_tests_passed": 118,
+  "typing_files": [],
+  "smoke": [
+    "installed extension byte match",
+    "Arrow-memory fixture",
+    "Lance-disk fixture",
+    "CSR traversal",
+    "shortestPath",
+    "refresh",
+    "Rust absent from PATH"
+  ],
+  "limits": [
+    "No external datasets used",
+    "No SF1 benchmark or performance comparison",
+    "No other operating-system matrix",
+    "No push or PR"
+  ],
+  "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration."
+}

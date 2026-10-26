@@ -1,0 +1,41 @@
+{
+  "created_utc": "2026-10-25T19:42:22.069932+00:00",
+  "phase": "issue-3-cp313",
+  "source_worktree": "/Users/davidhughes/dev/lance-csr",
+  "source_commit": "f71fe3c481b5c8599c24e904d163b8867eae29af",
+  "tracked_source_clean": true,
+  "preserved_untracked_files": [
+    "ChatGPT Image Oct 24, 2026, 12_36_29 PM.png"
+  ],
+  "profile": "release",
+  "wheel_path": "/private/tmp/lance-csr-submissions/wheels/issue-3-cp313/lance_csr-0.2.0-cp312-abi3-macosx_11_0_arm64.whl",
+  "wheel_sha256": "5cf6d0beb0610d9c2c852d6cd02359a2deffb6430bf048dabc85a6e48a071b37",
+  "extension_sha256": "bec4848b030b5bd1b118a35d323562fe50e810bae5040d54db9b8ccb0f009daf",
+  "installed_extension_matches_archive": true,
+  "build_log": "/private/tmp/lance-csr-runtime/issue-3-cp313-release-wheel-build.log",
+  "build_log_sha256": "80f71945fef34e909bd59987d8b675ee068b8cbd971486ff21ea0cf222e350d1",
+  "release_clean_log": "/private/tmp/lance-csr-runtime/issue-3-cp313-release-clean.log",
+  "release_clean_log_sha256": "2811f41928993557932fbe7eab35681e502f23ce027d998b195956b6806297c1",
+  "verification_log": "/private/tmp/lance-csr-runtime/issue-3-cp313-release-wheel-verification.log",
+  "verification_log_sha256": "f5fdafeb628d0a9190aee642418e83979dd1d31aba7824f03f7d375a8b9d19a0",
+  "verification_script_sha256": "30bbb90e6df2a776ca4b253279560f0da8cbac86bc973c67f1ae58bf4858fa70",
+  "build_python_lock_sha256": "b1ca87e689ae857d94d0021159c386e28bb4e3c8dcc1be4ef62ce8c889db4c7e",
+  "toolchain": {
+    "rustc": "rustc 1.96.0 (ac68faa20 2026-05-25)",
+    "cargo": "cargo 1.96.0 (30a34c682 2026-05-25)"
+  },
+  "installed_environment": {
+    "python": "3.12.9 (main, Feb 12 2025, 15:09:19) [Clang 19.1.6 ]",
+    "extension": "/Users/davidhughes/.cache/uv/archive-v0/a9whv2ak9HGdqTOC/lib/python3.12/site-packages/lance_csr/_internal.abi3.so",
+    "lance-csr": "0.2.0",
+    "pyarrow": "26.0.0",
+    "pylance": "13.0.0"
+  },
+  "focused_tests_passed": 42,
+  "limits": [
+    "SF1 comparisons are recorded separately",
+    "No other operating-system matrix",
+    "No push or PR"
+  ],
+  "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration."
+}

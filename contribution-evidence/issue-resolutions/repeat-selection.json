@@ -1,0 +1,1221 @@
+{
+  "source_index": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/index.json",
+  "rule": "Repeat every flagged query in two new same-query-set pairs, before/after then reversed. No new full-suite reruns. Repeatable only if both new after/before mean ratios exceed1.10.",
+  "groups": [
+    {
+      "before": "issue-11-clean-r2",
+      "after": "issue-13",
+      "suite": "q30",
+      "mode": "memory",
+      "queries": [
+        21,
+        30
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-13-vs-issue-11-clean-r2-q30-memory.json"
+    },
+    {
+      "before": "issue-11-clean-r2",
+      "after": "issue-13",
+      "suite": "q30",
+      "mode": "lazy",
+      "queries": [
+        2,
+        6,
+        8,
+        24
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-13-vs-issue-11-clean-r2-q30-lazy.json"
+    },
+    {
+      "before": "issue-11-clean-r2",
+      "after": "issue-13",
+      "suite": "ic",
+      "mode": "lazy",
+      "queries": [
+        13
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-13-vs-issue-11-clean-r2-ic-lazy.json"
+    },
+    {
+      "before": "issue-11-clean-r2",
+      "after": "issue-17",
+      "suite": "q30",
+      "mode": "memory",
+      "queries": [
+        18
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-17-vs-issue-11-clean-r2-q30-memory.json"
+    },
+    {
+      "before": "issue-11-clean-r2",
+      "after": "issue-17",
+      "suite": "q30",
+      "mode": "lazy",
+      "queries": [
+        21,
+        22
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-17-vs-issue-11-clean-r2-q30-lazy.json"
+    },
+    {
+      "before": "issue-11-clean-r2",
+      "after": "issue-17",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        2,
+        6,
+        9
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-17-vs-issue-11-clean-r2-ic-memory.json"
+    },
+    {
+      "before": "issue-13",
+      "after": "issue-16",
+      "suite": "q30",
+      "mode": "lazy",
+      "queries": [
+        13,
+        26,
+        27,
+        30
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-16-vs-issue-13-q30-lazy.json"
+    },
+    {
+      "before": "issue-14-prerequisites",
+      "after": "issue-14-curated",
+      "suite": "q30",
+      "mode": "memory",
+      "queries": [
+        1
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-14-curated-vs-issue-14-prerequisites-q30-memory.json"
+    },
+    {
+      "before": "issue-14-prerequisites",
+      "after": "issue-14-curated",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        2
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-14-curated-vs-issue-14-prerequisites-ic-memory.json"
+    },
+    {
+      "before": "issue-14-prerequisites",
+      "after": "issue-14-curated",
+      "suite": "ic",
+      "mode": "lazy",
+      "queries": [
+        3
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-14-curated-vs-issue-14-prerequisites-ic-lazy.json"
+    },
+    {
+      "before": "issue-18-prerequisites",
+      "after": "issue-18-curated",
+      "suite": "q30",
+      "mode": "memory",
+      "queries": [
+        1,
+        11
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-18-curated-vs-issue-18-prerequisites-q30-memory.json"
+    },
+    {
+      "before": "issue-18-prerequisites",
+      "after": "issue-18-curated",
+      "suite": "q30",
+      "mode": "lazy",
+      "queries": [
+        1,
+        16,
+        19,
+        24,
+        26,
+        28
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-18-curated-vs-issue-18-prerequisites-q30-lazy.json"
+    },
+    {
+      "before": "issue-20-containers-curated",
+      "after": "issue-20-pagination-curated",
+      "suite": "q30",
+      "mode": "memory",
+      "queries": [
+        1,
+        19,
+        22
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-20-pagination-curated-vs-issue-20-containers-curated-q30-memory.json"
+    },
+    {
+      "before": "issue-20-containers-curated",
+      "after": "issue-20-pagination-curated",
+      "suite": "q30",
+      "mode": "lazy",
+      "queries": [
+        2,
+        4,
+        17
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-20-pagination-curated-vs-issue-20-containers-curated-q30-lazy.json"
+    },
+    {
+      "before": "issue-20-entities-delivery",
+      "after": "issue-20-folds-delivery",
+      "suite": "q30",
+      "mode": "memory",
+      "queries": [
+        11,
+        12
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-20-folds-delivery-vs-issue-20-entities-delivery-q30-memory.json"
+    },
+    {
+      "before": "issue-20-entities-delivery",
+      "after": "issue-20-folds-delivery",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        2
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-20-folds-delivery-vs-issue-20-entities-delivery-ic-memory.json"
+    },
+    {
+      "before": "issue-20-math-delivery",
+      "after": "issue-20-string-list-delivery",
+      "suite": "q30",
+      "mode": "memory",
+      "queries": [
+        16,
+        27,
+        28
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-20-string-list-delivery-vs-issue-20-math-delivery-q30-memory.json"
+    },
+    {
+      "before": "issue-20-math-delivery",
+      "after": "issue-20-string-list-delivery",
+      "suite": "q30",
+      "mode": "lazy",
+      "queries": [
+        1,
+        8,
+        21
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-20-string-list-delivery-vs-issue-20-math-delivery-q30-lazy.json"
+    },
+    {
+      "before": "issue-20-math-delivery",
+      "after": "issue-20-string-list-delivery",
+      "suite": "ic",
+      "mode": "lazy",
+      "queries": [
+        6
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-20-string-list-delivery-vs-issue-20-math-delivery-ic-lazy.json"
+    },
+    {
+      "before": "issue-20-pagination-curated",
+      "after": "issue-20-math-delivery",
+      "suite": "q30",
+      "mode": "lazy",
+      "queries": [
+        19,
+        28
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-20-math-delivery-vs-issue-20-pagination-curated-q30-lazy.json"
+    },
+    {
+      "before": "issue-20-pagination-curated",
+      "after": "issue-20-math-delivery",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        2,
+        5,
+        8,
+        9
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-20-math-delivery-vs-issue-20-pagination-curated-ic-memory.json"
+    },
+    {
+      "before": "issue-20-parameter-prerequisites",
+      "after": "issue-20-containers-curated",
+      "suite": "q30",
+      "mode": "memory",
+      "queries": [
+        2,
+        3
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-20-containers-curated-vs-issue-20-parameter-prerequisites-q30-memory.json"
+    },
+    {
+      "before": "issue-20-parameter-prerequisites",
+      "after": "issue-20-containers-curated",
+      "suite": "q30",
+      "mode": "lazy",
+      "queries": [
+        1,
+        15,
+        28
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-20-containers-curated-vs-issue-20-parameter-prerequisites-q30-lazy.json"
+    },
+    {
+      "before": "issue-20-string-list-delivery",
+      "after": "issue-20-entities-delivery",
+      "suite": "q30",
+      "mode": "memory",
+      "queries": [
+        13,
+        19,
+        20
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-20-entities-delivery-vs-issue-20-string-list-delivery-q30-memory.json"
+    },
+    {
+      "before": "issue-20-string-list-delivery",
+      "after": "issue-20-entities-delivery",
+      "suite": "q30",
+      "mode": "lazy",
+      "queries": [
+        6,
+        24,
+        25,
+        28
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-20-entities-delivery-vs-issue-20-string-list-delivery-q30-lazy.json"
+    },
+    {
+      "before": "issue-20-string-list-delivery",
+      "after": "issue-21-delivery",
+      "suite": "q30",
+      "mode": "memory",
+      "queries": [
+        29
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-21-delivery-vs-issue-20-string-list-delivery-q30-memory.json"
+    },
+    {
+      "before": "issue-20-string-list-delivery",
+      "after": "issue-21-delivery",
+      "suite": "q30",
+      "mode": "lazy",
+      "queries": [
+        4,
+        6,
+        11,
+        12,
+        13,
+        15,
+        26
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-21-delivery-vs-issue-20-string-list-delivery-q30-lazy.json"
+    },
+    {
+      "before": "issue-20-string-list-delivery",
+      "after": "issue-21-delivery",
+      "suite": "ic",
+      "mode": "lazy",
+      "queries": [
+        3,
+        4,
+        9,
+        13
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-21-delivery-vs-issue-20-string-list-delivery-ic-lazy.json"
+    },
+    {
+      "before": "issue-21-delivery",
+      "after": "issue-20-union-delivery",
+      "suite": "q30",
+      "mode": "memory",
+      "queries": [
+        15,
+        16,
+        19
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-20-union-delivery-vs-issue-21-delivery-q30-memory.json"
+    },
+    {
+      "before": "issue-21-delivery",
+      "after": "issue-20-union-delivery",
+      "suite": "q30",
+      "mode": "lazy",
+      "queries": [
+        27
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-20-union-delivery-vs-issue-21-delivery-q30-lazy.json"
+    },
+    {
+      "before": "issue-21-delivery",
+      "after": "issue-20-union-delivery",
+      "suite": "ic",
+      "mode": "lazy",
+      "queries": [
+        2
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-20-union-delivery-vs-issue-21-delivery-ic-lazy.json"
+    },
+    {
+      "before": "issue-23-accessors",
+      "after": "issue-23-types",
+      "suite": "q30",
+      "mode": "memory",
+      "queries": [
+        27
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-23-types-vs-issue-23-accessors-q30-memory.json"
+    },
+    {
+      "before": "issue-23-accessors",
+      "after": "issue-23-types",
+      "suite": "q30",
+      "mode": "lazy",
+      "queries": [
+        12,
+        18,
+        21
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-23-types-vs-issue-23-accessors-q30-lazy.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "candidate-bfbbb24",
+      "suite": "q30",
+      "mode": "memory",
+      "queries": [
+        5,
+        16,
+        28,
+        30
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/candidate-bfbbb24-vs-main-cp313-q30-memory.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "candidate-bfbbb24",
+      "suite": "q30",
+      "mode": "lazy",
+      "queries": [
+        2,
+        3,
+        6,
+        14,
+        18,
+        19,
+        22,
+        26,
+        27,
+        30
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/candidate-bfbbb24-vs-main-cp313-q30-lazy.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "candidate-bfbbb24",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        4,
+        6,
+        9,
+        13
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/candidate-bfbbb24-vs-main-cp313-ic-memory.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "candidate-bfbbb24",
+      "suite": "ic",
+      "mode": "lazy",
+      "queries": [
+        6,
+        13
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/candidate-bfbbb24-vs-main-cp313-ic-lazy.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-11-clean-r2",
+      "suite": "q30",
+      "mode": "memory",
+      "queries": [
+        25,
+        30
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-11-clean-r2-vs-main-cp313-q30-memory.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-11-clean-r2",
+      "suite": "q30",
+      "mode": "lazy",
+      "queries": [
+        3,
+        6,
+        9,
+        10,
+        13,
+        14,
+        21,
+        26,
+        30
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-11-clean-r2-vs-main-cp313-q30-lazy.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-11-clean-r2",
+      "suite": "ic",
+      "mode": "lazy",
+      "queries": [
+        6
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-11-clean-r2-vs-main-cp313-ic-lazy.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-12",
+      "suite": "q30",
+      "mode": "memory",
+      "queries": [
+        2,
+        3,
+        7,
+        22,
+        25,
+        27
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-12-vs-main-cp313-q30-memory.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-12",
+      "suite": "q30",
+      "mode": "lazy",
+      "queries": [
+        3,
+        6,
+        9,
+        10,
+        11,
+        19,
+        22,
+        25,
+        26
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-12-vs-main-cp313-q30-lazy.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-12",
+      "suite": "ic",
+      "mode": "lazy",
+      "queries": [
+        9
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-12-vs-main-cp313-ic-lazy.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-13",
+      "suite": "q30",
+      "mode": "memory",
+      "queries": [
+        2,
+        25,
+        27,
+        30
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-13-vs-main-cp313-q30-memory.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-13",
+      "suite": "q30",
+      "mode": "lazy",
+      "queries": [
+        2,
+        3,
+        4,
+        6,
+        7,
+        8,
+        9,
+        10,
+        18,
+        19,
+        22,
+        24,
+        25,
+        30
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-13-vs-main-cp313-q30-lazy.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-13",
+      "suite": "ic",
+      "mode": "lazy",
+      "queries": [
+        6,
+        10,
+        14
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-13-vs-main-cp313-ic-lazy.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-14-curated",
+      "suite": "q30",
+      "mode": "memory",
+      "queries": [
+        1,
+        2
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-14-curated-vs-main-cp313-q30-memory.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-14-curated",
+      "suite": "q30",
+      "mode": "lazy",
+      "queries": [
+        8,
+        9,
+        10,
+        19,
+        21
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-14-curated-vs-main-cp313-q30-lazy.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-14-curated",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        2
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-14-curated-vs-main-cp313-ic-memory.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-16",
+      "suite": "q30",
+      "mode": "memory",
+      "queries": [
+        27,
+        30
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-16-vs-main-cp313-q30-memory.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-16",
+      "suite": "q30",
+      "mode": "lazy",
+      "queries": [
+        3,
+        6,
+        7,
+        10,
+        13,
+        19,
+        22,
+        24,
+        25,
+        26,
+        27,
+        29,
+        30
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-16-vs-main-cp313-q30-lazy.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-17",
+      "suite": "q30",
+      "mode": "memory",
+      "queries": [
+        2,
+        4,
+        8,
+        18,
+        25,
+        30
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-17-vs-main-cp313-q30-memory.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-17",
+      "suite": "q30",
+      "mode": "lazy",
+      "queries": [
+        3,
+        6,
+        8,
+        10,
+        14,
+        19,
+        21,
+        22,
+        25,
+        30
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-17-vs-main-cp313-q30-lazy.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-17",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        2,
+        4,
+        5,
+        6,
+        7
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-17-vs-main-cp313-ic-memory.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-18-curated",
+      "suite": "q30",
+      "mode": "memory",
+      "queries": [
+        1,
+        2,
+        11
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-18-curated-vs-main-cp313-q30-memory.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-18-curated",
+      "suite": "q30",
+      "mode": "lazy",
+      "queries": [
+        2,
+        3,
+        9,
+        16,
+        18,
+        19,
+        21,
+        24,
+        25,
+        26
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-18-curated-vs-main-cp313-q30-lazy.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-19",
+      "suite": "q30",
+      "mode": "memory",
+      "queries": [
+        2,
+        14,
+        24,
+        25,
+        27,
+        28,
+        30
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-19-vs-main-cp313-q30-memory.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-19",
+      "suite": "q30",
+      "mode": "lazy",
+      "queries": [
+        2,
+        8,
+        10,
+        13,
+        17,
+        18,
+        21,
+        22,
+        26,
+        27,
+        30
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-19-vs-main-cp313-q30-lazy.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-19",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        1,
+        4,
+        6,
+        9
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-19-vs-main-cp313-ic-memory.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-19",
+      "suite": "ic",
+      "mode": "lazy",
+      "queries": [
+        6,
+        8,
+        9
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-19-vs-main-cp313-ic-lazy.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-20-containers-curated",
+      "suite": "q30",
+      "mode": "memory",
+      "queries": [
+        2,
+        3,
+        25
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-20-containers-curated-vs-main-cp313-q30-memory.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-20-containers-curated",
+      "suite": "q30",
+      "mode": "lazy",
+      "queries": [
+        3,
+        6,
+        7,
+        15,
+        16,
+        18,
+        19
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-20-containers-curated-vs-main-cp313-q30-lazy.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-20-entities-delivery",
+      "suite": "q30",
+      "mode": "memory",
+      "queries": [
+        5,
+        27
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-20-entities-delivery-vs-main-cp313-q30-memory.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-20-entities-delivery",
+      "suite": "q30",
+      "mode": "lazy",
+      "queries": [
+        6,
+        21,
+        24,
+        25,
+        26,
+        28,
+        29
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-20-entities-delivery-vs-main-cp313-q30-lazy.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-20-folds-delivery",
+      "suite": "q30",
+      "mode": "memory",
+      "queries": [
+        2,
+        11,
+        12,
+        25
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-20-folds-delivery-vs-main-cp313-q30-memory.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-20-folds-delivery",
+      "suite": "q30",
+      "mode": "lazy",
+      "queries": [
+        3,
+        6,
+        7,
+        29
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-20-folds-delivery-vs-main-cp313-q30-lazy.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-20-folds-delivery",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        2
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-20-folds-delivery-vs-main-cp313-ic-memory.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-20-math-delivery",
+      "suite": "q30",
+      "mode": "memory",
+      "queries": [
+        1,
+        2,
+        26
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-20-math-delivery-vs-main-cp313-q30-memory.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-20-math-delivery",
+      "suite": "q30",
+      "mode": "lazy",
+      "queries": [
+        3,
+        6,
+        18,
+        19
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-20-math-delivery-vs-main-cp313-q30-lazy.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-20-math-delivery",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        2,
+        5,
+        8,
+        9
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-20-math-delivery-vs-main-cp313-ic-memory.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-20-pagination-curated",
+      "suite": "q30",
+      "mode": "memory",
+      "queries": [
+        1,
+        2,
+        8,
+        22,
+        25
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-20-pagination-curated-vs-main-cp313-q30-memory.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-20-pagination-curated",
+      "suite": "q30",
+      "mode": "lazy",
+      "queries": [
+        2,
+        3,
+        4,
+        6,
+        16,
+        17
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-20-pagination-curated-vs-main-cp313-q30-lazy.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-20-pagination-curated",
+      "suite": "ic",
+      "mode": "lazy",
+      "queries": [
+        6
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-20-pagination-curated-vs-main-cp313-ic-lazy.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-20-string-list-delivery",
+      "suite": "q30",
+      "mode": "memory",
+      "queries": [
+        2,
+        16,
+        27
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-20-string-list-delivery-vs-main-cp313-q30-memory.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-20-string-list-delivery",
+      "suite": "q30",
+      "mode": "lazy",
+      "queries": [
+        3,
+        7,
+        8,
+        10,
+        19,
+        21,
+        22
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-20-string-list-delivery-vs-main-cp313-q30-lazy.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-20-string-list-delivery",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        2,
+        3
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-20-string-list-delivery-vs-main-cp313-ic-memory.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-20-union-delivery",
+      "suite": "q30",
+      "mode": "memory",
+      "queries": [
+        1,
+        2
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-20-union-delivery-vs-main-cp313-q30-memory.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-20-union-delivery",
+      "suite": "q30",
+      "mode": "lazy",
+      "queries": [
+        3,
+        6,
+        10,
+        13,
+        18,
+        21,
+        22
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-20-union-delivery-vs-main-cp313-q30-lazy.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-20-union-delivery",
+      "suite": "ic",
+      "mode": "lazy",
+      "queries": [
+        2
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-20-union-delivery-vs-main-cp313-ic-lazy.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-21-delivery",
+      "suite": "q30",
+      "mode": "memory",
+      "queries": [
+        1,
+        2,
+        25,
+        29
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-21-delivery-vs-main-cp313-q30-memory.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-21-delivery",
+      "suite": "q30",
+      "mode": "lazy",
+      "queries": [
+        2,
+        3,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        21,
+        26
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-21-delivery-vs-main-cp313-q30-lazy.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-21-delivery",
+      "suite": "ic",
+      "mode": "lazy",
+      "queries": [
+        3,
+        9,
+        13
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-21-delivery-vs-main-cp313-ic-lazy.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-22-cp313",
+      "suite": "q30",
+      "mode": "memory",
+      "queries": [
+        2,
+        8,
+        10,
+        11,
+        25
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-22-cp313-vs-main-cp313-q30-memory.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-22-cp313",
+      "suite": "q30",
+      "mode": "lazy",
+      "queries": [
+        6,
+        14,
+        18,
+        19,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        29
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-22-cp313-vs-main-cp313-q30-lazy.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-23-accessors",
+      "suite": "q30",
+      "mode": "memory",
+      "queries": [
+        2,
+        3,
+        5,
+        8,
+        27
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-23-accessors-vs-main-cp313-q30-memory.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-23-accessors",
+      "suite": "q30",
+      "mode": "lazy",
+      "queries": [
+        1,
+        2,
+        3,
+        8,
+        10,
+        16,
+        19,
+        21,
+        26
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-23-accessors-vs-main-cp313-q30-lazy.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-23-accessors",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        2,
+        4,
+        5
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-23-accessors-vs-main-cp313-ic-memory.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-23-types",
+      "suite": "q30",
+      "mode": "memory",
+      "queries": [
+        1,
+        24,
+        25,
+        27
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-23-types-vs-main-cp313-q30-memory.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-23-types",
+      "suite": "q30",
+      "mode": "lazy",
+      "queries": [
+        3,
+        6,
+        7,
+        10,
+        11,
+        18,
+        19,
+        21
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-23-types-vs-main-cp313-q30-lazy.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-3-cp313",
+      "suite": "q30",
+      "mode": "memory",
+      "queries": [
+        2,
+        27
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-3-cp313-vs-main-cp313-q30-memory.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-3-cp313",
+      "suite": "q30",
+      "mode": "lazy",
+      "queries": [
+        3,
+        4,
+        6,
+        7,
+        9,
+        10,
+        13,
+        14,
+        15,
+        16,
+        30
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-3-cp313-vs-main-cp313-q30-lazy.json"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-3-cp313",
+      "suite": "ic",
+      "mode": "memory",
+      "queries": [
+        2
+      ],
+      "source_report": "/private/tmp/lance-csr-submissions/frozen-comparison-tables-r2/issue-3-cp313-vs-main-cp313-ic-memory.json"
+    }
+  ]
+}

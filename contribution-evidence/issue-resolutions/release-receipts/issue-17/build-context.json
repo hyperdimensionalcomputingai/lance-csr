@@ -1,0 +1,22 @@
+{
+  "phase": "issue-17",
+  "source_commit": "09a92e424bd8a7dffc0c3ff6a82838dc088de59e",
+  "wheel_sha256": "20b5c6cb724d846ff2f54649f9773db6a5e85ee51ae5b8321aeb371a04bba9c8",
+  "release_proof_sha256": "8e50199f96cd5e44cb711904fde0c176df960a5df9305fdccc70156ef06ce40d",
+  "build_log_path": "/private/tmp/lance-csr-runtime/issue-17-release-wheel-build.log",
+  "build_log_sha256": "969ab25fad145b3bfaade5f23d282701c48685d0100785fed23642e4471aa7cb",
+  "build_interpreter": {
+    "requested_path": "/private/tmp/lance-csr-issue-21/python/.venv/bin/python",
+    "resolved_path": "/Users/davidhughes/.local/share/uv/python/cpython-3.13.17-macos-aarch64-none/bin/python3.13",
+    "binary_sha256": "b73265418f62106dd4fef6e2f8385ee4856c4d9d52e2489ff1c9fc94beb819d3",
+    "version": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+    "version_info": [
+      3,
+      13,
+      17
+    ],
+    "executable": "/private/tmp/lance-csr-issue-21/python/.venv/bin/python"
+  },
+  "pyo3_config": null,
+  "context_recovery": "Exact build-interpreter path and major/minor version recovered from original immutable build log; current managed interpreter is unchanged CPython3.13.17, matching other qualified cohort receipts. Disposed compiler-cache config is unavailable and is not fabricated. Wheel abi3 minimum is independently recorded by its tag."
+}

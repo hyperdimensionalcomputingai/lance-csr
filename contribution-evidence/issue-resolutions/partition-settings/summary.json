@@ -1,0 +1,726 @@
+{
+  "source_revision": "80aa20366d0ab7231f1227d351addc6c3dce8856",
+  "base_shipping_revision": "91d6b482a625b671c1e2eef923a4105331dc7ef4",
+  "matrix_manifest": "/private/tmp/lance-csr-submissions/partition-matrix-readme-80aa203-r1/manifest.json",
+  "matrix_manifest_sha256": "6bbeb47cc11ffddc817e0b0a57a121eae5f62fcaa62bb9af4fe74a142219db06",
+  "repeat_plan": "/private/tmp/lance-csr-submissions/partition-paired-repeats-80aa203-r1/plan.json",
+  "repeat_plan_sha256": "07ff1cc31f02d3a712e304fe8570640c9413042bbe087cdd968f457da785436d",
+  "settings": [
+    {
+      "suite": "q30",
+      "mode": "memory",
+      "partitions": "default",
+      "round_robin": true,
+      "geomean_after_over_before": 1.0
+    },
+    {
+      "suite": "q30",
+      "mode": "memory",
+      "partitions": "default",
+      "round_robin": false,
+      "geomean_after_over_before": 0.849542980111465
+    },
+    {
+      "suite": "q30",
+      "mode": "memory",
+      "partitions": "1",
+      "round_robin": true,
+      "geomean_after_over_before": 0.7859430826928628
+    },
+    {
+      "suite": "q30",
+      "mode": "memory",
+      "partitions": "1",
+      "round_robin": false,
+      "geomean_after_over_before": 0.7905346890641646
+    },
+    {
+      "suite": "q30",
+      "mode": "memory",
+      "partitions": "2",
+      "round_robin": true,
+      "geomean_after_over_before": 0.8679016768014169
+    },
+    {
+      "suite": "q30",
+      "mode": "memory",
+      "partitions": "2",
+      "round_robin": false,
+      "geomean_after_over_before": 0.808916098289391
+    },
+    {
+      "suite": "q30",
+      "mode": "lazy",
+      "partitions": "default",
+      "round_robin": true,
+      "geomean_after_over_before": 1.0
+    },
+    {
+      "suite": "q30",
+      "mode": "lazy",
+      "partitions": "default",
+      "round_robin": false,
+      "geomean_after_over_before": 1.03278120703557
+    },
+    {
+      "suite": "q30",
+      "mode": "lazy",
+      "partitions": "1",
+      "round_robin": true,
+      "geomean_after_over_before": 1.016830267113019
+    },
+    {
+      "suite": "q30",
+      "mode": "lazy",
+      "partitions": "1",
+      "round_robin": false,
+      "geomean_after_over_before": 1.013671719958548
+    },
+    {
+      "suite": "q30",
+      "mode": "lazy",
+      "partitions": "2",
+      "round_robin": true,
+      "geomean_after_over_before": 1.0205417475540632
+    },
+    {
+      "suite": "q30",
+      "mode": "lazy",
+      "partitions": "2",
+      "round_robin": false,
+      "geomean_after_over_before": 0.9722005304505126
+    },
+    {
+      "suite": "ic",
+      "mode": "memory",
+      "partitions": "default",
+      "round_robin": true,
+      "geomean_after_over_before": 1.0
+    },
+    {
+      "suite": "ic",
+      "mode": "memory",
+      "partitions": "default",
+      "round_robin": false,
+      "geomean_after_over_before": 0.9788400064641779
+    },
+    {
+      "suite": "ic",
+      "mode": "memory",
+      "partitions": "1",
+      "round_robin": true,
+      "geomean_after_over_before": 1.1271683552072973
+    },
+    {
+      "suite": "ic",
+      "mode": "memory",
+      "partitions": "1",
+      "round_robin": false,
+      "geomean_after_over_before": 1.1383511434548694
+    },
+    {
+      "suite": "ic",
+      "mode": "memory",
+      "partitions": "2",
+      "round_robin": true,
+      "geomean_after_over_before": 1.1114919464283737
+    },
+    {
+      "suite": "ic",
+      "mode": "memory",
+      "partitions": "2",
+      "round_robin": false,
+      "geomean_after_over_before": 1.1498871292629562
+    },
+    {
+      "suite": "ic",
+      "mode": "lazy",
+      "partitions": "default",
+      "round_robin": true,
+      "geomean_after_over_before": 1.0
+    },
+    {
+      "suite": "ic",
+      "mode": "lazy",
+      "partitions": "default",
+      "round_robin": false,
+      "geomean_after_over_before": 1.1151091673568951
+    },
+    {
+      "suite": "ic",
+      "mode": "lazy",
+      "partitions": "1",
+      "round_robin": true,
+      "geomean_after_over_before": 1.2905353604002863
+    },
+    {
+      "suite": "ic",
+      "mode": "lazy",
+      "partitions": "1",
+      "round_robin": false,
+      "geomean_after_over_before": 1.2784673516634801
+    },
+    {
+      "suite": "ic",
+      "mode": "lazy",
+      "partitions": "2",
+      "round_robin": true,
+      "geomean_after_over_before": 1.124944183014277
+    },
+    {
+      "suite": "ic",
+      "mode": "lazy",
+      "partitions": "2",
+      "round_robin": false,
+      "geomean_after_over_before": 1.2323184482000962
+    }
+  ],
+  "repeats": [
+    {
+      "suite": "ic",
+      "mode": "lazy",
+      "partitions": "default",
+      "round_robin": false,
+      "query": "test_benchmark_query3",
+      "paired_mean_ratios": [
+        1.00802080022249,
+        0.9838324258057023
+      ],
+      "repeatable_over_10_percent": false
+    },
+    {
+      "suite": "ic",
+      "mode": "lazy",
+      "partitions": "default",
+      "round_robin": false,
+      "query": "test_benchmark_query9",
+      "paired_mean_ratios": [
+        1.012469453161566,
+        1.0558232560951248
+      ],
+      "repeatable_over_10_percent": false
+    },
+    {
+      "suite": "q30",
+      "mode": "lazy",
+      "partitions": "default",
+      "round_robin": false,
+      "query": "test_benchmark_query30",
+      "paired_mean_ratios": [
+        7.9999847035093214,
+        9.155884830973823
+      ],
+      "repeatable_over_10_percent": true
+    },
+    {
+      "suite": "ic",
+      "mode": "lazy",
+      "partitions": "1",
+      "round_robin": true,
+      "query": "test_benchmark_query5",
+      "paired_mean_ratios": [
+        5.179426570027446,
+        5.635621451194464
+      ],
+      "repeatable_over_10_percent": true
+    },
+    {
+      "suite": "ic",
+      "mode": "memory",
+      "partitions": "1",
+      "round_robin": true,
+      "query": "test_benchmark_query5",
+      "paired_mean_ratios": [
+        5.014458283035717,
+        5.284742151766131
+      ],
+      "repeatable_over_10_percent": true
+    },
+    {
+      "suite": "q30",
+      "mode": "lazy",
+      "partitions": "1",
+      "round_robin": true,
+      "query": "test_benchmark_query30",
+      "paired_mean_ratios": [
+        10.193336459722369,
+        8.702945868760477
+      ],
+      "repeatable_over_10_percent": true
+    },
+    {
+      "suite": "ic",
+      "mode": "lazy",
+      "partitions": "1",
+      "round_robin": false,
+      "query": "test_benchmark_query5",
+      "paired_mean_ratios": [
+        5.250775489410442,
+        4.779478671276418
+      ],
+      "repeatable_over_10_percent": true
+    },
+    {
+      "suite": "ic",
+      "mode": "memory",
+      "partitions": "1",
+      "round_robin": false,
+      "query": "test_benchmark_query5",
+      "paired_mean_ratios": [
+        5.004635521502661,
+        5.1157504021388265
+      ],
+      "repeatable_over_10_percent": true
+    },
+    {
+      "suite": "q30",
+      "mode": "lazy",
+      "partitions": "1",
+      "round_robin": false,
+      "query": "test_benchmark_query30",
+      "paired_mean_ratios": [
+        9.162863229361946,
+        9.445200720900376
+      ],
+      "repeatable_over_10_percent": true
+    },
+    {
+      "suite": "ic",
+      "mode": "lazy",
+      "partitions": "2",
+      "round_robin": true,
+      "query": "test_benchmark_query5",
+      "paired_mean_ratios": [
+        2.8217474030811696,
+        3.0022319342768884
+      ],
+      "repeatable_over_10_percent": true
+    },
+    {
+      "suite": "ic",
+      "mode": "memory",
+      "partitions": "2",
+      "round_robin": true,
+      "query": "test_benchmark_query5",
+      "paired_mean_ratios": [
+        3.8291746833562397,
+        3.6748797281102465
+      ],
+      "repeatable_over_10_percent": true
+    },
+    {
+      "suite": "q30",
+      "mode": "lazy",
+      "partitions": "2",
+      "round_robin": true,
+      "query": "test_benchmark_query30",
+      "paired_mean_ratios": [
+        4.913811831010874,
+        4.693622182774755
+      ],
+      "repeatable_over_10_percent": true
+    },
+    {
+      "suite": "ic",
+      "mode": "lazy",
+      "partitions": "2",
+      "round_robin": false,
+      "query": "test_benchmark_query5",
+      "paired_mean_ratios": [
+        3.1268880561696695,
+        3.2797632106852483
+      ],
+      "repeatable_over_10_percent": true
+    },
+    {
+      "suite": "ic",
+      "mode": "memory",
+      "partitions": "2",
+      "round_robin": false,
+      "query": "test_benchmark_query5",
+      "paired_mean_ratios": [
+        4.0014189424168825,
+        4.038340245293315
+      ],
+      "repeatable_over_10_percent": true
+    },
+    {
+      "suite": "q30",
+      "mode": "lazy",
+      "partitions": "2",
+      "round_robin": false,
+      "query": "test_benchmark_query30",
+      "paired_mean_ratios": [
+        10.988359082027008,
+        9.053521262536895
+      ],
+      "repeatable_over_10_percent": true
+    },
+    {
+      "suite": "q30",
+      "mode": "memory",
+      "partitions": "1",
+      "round_robin": true,
+      "query": "test_benchmark_query1",
+      "paired_mean_ratios": [
+        0.8552734561822108,
+        0.9033527921933859
+      ],
+      "repeatable_over_10_percent": false
+    },
+    {
+      "suite": "q30",
+      "mode": "memory",
+      "partitions": "1",
+      "round_robin": true,
+      "query": "test_benchmark_query2",
+      "paired_mean_ratios": [
+        0.78709071730023,
+        0.7668531317683144
+      ],
+      "repeatable_over_10_percent": false
+    },
+    {
+      "suite": "q30",
+      "mode": "memory",
+      "partitions": "1",
+      "round_robin": true,
+      "query": "test_benchmark_query3",
+      "paired_mean_ratios": [
+        1.025166931928341,
+        1.0507714613823058
+      ],
+      "repeatable_over_10_percent": false
+    },
+    {
+      "suite": "q30",
+      "mode": "memory",
+      "partitions": "1",
+      "round_robin": true,
+      "query": "test_benchmark_query4",
+      "paired_mean_ratios": [
+        0.809812998552071,
+        0.7270001370877323
+      ],
+      "repeatable_over_10_percent": false
+    },
+    {
+      "suite": "q30",
+      "mode": "memory",
+      "partitions": "1",
+      "round_robin": true,
+      "query": "test_benchmark_query5",
+      "paired_mean_ratios": [
+        0.6523303691078538,
+        0.7413606791107127
+      ],
+      "repeatable_over_10_percent": false
+    },
+    {
+      "suite": "q30",
+      "mode": "memory",
+      "partitions": "1",
+      "round_robin": true,
+      "query": "test_benchmark_query6",
+      "paired_mean_ratios": [
+        0.6515196590024886,
+        0.6803842852437879
+      ],
+      "repeatable_over_10_percent": false
+    },
+    {
+      "suite": "q30",
+      "mode": "memory",
+      "partitions": "1",
+      "round_robin": true,
+      "query": "test_benchmark_query7",
+      "paired_mean_ratios": [
+        0.6934505354126218,
+        0.7031212821165415
+      ],
+      "repeatable_over_10_percent": false
+    },
+    {
+      "suite": "q30",
+      "mode": "memory",
+      "partitions": "1",
+      "round_robin": true,
+      "query": "test_benchmark_query8",
+      "paired_mean_ratios": [
+        0.5260663664040275,
+        0.5536219587997743
+      ],
+      "repeatable_over_10_percent": false
+    },
+    {
+      "suite": "q30",
+      "mode": "memory",
+      "partitions": "1",
+      "round_robin": true,
+      "query": "test_benchmark_query9",
+      "paired_mean_ratios": [
+        0.7779020527616997,
+        0.774420672036034
+      ],
+      "repeatable_over_10_percent": false
+    },
+    {
+      "suite": "q30",
+      "mode": "memory",
+      "partitions": "1",
+      "round_robin": true,
+      "query": "test_benchmark_query10",
+      "paired_mean_ratios": [
+        0.646285943458317,
+        0.5442285052617456
+      ],
+      "repeatable_over_10_percent": false
+    },
+    {
+      "suite": "q30",
+      "mode": "memory",
+      "partitions": "1",
+      "round_robin": true,
+      "query": "test_benchmark_query11",
+      "paired_mean_ratios": [
+        0.6892970040618859,
+        0.6793348160023691
+      ],
+      "repeatable_over_10_percent": false
+    },
+    {
+      "suite": "q30",
+      "mode": "memory",
+      "partitions": "1",
+      "round_robin": true,
+      "query": "test_benchmark_query12",
+      "paired_mean_ratios": [
+        0.7128192702546217,
+        0.6849441553558436
+      ],
+      "repeatable_over_10_percent": false
+    },
+    {
+      "suite": "q30",
+      "mode": "memory",
+      "partitions": "1",
+      "round_robin": true,
+      "query": "test_benchmark_query13",
+      "paired_mean_ratios": [
+        0.8622798165583085,
+        0.9093525341980336
+      ],
+      "repeatable_over_10_percent": false
+    },
+    {
+      "suite": "q30",
+      "mode": "memory",
+      "partitions": "1",
+      "round_robin": true,
+      "query": "test_benchmark_query14",
+      "paired_mean_ratios": [
+        0.6694023860960194,
+        0.6626625683202108
+      ],
+      "repeatable_over_10_percent": false
+    },
+    {
+      "suite": "q30",
+      "mode": "memory",
+      "partitions": "1",
+      "round_robin": true,
+      "query": "test_benchmark_query15",
+      "paired_mean_ratios": [
+        0.6765182209115947,
+        0.6859706041178139
+      ],
+      "repeatable_over_10_percent": false
+    },
+    {
+      "suite": "q30",
+      "mode": "memory",
+      "partitions": "1",
+      "round_robin": true,
+      "query": "test_benchmark_query16",
+      "paired_mean_ratios": [
+        0.7681793324714576,
+        0.7376034159156913
+      ],
+      "repeatable_over_10_percent": false
+    },
+    {
+      "suite": "q30",
+      "mode": "memory",
+      "partitions": "1",
+      "round_robin": true,
+      "query": "test_benchmark_query17",
+      "paired_mean_ratios": [
+        0.6325785153669872,
+        0.6426473072611031
+      ],
+      "repeatable_over_10_percent": false
+    },
+    {
+      "suite": "q30",
+      "mode": "memory",
+      "partitions": "1",
+      "round_robin": true,
+      "query": "test_benchmark_query18",
+      "paired_mean_ratios": [
+        0.781561189868889,
+        0.7008793229412853
+      ],
+      "repeatable_over_10_percent": false
+    },
+    {
+      "suite": "q30",
+      "mode": "memory",
+      "partitions": "1",
+      "round_robin": true,
+      "query": "test_benchmark_query19",
+      "paired_mean_ratios": [
+        0.8439194521086877,
+        0.6157459049092653
+      ],
+      "repeatable_over_10_percent": false
+    },
+    {
+      "suite": "q30",
+      "mode": "memory",
+      "partitions": "1",
+      "round_robin": true,
+      "query": "test_benchmark_query20",
+      "paired_mean_ratios": [
+        0.9491927189280284,
+        1.0005754589538673
+      ],
+      "repeatable_over_10_percent": false
+    },
+    {
+      "suite": "q30",
+      "mode": "memory",
+      "partitions": "1",
+      "round_robin": true,
+      "query": "test_benchmark_query21",
+      "paired_mean_ratios": [
+        0.9968984555950836,
+        0.9427680000067112
+      ],
+      "repeatable_over_10_percent": false
+    },
+    {
+      "suite": "q30",
+      "mode": "memory",
+      "partitions": "1",
+      "round_robin": true,
+      "query": "test_benchmark_query22",
+      "paired_mean_ratios": [
+        0.8477615843154055,
+        0.7755733782560335
+      ],
+      "repeatable_over_10_percent": false
+    },
+    {
+      "suite": "q30",
+      "mode": "memory",
+      "partitions": "1",
+      "round_robin": true,
+      "query": "test_benchmark_query23",
+      "paired_mean_ratios": [
+        0.784703533318912,
+        0.7253416717636886
+      ],
+      "repeatable_over_10_percent": false
+    },
+    {
+      "suite": "q30",
+      "mode": "memory",
+      "partitions": "1",
+      "round_robin": true,
+      "query": "test_benchmark_query24",
+      "paired_mean_ratios": [
+        0.7180604289654923,
+        0.7073253415907955
+      ],
+      "repeatable_over_10_percent": false
+    },
+    {
+      "suite": "q30",
+      "mode": "memory",
+      "partitions": "1",
+      "round_robin": true,
+      "query": "test_benchmark_query25",
+      "paired_mean_ratios": [
+        0.8065888519159586,
+        0.7620009049949377
+      ],
+      "repeatable_over_10_percent": false
+    },
+    {
+      "suite": "q30",
+      "mode": "memory",
+      "partitions": "1",
+      "round_robin": true,
+      "query": "test_benchmark_query26",
+      "paired_mean_ratios": [
+        0.7388380775047964,
+        0.7375684411531701
+      ],
+      "repeatable_over_10_percent": false
+    },
+    {
+      "suite": "q30",
+      "mode": "memory",
+      "partitions": "1",
+      "round_robin": true,
+      "query": "test_benchmark_query27",
+      "paired_mean_ratios": [
+        0.8444448911947019,
+        0.773422719405751
+      ],
+      "repeatable_over_10_percent": false
+    },
+    {
+      "suite": "q30",
+      "mode": "memory",
+      "partitions": "1",
+      "round_robin": true,
+      "query": "test_benchmark_query28",
+      "paired_mean_ratios": [
+        0.7132929962484589,
+        0.8149987504021281
+      ],
+      "repeatable_over_10_percent": false
+    },
+    {
+      "suite": "q30",
+      "mode": "memory",
+      "partitions": "1",
+      "round_robin": true,
+      "query": "test_benchmark_query29",
+      "paired_mean_ratios": [
+        0.69718944676473,
+        0.6965248147258877
+      ],
+      "repeatable_over_10_percent": false
+    },
+    {
+      "suite": "q30",
+      "mode": "memory",
+      "partitions": "1",
+      "round_robin": true,
+      "query": "test_benchmark_query30",
+      "paired_mean_ratios": [
+        0.9675928924155663,
+        0.9671658009441608
+      ],
+      "repeatable_over_10_percent": false
+    }
+  ],
+  "policy": "Retain DataFusion default partitions and round-robin. Optional positive-integer target_partitions justified by repeated Q30-memory improvement; no round-robin knob. Scratch experimental feature never ships.",
+  "limits": [
+    "Top3 original slowdowns per setting repeated; other first-pass flags remain unverified.",
+    "Large-scan timings are validation-inclusive, separate setup and resident input memory.",
+    "No conclusion about untested hardware, workload, cold-cache behavior or complete Cypher conformance."
+  ]
+}

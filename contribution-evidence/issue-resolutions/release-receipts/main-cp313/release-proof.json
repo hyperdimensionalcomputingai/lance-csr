@@ -1,0 +1,39 @@
+{
+  "created_utc": "2026-10-25T19:07:11.555845+00:00",
+  "phase": "main-cp313",
+  "source_worktree": "/private/tmp/lance-csr-baseline",
+  "source_commit": "54e02307a48e467a98d9da2183f5adcb767e7c99",
+  "tracked_source_clean": true,
+  "preserved_untracked_files": [],
+  "profile": "release",
+  "wheel_path": "/private/tmp/lance-csr-submissions/wheels/main-cp313/lance_csr-0.2.0-cp312-abi3-macosx_11_0_arm64.whl",
+  "wheel_sha256": "611cb5fdda5c77d604c4a86cae0477ebe1bfd39228e1c35d3c15049b5512bcd6",
+  "extension_sha256": "ab0e52b65b26b5b568487f7ca859e43b5e12760dabda093281b7868eb9fa033a",
+  "installed_extension_matches_archive": true,
+  "build_log": "/private/tmp/lance-csr-runtime/main-cp313-release-wheel-build.log",
+  "build_log_sha256": "acaf871154db72a42d3b2c8174abe8f140eb652674c2c0b2c0a3b03aec909922",
+  "release_clean_log": "/private/tmp/lance-csr-runtime/main-cp313-release-clean.log",
+  "release_clean_log_sha256": "158c0c94e84f47d699a7458d903b4229cc79c94e50cef0a6822424445e77e759",
+  "verification_log": "/private/tmp/lance-csr-runtime/main-cp313-release-wheel-verification.log",
+  "verification_log_sha256": "e1fd0bb91f5738306fc4182ca0bb86b086c557de9c3fba0fbeecdd0022423c82",
+  "verification_script_sha256": "1cabfb09a035faa65af05cd2fb77432a156fd9568877302fde183aee4ad5d809",
+  "build_python_lock_sha256": "b1ca87e689ae857d94d0021159c386e28bb4e3c8dcc1be4ef62ce8c889db4c7e",
+  "toolchain": {
+    "rustc": "rustc 1.96.0 (ac68faa20 2026-05-25)",
+    "cargo": "cargo 1.96.0 (30a34c682 2026-05-25)"
+  },
+  "installed_environment": {
+    "python": "3.12.9 (main, Feb 12 2025, 15:09:19) [Clang 19.1.6 ]",
+    "extension": "/Users/davidhughes/.cache/uv/archive-v0/NVbYypedNxPmpfYp/lib/python3.12/site-packages/lance_csr/_internal.abi3.so",
+    "lance-csr": "0.2.0",
+    "pyarrow": "26.0.0",
+    "pylance": "13.0.0"
+  },
+  "focused_tests_passed": 3,
+  "limits": [
+    "SF1 comparisons are recorded separately",
+    "No other operating-system matrix",
+    "No push or PR"
+  ],
+  "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration."
+}

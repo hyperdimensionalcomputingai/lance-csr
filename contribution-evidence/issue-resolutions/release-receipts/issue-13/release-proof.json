@@ -1,0 +1,59 @@
+{
+  "created_utc": "2026-10-25T19:22:45.716102+00:00",
+  "phase": "issue-13",
+  "source_worktree": "/private/tmp/lance-csr-issue-13",
+  "source_commit": "1bf6d42141b9cc6ee1824d000f49cdc0ebd9d8fe",
+  "source_tree_clean": true,
+  "profile": "release",
+  "build_interpreter_path": "/private/tmp/lance-csr-issue-21/python/.venv/bin/python",
+  "build_python": "Python 3.13.17",
+  "consumer_fixture_sha256": {
+    "test_engine_alternation.py": "3df067e7c8488859e6bd815d9a8602c5d023750a5e0d62c25b5c25899ff4012e",
+    "test_engine_csr.py": "13ccb964095ea27d376c10b7d332bbfbe6191ef2e64e2f8fc9b4bcce1d26ca7f",
+    "test_engine_csr_delta.py": "724a76f5b30a4633b301a5de983ce70d6d2cad2a9579a890e499f18ea8b972e6",
+    "test_engine_paths.py": "2f57d7a7493d67e45aed53878bf03b8b18c3a5432dd42ff30622c38f055e0466"
+  },
+  "wheel_path": "/private/tmp/lance-csr-submissions/wheels/issue-13/lance_csr-0.2.0-cp312-abi3-macosx_11_0_arm64.whl",
+  "wheel_sha256": "f0128f457a9193be373148c6429f233a624ec03a506beb3bf9c819f375c34804",
+  "extension_sha256": "e2b5d7c5b9c857638492b969b403cefa036c95abcf2f599f5818c5b7addf22ec",
+  "installed_extension_matches_archive": true,
+  "wheel_tag": "cp312-abi3-macosx_11_0_arm64",
+  "build_python_lock_sha256": "b1ca87e689ae857d94d0021159c386e28bb4e3c8dcc1be4ef62ce8c889db4c7e",
+  "toolchain": {
+    "rustc": "1.96.0 (ac68faa20 2026-05-25)",
+    "cargo": "1.96.0 (30a34c682 2026-05-25)",
+    "maturin": "1.15.0"
+  },
+  "host": {
+    "macos": "26.6.2",
+    "architecture": "arm64"
+  },
+  "build_log": "/private/tmp/lance-csr-runtime/issue-13-release-wheel-build.log",
+  "release_clean_log": "/private/tmp/lance-csr-runtime/issue-13-release-clean.log",
+  "verification_log": "/private/tmp/lance-csr-runtime/issue-13-release-wheel-verification.log",
+  "installed_environment": {
+    "python": "3.12.9 (main, Feb 12 2025, 15:09:19) [Clang 19.1.6 ]",
+    "extension": "/Users/davidhughes/.cache/uv/archive-v0/tyH-VvNLCoj7Xf5t/lib/python3.12/site-packages/lance_csr/_internal.abi3.so",
+    "lance-csr": "0.2.0",
+    "pyarrow": "26.0.0",
+    "pylance": "13.0.0"
+  },
+  "focused_tests_passed": 155,
+  "typing_files": [],
+  "smoke": [
+    "installed extension byte match",
+    "Arrow-memory fixture",
+    "Lance-disk fixture",
+    "CSR traversal",
+    "shortestPath",
+    "refresh",
+    "Rust absent from PATH"
+  ],
+  "limits": [
+    "No external datasets used",
+    "No SF1 benchmark or performance comparison",
+    "No other operating-system matrix",
+    "No push or PR"
+  ],
+  "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration."
+}

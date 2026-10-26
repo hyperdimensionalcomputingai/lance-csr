@@ -1,0 +1,35 @@
+{
+  "source_commit": "63a4928202455955f079ebcbf9672075f75ad5ca",
+  "source_worktree": "/private/tmp/lance-csr-issue-19",
+  "source_clean_before_build": true,
+  "target": "/private/tmp/lance-csr-release-target-issue-19",
+  "idle_donor": "/private/tmp/lance-csr-release-target-11",
+  "donor_copy": "APFS clone; graph/catalog/binding packages cleaned with --release through binding manifest",
+  "build_interpreter": "/private/tmp/lance-csr-issue-21/python/.venv/bin/python",
+  "python_version": "3.13.17",
+  "cargo_home": "/private/tmp/lance-csr-runtime/cargo",
+  "rustup_home": "/private/tmp/lance-csr-runtime/rustup",
+  "cwd": "/private/tmp/lance-csr-issue-19/python",
+  "command": [
+    ".venv/bin/maturin",
+    "build",
+    "--release",
+    "--locked",
+    "--offline",
+    "-j",
+    "4",
+    "--interpreter",
+    "/private/tmp/lance-csr-issue-21/python/.venv/bin/python",
+    "--out",
+    "/private/tmp/lance-csr-submissions/wheels/issue-19"
+  ],
+  "lock_and_config_sha256": {
+    "Cargo.toml": "7a6a15c1f6d844a4a87455149fe1f2773ea2bb806ef8f358e7c2ed08edb21696",
+    "Cargo.lock": "42a6003cfe02f165444dff9167812b49a81415c0caac4e361faef02effd1296f",
+    "crates/lance-graph-python/Cargo.toml": "47e3cdb0d026b7a505e2f0f8a3cce1c7b5c547d70e5062ceb95d9f5a87f00914",
+    "crates/lance-graph-python/Cargo.lock": "b1ca87e689ae857d94d0021159c386e28bb4e3c8dcc1be4ef62ce8c889db4c7e",
+    "python/.cargo/config.toml": "73fab5b44dfa1b7e394afcdbf0b7d32d6e027a1769bb94a4ea93270b33c2044d",
+    "rust-toolchain.toml": "acda79482dd927bd735678ff09c5112be377e12705076b9bb9b31105e006a623"
+  },
+  "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration."
+}

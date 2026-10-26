@@ -1,0 +1,55 @@
+{
+  "created_utc": "2026-10-25T22:16:43.366795+00:00",
+  "phase": "issue-21-delivery",
+  "source_worktree": "/private/tmp/lance-csr-issue-21-delivery",
+  "source_commit": "ccfc4fece4c1a099ab5b494f6a4533dfd03acc11",
+  "source_tree_clean": true,
+  "profile": "release",
+  "wheel_path": "/private/tmp/lance-csr-submissions/wheels/issue-21-delivery/lance_csr-0.2.0-cp312-abi3-macosx_11_0_arm64.whl",
+  "wheel_sha256": "b5eb6c4d9519e3c3ed0b607e7d912763023afb8268c25c997b1002257716aff5",
+  "extension_sha256": "e330a2211737c8563dd07868111c9b5a130a8605f92a0fb0b25532ced9bb2061",
+  "installed_extension_matches_archive": true,
+  "wheel_tag": "cp312-abi3-macosx_11_0_arm64",
+  "build_python_lock_sha256": "b1ca87e689ae857d94d0021159c386e28bb4e3c8dcc1be4ef62ce8c889db4c7e",
+  "toolchain": {
+    "rustc": "1.96.0 (ac68faa20 2026-05-25)",
+    "cargo": "1.96.0 (30a34c682 2026-05-25)",
+    "maturin": "1.15.0"
+  },
+  "host": {
+    "macos": "26.6.2",
+    "architecture": "arm64"
+  },
+  "build_log": "/private/tmp/lance-csr-runtime/issue-21-delivery-release-wheel-build.log",
+  "release_clean_log": "/private/tmp/lance-csr-runtime/issue-21-delivery-release-clean.log",
+  "verification_log": "/private/tmp/lance-csr-runtime/issue-21-delivery-release-wheel-verification.log",
+  "installed_environment": {
+    "python": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+    "extension": "/Users/davidhughes/.cache/uv/archive-v0/X9zRveUZRi4Bes40/lib/python3.13/site-packages/lance_csr/_internal.abi3.so",
+    "lance-csr": "0.2.0",
+    "pyarrow": "26.0.0",
+    "pylance": "13.0.0"
+  },
+  "focused_tests_passed": 65,
+  "typing_files": [
+    "lance_csr/_internal/__init__.pyi",
+    "lance_csr/_internal/graph.pyi",
+    "lance_csr/py.typed"
+  ],
+  "smoke": [
+    "installed extension byte match",
+    "Arrow-memory fixture",
+    "Lance-disk fixture",
+    "CSR traversal",
+    "shortestPath",
+    "refresh",
+    "Rust absent from PATH"
+  ],
+  "limits": [
+    "No external datasets used",
+    "No SF1 benchmark or performance comparison",
+    "No other operating-system matrix",
+    "No push or PR"
+  ],
+  "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration."
+}

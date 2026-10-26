@@ -1,0 +1,55 @@
+{
+  "created_utc": "2026-10-25T22:06:33.613271+00:00",
+  "phase": "issue-20-entities-delivery",
+  "source_worktree": "/private/tmp/lance-csr-issue-20-entities-delivery",
+  "source_commit": "99d11c0ea0e72ecf592d65165a47101ce281ca3a",
+  "source_tree_clean": true,
+  "profile": "release",
+  "wheel_path": "/private/tmp/lance-csr-submissions/wheels/issue-20-entities-delivery/lance_csr-0.2.0-cp312-abi3-macosx_11_0_arm64.whl",
+  "wheel_sha256": "c403020283095e6480a4a4e768076ce965313951324b87d43379c04320008ffd",
+  "extension_sha256": "128e2ac589e203a206c2669ac594cf6a8f1a16364374d896a2f252ae8b73953a",
+  "installed_extension_matches_archive": true,
+  "wheel_tag": "cp312-abi3-macosx_11_0_arm64",
+  "build_python_lock_sha256": "b1ca87e689ae857d94d0021159c386e28bb4e3c8dcc1be4ef62ce8c889db4c7e",
+  "toolchain": {
+    "rustc": "1.96.0 (ac68faa20 2026-05-25)",
+    "cargo": "1.96.0 (30a34c682 2026-05-25)",
+    "maturin": "1.15.0"
+  },
+  "host": {
+    "macos": "26.6.2",
+    "architecture": "arm64"
+  },
+  "build_log": "/private/tmp/lance-csr-runtime/issue-20-entities-delivery-release-wheel-build.log",
+  "release_clean_log": "/private/tmp/lance-csr-runtime/issue-20-entities-delivery-release-clean.log",
+  "verification_log": "/private/tmp/lance-csr-runtime/issue-20-entities-delivery-release-wheel-verification.log",
+  "installed_environment": {
+    "python": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+    "extension": "/Users/davidhughes/.cache/uv/archive-v0/YrbZh7deqs_MMxap/lib/python3.13/site-packages/lance_csr/_internal.abi3.so",
+    "lance-csr": "0.2.0",
+    "pyarrow": "26.0.0",
+    "pylance": "13.0.0"
+  },
+  "focused_tests_passed": 79,
+  "typing_files": [
+    "lance_csr/_internal/__init__.pyi",
+    "lance_csr/_internal/graph.pyi",
+    "lance_csr/py.typed"
+  ],
+  "smoke": [
+    "installed extension byte match",
+    "Arrow-memory fixture",
+    "Lance-disk fixture",
+    "CSR traversal",
+    "shortestPath",
+    "refresh",
+    "Rust absent from PATH"
+  ],
+  "limits": [
+    "No external datasets used",
+    "No SF1 benchmark or performance comparison",
+    "No other operating-system matrix",
+    "No push or PR"
+  ],
+  "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration."
+}
