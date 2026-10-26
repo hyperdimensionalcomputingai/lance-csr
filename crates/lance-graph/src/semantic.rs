@@ -13,6 +13,10 @@ use crate::case_insensitive::CaseInsensitiveLookup;
 use crate::config::GraphConfig;
 use crate::error::{GraphError, Result};
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+
+mod types;
+use types::{arithmetic_operator, comparison_operator, ExpressionType};
 
 /// Semantic analyzer - validates and enriches the AST
 pub struct SemanticAnalyzer {
@@ -21,6 +25,8 @@ pub struct SemanticAnalyzer {
     /// Variables whose scope a WITH ended; still type-checked at the end.
     retired: Vec<VariableInfo>,
     current_scope: ScopeType,
+    catalog: Option<Arc<dyn lance_graph_catalog::GraphSourceCatalog>>,
+    expression_types: HashMap<String, ExpressionType>,
 }
 
 /// Information about a variable in the query
@@ -70,7 +76,18 @@ impl SemanticAnalyzer {
             variables: HashMap::new(),
             retired: Vec::new(),
             current_scope: ScopeType::Match,
+            catalog: None,
+            expression_types: HashMap::new(),
         }
+    }
+
+    /// Use the execution snapshot's schemas for checks that configuration alone cannot make.
+    pub(crate) fn with_catalog(
+        mut self,
+        catalog: Arc<dyn lance_graph_catalog::GraphSourceCatalog>,
+    ) -> Self {
+        self.catalog = Some(catalog);
+        self
     }
 
     /// Analyze a Cypher query AST
@@ -214,6 +231,7 @@ impl SemanticAnalyzer {
     /// Analyze UNWIND clause and register variables
     fn analyze_unwind_clause(&mut self, unwind_clause: &UnwindClause) -> Result<()> {
         self.analyze_value_expression(&unwind_clause.expression)?;
+        let element_type = self.expression_type(&unwind_clause.expression).element();
 
         // Register the aliased variable (normalize to lowercase for case-insensitive behavior)
         let var_name = &unwind_clause.alias;
@@ -236,8 +254,9 @@ impl SemanticAnalyzer {
                 properties: HashSet::new(),
                 defined_in: self.current_scope.clone(),
             };
-            self.variables.insert(var_name_lower, var_info);
+            self.variables.insert(var_name_lower.clone(), var_info);
         }
+        self.expression_types.insert(var_name_lower, element_type);
         Ok(())
     }
 
@@ -308,6 +327,19 @@ impl SemanticAnalyzer {
                 };
                 self.variables.insert(var_name_lower, var_info);
             }
+            // MATCH binds an entity even when the name previously came from UNWIND.
+            let name = var_name.to_lowercase();
+            let info = &self.variables[&name];
+            let mut labels = info.labels.clone();
+            if let Some(ExpressionType::Entity(_, inferred)) = self.expression_types.get(&name) {
+                for label in inferred {
+                    if !labels.contains(label) {
+                        labels.push(label.clone());
+                    }
+                }
+            }
+            self.expression_types
+                .insert(name, ExpressionType::Entity(VariableType::Node, labels));
         }
         Ok(())
     }
@@ -356,9 +388,14 @@ impl SemanticAnalyzer {
     /// Analyze boolean expression and check variable references
     fn analyze_boolean_expression(&mut self, expr: &BooleanExpression) -> Result<()> {
         match expr {
-            BooleanExpression::Comparison { left, right, .. } => {
+            BooleanExpression::Comparison {
+                left,
+                operator,
+                right,
+            } => {
                 self.analyze_value_expression(left)?;
                 self.analyze_value_expression(right)?;
+                self.validate_binary(left, comparison_operator(operator), right)?;
             }
             BooleanExpression::And(left, right) | BooleanExpression::Or(left, right) => {
                 self.analyze_boolean_expression(left)?;
@@ -374,12 +411,20 @@ impl SemanticAnalyzer {
                 patterns,
                 where_clause,
             } => {
-                for pattern in patterns {
-                    self.analyze_graph_pattern(pattern)?;
-                }
-                if let Some(w) = where_clause {
-                    self.analyze_boolean_expression(w)?;
-                }
+                let before = self.variables.clone();
+                let before_types = self.expression_types.clone();
+                let result = (|| -> Result<()> {
+                    for pattern in patterns {
+                        self.analyze_graph_pattern(pattern)?;
+                    }
+                    if let Some(w) = where_clause {
+                        self.analyze_boolean_expression(w)?;
+                    }
+                    Ok(())
+                })();
+                self.variables = before;
+                self.expression_types = before_types;
+                result?;
             }
             BooleanExpression::In { expression, list } => {
                 self.analyze_value_expression(expression)?;
@@ -623,26 +668,15 @@ impl SemanticAnalyzer {
                     self.analyze_value_expression(otherwise)?;
                 }
             }
-            ValueExpression::Arithmetic { left, right, .. } => {
+            ValueExpression::Arithmetic {
+                left,
+                operator,
+                right,
+            } => {
                 // Validate arithmetic operands recursively
                 self.analyze_value_expression(left)?;
                 self.analyze_value_expression(right)?;
-
-                // If both sides are literals, ensure they are numeric
-                let is_numeric_literal = |pv: &PropertyValue| {
-                    matches!(pv, PropertyValue::Integer(_) | PropertyValue::Float(_))
-                };
-
-                if let (ValueExpression::Literal(l1), ValueExpression::Literal(l2)) =
-                    (&**left, &**right)
-                {
-                    if !(is_numeric_literal(l1) && is_numeric_literal(l2)) {
-                        return Err(GraphError::PlanError {
-                            message: "Arithmetic requires numeric literal operands".to_string(),
-                            location: snafu::Location::new(file!(), line!(), column!()),
-                        });
-                    }
-                }
+                self.validate_binary(left, arithmetic_operator(operator), right)?;
             }
             ValueExpression::VectorDistance { left, right, .. } => {
                 // Validate vector distance function arguments
@@ -705,6 +739,7 @@ impl SemanticAnalyzer {
             } => {
                 // New variables of the pattern are local to the comprehension.
                 let before = self.variables.clone();
+                let before_types = self.expression_types.clone();
                 let result = (|| -> Result<()> {
                     self.analyze_graph_pattern(&GraphPattern::Path((**pattern).clone()))?;
                     if let Some(b) = filter {
@@ -713,6 +748,7 @@ impl SemanticAnalyzer {
                     self.analyze_value_expression(map)
                 })();
                 self.variables = before;
+                self.expression_types = before_types;
                 result?;
             }
             ValueExpression::ListComprehension {
@@ -724,7 +760,11 @@ impl SemanticAnalyzer {
                 self.analyze_value_expression(list)?;
                 // The variable is local to the comprehension.
                 let before = self.variables.clone();
+                let before_types = self.expression_types.clone();
+                let element_type = self.expression_type(list).element();
                 self.register_projection_alias(variable);
+                self.expression_types
+                    .insert(variable.to_lowercase(), element_type);
                 let result = (|| -> Result<()> {
                     if let Some(b) = filter {
                         self.analyze_boolean_expression(b)?;
@@ -735,6 +775,7 @@ impl SemanticAnalyzer {
                     Ok(())
                 })();
                 self.variables = before;
+                self.expression_types = before_types;
                 result?;
             }
         }
@@ -774,7 +815,10 @@ impl SemanticAnalyzer {
         for item in &return_clause.items {
             self.analyze_value_expression(&item.expression)?;
             if let Some(alias) = &item.alias {
+                let value_type = self.expression_type(&item.expression);
                 self.register_projection_alias(alias);
+                self.expression_types
+                    .insert(alias.to_lowercase(), value_type);
             }
         }
         Ok(())
@@ -788,6 +832,7 @@ impl SemanticAnalyzer {
         }
         // WITH ends the scope of everything it does not carry; `WITH b AS x` renames b.
         let mut kept = HashMap::new();
+        let mut kept_types = HashMap::new();
         for item in &with_clause.items {
             let carried = match &item.expression {
                 ValueExpression::Variable(v) => self.variables.get(&v.to_lowercase()).cloned(),
@@ -801,10 +846,15 @@ impl SemanticAnalyzer {
                     if let Some(info) = self.variables.get(&p.variable.to_lowercase()) {
                         kept.insert(p.variable.to_lowercase(), info.clone());
                     }
+                    if let Some(value_type) = self.expression_types.get(&p.variable.to_lowercase())
+                    {
+                        kept_types.insert(p.variable.to_lowercase(), value_type.clone());
+                    }
                     continue;
                 }
                 (None, _) => continue,
             };
+            kept_types.insert(name.to_lowercase(), self.expression_type(&item.expression));
             let info = carried.unwrap_or_else(|| VariableInfo {
                 name: name.clone(),
                 variable_type: VariableType::Property,
@@ -817,6 +867,7 @@ impl SemanticAnalyzer {
         self.retired
             .extend(std::mem::take(&mut self.variables).into_values());
         self.variables = kept;
+        self.expression_types = kept_types;
         // Validate ORDER BY within WITH if present
         if let Some(order_by) = &with_clause.order_by {
             for item in &order_by.items {
@@ -865,10 +916,7 @@ impl SemanticAnalyzer {
 
     /// Validate types and operations
     fn validate_types(&self, errors: &mut Vec<String>) {
-        // TODO: Implement type checking
-        // - Check that properties exist on nodes/relationships
-        // - Check that comparison operations are valid for data types
-        // - Check that arithmetic operations are valid
+        // Expression operations are checked during traversal, while their scope is available.
 
         // Check that properties referenced in patterns exist in schema when property fields are defined
         for var_info in self.variables.values().chain(&self.retired) {
@@ -1815,7 +1863,7 @@ mod tests {
         assert!(result
             .errors
             .iter()
-            .any(|e| e.contains("Arithmetic requires numeric literal operands")));
+            .any(|e| e.contains("Type mismatch") && e.contains("Utf8") && e.contains("Int64")));
     }
 
     #[test]
