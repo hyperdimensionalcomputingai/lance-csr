@@ -11,8 +11,8 @@ title: Home
 
 **lance-csr** is an open source [openCypher](https://opencypher.org/) query engine for graphs stored as
 [Lance](https://lancedb.github.io/lance/) datasets or Arrow tables. It is written in Rust on
-[Apache DataFusion](https://datafusion.apache.org/), ships as a Python package, and runs on one machine with no
-server to operate. Its distinguishing feature is a **compressed sparse row (CSR) adjacency index** that turns
+[Apache DataFusion](https://datafusion.apache.org/), ships as a Python package and a Rust crate, and runs on one machine with
+no server to operate. Its distinguishing feature is a **compressed sparse row (CSR) adjacency index** that turns
 each relationship hop from a hash join into an array lookup, which is what makes multi-hop traversals fast.
 
 ```python
@@ -148,3 +148,4 @@ without it, but the API around it may change. Prebuilt wheels cover Linux x86-64
 
 [:fontawesome-brands-github: GitHub](https://github.com/hyperdimensionalcomputingai/lance-csr){ .md-button }
 [:fontawesome-brands-python: PyPI](https://pypi.org/project/lance-csr/){ .md-button }
+[:fontawesome-brands-rust: crates.io](https://crates.io/crates/lance-csr){ .md-button }

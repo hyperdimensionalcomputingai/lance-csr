@@ -1,4 +1,4 @@
-"""Python bindings for the ``lance-graph`` crate.
+"""Python bindings for the ``lance-csr`` crate.
 
 Provides two query interfaces:
 
