@@ -1,0 +1,118 @@
+diff --git a/crates/lance-graph/src/csr_expand.rs b/crates/lance-graph/src/csr_expand.rs
+index 9bb4c20..e610efd 100644
+--- a/crates/lance-graph/src/csr_expand.rs
++++ b/crates/lance-graph/src/csr_expand.rs
+@@ -1949,6 +1949,58 @@ mod tests {
+         assert!(expansion.next_chunk(&adj, None, 1).rows.is_empty());
+     }
+ 
++    #[tokio::test]
++    async fn cancellation_without_edges_in_variable_paths_yields_between_source_rows() {
++        let config = crate::config::GraphConfig::builder()
++            .node_table("Person", "id")
++            .rel_table("KNOWS", "Person", "Person", "src", "dst")
++            .build()
++            .unwrap();
++        let nodes =
++            RecordBatch::try_from_iter([("id", Arc::new(Int64Array::from(vec![1])) as ArrayRef)])
++                .unwrap();
++        let mut catalog = AdjacencyCatalog::default();
++        catalog.insert_nodes(
++            "Person",
++            Arc::new(NodeRows::from_batch(nodes, "id").unwrap().unwrap()),
++        );
++        catalog.insert(
++            "KNOWS",
++            true,
++            Arc::new(
++                Adjacency::build(edge_stream(vec![], vec![]), "src", "dst")
++                    .await
++                    .unwrap(),
++            ),
++        );
++        let walk = crate::csr_traversal::Traversal::new(
++            &config,
++            &catalog,
++            &["KNOWS".into()],
++            &crate::ast::RelationshipDirection::Outgoing,
++            "Person",
++            "Person",
++            1,
++            1,
++        )
++        .unwrap();
++        let input = RecordBatch::try_from_iter([(
++            "id",
++            Arc::new(Int64Array::from(vec![1; 100_000])) as ArrayRef,
++        )])
++        .unwrap();
++        let mut expansion = BatchExpansion::try_new(input, 0, None).unwrap();
++        let mut next = Box::pin(expansion.next_path_chunk(&walk, None, 1));
++        assert!(futures::poll!(next.as_mut()).is_pending());
++        drop(next);
++        assert!(expansion.row > 0 && expansion.row <= 1024);
++        assert!(expansion
++            .next_path_chunk(&walk, None, 1)
++            .await
++            .rows
++            .is_empty());
++    }
++
+     #[tokio::test]
+     async fn high_degree_expansion_visits_only_the_first_chunk() {
+         let n = 100_000;
+diff --git a/crates/lance-graph/src/csr_traversal.rs b/crates/lance-graph/src/csr_traversal.rs
+index a19eb36..d1c667d 100644
+--- a/crates/lance-graph/src/csr_traversal.rs
++++ b/crates/lance-graph/src/csr_traversal.rs
+@@ -271,6 +271,50 @@ mod tests {
+         assert!(cursor.stack.is_empty());
+     }
+ 
++    #[tokio::test]
++    async fn cancellation_visits_raw_tombstones_before_returning_the_live_path() {
++        let (config, mut catalog) = graph().await;
++        let schema = Arc::new(Schema::new(vec![
++            Field::new("src", DataType::Int64, false),
++            Field::new("dst", DataType::Int64, false),
++        ]));
++        let batch = RecordBatch::try_new(
++            schema.clone(),
++            vec![
++                Arc::new(Int64Array::from(vec![1; 5000])),
++                Arc::new(Int64Array::from(vec![1; 5000])),
++            ],
++        )
++        .unwrap();
++        let stream = Box::pin(RecordBatchStreamAdapter::new(
++            schema,
++            futures::stream::iter(vec![Ok(batch)]),
++        ));
++        let base = Adjacency::build(stream, "src", "dst").await.unwrap();
++        catalog.insert(
++            "hasType",
++            true,
++            Arc::new(base.with_changes(&[], &vec![(1, 1); 4999])),
++        );
++        let walk = Traversal::new(
++            &config,
++            &catalog,
++            &["hasType".into()],
++            &RelationshipDirection::Outgoing,
++            "Tag",
++            "Class",
++            1,
++            1,
++        )
++        .unwrap();
++        let mut cursor = TraversalCursor::new(&walk, 1);
++        let mut next = Box::pin(cursor.next(&walk));
++        assert!(futures::poll!(next.as_mut()).is_pending());
++        drop(next);
++        assert_eq!(cursor.next(&walk).await, Some(1));
++        assert_eq!(cursor.next(&walk).await, None);
++    }
++
+     #[tokio::test]
+     async fn zero_hop_is_identity_and_depth_bound_survives_cycles() {
+         let (config, catalog) = graph().await;

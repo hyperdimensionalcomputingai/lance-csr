@@ -2,9 +2,9 @@
 
 This is the local review record for the 14-issue resolution series. Source changes live on separate `codex/issue-*` branches. No branch has been pushed and no PR has been opened. A passing check here applies only to its recorded commit and wheel.
 
-The current functional verification snapshot is `23bc699b121f3ac3e8bed4f8c2bd02474d8bc420`. It passed 645 Rust workspace tests (10 ignored), 1,241 Python tests, 17 separately linked binding tests and 46 executable documentation blocks, plus formatting, Clippy, Ruff, Pyright, strict docs and spelling checks. Its [exact source proof](source-receipts/candidate-23bc699-clean-source-proof.json) is separate from the earlier optimized `bfbbb24` release. The snapshot contains an unsuccessful inlining prototype and has not passed final performance acceptance.
+The final combined source is `7d2ef3e11b3858cc4571db315df4e848a37bdb82` on `codex/issue-resolution-final`. It passed 650 Rust workspace tests (10 ignored), 1,241 Python tests, 17 separately linked binding tests and 46 executable documentation blocks, plus formatting, workspace/binding Clippy, Ruff, Pyright, strict docs and spelling. Its [exact-source proof](source-receipts/candidate-7d2ef3e-clean-source-proof.json) and [optimized release receipt](release-receipts/candidate-final-release/release-proof.json) identify the actual code and wheel. Full installed Python suites also pass on Python 3.13 and 3.12 outside the source checkout, including strict consumer typing. Earlier functional snapshots and failed performance prototypes remain separate.
 
-Fifteen focused submission heads now have completed benchmark acceptance. Eight remain held for CSR performance or corrected-owner verification. The [PR review status](pr-drafts/README.md) identifies each submission; the [original gate ledger](review-readiness-original.json) preserves its frozen source and measured flags.
+Sixteen focused submission heads now have completed benchmark acceptance. Seven remain held for CSR performance or corrected-owner verification. The [PR review status](pr-drafts/README.md) identifies each submission; the [original gate ledger](review-readiness-original.json) preserves its frozen source and measured flags.
 
 ## Complete workload correctness and open acceptance
 
@@ -29,5 +29,8 @@ Each code submission needs complete Q30 and IC comparisons against `main`, and i
 The series includes parser, semantic, Rust execution, Python, typing, documentation and executable-example checks. The excluded Python binding crate is tested separately from the Rust workspace. [Reproduction instructions](REPRODUCE.md) list the public datasets, pinned benchmark revisions, build commands and environment requirements.
 
 Two closure dependencies remain explicit: #19 adoption by external benchmark runners is outside their read/run authorization, and #23 mapping-field privacy with validated deserialization is held for the next breaking release. The #20 tracker remains open until every finite feature group meets its checks. No complete Cypher-conformance claim is made.
+
+
+The [final-head comparison tables](comparisons-final-heads/index.json) and [paired acceptance report](repeat-investigations/final-heads/acceptance.json) preserve the actual remaining standalone flags. See [integration prerequisites](INTEGRATION.md) before changing a base or interpreting combined evidence.
 
 Submitted by David Hughes (@stugorf), with AI Collaboration.

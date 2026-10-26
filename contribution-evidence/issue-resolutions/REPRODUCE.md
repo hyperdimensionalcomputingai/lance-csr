@@ -83,8 +83,12 @@ LANCE_CSR_MODE=memory uv run --offline --no-sync --with "$CANDIDATE_WHEEL" pytho
 
 Repeat with `LANCE_CSR_MODE=lazy` and both complete suites. Record the actual imported extension digest, interpreter/dependency versions, dataset manifest digests, source commit and wheel hash. Stop builds, other benchmarks and profiling before collecting timings; run cells serially on the same host. Repeat flagged regressions in paired and reversed order. Preserve raw failures, partial outputs and the selected protocol rather than relabeling them as passing measurements.
 
-The results are local engineering comparisons, not an official audited SNB benchmark result. Dataset distribution conditions remain those of its source; the evidence bundle contains no SF1 records.
+The results are local engineering comparisons, not an official audited SNB benchmark result. Dataset distribution conditions remain those of its source; the evidence bundle contains no source SF1 tables or archives; it includes derived golden query answers.
 
 Regenerated Lance file UUIDs and manifest digests can differ; the archive digest and pinned ingestion code define the input, while each comparison freezes and verifies its own resulting dataset manifests. Golden result checks remain unchanged.
 
 Raw evidence retains its original CSV line endings and reference-query whitespace. The evidence branch scopes Git whitespace handling to those raw files and spelling exceptions to two exact verbatim receipt fields; source and prose checks remain strict.
+
+## Review the frozen integration
+
+Use [the integration record](INTEGRATION.md) and `review-heads-current.json` to select a focused head and its exact base. Keep original measurements with their original heads; the final combined receipt proves the shared corrections together. Revalidate the actual result whenever a branch base or conflict resolution changes.

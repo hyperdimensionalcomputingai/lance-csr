@@ -1,0 +1,184 @@
+{
+  "status": "complete",
+  "runner_sha256": "9ddb74497057080af5b92bf90bc5ea6a21a1ffd0cc32ec875100b0f1c5ca26d3",
+  "runs": [
+    {
+      "label": "hub-100000-11-r1",
+      "command": [
+        "/private/tmp/lance-csr-issue-21/python/.venv/bin/python",
+        "-I",
+        "/private/tmp/lance-csr-submissions/focused-csr-acceptance-r1/run.py",
+        "execute",
+        "--plan",
+        "/private/tmp/lance-csr-submissions/fused-cursor-hub-prepared-r1/plan.json",
+        "--cell",
+        "hub-100000-11-r1",
+        "--quiescent-confirmed"
+      ],
+      "returncode": 0,
+      "log_sha256": "f572311e8ff53d2fe70b7cc62c6b9e7b511c31722db423d3660891e56fba913f"
+    },
+    {
+      "label": "hub-100000-11-r2",
+      "command": [
+        "/private/tmp/lance-csr-issue-21/python/.venv/bin/python",
+        "-I",
+        "/private/tmp/lance-csr-submissions/focused-csr-acceptance-r1/run.py",
+        "execute",
+        "--plan",
+        "/private/tmp/lance-csr-submissions/fused-cursor-hub-prepared-r1/plan.json",
+        "--cell",
+        "hub-100000-11-r2",
+        "--quiescent-confirmed"
+      ],
+      "returncode": 0,
+      "log_sha256": "8d394605d43177c736beab40b937f10fc17582b61400f8d16cd7a2e32e031e71"
+    },
+    {
+      "label": "hub-100000-11-r3",
+      "command": [
+        "/private/tmp/lance-csr-issue-21/python/.venv/bin/python",
+        "-I",
+        "/private/tmp/lance-csr-submissions/focused-csr-acceptance-r1/run.py",
+        "execute",
+        "--plan",
+        "/private/tmp/lance-csr-submissions/fused-cursor-hub-prepared-r1/plan.json",
+        "--cell",
+        "hub-100000-11-r3",
+        "--quiescent-confirmed"
+      ],
+      "returncode": 0,
+      "log_sha256": "8846189e27cc021ef9db4596890c6c1292eaaad9f8358b1e7408abeca244b6a9"
+    },
+    {
+      "label": "hub-500000-11-r1",
+      "command": [
+        "/private/tmp/lance-csr-issue-21/python/.venv/bin/python",
+        "-I",
+        "/private/tmp/lance-csr-submissions/focused-csr-acceptance-r1/run.py",
+        "execute",
+        "--plan",
+        "/private/tmp/lance-csr-submissions/fused-cursor-hub-prepared-r1/plan.json",
+        "--cell",
+        "hub-500000-11-r1",
+        "--quiescent-confirmed"
+      ],
+      "returncode": 0,
+      "log_sha256": "d468b3db17afea00fe533285af01676eb1151e38b2fdeaa2c39353ca0cd82ab5"
+    },
+    {
+      "label": "hub-500000-11-r2",
+      "command": [
+        "/private/tmp/lance-csr-issue-21/python/.venv/bin/python",
+        "-I",
+        "/private/tmp/lance-csr-submissions/focused-csr-acceptance-r1/run.py",
+        "execute",
+        "--plan",
+        "/private/tmp/lance-csr-submissions/fused-cursor-hub-prepared-r1/plan.json",
+        "--cell",
+        "hub-500000-11-r2",
+        "--quiescent-confirmed"
+      ],
+      "returncode": 0,
+      "log_sha256": "a320a1a8bf1f471de403a4f416b39f312cc4e7e89049c703b3ed4690d14d47f0"
+    },
+    {
+      "label": "hub-500000-11-r3",
+      "command": [
+        "/private/tmp/lance-csr-issue-21/python/.venv/bin/python",
+        "-I",
+        "/private/tmp/lance-csr-submissions/focused-csr-acceptance-r1/run.py",
+        "execute",
+        "--plan",
+        "/private/tmp/lance-csr-submissions/fused-cursor-hub-prepared-r1/plan.json",
+        "--cell",
+        "hub-500000-11-r3",
+        "--quiescent-confirmed"
+      ],
+      "returncode": 0,
+      "log_sha256": "fadc3b1f10d69a9f3d3202974ac1dfccca32dc16c69bc7f1fbe68745b1d6f128"
+    },
+    {
+      "label": "hub-1000000-11-r1",
+      "command": [
+        "/private/tmp/lance-csr-issue-21/python/.venv/bin/python",
+        "-I",
+        "/private/tmp/lance-csr-submissions/focused-csr-acceptance-r1/run.py",
+        "execute",
+        "--plan",
+        "/private/tmp/lance-csr-submissions/fused-cursor-hub-prepared-r1/plan.json",
+        "--cell",
+        "hub-1000000-11-r1",
+        "--quiescent-confirmed"
+      ],
+      "returncode": 0,
+      "log_sha256": "44643b474a453f82f1aa38e6888bda7ab15e1d7ecf8479597b3f6623cbd857c2"
+    },
+    {
+      "label": "hub-1000000-11-r2",
+      "command": [
+        "/private/tmp/lance-csr-issue-21/python/.venv/bin/python",
+        "-I",
+        "/private/tmp/lance-csr-submissions/focused-csr-acceptance-r1/run.py",
+        "execute",
+        "--plan",
+        "/private/tmp/lance-csr-submissions/fused-cursor-hub-prepared-r1/plan.json",
+        "--cell",
+        "hub-1000000-11-r2",
+        "--quiescent-confirmed"
+      ],
+      "returncode": 0,
+      "log_sha256": "0bcf9e51add6742a3ecbeb0f81cc3b7acd6546b3e8858c08287070ef4f7d3d1d"
+    },
+    {
+      "label": "hub-1000000-11-r3",
+      "command": [
+        "/private/tmp/lance-csr-issue-21/python/.venv/bin/python",
+        "-I",
+        "/private/tmp/lance-csr-submissions/focused-csr-acceptance-r1/run.py",
+        "execute",
+        "--plan",
+        "/private/tmp/lance-csr-submissions/fused-cursor-hub-prepared-r1/plan.json",
+        "--cell",
+        "hub-1000000-11-r3",
+        "--quiescent-confirmed"
+      ],
+      "returncode": 0,
+      "log_sha256": "a675a715f7203f084dc8b25e78d0562e235d1d174ae72983f412f9f67743af92"
+    },
+    {
+      "label": "combined-call-deadline",
+      "command": [
+        "/Users/davidhughes/.local/bin/uv",
+        "run",
+        "--offline",
+        "--no-sync",
+        "--with",
+        "/private/tmp/lance-csr-submissions/wheels/candidate-final-release/lance_csr-0.2.0-cp312-abi3-macosx_11_0_arm64.whl",
+        "python",
+        "-I",
+        "/private/tmp/lance-csr-submissions/measure_call_deadline_v1.py",
+        "/private/tmp/lance-csr-submissions/wheels/candidate-final-release/release-proof.json"
+      ],
+      "returncode": 0,
+      "log_sha256": "7b09946e7f3d510590a419460935f02e067a199d2e131b20f50e9a40e56c0159"
+    },
+    {
+      "label": "canonical-ic14",
+      "command": [
+        "/Users/davidhughes/.local/bin/uv",
+        "run",
+        "--offline",
+        "--no-sync",
+        "--with",
+        "/private/tmp/lance-csr-submissions/wheels/candidate-final-release/lance_csr-0.2.0-cp312-abi3-macosx_11_0_arm64.whl",
+        "python",
+        "-I",
+        "/private/tmp/lance-csr-runtime/prove_ic14_typed_r5.py",
+        "/private/tmp/lance-csr-submissions/final-supporting-proofs-r2/ic14-final"
+      ],
+      "returncode": 0,
+      "log_sha256": "aedbfe7e2efe7881ddd89cb4dbf422b02ba37bf3affa5129b119ba6e2540a90c"
+    }
+  ]
+}

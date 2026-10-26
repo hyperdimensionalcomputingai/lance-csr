@@ -1,0 +1,302 @@
+{
+  "comparisons": [
+    {
+      "before": "main-cp313",
+      "after": "issue-13-cancellation-release",
+      "suite": "q30",
+      "mode": "memory",
+      "speedup": 1.0517913113897805,
+      "flags_above_10_percent": [
+        8
+      ],
+      "report": "/private/tmp/lance-csr-submissions/final-heads-comparison-tables-r1/issue-13-cancellation-release-vs-main-cp313-q30-memory.json",
+      "primary": true
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-13-cancellation-release",
+      "suite": "q30",
+      "mode": "lazy",
+      "speedup": 0.988334710132691,
+      "flags_above_10_percent": [
+        10,
+        14,
+        26,
+        27
+      ],
+      "report": "/private/tmp/lance-csr-submissions/final-heads-comparison-tables-r1/issue-13-cancellation-release-vs-main-cp313-q30-lazy.json",
+      "primary": true
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-13-cancellation-release",
+      "suite": "ic",
+      "mode": "memory",
+      "speedup": 1.2522913987839548,
+      "flags_above_10_percent": [
+        1
+      ],
+      "report": "/private/tmp/lance-csr-submissions/final-heads-comparison-tables-r1/issue-13-cancellation-release-vs-main-cp313-ic-memory.json",
+      "primary": true
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-13-cancellation-release",
+      "suite": "ic",
+      "mode": "lazy",
+      "speedup": 1.1980676420873533,
+      "flags_above_10_percent": [],
+      "report": "/private/tmp/lance-csr-submissions/final-heads-comparison-tables-r1/issue-13-cancellation-release-vs-main-cp313-ic-lazy.json",
+      "primary": true
+    },
+    {
+      "before": "issue-11-clean-r2",
+      "after": "issue-13-cancellation-release",
+      "suite": "q30",
+      "mode": "memory",
+      "speedup": 1.0752231303883408,
+      "flags_above_10_percent": [
+        8
+      ],
+      "report": "/private/tmp/lance-csr-submissions/final-heads-comparison-tables-r1/issue-13-cancellation-release-vs-issue-11-clean-r2-q30-memory.json",
+      "primary": true
+    },
+    {
+      "before": "issue-11-clean-r2",
+      "after": "issue-13-cancellation-release",
+      "suite": "q30",
+      "mode": "lazy",
+      "speedup": 1.0582323679649819,
+      "flags_above_10_percent": [
+        27
+      ],
+      "report": "/private/tmp/lance-csr-submissions/final-heads-comparison-tables-r1/issue-13-cancellation-release-vs-issue-11-clean-r2-q30-lazy.json",
+      "primary": true
+    },
+    {
+      "before": "issue-11-clean-r2",
+      "after": "issue-13-cancellation-release",
+      "suite": "ic",
+      "mode": "memory",
+      "speedup": 1.2732900212112976,
+      "flags_above_10_percent": [
+        1
+      ],
+      "report": "/private/tmp/lance-csr-submissions/final-heads-comparison-tables-r1/issue-13-cancellation-release-vs-issue-11-clean-r2-ic-memory.json",
+      "primary": true
+    },
+    {
+      "before": "issue-11-clean-r2",
+      "after": "issue-13-cancellation-release",
+      "suite": "ic",
+      "mode": "lazy",
+      "speedup": 1.1839295106589143,
+      "flags_above_10_percent": [],
+      "report": "/private/tmp/lance-csr-submissions/final-heads-comparison-tables-r1/issue-13-cancellation-release-vs-issue-11-clean-r2-ic-lazy.json",
+      "primary": true
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-19-empty-work-release",
+      "suite": "q30",
+      "mode": "memory",
+      "speedup": 0.9752356088588304,
+      "flags_above_10_percent": [
+        1,
+        8,
+        16,
+        25,
+        27
+      ],
+      "report": "/private/tmp/lance-csr-submissions/final-heads-comparison-tables-r1/issue-19-empty-work-release-vs-main-cp313-q30-memory.json",
+      "primary": true
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-19-empty-work-release",
+      "suite": "q30",
+      "mode": "lazy",
+      "speedup": 0.9491590659222503,
+      "flags_above_10_percent": [
+        10,
+        19,
+        25,
+        26,
+        27,
+        30
+      ],
+      "report": "/private/tmp/lance-csr-submissions/final-heads-comparison-tables-r1/issue-19-empty-work-release-vs-main-cp313-q30-lazy.json",
+      "primary": true
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-19-empty-work-release",
+      "suite": "ic",
+      "mode": "memory",
+      "speedup": 1.1289115066279503,
+      "flags_above_10_percent": [
+        4
+      ],
+      "report": "/private/tmp/lance-csr-submissions/final-heads-comparison-tables-r1/issue-19-empty-work-release-vs-main-cp313-ic-memory.json",
+      "primary": true
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-19-empty-work-release",
+      "suite": "ic",
+      "mode": "lazy",
+      "speedup": 1.1188777221450343,
+      "flags_above_10_percent": [
+        6
+      ],
+      "report": "/private/tmp/lance-csr-submissions/final-heads-comparison-tables-r1/issue-19-empty-work-release-vs-main-cp313-ic-lazy.json",
+      "primary": true
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-empty-work-release",
+      "suite": "q30",
+      "mode": "memory",
+      "speedup": 0.9909922284464363,
+      "flags_above_10_percent": [
+        1,
+        8,
+        17
+      ],
+      "report": "/private/tmp/lance-csr-submissions/final-heads-comparison-tables-r1/issue-19-empty-work-release-vs-issue-19-prerequisites-release-q30-memory.json",
+      "primary": true
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-empty-work-release",
+      "suite": "q30",
+      "mode": "lazy",
+      "speedup": 0.9897825147051587,
+      "flags_above_10_percent": [
+        19,
+        27,
+        28,
+        29
+      ],
+      "report": "/private/tmp/lance-csr-submissions/final-heads-comparison-tables-r1/issue-19-empty-work-release-vs-issue-19-prerequisites-release-q30-lazy.json",
+      "primary": true
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-empty-work-release",
+      "suite": "ic",
+      "mode": "memory",
+      "speedup": 1.0272788505749846,
+      "flags_above_10_percent": [
+        4
+      ],
+      "report": "/private/tmp/lance-csr-submissions/final-heads-comparison-tables-r1/issue-19-empty-work-release-vs-issue-19-prerequisites-release-ic-memory.json",
+      "primary": true
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-empty-work-release",
+      "suite": "ic",
+      "mode": "lazy",
+      "speedup": 0.9806087828110842,
+      "flags_above_10_percent": [
+        6
+      ],
+      "report": "/private/tmp/lance-csr-submissions/final-heads-comparison-tables-r1/issue-19-empty-work-release-vs-issue-19-prerequisites-release-ic-lazy.json",
+      "primary": true
+    },
+    {
+      "before": "main-cp313",
+      "after": "candidate-final-release",
+      "suite": "q30",
+      "mode": "memory",
+      "speedup": 1.0244662784424283,
+      "flags_above_10_percent": [],
+      "report": "/private/tmp/lance-csr-submissions/final-heads-comparison-tables-r1/candidate-final-release-vs-main-cp313-q30-memory.json",
+      "primary": true
+    },
+    {
+      "before": "main-cp313",
+      "after": "candidate-final-release",
+      "suite": "q30",
+      "mode": "lazy",
+      "speedup": 0.941786815953695,
+      "flags_above_10_percent": [
+        4,
+        6,
+        19,
+        21,
+        22,
+        24,
+        25,
+        30
+      ],
+      "report": "/private/tmp/lance-csr-submissions/final-heads-comparison-tables-r1/candidate-final-release-vs-main-cp313-q30-lazy.json",
+      "primary": true
+    },
+    {
+      "before": "main-cp313",
+      "after": "candidate-final-release",
+      "suite": "ic",
+      "mode": "memory",
+      "speedup": 1.3934469950337112,
+      "flags_above_10_percent": [],
+      "report": "/private/tmp/lance-csr-submissions/final-heads-comparison-tables-r1/candidate-final-release-vs-main-cp313-ic-memory.json",
+      "primary": true
+    },
+    {
+      "before": "main-cp313",
+      "after": "candidate-final-release",
+      "suite": "ic",
+      "mode": "lazy",
+      "speedup": 1.3562098604817963,
+      "flags_above_10_percent": [],
+      "report": "/private/tmp/lance-csr-submissions/final-heads-comparison-tables-r1/candidate-final-release-vs-main-cp313-ic-lazy.json",
+      "primary": true
+    },
+    {
+      "before": "candidate-bfbbb24",
+      "after": "candidate-final-release",
+      "suite": "q30",
+      "mode": "memory",
+      "speedup": 1.0311086899516542,
+      "flags_above_10_percent": [],
+      "report": "/private/tmp/lance-csr-submissions/final-heads-comparison-tables-r1/candidate-final-release-vs-candidate-bfbbb24-q30-memory.json",
+      "primary": true
+    },
+    {
+      "before": "candidate-bfbbb24",
+      "after": "candidate-final-release",
+      "suite": "q30",
+      "mode": "lazy",
+      "speedup": 1.0038591688981597,
+      "flags_above_10_percent": [
+        4,
+        24
+      ],
+      "report": "/private/tmp/lance-csr-submissions/final-heads-comparison-tables-r1/candidate-final-release-vs-candidate-bfbbb24-q30-lazy.json",
+      "primary": true
+    },
+    {
+      "before": "candidate-bfbbb24",
+      "after": "candidate-final-release",
+      "suite": "ic",
+      "mode": "memory",
+      "speedup": 1.459548244717704,
+      "flags_above_10_percent": [],
+      "report": "/private/tmp/lance-csr-submissions/final-heads-comparison-tables-r1/candidate-final-release-vs-candidate-bfbbb24-ic-memory.json",
+      "primary": true
+    },
+    {
+      "before": "candidate-bfbbb24",
+      "after": "candidate-final-release",
+      "suite": "ic",
+      "mode": "lazy",
+      "speedup": 1.3146965827081538,
+      "flags_above_10_percent": [],
+      "report": "/private/tmp/lance-csr-submissions/final-heads-comparison-tables-r1/candidate-final-release-vs-candidate-bfbbb24-ic-lazy.json",
+      "primary": true
+    }
+  ],
+  "status": "first_pass_only"
+}

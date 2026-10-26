@@ -1,0 +1,44 @@
+{
+  "created_utc": "2026-10-26T05:55:52.260001+00:00",
+  "phase": "issue-19-empty-work-release",
+  "source_worktree": "/private/tmp/lance-csr-issue-19-corrected-release",
+  "source_commit": "b84e62866aa94effa07bb0742a4b26c3dc83c9d5",
+  "tracked_source_clean": true,
+  "preserved_untracked_files": [],
+  "profile": "release",
+  "wheel_path": "/private/tmp/lance-csr-submissions/wheels/issue-19-empty-work-release/lance_csr-0.2.0-cp312-abi3-macosx_11_0_arm64.whl",
+  "wheel_sha256": "7ba8512ed84adc6f625fd35294573e10440a6642ca3f8fa3b06e35e9cb1d6abb",
+  "extension_sha256": "f44295336e01d36827ea24fcf42058d37504209d08e50a8819acc788e9519627",
+  "installed_extension_matches_archive": true,
+  "build_log": "/private/tmp/lance-csr-runtime/issue-19-empty-work-release-release-wheel-build.log",
+  "build_log_sha256": "04d525cee6feaba42eaca148cfcd07de6a5abbe5cd77a22aaa9c9345d70eda0b",
+  "release_clean_log": "/private/tmp/lance-csr-runtime/issue-19-empty-work-release-release-clean.log",
+  "release_clean_log_sha256": "57a4da79ada74744cf1f9a9b3d3a5a8a93a0e7bffb1d661daf1d44da67e31d7e",
+  "verification_log": "/private/tmp/lance-csr-runtime/issue-19-empty-work-release-release-wheel-verification.log",
+  "verification_log_sha256": "34074d92321a7c398c84a7cd4c93d798941f91a7d2ab87d5b4b6f0fec1e13d11",
+  "verification_script_sha256": "0a2e2c37dd19660a0a16b0a737d243526e33699615c325c6f7bca0253559e2e6",
+  "build_python_lock_sha256": "2639fe466b2ced50664ac4139021281deb7571f771f7e9fb9b55520e4c7032d3",
+  "toolchain": {
+    "rustc": "rustc 1.96.0 (ac68faa20 2026-05-25)",
+    "cargo": "cargo 1.96.0 (30a34c682 2026-05-25)"
+  },
+  "installed_environment": {
+    "python": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+    "extension": "/Users/davidhughes/.cache/uv/archive-v0/Ll4q3ntXXrcY6XcW/lib/python3.13/site-packages/lance_csr/_internal.abi3.so",
+    "lance-csr": "0.2.0",
+    "pyarrow": "26.0.0",
+    "pylance": "13.0.0",
+    "installed_typing_matches_archive": [
+      "lance_csr/_internal/__init__.pyi",
+      "lance_csr/_internal/graph.pyi",
+      "lance_csr/py.typed"
+    ]
+  },
+  "focused_tests_passed": 487,
+  "limits": [
+    "SF1 comparisons are recorded separately",
+    "No other operating-system matrix",
+    "No push or PR"
+  ],
+  "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration."
+}

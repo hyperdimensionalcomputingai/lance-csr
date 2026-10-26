@@ -1,0 +1,39 @@
+{
+  "phase": "issue-11-fused-cursor-release",
+  "source_commit": "d7ad39819d04acf44907213ba7532df5e93d8869",
+  "wheel_sha256": "558bc1e7ddff6f55e5ac6d861929d36b6ec2c8b01bc86300141236c28ec5c55c",
+  "release_proof_path": "/private/tmp/lance-csr-submissions/wheels/issue-11-fused-cursor-release/release-proof.json",
+  "release_proof_sha256": "1a71288468c76abdb648832f596386ca7455de41352b392664b1102778053b80",
+  "build_log_path": "/private/tmp/lance-csr-runtime/issue-11-fused-cursor-release-release-wheel-build.log",
+  "build_log_sha256": "5d554da1bdc1ecf509d9f51607b11ced63061af6fb9bf0060d360a8d139d1cb4",
+  "build_interpreter": {
+    "requested_path": "/private/tmp/lance-csr-issue-21/python/.venv/bin/python",
+    "resolved_path": "/Users/davidhughes/.local/share/uv/python/cpython-3.13.17-macos-aarch64-none/bin/python3.13",
+    "binary_sha256": "b73265418f62106dd4fef6e2f8385ee4856c4d9d52e2489ff1c9fc94beb819d3",
+    "version": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+    "version_info": [
+      3,
+      13,
+      17
+    ],
+    "implementation": "CPython",
+    "executable": "/private/tmp/lance-csr-issue-21/python/.venv/bin/python"
+  },
+  "pyo3_config_path": "/private/tmp/lance-csr-release-target-issue-11-fused-cursor-release/release/build/pyo3-build-config-47312120ce6fc2a0/out/pyo3-build-config.txt",
+  "pyo3_config_sha256": "c92628fff7956eab813d907770fc652606bdb24f43783603bfaa1201ff08401a",
+  "pyo3_config": {
+    "implementation": "CPython",
+    "version": "3.12",
+    "shared": "true",
+    "abi3": "true",
+    "lib_name": "python3.13",
+    "lib_dir": "/Users/davidhughes/.local/share/uv/python/cpython-3.13.17-macos-aarch64-none/lib",
+    "executable": "/private/tmp/lance-csr-issue-21/python/.venv/bin/python",
+    "pointer_width": "64",
+    "build_flags": "",
+    "python_framework_prefix": "",
+    "suppress_build_script_link_lines": "false"
+  },
+  "pyo3_config_text": "implementation=CPython\nversion=3.12\nshared=true\nabi3=true\nlib_name=python3.13\nlib_dir=/Users/davidhughes/.local/share/uv/python/cpython-3.13.17-macos-aarch64-none/lib\nexecutable=/private/tmp/lance-csr-issue-21/python/.venv/bin/python\npointer_width=64\nbuild_flags=\npython_framework_prefix=\nsuppress_build_script_link_lines=false\n",
+  "note": "PyO3 version=3.12 denotes the abi3 minimum; build_interpreter records the actual build runtime. Consumer Python is recorded separately in release-proof.json. No SF1 comparisons across mismatched build contexts."
+}

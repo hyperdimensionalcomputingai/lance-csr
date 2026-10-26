@@ -1,0 +1,686 @@
+[
+  {
+    "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/hub-100000-main-r1/result.json",
+    "sha256": "6b62d15c014017fbd4aff4260f8e60d42d684b6e135f1a590cfb3039eb3903c1",
+    "result": {
+      "cell": {
+        "label": "hub-100000-main-r1",
+        "kind": "hub",
+        "cohort": "main",
+        "repeat": 1,
+        "rows": 100000
+      },
+      "source_commit": "54e02307a48e467a98d9da2183f5adcb767e7c99",
+      "wheel_sha256": "611cb5fdda5c77d604c4a86cae0477ebe1bfd39228e1c35d3c15049b5512bcd6",
+      "extension_sha256": "ab0e52b65b26b5b568487f7ca859e43b5e12760dabda093281b7868eb9fa033a",
+      "python": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+      "lance": "13.0.0",
+      "pyarrow": "26.0.0",
+      "status": "passed",
+      "output_rows": 100000,
+      "checksum": 4999950000,
+      "batches": 13,
+      "maximum_batch_rows": 8192,
+      "query_first_batch_seconds": 0.10867829108610749,
+      "query_seconds_including_validation": 0.11344379093497992,
+      "pre_query": {
+        "rss_bytes": 164364288,
+        "peak_rss_bytes": 164364288
+      },
+      "post_query_rss_bytes": 651165696,
+      "process_peak_rss_bytes": 651149312,
+      "query_high_water_growth_lower_bound_bytes": 486785024,
+      "payload_samples_sha256": {
+        "0": "9d37d1a1cb4ab6318ff4e6426147691757a51ee6f09a97dc97292e7f76114c46",
+        "50000": "11d2cc7501f8d9bdbb0c9265134ef643388dedb7f3a06f93fe4ed58f22f894dc",
+        "99999": "6b44c6c20f90e833ea8887cb1d943c4fe00684e545cd41ea6e1e8401eaa024cd"
+      }
+    }
+  },
+  {
+    "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/hub-100000-main-r2/result.json",
+    "sha256": "fac7f728fa42e1c1da06b44aa1397f38c684f691a4259133365377f3aa074c55",
+    "result": {
+      "cell": {
+        "label": "hub-100000-main-r2",
+        "kind": "hub",
+        "cohort": "main",
+        "repeat": 2,
+        "rows": 100000
+      },
+      "source_commit": "54e02307a48e467a98d9da2183f5adcb767e7c99",
+      "wheel_sha256": "611cb5fdda5c77d604c4a86cae0477ebe1bfd39228e1c35d3c15049b5512bcd6",
+      "extension_sha256": "ab0e52b65b26b5b568487f7ca859e43b5e12760dabda093281b7868eb9fa033a",
+      "python": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+      "lance": "13.0.0",
+      "pyarrow": "26.0.0",
+      "status": "passed",
+      "output_rows": 100000,
+      "checksum": 4999950000,
+      "batches": 13,
+      "maximum_batch_rows": 8192,
+      "query_first_batch_seconds": 0.05204133316874504,
+      "query_seconds_including_validation": 0.052602707874029875,
+      "pre_query": {
+        "rss_bytes": 165380096,
+        "peak_rss_bytes": 165380096
+      },
+      "post_query_rss_bytes": 651034624,
+      "process_peak_rss_bytes": 651018240,
+      "query_high_water_growth_lower_bound_bytes": 485638144,
+      "payload_samples_sha256": {
+        "0": "9d37d1a1cb4ab6318ff4e6426147691757a51ee6f09a97dc97292e7f76114c46",
+        "50000": "11d2cc7501f8d9bdbb0c9265134ef643388dedb7f3a06f93fe4ed58f22f894dc",
+        "99999": "6b44c6c20f90e833ea8887cb1d943c4fe00684e545cd41ea6e1e8401eaa024cd"
+      }
+    }
+  },
+  {
+    "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/hub-100000-main-r3/result.json",
+    "sha256": "5abf06e3758091e91888700b7057a0a9eeab2f8ec653096b9116fdb33a53f28c",
+    "result": {
+      "cell": {
+        "label": "hub-100000-main-r3",
+        "kind": "hub",
+        "cohort": "main",
+        "repeat": 3,
+        "rows": 100000
+      },
+      "source_commit": "54e02307a48e467a98d9da2183f5adcb767e7c99",
+      "wheel_sha256": "611cb5fdda5c77d604c4a86cae0477ebe1bfd39228e1c35d3c15049b5512bcd6",
+      "extension_sha256": "ab0e52b65b26b5b568487f7ca859e43b5e12760dabda093281b7868eb9fa033a",
+      "python": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+      "lance": "13.0.0",
+      "pyarrow": "26.0.0",
+      "status": "passed",
+      "output_rows": 100000,
+      "checksum": 4999950000,
+      "batches": 13,
+      "maximum_batch_rows": 8192,
+      "query_first_batch_seconds": 0.05224645882844925,
+      "query_seconds_including_validation": 0.05276300013065338,
+      "pre_query": {
+        "rss_bytes": 165527552,
+        "peak_rss_bytes": 165527552
+      },
+      "post_query_rss_bytes": 651411456,
+      "process_peak_rss_bytes": 651395072,
+      "query_high_water_growth_lower_bound_bytes": 485867520,
+      "payload_samples_sha256": {
+        "0": "9d37d1a1cb4ab6318ff4e6426147691757a51ee6f09a97dc97292e7f76114c46",
+        "50000": "11d2cc7501f8d9bdbb0c9265134ef643388dedb7f3a06f93fe4ed58f22f894dc",
+        "99999": "6b44c6c20f90e833ea8887cb1d943c4fe00684e545cd41ea6e1e8401eaa024cd"
+      }
+    }
+  },
+  {
+    "path": "/private/tmp/lance-csr-submissions/fused-cursor-hub-prepared-r1/results/hub-100000-11-r1/result.json",
+    "sha256": "bb7f99b0234eb7ed427aacb8450dc12b0f15b914a22b0ed3b77e1ef704af800e",
+    "result": {
+      "cell": {
+        "label": "hub-100000-11-r1",
+        "kind": "hub",
+        "cohort": "11",
+        "repeat": 1,
+        "rows": 100000
+      },
+      "source_commit": "d7ad39819d04acf44907213ba7532df5e93d8869",
+      "wheel_sha256": "558bc1e7ddff6f55e5ac6d861929d36b6ec2c8b01bc86300141236c28ec5c55c",
+      "extension_sha256": "3303d94cb16ae77f4f827fdaf5547626e48d0100a227e4198a4846c76e29be1d",
+      "python": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+      "lance": "13.0.0",
+      "pyarrow": "26.0.0",
+      "status": "passed",
+      "output_rows": 100000,
+      "checksum": 4999950000,
+      "batches": 13,
+      "maximum_batch_rows": 8192,
+      "query_first_batch_seconds": 0.014201249927282333,
+      "query_seconds_including_validation": 0.09199149999767542,
+      "pre_query": {
+        "rss_bytes": 164642816,
+        "peak_rss_bytes": 164642816
+      },
+      "post_query_rss_bytes": 313147392,
+      "process_peak_rss_bytes": 313131008,
+      "query_high_water_growth_lower_bound_bytes": 148488192,
+      "payload_samples_sha256": {
+        "0": "9d37d1a1cb4ab6318ff4e6426147691757a51ee6f09a97dc97292e7f76114c46",
+        "50000": "11d2cc7501f8d9bdbb0c9265134ef643388dedb7f3a06f93fe4ed58f22f894dc",
+        "99999": "6b44c6c20f90e833ea8887cb1d943c4fe00684e545cd41ea6e1e8401eaa024cd"
+      }
+    }
+  },
+  {
+    "path": "/private/tmp/lance-csr-submissions/fused-cursor-hub-prepared-r1/results/hub-100000-11-r2/result.json",
+    "sha256": "4ccd56c60a8b7f63c12c24a189e1a99f745f59052f251b0cbdcd071a379f30a5",
+    "result": {
+      "cell": {
+        "label": "hub-100000-11-r2",
+        "kind": "hub",
+        "cohort": "11",
+        "repeat": 2,
+        "rows": 100000
+      },
+      "source_commit": "d7ad39819d04acf44907213ba7532df5e93d8869",
+      "wheel_sha256": "558bc1e7ddff6f55e5ac6d861929d36b6ec2c8b01bc86300141236c28ec5c55c",
+      "extension_sha256": "3303d94cb16ae77f4f827fdaf5547626e48d0100a227e4198a4846c76e29be1d",
+      "python": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+      "lance": "13.0.0",
+      "pyarrow": "26.0.0",
+      "status": "passed",
+      "output_rows": 100000,
+      "checksum": 4999950000,
+      "batches": 13,
+      "maximum_batch_rows": 8192,
+      "query_first_batch_seconds": 0.00738154212012887,
+      "query_seconds_including_validation": 0.0375046250410378,
+      "pre_query": {
+        "rss_bytes": 164085760,
+        "peak_rss_bytes": 164085760
+      },
+      "post_query_rss_bytes": 278921216,
+      "process_peak_rss_bytes": 278904832,
+      "query_high_water_growth_lower_bound_bytes": 114819072,
+      "payload_samples_sha256": {
+        "0": "9d37d1a1cb4ab6318ff4e6426147691757a51ee6f09a97dc97292e7f76114c46",
+        "50000": "11d2cc7501f8d9bdbb0c9265134ef643388dedb7f3a06f93fe4ed58f22f894dc",
+        "99999": "6b44c6c20f90e833ea8887cb1d943c4fe00684e545cd41ea6e1e8401eaa024cd"
+      }
+    }
+  },
+  {
+    "path": "/private/tmp/lance-csr-submissions/fused-cursor-hub-prepared-r1/results/hub-100000-11-r3/result.json",
+    "sha256": "e7b5e90f4cb5ebbe69488d8c42e9f031106044ce9a2e4b96d76bac286c7fb091",
+    "result": {
+      "cell": {
+        "label": "hub-100000-11-r3",
+        "kind": "hub",
+        "cohort": "11",
+        "repeat": 3,
+        "rows": 100000
+      },
+      "source_commit": "d7ad39819d04acf44907213ba7532df5e93d8869",
+      "wheel_sha256": "558bc1e7ddff6f55e5ac6d861929d36b6ec2c8b01bc86300141236c28ec5c55c",
+      "extension_sha256": "3303d94cb16ae77f4f827fdaf5547626e48d0100a227e4198a4846c76e29be1d",
+      "python": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+      "lance": "13.0.0",
+      "pyarrow": "26.0.0",
+      "status": "passed",
+      "output_rows": 100000,
+      "checksum": 4999950000,
+      "batches": 13,
+      "maximum_batch_rows": 8192,
+      "query_first_batch_seconds": 0.006382958963513374,
+      "query_seconds_including_validation": 0.03535045916214585,
+      "pre_query": {
+        "rss_bytes": 162906112,
+        "peak_rss_bytes": 162906112
+      },
+      "post_query_rss_bytes": 277807104,
+      "process_peak_rss_bytes": 277790720,
+      "query_high_water_growth_lower_bound_bytes": 114884608,
+      "payload_samples_sha256": {
+        "0": "9d37d1a1cb4ab6318ff4e6426147691757a51ee6f09a97dc97292e7f76114c46",
+        "50000": "11d2cc7501f8d9bdbb0c9265134ef643388dedb7f3a06f93fe4ed58f22f894dc",
+        "99999": "6b44c6c20f90e833ea8887cb1d943c4fe00684e545cd41ea6e1e8401eaa024cd"
+      }
+    }
+  },
+  {
+    "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/hub-500000-main-r1/result.json",
+    "sha256": "936c39975310b33e5266c60a8dba39b2ac633ec7f1ee940e0ed8f2d42973c5b9",
+    "result": {
+      "cell": {
+        "label": "hub-500000-main-r1",
+        "kind": "hub",
+        "cohort": "main",
+        "repeat": 1,
+        "rows": 500000
+      },
+      "source_commit": "54e02307a48e467a98d9da2183f5adcb767e7c99",
+      "wheel_sha256": "611cb5fdda5c77d604c4a86cae0477ebe1bfd39228e1c35d3c15049b5512bcd6",
+      "extension_sha256": "ab0e52b65b26b5b568487f7ca859e43b5e12760dabda093281b7868eb9fa033a",
+      "python": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+      "lance": "13.0.0",
+      "pyarrow": "26.0.0",
+      "status": "passed",
+      "output_rows": 500000,
+      "checksum": 124999750000,
+      "batches": 62,
+      "maximum_batch_rows": 8192,
+      "query_first_batch_seconds": 0.5103798331692815,
+      "query_seconds_including_validation": 0.5131981251761317,
+      "pre_query": {
+        "rss_bytes": 233750528,
+        "peak_rss_bytes": 233750528
+      },
+      "post_query_rss_bytes": 2284109824,
+      "process_peak_rss_bytes": 2379251712,
+      "query_high_water_growth_lower_bound_bytes": 2145501184,
+      "payload_samples_sha256": {
+        "0": "9d37d1a1cb4ab6318ff4e6426147691757a51ee6f09a97dc97292e7f76114c46",
+        "250000": "8df5552f38ca84b7bc7d01347da0dbd78bc6e2b24808b6f5e8f70788b55cb032",
+        "499999": "72e7469393818c3feac2e03b3131d92a0b337390799afa2e1a589a2816f44b02"
+      }
+    }
+  },
+  {
+    "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/hub-500000-main-r2/result.json",
+    "sha256": "92b4d6777cd3e239a80f1b13ba8b3998d4cf206528bfb9092694f8156ce65622",
+    "result": {
+      "cell": {
+        "label": "hub-500000-main-r2",
+        "kind": "hub",
+        "cohort": "main",
+        "repeat": 2,
+        "rows": 500000
+      },
+      "source_commit": "54e02307a48e467a98d9da2183f5adcb767e7c99",
+      "wheel_sha256": "611cb5fdda5c77d604c4a86cae0477ebe1bfd39228e1c35d3c15049b5512bcd6",
+      "extension_sha256": "ab0e52b65b26b5b568487f7ca859e43b5e12760dabda093281b7868eb9fa033a",
+      "python": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+      "lance": "13.0.0",
+      "pyarrow": "26.0.0",
+      "status": "passed",
+      "output_rows": 500000,
+      "checksum": 124999750000,
+      "batches": 62,
+      "maximum_batch_rows": 8192,
+      "query_first_batch_seconds": 0.24530175002291799,
+      "query_seconds_including_validation": 0.24804062489420176,
+      "pre_query": {
+        "rss_bytes": 233177088,
+        "peak_rss_bytes": 233177088
+      },
+      "post_query_rss_bytes": 2282504192,
+      "process_peak_rss_bytes": 2377662464,
+      "query_high_water_growth_lower_bound_bytes": 2144485376,
+      "payload_samples_sha256": {
+        "0": "9d37d1a1cb4ab6318ff4e6426147691757a51ee6f09a97dc97292e7f76114c46",
+        "250000": "8df5552f38ca84b7bc7d01347da0dbd78bc6e2b24808b6f5e8f70788b55cb032",
+        "499999": "72e7469393818c3feac2e03b3131d92a0b337390799afa2e1a589a2816f44b02"
+      }
+    }
+  },
+  {
+    "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/hub-500000-main-r3/result.json",
+    "sha256": "126ed33f8ae7b9b31bc8021c05d47c81a73c84fefecf6fd8c60f1d87a0805eca",
+    "result": {
+      "cell": {
+        "label": "hub-500000-main-r3",
+        "kind": "hub",
+        "cohort": "main",
+        "repeat": 3,
+        "rows": 500000
+      },
+      "source_commit": "54e02307a48e467a98d9da2183f5adcb767e7c99",
+      "wheel_sha256": "611cb5fdda5c77d604c4a86cae0477ebe1bfd39228e1c35d3c15049b5512bcd6",
+      "extension_sha256": "ab0e52b65b26b5b568487f7ca859e43b5e12760dabda093281b7868eb9fa033a",
+      "python": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+      "lance": "13.0.0",
+      "pyarrow": "26.0.0",
+      "status": "passed",
+      "output_rows": 500000,
+      "checksum": 124999750000,
+      "batches": 62,
+      "maximum_batch_rows": 8192,
+      "query_first_batch_seconds": 0.24506550002843142,
+      "query_seconds_including_validation": 0.24768454115837812,
+      "pre_query": {
+        "rss_bytes": 235962368,
+        "peak_rss_bytes": 235962368
+      },
+      "post_query_rss_bytes": 2282455040,
+      "process_peak_rss_bytes": 2377613312,
+      "query_high_water_growth_lower_bound_bytes": 2141650944,
+      "payload_samples_sha256": {
+        "0": "9d37d1a1cb4ab6318ff4e6426147691757a51ee6f09a97dc97292e7f76114c46",
+        "250000": "8df5552f38ca84b7bc7d01347da0dbd78bc6e2b24808b6f5e8f70788b55cb032",
+        "499999": "72e7469393818c3feac2e03b3131d92a0b337390799afa2e1a589a2816f44b02"
+      }
+    }
+  },
+  {
+    "path": "/private/tmp/lance-csr-submissions/fused-cursor-hub-prepared-r1/results/hub-500000-11-r1/result.json",
+    "sha256": "533146f6377852425089127a0729e513db6e62ccc74b5eaa4d2648df95ec1f8f",
+    "result": {
+      "cell": {
+        "label": "hub-500000-11-r1",
+        "kind": "hub",
+        "cohort": "11",
+        "repeat": 1,
+        "rows": 500000
+      },
+      "source_commit": "d7ad39819d04acf44907213ba7532df5e93d8869",
+      "wheel_sha256": "558bc1e7ddff6f55e5ac6d861929d36b6ec2c8b01bc86300141236c28ec5c55c",
+      "extension_sha256": "3303d94cb16ae77f4f827fdaf5547626e48d0100a227e4198a4846c76e29be1d",
+      "python": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+      "lance": "13.0.0",
+      "pyarrow": "26.0.0",
+      "status": "passed",
+      "output_rows": 500000,
+      "checksum": 124999750000,
+      "batches": 62,
+      "maximum_batch_rows": 8192,
+      "query_first_batch_seconds": 0.011683125048875809,
+      "query_seconds_including_validation": 0.4277899591252208,
+      "pre_query": {
+        "rss_bytes": 232947712,
+        "peak_rss_bytes": 232947712
+      },
+      "post_query_rss_bytes": 341327872,
+      "process_peak_rss_bytes": 341311488,
+      "query_high_water_growth_lower_bound_bytes": 108363776,
+      "payload_samples_sha256": {
+        "0": "9d37d1a1cb4ab6318ff4e6426147691757a51ee6f09a97dc97292e7f76114c46",
+        "250000": "8df5552f38ca84b7bc7d01347da0dbd78bc6e2b24808b6f5e8f70788b55cb032",
+        "499999": "72e7469393818c3feac2e03b3131d92a0b337390799afa2e1a589a2816f44b02"
+      }
+    }
+  },
+  {
+    "path": "/private/tmp/lance-csr-submissions/fused-cursor-hub-prepared-r1/results/hub-500000-11-r2/result.json",
+    "sha256": "811640ae4a95c94ff00061e7182b9eb8e4bb4d9034a1b016391bcb73c022768f",
+    "result": {
+      "cell": {
+        "label": "hub-500000-11-r2",
+        "kind": "hub",
+        "cohort": "11",
+        "repeat": 2,
+        "rows": 500000
+      },
+      "source_commit": "d7ad39819d04acf44907213ba7532df5e93d8869",
+      "wheel_sha256": "558bc1e7ddff6f55e5ac6d861929d36b6ec2c8b01bc86300141236c28ec5c55c",
+      "extension_sha256": "3303d94cb16ae77f4f827fdaf5547626e48d0100a227e4198a4846c76e29be1d",
+      "python": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+      "lance": "13.0.0",
+      "pyarrow": "26.0.0",
+      "status": "passed",
+      "output_rows": 500000,
+      "checksum": 124999750000,
+      "batches": 62,
+      "maximum_batch_rows": 8192,
+      "query_first_batch_seconds": 0.007445000112056732,
+      "query_seconds_including_validation": 0.1678909589536488,
+      "pre_query": {
+        "rss_bytes": 234438656,
+        "peak_rss_bytes": 234438656
+      },
+      "post_query_rss_bytes": 342474752,
+      "process_peak_rss_bytes": 342458368,
+      "query_high_water_growth_lower_bound_bytes": 108019712,
+      "payload_samples_sha256": {
+        "0": "9d37d1a1cb4ab6318ff4e6426147691757a51ee6f09a97dc97292e7f76114c46",
+        "250000": "8df5552f38ca84b7bc7d01347da0dbd78bc6e2b24808b6f5e8f70788b55cb032",
+        "499999": "72e7469393818c3feac2e03b3131d92a0b337390799afa2e1a589a2816f44b02"
+      }
+    }
+  },
+  {
+    "path": "/private/tmp/lance-csr-submissions/fused-cursor-hub-prepared-r1/results/hub-500000-11-r3/result.json",
+    "sha256": "70280f09ac30e6a5f22ff96039bc65e3e8fb133d60d74d97d837752c39fe7f77",
+    "result": {
+      "cell": {
+        "label": "hub-500000-11-r3",
+        "kind": "hub",
+        "cohort": "11",
+        "repeat": 3,
+        "rows": 500000
+      },
+      "source_commit": "d7ad39819d04acf44907213ba7532df5e93d8869",
+      "wheel_sha256": "558bc1e7ddff6f55e5ac6d861929d36b6ec2c8b01bc86300141236c28ec5c55c",
+      "extension_sha256": "3303d94cb16ae77f4f827fdaf5547626e48d0100a227e4198a4846c76e29be1d",
+      "python": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+      "lance": "13.0.0",
+      "pyarrow": "26.0.0",
+      "status": "passed",
+      "output_rows": 500000,
+      "checksum": 124999750000,
+      "batches": 62,
+      "maximum_batch_rows": 8192,
+      "query_first_batch_seconds": 0.007327124942094088,
+      "query_seconds_including_validation": 0.16146754194051027,
+      "pre_query": {
+        "rss_bytes": 234455040,
+        "peak_rss_bytes": 234455040
+      },
+      "post_query_rss_bytes": 342409216,
+      "process_peak_rss_bytes": 342392832,
+      "query_high_water_growth_lower_bound_bytes": 107937792,
+      "payload_samples_sha256": {
+        "0": "9d37d1a1cb4ab6318ff4e6426147691757a51ee6f09a97dc97292e7f76114c46",
+        "250000": "8df5552f38ca84b7bc7d01347da0dbd78bc6e2b24808b6f5e8f70788b55cb032",
+        "499999": "72e7469393818c3feac2e03b3131d92a0b337390799afa2e1a589a2816f44b02"
+      }
+    }
+  },
+  {
+    "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/hub-1000000-main-r1/result.json",
+    "sha256": "6f015942ffde65276f066951372b049a21a1e0e41aea42807730629b4e591563",
+    "result": {
+      "cell": {
+        "label": "hub-1000000-main-r1",
+        "kind": "hub",
+        "cohort": "main",
+        "repeat": 1,
+        "rows": 1000000
+      },
+      "source_commit": "54e02307a48e467a98d9da2183f5adcb767e7c99",
+      "wheel_sha256": "611cb5fdda5c77d604c4a86cae0477ebe1bfd39228e1c35d3c15049b5512bcd6",
+      "extension_sha256": "ab0e52b65b26b5b568487f7ca859e43b5e12760dabda093281b7868eb9fa033a",
+      "python": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+      "lance": "13.0.0",
+      "pyarrow": "26.0.0",
+      "status": "passed",
+      "output_rows": 1000000,
+      "checksum": 499999500000,
+      "batches": 123,
+      "maximum_batch_rows": 8192,
+      "query_first_batch_seconds": 1.0923837502487004,
+      "query_seconds_including_validation": 1.121356917079538,
+      "pre_query": {
+        "rss_bytes": 314834944,
+        "peak_rss_bytes": 314834944
+      },
+      "post_query_rss_bytes": 2398289920,
+      "process_peak_rss_bytes": 4492443648,
+      "query_high_water_growth_lower_bound_bytes": 4177608704,
+      "payload_samples_sha256": {
+        "0": "9d37d1a1cb4ab6318ff4e6426147691757a51ee6f09a97dc97292e7f76114c46",
+        "500000": "675fb5bf8ed1fc3d078c2c81c7fe3f840be2aa76b4a0ef841cc7f1cc1e717c9e",
+        "999999": "150c2c0dc05babeca385e8aa8179cd2086916e02fafdb2b87788b723b9cea854"
+      }
+    }
+  },
+  {
+    "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/hub-1000000-main-r2/result.json",
+    "sha256": "c6112cbdd0b385c12ec09bb2594a208ce108e5ca075f43f277e94ea24bed7fc0",
+    "result": {
+      "cell": {
+        "label": "hub-1000000-main-r2",
+        "kind": "hub",
+        "cohort": "main",
+        "repeat": 2,
+        "rows": 1000000
+      },
+      "source_commit": "54e02307a48e467a98d9da2183f5adcb767e7c99",
+      "wheel_sha256": "611cb5fdda5c77d604c4a86cae0477ebe1bfd39228e1c35d3c15049b5512bcd6",
+      "extension_sha256": "ab0e52b65b26b5b568487f7ca859e43b5e12760dabda093281b7868eb9fa033a",
+      "python": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+      "lance": "13.0.0",
+      "pyarrow": "26.0.0",
+      "status": "passed",
+      "output_rows": 1000000,
+      "checksum": 499999500000,
+      "batches": 123,
+      "maximum_batch_rows": 8192,
+      "query_first_batch_seconds": 0.5472660828381777,
+      "query_seconds_including_validation": 0.5797273330390453,
+      "pre_query": {
+        "rss_bytes": 312672256,
+        "peak_rss_bytes": 312672256
+      },
+      "post_query_rss_bytes": 2397913088,
+      "process_peak_rss_bytes": 4492050432,
+      "query_high_water_growth_lower_bound_bytes": 4179378176,
+      "payload_samples_sha256": {
+        "0": "9d37d1a1cb4ab6318ff4e6426147691757a51ee6f09a97dc97292e7f76114c46",
+        "500000": "675fb5bf8ed1fc3d078c2c81c7fe3f840be2aa76b4a0ef841cc7f1cc1e717c9e",
+        "999999": "150c2c0dc05babeca385e8aa8179cd2086916e02fafdb2b87788b723b9cea854"
+      }
+    }
+  },
+  {
+    "path": "/private/tmp/lance-csr-submissions/focused-csr-prepared-r1/results/hub-1000000-main-r3/result.json",
+    "sha256": "b36f25d74ae136a256a5bd7b045eb96adb409cbff35c5c57a1f4a4579b09162c",
+    "result": {
+      "cell": {
+        "label": "hub-1000000-main-r3",
+        "kind": "hub",
+        "cohort": "main",
+        "repeat": 3,
+        "rows": 1000000
+      },
+      "source_commit": "54e02307a48e467a98d9da2183f5adcb767e7c99",
+      "wheel_sha256": "611cb5fdda5c77d604c4a86cae0477ebe1bfd39228e1c35d3c15049b5512bcd6",
+      "extension_sha256": "ab0e52b65b26b5b568487f7ca859e43b5e12760dabda093281b7868eb9fa033a",
+      "python": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+      "lance": "13.0.0",
+      "pyarrow": "26.0.0",
+      "status": "passed",
+      "output_rows": 1000000,
+      "checksum": 499999500000,
+      "batches": 123,
+      "maximum_batch_rows": 8192,
+      "query_first_batch_seconds": 0.5259074592031538,
+      "query_seconds_including_validation": 0.5589364590123296,
+      "pre_query": {
+        "rss_bytes": 312852480,
+        "peak_rss_bytes": 312852480
+      },
+      "post_query_rss_bytes": 2398420992,
+      "process_peak_rss_bytes": 4492574720,
+      "query_high_water_growth_lower_bound_bytes": 4179722240,
+      "payload_samples_sha256": {
+        "0": "9d37d1a1cb4ab6318ff4e6426147691757a51ee6f09a97dc97292e7f76114c46",
+        "500000": "675fb5bf8ed1fc3d078c2c81c7fe3f840be2aa76b4a0ef841cc7f1cc1e717c9e",
+        "999999": "150c2c0dc05babeca385e8aa8179cd2086916e02fafdb2b87788b723b9cea854"
+      }
+    }
+  },
+  {
+    "path": "/private/tmp/lance-csr-submissions/fused-cursor-hub-prepared-r1/results/hub-1000000-11-r1/result.json",
+    "sha256": "f3118b42026f0d2cf6f6dca17f18c3d31fddff2aa6ecbfe181b9501165e69961",
+    "result": {
+      "cell": {
+        "label": "hub-1000000-11-r1",
+        "kind": "hub",
+        "cohort": "11",
+        "repeat": 1,
+        "rows": 1000000
+      },
+      "source_commit": "d7ad39819d04acf44907213ba7532df5e93d8869",
+      "wheel_sha256": "558bc1e7ddff6f55e5ac6d861929d36b6ec2c8b01bc86300141236c28ec5c55c",
+      "extension_sha256": "3303d94cb16ae77f4f827fdaf5547626e48d0100a227e4198a4846c76e29be1d",
+      "python": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+      "lance": "13.0.0",
+      "pyarrow": "26.0.0",
+      "status": "passed",
+      "output_rows": 1000000,
+      "checksum": 499999500000,
+      "batches": 123,
+      "maximum_batch_rows": 8192,
+      "query_first_batch_seconds": 0.0119827501475811,
+      "query_seconds_including_validation": 0.8544624582864344,
+      "pre_query": {
+        "rss_bytes": 318521344,
+        "peak_rss_bytes": 318521344
+      },
+      "post_query_rss_bytes": 389496832,
+      "process_peak_rss_bytes": 389480448,
+      "query_high_water_growth_lower_bound_bytes": 70959104,
+      "payload_samples_sha256": {
+        "0": "9d37d1a1cb4ab6318ff4e6426147691757a51ee6f09a97dc97292e7f76114c46",
+        "500000": "675fb5bf8ed1fc3d078c2c81c7fe3f840be2aa76b4a0ef841cc7f1cc1e717c9e",
+        "999999": "150c2c0dc05babeca385e8aa8179cd2086916e02fafdb2b87788b723b9cea854"
+      }
+    }
+  },
+  {
+    "path": "/private/tmp/lance-csr-submissions/fused-cursor-hub-prepared-r1/results/hub-1000000-11-r2/result.json",
+    "sha256": "cae5afa3214f426b72ac14198e1c3d1ca51ce514e7d0240c682dcc56a17bc094",
+    "result": {
+      "cell": {
+        "label": "hub-1000000-11-r2",
+        "kind": "hub",
+        "cohort": "11",
+        "repeat": 2,
+        "rows": 1000000
+      },
+      "source_commit": "d7ad39819d04acf44907213ba7532df5e93d8869",
+      "wheel_sha256": "558bc1e7ddff6f55e5ac6d861929d36b6ec2c8b01bc86300141236c28ec5c55c",
+      "extension_sha256": "3303d94cb16ae77f4f827fdaf5547626e48d0100a227e4198a4846c76e29be1d",
+      "python": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+      "lance": "13.0.0",
+      "pyarrow": "26.0.0",
+      "status": "passed",
+      "output_rows": 1000000,
+      "checksum": 499999500000,
+      "batches": 123,
+      "maximum_batch_rows": 8192,
+      "query_first_batch_seconds": 0.00829170923680067,
+      "query_seconds_including_validation": 0.32283966708928347,
+      "pre_query": {
+        "rss_bytes": 313229312,
+        "peak_rss_bytes": 313229312
+      },
+      "post_query_rss_bytes": 384335872,
+      "process_peak_rss_bytes": 384319488,
+      "query_high_water_growth_lower_bound_bytes": 71090176,
+      "payload_samples_sha256": {
+        "0": "9d37d1a1cb4ab6318ff4e6426147691757a51ee6f09a97dc97292e7f76114c46",
+        "500000": "675fb5bf8ed1fc3d078c2c81c7fe3f840be2aa76b4a0ef841cc7f1cc1e717c9e",
+        "999999": "150c2c0dc05babeca385e8aa8179cd2086916e02fafdb2b87788b723b9cea854"
+      }
+    }
+  },
+  {
+    "path": "/private/tmp/lance-csr-submissions/fused-cursor-hub-prepared-r1/results/hub-1000000-11-r3/result.json",
+    "sha256": "24a4145456c7f3c560312bbb80474533b0126f413a3386a31fa981c466fc9d87",
+    "result": {
+      "cell": {
+        "label": "hub-1000000-11-r3",
+        "kind": "hub",
+        "cohort": "11",
+        "repeat": 3,
+        "rows": 1000000
+      },
+      "source_commit": "d7ad39819d04acf44907213ba7532df5e93d8869",
+      "wheel_sha256": "558bc1e7ddff6f55e5ac6d861929d36b6ec2c8b01bc86300141236c28ec5c55c",
+      "extension_sha256": "3303d94cb16ae77f4f827fdaf5547626e48d0100a227e4198a4846c76e29be1d",
+      "python": "3.13.17 (main, Oct 21 2026, 17:49:18) [Clang 23.1.3 ]",
+      "lance": "13.0.0",
+      "pyarrow": "26.0.0",
+      "status": "passed",
+      "output_rows": 1000000,
+      "checksum": 499999500000,
+      "batches": 123,
+      "maximum_batch_rows": 8192,
+      "query_first_batch_seconds": 0.008059083018451929,
+      "query_seconds_including_validation": 0.3292755000293255,
+      "pre_query": {
+        "rss_bytes": 312000512,
+        "peak_rss_bytes": 312000512
+      },
+      "post_query_rss_bytes": 382992384,
+      "process_peak_rss_bytes": 382976000,
+      "query_high_water_growth_lower_bound_bytes": 70975488,
+      "payload_samples_sha256": {
+        "0": "9d37d1a1cb4ab6318ff4e6426147691757a51ee6f09a97dc97292e7f76114c46",
+        "500000": "675fb5bf8ed1fc3d078c2c81c7fe3f840be2aa76b4a0ef841cc7f1cc1e717c9e",
+        "999999": "150c2c0dc05babeca385e8aa8179cd2086916e02fafdb2b87788b723b9cea854"
+      }
+    }
+  }
+]

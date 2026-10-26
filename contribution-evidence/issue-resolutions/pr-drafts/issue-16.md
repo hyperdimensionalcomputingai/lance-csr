@@ -1,6 +1,6 @@
 # perf(csr): reuse filter columns during target materialization
 
-Resolves #16's duplicate property reads within a CSR output batch. Target columns already read for a pushed-down predicate are filtered once and reused when the projection also needs them. Only the remaining properties are fetched for surviving rows. Target IDs are reconstructed from neighbour values even when a predicate reads the ID.
+Addresses duplicate property reads within a CSR output batch in #16. Target columns already read for a pushed-down predicate are filtered once and reused when the projection also needs them. Only the remaining properties are fetched for surviving rows. Target IDs are reconstructed from neighbour values even when a predicate reads the ID.
 
 Existing projection pruning and Lance's row sorting/deduplication remain responsible for their current work. This adds no persistent property cache, dependency, Python API or configuration. Reuse ends with the output batch and retains the query's immutable snapshot. The guide describes that scope, and the existing CSR benchmark gains a filter-plus-projection case.
 

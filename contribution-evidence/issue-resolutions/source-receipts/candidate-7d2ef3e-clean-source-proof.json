@@ -1,0 +1,68 @@
+{
+  "source_commit": "7d2ef3e11b3858cc4571db315df4e848a37bdb82",
+  "source_worktree": "/private/tmp/lance-csr-resolution-corrections",
+  "tracked_source_clean": true,
+  "rust_passed": 650,
+  "rust_ignored": 10,
+  "rust_targets": 16,
+  "python_passed": 1241,
+  "binding_rust_passed": 17,
+  "documentation_blocks": 46,
+  "checks": {
+    "format": {
+      "path": "/private/tmp/lance-csr-runtime/candidate-final-source-r1-format.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "status": "passed"
+    },
+    "workspace": {
+      "path": "/private/tmp/lance-csr-runtime/candidate-final-source-r1-workspace.log",
+      "sha256": "6fbbc5ea86cfe994ea96b5a9317d3b346657f3ba8ff0721883254606b4785cfc",
+      "status": "passed"
+    },
+    "clippy": {
+      "path": "/private/tmp/lance-csr-runtime/candidate-final-source-r1-clippy.log",
+      "sha256": "3f82b1911f9e9dbfcc38daded229064ebd509646aa191855e2668c1c636180ed",
+      "status": "passed"
+    },
+    "install": {
+      "path": "/private/tmp/lance-csr-runtime/candidate-final-source-r1-install.log",
+      "sha256": "c61f666b31ce742982b352559f1d552dec596e9f68ea2d35fe9cd688e40759d6",
+      "status": "passed"
+    },
+    "python": {
+      "path": "/private/tmp/lance-csr-runtime/candidate-final-source-r1-python.log",
+      "sha256": "a080e70155c08fbb28a40694b41b1ae3b0fa1d4386353f5f93dbeb213c32a05b",
+      "status": "passed"
+    },
+    "lint": {
+      "path": "/private/tmp/lance-csr-runtime/candidate-final-source-r1-lint.log",
+      "sha256": "64e950404aea97efc487116db07d592feaabda8d8de6b6d23ed52617deeddcb3",
+      "status": "passed"
+    },
+    "binding-clippy": {
+      "path": "/private/tmp/lance-csr-runtime/candidate-final-source-r1-binding-clippy.log",
+      "sha256": "fab5cb80eae13ec11b5a5a2bf2062f2e2ff4322727881c53b78f753c54b1dc65",
+      "status": "passed"
+    },
+    "binding-tests": {
+      "path": "/private/tmp/lance-csr-runtime/candidate-final-source-r1-binding-tests.log",
+      "sha256": "1b36bfb7636a101ede224f27b7436a22878c24c44cf0e8c521863b9e4d741edf",
+      "status": "passed"
+    },
+    "snippets": {
+      "path": "/private/tmp/lance-csr-runtime/candidate-final-source-r1-snippets.log",
+      "sha256": "3c9b045245640747bf91ce0655f56dc8e60206552d14df7416530d830fd2f6c1",
+      "status": "passed"
+    },
+    "docs": {
+      "path": "/private/tmp/lance-csr-runtime/candidate-final-source-r1-docs.log",
+      "sha256": "70bdef05dad40e6f0bc760c7c25b8720c924219da75357f4f823d0c185b641c6",
+      "status": "passed"
+    },
+    "typos": {
+      "path": "/private/tmp/lance-csr-runtime/candidate-final-source-r1-typos.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "status": "passed"
+    }
+  }
+}

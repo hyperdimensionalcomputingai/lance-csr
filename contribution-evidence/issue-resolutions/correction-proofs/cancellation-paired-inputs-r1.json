@@ -1,0 +1,35 @@
+{
+  "cases": [
+    {
+      "label": "empty-work",
+      "before_production_commit": "cd7020ef8ac723651c52f77e8ff6f5390c627f54",
+      "after_commit": "b84e62866aa94effa07bb0742a4b26c3dc83c9d5",
+      "regression_patch_sha256": "a6bc46f417df03c1d0cdb511e29a908f76a09d00d8b657e6c1eb9b77f283f76c",
+      "unchanged_test_function_sha256": {
+        "cancellation_without_edges_yields_while_skipping_source_rows": "bdb55805f86d9cc2c009dbe5f5a72258267606e3dc60eb4710bcb8d7a0cc257d",
+        "cancellation_without_edges_yields_while_scanning_frontier": "68f686df918ede7586c6d39e15833e8a9463f07081b52da34170e6307a245bf0"
+      },
+      "before_log": "/private/tmp/lance-csr-runtime/cancellation-empty-work-before-r1.log",
+      "before_log_sha256": "45a6ea9a811e17833ef7c80c313a4cc4acba91f97fe3091c51ca86e46431a8ed",
+      "expected_before_failures": 2,
+      "after_log": "/private/tmp/lance-csr-runtime/issue-19-empty-work-source-r1-workspace.log",
+      "after_log_sha256": "c1709e43cee1f1b2ad78e0eceb97c0e90fb9ffc112a0e223f7a33e080a8367a8"
+    },
+    {
+      "label": "iterative",
+      "before_production_commit": "1bf6d42141b9cc6ee1824d000f49cdc0ebd9d8fe",
+      "after_commit": "c6bc5c150a2e198e2346e1870509db0f4ce69887",
+      "regression_patch_sha256": "f9ffa32c88c7ce3130499a998562eda634fb3c157492b1b398191b57009ecc62",
+      "unchanged_test_function_sha256": {
+        "cancellation_without_edges_in_variable_paths_yields_between_source_rows": "f716c58a14650de1ef2a04e16207f45bd68fa47e35072ea305d9c0de0c53bde1",
+        "cancellation_visits_raw_tombstones_before_returning_the_live_path": "bb5cd47041540a899a16d906bb932fd11cf25bac74b4f74f3dcf24f0d3671fef"
+      },
+      "before_log": "/private/tmp/lance-csr-runtime/issue-13-cancellation-before-r1.log",
+      "before_log_sha256": "fd89d20769417883b0a2c3772e7304e06a3424f53a46582e7b3df75ee2093f39",
+      "expected_before_failures": 2,
+      "after_log": "/private/tmp/lance-csr-runtime/issue-13-cancellation-source-r1-workspace.log",
+      "after_log_sha256": "50a6dce2d65949f9fad9becce7910d3743d7b8a97ede736af4a1e34502444cea"
+    }
+  ],
+  "scope": "Real Arrow/CSR state; deterministic first-poll work bounds, no timing sleeps or mocks. Frozen test functions are byte-identical before and after."
+}

@@ -1,0 +1,72 @@
+diff --git a/crates/lance-graph/src/csr_expand.rs b/crates/lance-graph/src/csr_expand.rs
+index 920a9e8..dfe2ffc 100644
+--- a/crates/lance-graph/src/csr_expand.rs
++++ b/crates/lance-graph/src/csr_expand.rs
+@@ -1961,6 +1961,32 @@ mod tests {
+         assert!(expansion.next_chunk(&adj, None, 1).await.rows.is_empty());
+     }
+ 
++    #[tokio::test]
++    async fn cancellation_without_edges_yields_while_skipping_source_rows() {
++        let adjacency = Neighbors::directed(Arc::new(
++            Adjacency::build(edge_stream(vec![Some(1)], vec![Some(2)]), "src", "dst")
++                .await
++                .unwrap(),
++        ));
++        for missing in [Some(99), None] {
++            let input = RecordBatch::try_from_iter([(
++                "id",
++                Arc::new(Int64Array::from(vec![missing; 100_000])) as ArrayRef,
++            )])
++            .unwrap();
++            let mut expansion = BatchExpansion::try_new(input, 0, None).unwrap();
++            let mut next = Box::pin(expansion.next_chunk(&adjacency, None, 1));
++            assert!(futures::poll!(next.as_mut()).is_pending());
++            drop(next);
++            assert!(expansion.row > 0 && expansion.row <= 1024);
++            assert!(expansion
++                .next_chunk(&adjacency, None, 1)
++                .await
++                .rows
++                .is_empty());
++        }
++    }
++
+     #[tokio::test]
+     async fn expansion_yields_before_scanning_all_rejected_neighbors() {
+         let adj = Neighbors::directed(Arc::new(
+diff --git a/crates/lance-graph/src/shortest_path.rs b/crates/lance-graph/src/shortest_path.rs
+index 133888c..d9e9a6c 100644
+--- a/crates/lance-graph/src/shortest_path.rs
++++ b/crates/lance-graph/src/shortest_path.rs
+@@ -699,6 +699,30 @@ mod tests {
+         assert!(!depth.contains_key(&4));
+     }
+ 
++    #[tokio::test]
++    async fn cancellation_without_edges_yields_while_scanning_frontier() {
++        let (out, _) = adjacencies(&[]).await;
++        let adjacency = Neighbors::directed(out);
++        let frontier = vec![99; 100_000];
++        let mut depth = FastMap::default();
++        let mut parents = FastMap::default();
++        let mut next = Box::pin(expand_level(
++            &adjacency,
++            &frontier,
++            1,
++            &mut depth,
++            &mut parents,
++        ));
++        assert!(futures::poll!(next.as_mut()).is_pending());
++        drop(next);
++        assert!(depth.is_empty() && parents.is_empty());
++        assert!(
++            expand_level(&adjacency, &frontier, 1, &mut depth, &mut parents)
++                .await
++                .is_empty()
++        );
++    }
++
+     #[tokio::test]
+     async fn bidirectional_keeps_every_meeting_node_and_parallel_edge() {
+         // A wide first layer makes the target's side expand. Two meeting nodes,

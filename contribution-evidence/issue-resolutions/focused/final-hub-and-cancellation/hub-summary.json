@@ -1,0 +1,47 @@
+{
+  "measurements": [
+    {
+      "rows": 100000,
+      "cohort": "main",
+      "source": "54e02307a48e467a98d9da2183f5adcb767e7c99",
+      "median_first_batch_ms": 52.24645882844925,
+      "median_sampled_growth_decimal_mb": 485.86752
+    },
+    {
+      "rows": 100000,
+      "cohort": "issue-11-final",
+      "source": "d7ad39819d04acf44907213ba7532df5e93d8869",
+      "median_first_batch_ms": 7.38154212012887,
+      "median_sampled_growth_decimal_mb": 114.884608
+    },
+    {
+      "rows": 500000,
+      "cohort": "main",
+      "source": "54e02307a48e467a98d9da2183f5adcb767e7c99",
+      "median_first_batch_ms": 245.301750022918,
+      "median_sampled_growth_decimal_mb": 2144.485376
+    },
+    {
+      "rows": 500000,
+      "cohort": "issue-11-final",
+      "source": "d7ad39819d04acf44907213ba7532df5e93d8869",
+      "median_first_batch_ms": 7.445000112056732,
+      "median_sampled_growth_decimal_mb": 108.019712
+    },
+    {
+      "rows": 1000000,
+      "cohort": "main",
+      "source": "54e02307a48e467a98d9da2183f5adcb767e7c99",
+      "median_first_batch_ms": 547.2660828381777,
+      "median_sampled_growth_decimal_mb": 4179.378176
+    },
+    {
+      "rows": 1000000,
+      "cohort": "issue-11-final",
+      "source": "d7ad39819d04acf44907213ba7532df5e93d8869",
+      "median_first_batch_ms": 8.29170923680067,
+      "median_sampled_growth_decimal_mb": 70.975488
+    }
+  ],
+  "limits": "Three fresh processes per size and head; sampled RSS growth is a lower bound and excludes resident graph/input. Original matched main evidence is reused unchanged."
+}

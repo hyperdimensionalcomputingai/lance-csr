@@ -1,0 +1,223 @@
+{
+  "repeat_status": "complete",
+  "rule": "Both complete suites/modes first. Every mandatory historical failure and every new primary flag receives two fresh pairs, before/after then reversed; both ratios above1.10 confirm a remaining regression. No optional stopping or baseline replacement.",
+  "first_index_sha256": "2f5e20700e52bd92a57f751dda861b4baa24a8e22b082b583d7a8c7256767dce",
+  "repeat_plan_sha256": "5411894c4ed21d26872443b7fea527902b9e0beeb7ef33c6af8a0e008ed03340",
+  "comparisons": [
+    {
+      "before": "main-cp313",
+      "after": "issue-11-fused-cursor-release",
+      "suite": "q30",
+      "mode": "memory",
+      "speedup": 1.0538657179480022,
+      "flags_above_10_percent": [],
+      "report": "/private/tmp/lance-csr-submissions/fused-owners-comparison-tables-r1/issue-11-fused-cursor-release-vs-main-cp313-q30-memory.json",
+      "primary": true,
+      "first_report_sha256": "480b26348d2cf5ba106639b04a23dc9d4b30677b8438383a370101516082d474",
+      "repeat_group": 1,
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-11-fused-cursor-release",
+      "suite": "q30",
+      "mode": "lazy",
+      "speedup": 1.0038088940655345,
+      "flags_above_10_percent": [
+        25,
+        30
+      ],
+      "report": "/private/tmp/lance-csr-submissions/fused-owners-comparison-tables-r1/issue-11-fused-cursor-release-vs-main-cp313-q30-lazy.json",
+      "primary": true,
+      "first_report_sha256": "2f6c71c05caf14a5db9713f17c30f3bc9f7994d91c6dccc435585ad6041e2c5a",
+      "repeat_group": 2,
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-11-fused-cursor-release",
+      "suite": "ic",
+      "mode": "memory",
+      "speedup": 0.997691614213478,
+      "flags_above_10_percent": [
+        4
+      ],
+      "report": "/private/tmp/lance-csr-submissions/fused-owners-comparison-tables-r1/issue-11-fused-cursor-release-vs-main-cp313-ic-memory.json",
+      "primary": true,
+      "first_report_sha256": "a1996941868eb1d1c7e252f2fc38afa0cefe2bc7f2ff8d463ed393827f593c50",
+      "repeat_group": 3,
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-11-fused-cursor-release",
+      "suite": "ic",
+      "mode": "lazy",
+      "speedup": 1.0030753646861061,
+      "flags_above_10_percent": [
+        9
+      ],
+      "report": "/private/tmp/lance-csr-submissions/fused-owners-comparison-tables-r1/issue-11-fused-cursor-release-vs-main-cp313-ic-lazy.json",
+      "primary": true,
+      "first_report_sha256": "2d5ac1b80f4eda91f0e3c42ad208c0c289d7daf3ea80e44a7c383d59da13994d",
+      "repeat_group": 4,
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-19-local-quanta-release",
+      "suite": "q30",
+      "mode": "memory",
+      "speedup": 0.9824979003379989,
+      "flags_above_10_percent": [
+        11
+      ],
+      "report": "/private/tmp/lance-csr-submissions/fused-owners-comparison-tables-r1/issue-19-local-quanta-release-vs-main-cp313-q30-memory.json",
+      "primary": true,
+      "first_report_sha256": "57267edd1c5bb37e1e2633a1bccd893c2dea07e0f1ad67a7885e012bf30212fc",
+      "repeat_group": 5,
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-19-local-quanta-release",
+      "suite": "q30",
+      "mode": "lazy",
+      "speedup": 0.9554051155397949,
+      "flags_above_10_percent": [
+        2,
+        3,
+        6,
+        16,
+        18,
+        21,
+        24,
+        29,
+        30
+      ],
+      "report": "/private/tmp/lance-csr-submissions/fused-owners-comparison-tables-r1/issue-19-local-quanta-release-vs-main-cp313-q30-lazy.json",
+      "primary": true,
+      "first_report_sha256": "3771b1be16926a3885b47a7f226d5802607b631a7095347d73e1c3a534f8bcd1",
+      "repeat_group": 6,
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-19-local-quanta-release",
+      "suite": "ic",
+      "mode": "memory",
+      "speedup": 1.127665601862075,
+      "flags_above_10_percent": [],
+      "report": "/private/tmp/lance-csr-submissions/fused-owners-comparison-tables-r1/issue-19-local-quanta-release-vs-main-cp313-ic-memory.json",
+      "primary": true,
+      "first_report_sha256": "2eba7e5191c65eba7e5fe9f03e464ff9ee0a17d826964a47b0f7310d9736b96b",
+      "repeat_group": 7,
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "main-cp313",
+      "after": "issue-19-local-quanta-release",
+      "suite": "ic",
+      "mode": "lazy",
+      "speedup": 1.0660769936339753,
+      "flags_above_10_percent": [
+        3,
+        9
+      ],
+      "report": "/private/tmp/lance-csr-submissions/fused-owners-comparison-tables-r1/issue-19-local-quanta-release-vs-main-cp313-ic-lazy.json",
+      "primary": true,
+      "first_report_sha256": "26808a6fc4062afbe01cf4c4e4f7f30bbd1125ea9ac81a89b0ef36ffb7711339",
+      "repeat_group": 8,
+      "repeatable_regressions": [
+        3,
+        9
+      ],
+      "acceptance": "blocked_by_repeatable_regression"
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-local-quanta-release",
+      "suite": "q30",
+      "mode": "memory",
+      "speedup": 0.9983718548169194,
+      "flags_above_10_percent": [
+        17,
+        19,
+        20
+      ],
+      "report": "/private/tmp/lance-csr-submissions/fused-owners-comparison-tables-r1/issue-19-local-quanta-release-vs-issue-19-prerequisites-release-q30-memory.json",
+      "primary": true,
+      "first_report_sha256": "c4960e1f95dab09a0b5768c9d7c8a7b7819fb13e60848e37430a81971573c9d2",
+      "repeat_group": 9,
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-local-quanta-release",
+      "suite": "q30",
+      "mode": "lazy",
+      "speedup": 0.9962958915662009,
+      "flags_above_10_percent": [
+        1,
+        16,
+        24,
+        29
+      ],
+      "report": "/private/tmp/lance-csr-submissions/fused-owners-comparison-tables-r1/issue-19-local-quanta-release-vs-issue-19-prerequisites-release-q30-lazy.json",
+      "primary": true,
+      "first_report_sha256": "ba1d80ca79d3b6dd4d4561284e684149fa5e7e4af3f5ced0456140c26aab7b57",
+      "repeat_group": 10,
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-local-quanta-release",
+      "suite": "ic",
+      "mode": "memory",
+      "speedup": 1.0261451110318054,
+      "flags_above_10_percent": [],
+      "report": "/private/tmp/lance-csr-submissions/fused-owners-comparison-tables-r1/issue-19-local-quanta-release-vs-issue-19-prerequisites-release-ic-memory.json",
+      "primary": true,
+      "first_report_sha256": "bc302dff37f614844412574be7cd28bb75d361f9fafafcaae620fbca9009602a",
+      "repeat_group": 11,
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "issue-19-prerequisites-release",
+      "after": "issue-19-local-quanta-release",
+      "suite": "ic",
+      "mode": "lazy",
+      "speedup": 0.9343330753839088,
+      "flags_above_10_percent": [
+        3,
+        4,
+        8,
+        9
+      ],
+      "report": "/private/tmp/lance-csr-submissions/fused-owners-comparison-tables-r1/issue-19-local-quanta-release-vs-issue-19-prerequisites-release-ic-lazy.json",
+      "primary": true,
+      "first_report_sha256": "240e18f133056b139569740e3aca4442b73d847c56ef2292e9776892966ab4a5",
+      "repeat_group": 12,
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    }
+  ],
+  "completed_repeat_groups": 12,
+  "total_repeat_groups": 12,
+  "repeat_golden_checks": 156,
+  "limits": [
+    "First-pass suite geometric means are retained unchanged.",
+    "Only first-pass flags receive paired repeats; missing or failed repeats cannot pass.",
+    "Comparisons of prerequisite-only cohorts are contextual, not independently submitted changes."
+  ]
+}

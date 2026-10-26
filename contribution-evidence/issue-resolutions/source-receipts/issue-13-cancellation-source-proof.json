@@ -1,0 +1,68 @@
+{
+  "source_commit": "c6bc5c150a2e198e2346e1870509db0f4ce69887",
+  "source_worktree": "/private/tmp/lance-csr-issue-13",
+  "tracked_source_clean": true,
+  "rust_passed": 593,
+  "rust_ignored": 9,
+  "rust_targets": 16,
+  "python_passed": 347,
+  "binding_rust_passed": 11,
+  "documentation_blocks": 36,
+  "checks": {
+    "format": {
+      "path": "/private/tmp/lance-csr-runtime/issue-13-cancellation-source-r1-format.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "status": "passed"
+    },
+    "workspace": {
+      "path": "/private/tmp/lance-csr-runtime/issue-13-cancellation-source-r1-workspace.log",
+      "sha256": "50a6dce2d65949f9fad9becce7910d3743d7b8a97ede736af4a1e34502444cea",
+      "status": "passed"
+    },
+    "clippy": {
+      "path": "/private/tmp/lance-csr-runtime/issue-13-cancellation-source-r1-clippy.log",
+      "sha256": "71b34eae0c2b3160980919f728712713b497b5929478a036db8683596d8bb0b4",
+      "status": "passed"
+    },
+    "install": {
+      "path": "/private/tmp/lance-csr-runtime/issue-13-cancellation-source-r1-install.log",
+      "sha256": "2fd789d99839217a8b4699d1cbfd1839b8a8bf934a7561c2733c325bd64c0991",
+      "status": "passed"
+    },
+    "python": {
+      "path": "/private/tmp/lance-csr-runtime/issue-13-cancellation-source-r1-python.log",
+      "sha256": "4f5e7fdf2be8ba77b7e56cd35f6a7f849571bb3ae9737c38e00497984d33a517",
+      "status": "passed"
+    },
+    "lint": {
+      "path": "/private/tmp/lance-csr-runtime/issue-13-cancellation-source-r1-lint.log",
+      "sha256": "733d6f28cfff689a98df5ccb97e3a057228a37b34c82a9b0366f3ff5e54ef87c",
+      "status": "passed"
+    },
+    "binding-clippy": {
+      "path": "/private/tmp/lance-csr-runtime/issue-13-cancellation-source-r1-binding-clippy.log",
+      "sha256": "27caedefa47733bbb8b51824deb3a369f821ad1717e2e76022cb79cf2d89980d",
+      "status": "passed"
+    },
+    "binding-tests": {
+      "path": "/private/tmp/lance-csr-runtime/issue-13-cancellation-source-r1-binding-tests.log",
+      "sha256": "b46adba353975c36a172e82e02a3dcdaf3945acdc6f0e381ac13a404a36a4dcb",
+      "status": "passed"
+    },
+    "snippets": {
+      "path": "/private/tmp/lance-csr-runtime/issue-13-cancellation-source-r1-snippets.log",
+      "sha256": "b702fdc32f34a3a5e8d86bbfaa1bb19cefc0f19614f766d604438e6e42c28497",
+      "status": "passed"
+    },
+    "docs": {
+      "path": "/private/tmp/lance-csr-runtime/issue-13-cancellation-source-r1-docs.log",
+      "sha256": "8ab29cef0a659122334011a65b1c7a1f6bb1ef4b0ea3b78ab35add605aeeaf1d",
+      "status": "passed"
+    },
+    "typos": {
+      "path": "/private/tmp/lance-csr-runtime/issue-13-cancellation-source-r1-typos.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "status": "passed"
+    }
+  }
+}
