@@ -56,9 +56,27 @@ pub struct CypherQuery {
     pub order_by: Option<OrderByClause>,
     /// SKIP/OFFSET clause (optional)
     pub skip: Option<RowCount>,
+    /// Following UNION branches, evaluated in order with independent variable scopes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub union_branches: Vec<UnionBranch>,
+}
+
+/// One right-hand query of UNION (distinct) or UNION ALL (bag concatenation).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UnionBranch {
+    pub all: bool,
+    pub query: CypherQuery,
 }
 
 impl CypherQuery {
+    /// Visit each independently scoped query without cloning its AST.
+    pub(crate) fn for_each_query(&self, visit: &mut dyn FnMut(&Self)) {
+        visit(self);
+        for branch in &self.union_branches {
+            branch.query.for_each_query(visit);
+        }
+    }
+
     /// Extract all node labels referenced in the query
     pub fn get_node_labels(&self) -> Vec<String> {
         let mut labels = Vec::new();
@@ -92,6 +110,13 @@ impl CypherQuery {
                 }
             }
         }
+        for branch in &self.union_branches {
+            for label in branch.query.get_node_labels() {
+                if !labels.contains(&label) {
+                    labels.push(label);
+                }
+            }
+        }
         labels
     }
 
@@ -102,6 +127,13 @@ impl CypherQuery {
             if let ReadingClause::Match(match_clause) = clause {
                 for pattern in &match_clause.patterns {
                     self.collect_relationship_types_from_pattern(pattern, &mut types);
+                }
+            }
+        }
+        for branch in &self.union_branches {
+            for rel_type in branch.query.get_relationship_types() {
+                if !types.contains(&rel_type) {
+                    types.push(rel_type);
                 }
             }
         }

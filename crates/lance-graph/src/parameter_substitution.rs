@@ -7,6 +7,9 @@ pub fn substitute_parameters(
     query: &mut CypherQuery,
     parameters: &HashMap<String, serde_json::Value>,
 ) -> Result<()> {
+    for branch in &mut query.union_branches {
+        substitute_parameters(&mut branch.query, parameters)?;
+    }
     substitute_row_count(&mut query.skip, parameters)?;
     substitute_row_count(&mut query.limit, parameters)?;
 

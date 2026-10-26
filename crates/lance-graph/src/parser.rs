@@ -36,6 +36,11 @@ pub fn parse_cypher_query(input: &str) -> Result<CypherQuery> {
     }
 
     let mut query = query;
+    normalize_inline_properties(&mut query);
+    Ok(query)
+}
+
+fn normalize_inline_properties(query: &mut CypherQuery) {
     let stages = query
         .further_with_stages
         .iter_mut()
@@ -51,7 +56,9 @@ pub fn parse_cypher_query(input: &str) -> Result<CypherQuery> {
             move_variable_properties_to_where(m, &mut anonymous);
         }
     }
-    Ok(query)
+    for branch in &mut query.union_branches {
+        normalize_inline_properties(&mut branch.query);
+    }
 }
 
 /// Inline node properties whose value is a variable or property from an earlier clause
@@ -106,6 +113,24 @@ fn move_variable_properties_to_where(clause: &mut MatchClause, anonymous: &mut u
 
 // Top-level parser for a complete Cypher query
 fn cypher_query(input: &str) -> IResult<&str, CypherQuery> {
+    let (input, mut query) = single_query(input)?;
+    let (input, branches) = many0(pair(union_header, single_query))(input)?;
+    query.union_branches = branches
+        .into_iter()
+        .map(|(all, query)| UnionBranch { all, query })
+        .collect();
+    Ok((input, query))
+}
+
+fn union_header(input: &str) -> IResult<&str, bool> {
+    let (input, _) = multispace0(input)?;
+    let (input, _) = tag_no_case("UNION")(input)?;
+    let (input, _) = multispace1(input)?;
+    let (input, all) = opt(terminated(tag_no_case("ALL"), multispace1))(input)?;
+    Ok((input, all.is_some()))
+}
+
+fn single_query(input: &str) -> IResult<&str, CypherQuery> {
     let (input, _) = multispace0(input)?;
     let (input, reading_clauses) = many0(reading_clause)(input)?;
     let (input, pre_with_where) = opt(where_clause)(input)?;
@@ -140,6 +165,7 @@ fn cypher_query(input: &str) -> IResult<&str, CypherQuery> {
             post_with_reading_clauses,
             post_with_where_clause: post_with_where,
             further_with_stages,
+            union_branches: Vec::new(),
             return_clause,
             limit,
             order_by,
@@ -2293,6 +2319,18 @@ mod tests {
             }
             _ => panic!("Expected AND expression"),
         }
+    }
+
+    #[test]
+    fn unions_preserve_modes_and_quoted_keywords() {
+        let query = parse_cypher_query(
+            "RETURN 'UNION' AS n UNION ALL RETURN 'ALL' AS n UNION RETURN 'UNION ALL' AS n",
+        )
+        .unwrap();
+        assert_eq!(query.union_branches.len(), 2);
+        assert!(query.union_branches[0].all);
+        assert!(!query.union_branches[1].all);
+        assert!(parse_cypher_query("RETURN 1 AS n UNION ALL").is_err());
     }
 
     #[test]

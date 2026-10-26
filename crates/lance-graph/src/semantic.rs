@@ -192,6 +192,19 @@ impl SemanticAnalyzer {
         // Phase 8: Type checking
         self.validate_types(&mut errors);
 
+        for branch in &mut analyzed_query.union_branches {
+            let mut analyzer = SemanticAnalyzer::new(self.config.clone());
+            let analyzed = analyzer.analyze(&branch.query, parameters)?;
+            branch.query = analyzed.ast;
+            errors.extend(
+                analyzed
+                    .errors
+                    .into_iter()
+                    .map(|e| format!("UNION branch: {e}")),
+            );
+            warnings.extend(analyzed.warnings);
+        }
+
         Ok(SemanticResult {
             ast: analyzed_query,
             variables: self.variables.clone(),
@@ -993,6 +1006,18 @@ mod tests {
             .unwrap()
     }
 
+    #[test]
+    fn union_branches_do_not_inherit_variables() {
+        let query = crate::parser::parse_cypher_query(
+            "MATCH (p:Person) RETURN p.id AS id UNION RETURN p.id AS id",
+        )
+        .unwrap();
+        let result = SemanticAnalyzer::new(test_config())
+            .analyze(&query, &HashMap::new())
+            .unwrap();
+        assert!(result.errors.iter().any(|e| e.contains("UNION branch")));
+    }
+
     // Helper: analyze a query that only has a single RETURN expression
     fn analyze_return_expr(expr: ValueExpression) -> Result<SemanticResult> {
         let query = CypherQuery {
@@ -1002,6 +1027,7 @@ mod tests {
             post_with_reading_clauses: vec![],
             post_with_where_clause: None,
             further_with_stages: vec![],
+            union_branches: Vec::new(),
             return_clause: ReturnClause {
                 distinct: false,
                 items: vec![ReturnItem {
@@ -1035,6 +1061,7 @@ mod tests {
             post_with_reading_clauses: vec![],
             post_with_where_clause: None,
             further_with_stages: vec![],
+            union_branches: Vec::new(),
             return_clause: ReturnClause {
                 distinct: false,
                 items: vec![ReturnItem {
@@ -1071,6 +1098,7 @@ mod tests {
             post_with_reading_clauses: vec![],
             post_with_where_clause: None,
             further_with_stages: vec![],
+            union_branches: Vec::new(),
             return_clause: ReturnClause {
                 distinct: false,
                 items: vec![],
@@ -1124,6 +1152,7 @@ mod tests {
             post_with_reading_clauses: vec![],
             post_with_where_clause: None,
             further_with_stages: vec![],
+            union_branches: Vec::new(),
             return_clause: ReturnClause {
                 distinct: false,
                 items: vec![],
@@ -1159,6 +1188,7 @@ mod tests {
             post_with_reading_clauses: vec![],
             post_with_where_clause: None,
             further_with_stages: vec![],
+            union_branches: Vec::new(),
             return_clause: ReturnClause {
                 distinct: false,
                 items: vec![],
@@ -1205,6 +1235,7 @@ mod tests {
             post_with_reading_clauses: vec![],
             post_with_where_clause: None,
             further_with_stages: vec![],
+            union_branches: Vec::new(),
             return_clause: ReturnClause {
                 distinct: false,
                 items: vec![],
@@ -1235,6 +1266,7 @@ mod tests {
             post_with_reading_clauses: vec![],
             post_with_where_clause: None,
             further_with_stages: vec![],
+            union_branches: Vec::new(),
             where_clause: None,
             with_clause: None,
             return_clause: ReturnClause {
@@ -1278,6 +1310,7 @@ mod tests {
             post_with_reading_clauses: vec![],
             post_with_where_clause: None,
             further_with_stages: vec![],
+            union_branches: Vec::new(),
             where_clause: None,
             with_clause: None,
             return_clause: ReturnClause {
@@ -1327,6 +1360,7 @@ mod tests {
             post_with_reading_clauses: vec![],
             post_with_where_clause: None,
             further_with_stages: vec![],
+            union_branches: Vec::new(),
             where_clause: None,
             with_clause: None,
             return_clause: ReturnClause {
@@ -1398,6 +1432,7 @@ mod tests {
             post_with_reading_clauses: vec![],
             post_with_where_clause: None,
             further_with_stages: vec![],
+            union_branches: Vec::new(),
             where_clause: None,
             with_clause: None,
             return_clause: ReturnClause {
@@ -1442,6 +1477,7 @@ mod tests {
             post_with_reading_clauses: vec![],
             post_with_where_clause: None,
             further_with_stages: vec![],
+            union_branches: Vec::new(),
             return_clause: ReturnClause {
                 distinct: false,
                 items: vec![ReturnItem {
