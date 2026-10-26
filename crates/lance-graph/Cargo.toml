@@ -18,6 +18,7 @@ arrow-schema = "58"
 async-trait = "0.1"
 datafusion = { version = "54", default-features = false, features = [
     "nested_expressions",
+    "math_expressions",
     "regex_expressions",
     "unicode_expressions",
     "crypto_expressions",

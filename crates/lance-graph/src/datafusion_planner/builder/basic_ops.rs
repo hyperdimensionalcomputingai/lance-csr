@@ -86,8 +86,7 @@ impl DataFusionPlanner {
         predicate: &crate::ast::BooleanExpression,
     ) -> Result<LogicalPlan> {
         let input_plan = self.build_operator(ctx, input)?;
-        let predicate = super::super::expression::bind_boolean(predicate, input_plan.schema());
-        let expr = super::super::expression::to_df_boolean_expr(&predicate);
+        let expr = self.boolean_expr(predicate, input_plan.schema())?;
         LogicalPlanBuilder::from(input_plan)
             .filter(expr)
             .map_err(|e| self.plan_error("Failed to build filter", e))?
@@ -119,7 +118,16 @@ impl DataFusionPlanner {
         } = input
         {
             let input_plan = self.build_operator(ctx, inner)?;
-            let ordering = self.sort_exprs(&input_plan, sort_items);
+            let ordering = self
+                .sort_exprs(&input_plan, sort_items)
+                .into_iter()
+                .map(|sort| {
+                    Ok(SortExpr {
+                        expr: self.resolve_expr(sort.expr, input_plan.schema())?,
+                        ..sort
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
             return self.build_project_with_aggregates(input_plan, projections, &ordering);
         }
         let input_plan = self.build_operator(ctx, input)?;
@@ -174,8 +182,7 @@ impl DataFusionPlanner {
                 exprs.extend(columns);
                 continue;
             }
-            let bound = super::super::expression::bind_value(&p.expression, &schema);
-            let expr = super::super::expression::to_df_value_expr(&bound);
+            let expr = self.value_expr(&p.expression, &schema)?;
             // Apply alias if provided, otherwise use Cypher dot notation
             // Normalize alias to lowercase for case-insensitive behavior
             exprs.push(if let Some(alias) = &p.alias {
@@ -219,6 +226,8 @@ impl DataFusionPlanner {
             .sort(sort_exprs)
             .map_err(|e| self.plan_error("Failed to build sort", e))?
             .build()
+            // The sort builder first restores input columns omitted by RETURN.
+            .and_then(|plan| plan.resolve_lambda_variables().map(|p| p.data))
             .map_err(|e| self.plan_error("Failed to build plan", e))
     }
 
@@ -288,8 +297,7 @@ impl DataFusionPlanner {
         };
 
         // Convert expression to DataFusion Expr
-        let bound = super::super::expression::bind_value(expression, input_plan.schema());
-        let df_expr = super::super::expression::to_df_value_expr(&bound);
+        let df_expr = self.value_expr(expression, input_plan.schema())?;
         // A list of node ids: unnest under a temporary name, then join each id back to the
         // node table so the alias carries the node's columns like any matched node.
         let unnested = match label {

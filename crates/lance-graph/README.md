@@ -12,6 +12,20 @@ A graph query engine for Lance datasets with Cypher syntax support. This crate e
 - JSON-serializable parameter binding for reusable query templates
 - Logical plan debugging via `CypherQuery::explain`
 
+## Rust AST migration for pagination
+
+`CypherQuery.skip`, `CypherQuery.limit` and `WithClause.limit` now use `Option<ast::RowCount>`.
+Replace a directly constructed `Some(n)` with `Some(ast::RowCount::Literal(n))`; parameterized clauses
+use `ast::RowCount::Parameter(name)`. Resolve parameter values before building a logical plan, using
+the normal `CypherQuery` parameter-binding methods. Existing Cypher text with literal pagination is unchanged.
+
+## Rust AST migration for list folds
+
+`ast::ValueExpression` adds `Reduce`, `ListPredicate` and `LocalVariable` variants. Update exhaustive
+matches and visitors to traverse the fold input and body while respecting iterator and accumulator
+scope. Prefer parsing Cypher text to construct these expressions; the parser resolves local variable
+references so they cannot accidentally bind to graph variables with the same name.
+
 ## Quick Start
 
 ```rust

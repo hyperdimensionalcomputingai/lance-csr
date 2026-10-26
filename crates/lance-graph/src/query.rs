@@ -377,11 +377,21 @@ impl CypherQuery {
     ///
     /// # Returns
     /// A SQL string representing the query in the specified dialect
+    ///
+    /// # Errors
+    /// Returns `GraphError::UnsupportedFeature` for runtime-only Cypher functions
+    /// without a faithful SQL translation or typed nulls outside the Default dialect.
+    /// Constant expressions may be folded first.
     pub async fn to_sql(
         &self,
         datasets: HashMap<String, arrow::record_batch::RecordBatch>,
         dialect: Option<SqlDialect>,
     ) -> Result<String> {
+        use datafusion::common::tree_node::{Transformed, TreeNode};
+        use datafusion::common::{not_impl_err, DFSchema, ScalarValue};
+        use datafusion::logical_expr::expr_rewriter::NamePreserver;
+        use datafusion::logical_expr::registry::FunctionRegistry;
+        use datafusion::logical_expr::{lit, utils::merge_schema, Expr, LogicalPlan};
         use std::sync::Arc;
 
         let dialect = dialect.unwrap_or_default();
@@ -404,6 +414,55 @@ impl CypherQuery {
                 message: format!("Failed to optimize plan: {}", e),
                 location: snafu::Location::new(file!(), line!(), column!()),
             })?;
+
+        // An SQL function with the same name need not implement Cypher semantics.
+        let optimized_plan = optimized_plan
+            .transform_up_with_subqueries(|plan| {
+                let schema = if let LogicalPlan::TableScan(scan) = &plan {
+                    DFSchema::try_from_qualified_schema(scan.table_name.clone(), &scan.source.schema())?
+                } else {
+                    merge_schema(&plan.inputs())
+                };
+                let names = NamePreserver::new(&plan);
+                plan.map_expressions(|expr| {
+                    let name = names.save(&expr);
+                    let rewritten = expr.transform_up(|expr| {
+                        if let Expr::ScalarFunction(function) = &expr {
+                            if let Some(native) = crate::datafusion_planner::sql_expr(function, &schema)? {
+                                return Ok(Transformed::yes(native));
+                            }
+                            if !ctx.udf(function.name()).is_ok_and(|registered| registered == function.func) {
+                                return not_impl_err!(
+                                    "SQL export of Cypher function '{}' is unsupported; execute the Cypher query directly",
+                                    function.name()
+                                );
+                            }
+                        }
+                        if let Expr::Literal(value, _) = &expr {
+                            let data_type = value.data_type();
+                            if value.is_null() && !data_type.is_null() {
+                                let type_name = data_type.to_string();
+                                if dialect != SqlDialect::Default
+                                    || !type_name.parse::<arrow_schema::DataType>().is_ok_and(|parsed| parsed == data_type)
+                                {
+                                    return not_impl_err!("SQL export of typed null {data_type} requires a faithful Default-dialect Arrow cast");
+                                }
+                                // The unparser emits bare NULL for typed nulls, losing their Arrow type.
+                                return Ok(Transformed::yes(datafusion::functions::core::arrow_cast().call(vec![
+                                    lit(ScalarValue::Null), lit(type_name),
+                                ])));
+                            }
+                        }
+                        Ok(Transformed::no(expr))
+                    })?;
+                    Ok(rewritten.update_data(|expr| name.restore(expr)))
+                })
+            })
+            .map_err(|error| GraphError::UnsupportedFeature {
+                feature: error.to_string(),
+                location: snafu::Location::new(file!(), line!(), column!()),
+            })?
+            .data;
 
         // Unparse to SQL using the specified dialect
         let dialect_unparser = dialect.unparser();
@@ -1308,8 +1367,8 @@ impl CypherQueryBuilder {
                     items: self.order_by_items,
                 })
             },
-            limit: self.limit,
-            skip: self.skip,
+            limit: self.limit.map(crate::ast::RowCount::Literal),
+            skip: self.skip.map(crate::ast::RowCount::Literal),
         };
 
         // Generate query text from AST (simplified)
@@ -1995,6 +2054,76 @@ mod tests {
         // Note: DataFusion unparser might quote identifiers or use aliases
         // We check for "p.name" which is the expected output alias
         assert!(sql.contains("p.name"));
+    }
+
+    #[tokio::test]
+    async fn test_to_sql_rejects_runtime_only_cypher_function() {
+        let batch = RecordBatch::try_from_iter(vec![
+            (
+                "id",
+                Arc::new(arrow_array::Int64Array::from(vec![1])) as arrow_array::ArrayRef,
+            ),
+            (
+                "number",
+                Arc::new(arrow_array::Float64Array::from(vec![-1.5])) as arrow_array::ArrayRef,
+            ),
+        ])
+        .unwrap();
+        let query = CypherQuery::new("MATCH (p:Person) RETURN round(p.number) AS value")
+            .unwrap()
+            .with_config(
+                GraphConfig::builder()
+                    .node_table("Person", "id")
+                    .build()
+                    .unwrap(),
+            );
+        let error = query
+            .to_sql(HashMap::from([("Person".to_string(), batch)]), None)
+            .await
+            .unwrap_err();
+        assert!(matches!(error, GraphError::UnsupportedFeature { .. }));
+        assert!(error
+            .to_string()
+            .contains("SQL export of Cypher function 'round'"));
+    }
+
+    #[tokio::test]
+    async fn test_to_sql_preserves_constant_null_types() {
+        let batch = RecordBatch::try_from_iter(vec![(
+            "id",
+            Arc::new(arrow_array::Int64Array::from(vec![1])) as arrow_array::ArrayRef,
+        )])
+        .unwrap();
+        let datasets = HashMap::from([("Person".to_string(), batch)]);
+        let config = GraphConfig::builder()
+            .node_table("Person", "id")
+            .build()
+            .unwrap();
+        for expression in [
+            "round(null)",
+            "abs(null)",
+            "sqrt(null)",
+            "floor(null)",
+            "ceil(null)",
+            "toUpper(null)",
+            "null",
+        ] {
+            let query = CypherQuery::new(&format!("MATCH (p:Person) RETURN {expression} AS value"))
+                .unwrap()
+                .with_config(config.clone());
+            let cypher = query.execute(datasets.clone(), None).await.unwrap();
+            let sql_text = query.to_sql(datasets.clone(), None).await.unwrap();
+            let sql = crate::sql_query::SqlQuery::new(&sql_text)
+                .execute(datasets.clone())
+                .await
+                .unwrap();
+            assert_eq!(
+                sql.schema().field(0).data_type(),
+                cypher.schema().field(0).data_type(),
+                "{expression}: {sql_text}"
+            );
+            assert_eq!(sql.column(0).logical_null_count(), 1, "{expression}");
+        }
     }
 
     async fn write_lance_dataset(path: &std::path::Path, batch: arrow_array::RecordBatch) {

@@ -7,6 +7,9 @@ pub fn substitute_parameters(
     query: &mut CypherQuery,
     parameters: &HashMap<String, serde_json::Value>,
 ) -> Result<()> {
+    substitute_row_count(&mut query.skip, parameters)?;
+    substitute_row_count(&mut query.limit, parameters)?;
+
     // Substitute in READING clauses
     for reading_clause in &mut query.reading_clauses {
         substitute_in_reading_clause(reading_clause, parameters)?;
@@ -50,6 +53,22 @@ pub fn substitute_parameters(
         substitute_in_order_by_clause(order_by, parameters)?;
     }
 
+    Ok(())
+}
+
+fn substitute_row_count(
+    count: &mut Option<RowCount>,
+    parameters: &HashMap<String, serde_json::Value>,
+) -> Result<()> {
+    if let Some(RowCount::Parameter(name)) = count {
+        let value = parameters.get(&name.to_lowercase()).and_then(serde_json::Value::as_u64)
+            .filter(|v| usize::try_from(*v).is_ok())
+            .ok_or_else(|| GraphError::PlanError {
+                message: format!("Pagination parameter ${name} must be a supplied nonnegative integer fitting the platform row count"),
+                location: snafu::Location::new(file!(), line!(), column!()),
+            })?;
+        *count = Some(RowCount::Literal(value));
+    }
     Ok(())
 }
 
@@ -143,6 +162,7 @@ fn substitute_in_with_clause(
     with_clause: &mut WithClause,
     parameters: &HashMap<String, serde_json::Value>,
 ) -> Result<()> {
+    substitute_row_count(&mut with_clause.limit, parameters)?;
     for item in &mut with_clause.items {
         substitute_in_value_expression(&mut item.expression, parameters)?;
     }
@@ -279,6 +299,22 @@ fn substitute_in_value_expression(
             }
             substitute_in_value_expression(map, parameters)?;
         }
+        ValueExpression::Reduce {
+            initial,
+            list,
+            expression,
+            ..
+        } => {
+            substitute_in_value_expression(initial, parameters)?;
+            substitute_in_value_expression(list, parameters)?;
+            substitute_in_value_expression(expression, parameters)?;
+        }
+        ValueExpression::ListPredicate {
+            list, predicate, ..
+        } => {
+            substitute_in_value_expression(list, parameters)?;
+            substitute_in_value_expression(predicate, parameters)?;
+        }
         ValueExpression::ListComprehension {
             list, filter, map, ..
         } => {
@@ -353,6 +389,27 @@ fn json_to_property_value(value: &serde_json::Value) -> Result<PropertyValue> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn pagination_requires_nonnegative_integral_parameters() {
+        let mut query = crate::parser::parse_cypher_query("RETURN 1 LIMIT $n").unwrap();
+        substitute_parameters(&mut query, &HashMap::from([("n".to_string(), json!(0))])).unwrap();
+        assert_eq!(query.limit, Some(RowCount::Literal(0)));
+        for value in [
+            json!(null),
+            json!(-1),
+            json!(1.5),
+            json!(true),
+            json!("1"),
+            json!([]),
+        ] {
+            let mut query = crate::parser::parse_cypher_query("RETURN 1 LIMIT $n").unwrap();
+            assert!(
+                substitute_parameters(&mut query, &HashMap::from([("n".to_string(), value)]))
+                    .is_err()
+            );
+        }
+    }
 
     #[test]
     fn container_expressions_preserve_ids_and_nesting() {
