@@ -95,7 +95,9 @@ Node index
     output chunk of neighbour positions before fetching properties. It yields that chunk before visiting
     the remaining neighbours, even for a single high-degree node. Deleted edge positions are read from the
     shared snapshot rather than copied for each query; refresh resolves those positions by scanning the
-    affected sources' neighbour lists. The chunk row limit comes from DataFusion's batch
+    affected sources' neighbour lists. Cancellation checkpoints count deleted edges and suppressed
+    reverse self-loops as work, using borrowed adjacency slices while a chunk is being collected.
+    The chunk row limit comes from DataFusion's batch
     size; wide properties and multiple active partitions still increase working memory. This does not bound
     the resident graph, the input data, or buffering in joins, sorts and aggregations elsewhere in the plan.
 

@@ -75,7 +75,9 @@ between reads. Before returning a reader, expiry raises `TimeoutError`. Reading 
 reader raises `pyarrow.ArrowInvalid` containing `Query timeout exceeded`. Earlier batches remain valid.
 Expiry or reader close releases the stream even while the caller is idle; the engine remains usable.
 
-Cancellation is cooperative. Traversal loops yield at bounded work intervals, but synchronous parsing,
+Cancellation is cooperative. Traversal loops yield at bounded work intervals, and timed cross joins
+yield between output batches. Timed nested-loop joins check the deadline while evaluating candidates,
+including batches that produce no matches. Synchronous parsing,
 Python data providers and foreign blocking calls cannot be forcibly preempted. Deadlines are checked
 between planning stages and before accepting completed results; this is not a hard real-time limit.
 

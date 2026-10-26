@@ -138,7 +138,8 @@ except TimeoutError:
 
 Initial expiry raises `TimeoutError`. Reading an expired native Arrow reader raises `pyarrow.ArrowInvalid`
 with `Query timeout exceeded`; partial output already read remains valid. Close readers when you stop
-consuming them. See the [API reference](api-reference.md) for validation and cooperative cancellation limits.
+consuming them. Timed cross joins yield between batches, and nested-loop joins check the deadline
+while evaluating candidates, including when no rows match. See the [API reference](api-reference.md) for validation and cooperative cancellation limits.
 
 ### `explain(query, params=None)`
 

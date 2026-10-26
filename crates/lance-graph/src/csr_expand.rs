@@ -243,6 +243,15 @@ impl Adjacency {
         key: i64,
         offset: &'a mut usize,
     ) -> impl Iterator<Item = u64> + 'a {
+        self.candidates_from(key, offset).flatten()
+    }
+
+    /// Keep tombstones visible to cancellation without repeating lookups for every edge.
+    fn candidates_from<'a>(
+        &'a self,
+        key: i64,
+        offset: &'a mut usize,
+    ) -> impl Iterator<Item = Option<u64>> + 'a {
         let base = self.base_neighbors(key);
         let added = self.added.get(&key).map_or(&[][..], Vec::as_slice);
         let removed = self.removed.get(&key).map_or(&[][..], Vec::as_slice);
@@ -251,7 +260,7 @@ impl Adjacency {
             .chain(added)
             .enumerate()
             .skip(*offset)
-            .filter_map(move |(position, &neighbor)| {
+            .map(move |(position, &neighbor)| {
                 *offset = position + 1;
                 if removed.first() == Some(&position) {
                     removed = &removed[1..];
@@ -260,23 +269,6 @@ impl Adjacency {
                     Some(neighbor)
                 }
             })
-    }
-
-    /// Inspect one occurrence so cancelled work also stops through long tombstone runs.
-    fn next_candidate(&self, key: i64, offset: &mut usize) -> Option<Option<u64>> {
-        let base = self.base_neighbors(key);
-        let position = *offset;
-        let neighbor = if position < base.len() {
-            base[position]
-        } else {
-            *self.added.get(&key)?.get(position - base.len())?
-        };
-        *offset += 1;
-        let removed = self
-            .removed
-            .get(&key)
-            .is_some_and(|r| r.binary_search(&position).is_ok());
-        Some((!removed).then_some(neighbor))
     }
 
     /// Live edges: base + appended - removed.
@@ -835,32 +827,26 @@ impl Neighbors {
         key: i64,
         position: &'a mut NeighborPosition,
     ) -> impl Iterator<Item = u64> + 'a {
-        let forward = self.forward.neighbors_from(key, &mut position.forward);
+        self.candidates_from(key, position).flatten()
+    }
+
+    /// Borrow each adjacency once while exposing tombstones and suppressed self-loops as work.
+    pub(crate) fn candidates_from<'a>(
+        &'a self,
+        key: i64,
+        position: &'a mut NeighborPosition,
+    ) -> impl Iterator<Item = Option<u64>> + 'a {
+        let forward = self.forward.candidates_from(key, &mut position.forward);
         let reverse = self
             .reverse
             .as_ref()
-            .map(|r| r.neighbors_from(key, &mut position.reverse));
+            .map(|r| r.candidates_from(key, &mut position.reverse));
         forward.chain(
             reverse
                 .into_iter()
                 .flatten()
-                .filter(move |&n| n as i64 != key),
+                .map(move |candidate| candidate.filter(|&n| n as i64 != key)),
         )
-    }
-
-    /// Inspect one raw edge, including tombstones and suppressed reverse self-loops.
-    pub(crate) fn next_candidate(
-        &self,
-        key: i64,
-        position: &mut NeighborPosition,
-    ) -> Option<Option<u64>> {
-        if let Some(candidate) = self.forward.next_candidate(key, &mut position.forward) {
-            return Some(candidate);
-        }
-        self.reverse
-            .as_ref()?
-            .next_candidate(key, &mut position.reverse)
-            .map(|candidate| candidate.filter(|&n| n as i64 != key))
     }
 
     /// Edges visited over all keys (self-loops count once per direction in this estimate).
@@ -1215,7 +1201,7 @@ impl BatchExpansion {
             if self.keys.is_valid(i) && self.bound.as_ref().is_none_or(|b| b.is_valid(i)) {
                 let key = self.keys.value(i);
                 let required = self.bound.as_ref().map(|b| b.value(i));
-                while let Some(candidate) = adjacency.next_candidate(key, &mut self.position) {
+                for candidate in adjacency.candidates_from(key, &mut self.position) {
                     work += 1;
                     if work.is_multiple_of(1024) {
                         cooperative_yield().await;
@@ -1946,6 +1932,40 @@ mod tests {
         drop(next);
         assert!(expansion.position.forward <= 1024);
         assert!(expansion.position.forward > 0);
+    }
+
+    #[tokio::test]
+    async fn expansion_yields_and_resumes_through_a_long_tombstone_run() {
+        let n = 5_000;
+        let base = Adjacency::build(
+            edge_stream(vec![Some(1); n], (2..n as i64 + 2).map(Some).collect()),
+            "src",
+            "dst",
+        )
+        .await
+        .unwrap();
+        let removed = (2..n as i64 + 1).map(|id| (1, id)).collect::<Vec<_>>();
+        let adjacency = Neighbors::directed(Arc::new(base.with_changes(&[], &removed)));
+        let input =
+            RecordBatch::try_from_iter([("id", Arc::new(Int64Array::from(vec![1])) as ArrayRef)])
+                .unwrap();
+        let mut expansion = BatchExpansion::try_new(input, 0, None).unwrap();
+        let mut next = Box::pin(expansion.next_chunk(&adjacency, None, 1));
+        assert!(futures::poll!(next.as_mut()).is_pending());
+        drop(next);
+        assert_eq!(expansion.position.forward, 1024);
+        assert_eq!(
+            expansion
+                .next_chunk(&adjacency, None, 1)
+                .await
+                .neighbor_values,
+            vec![n as i64 + 1]
+        );
+        assert!(expansion
+            .next_chunk(&adjacency, None, 1)
+            .await
+            .rows
+            .is_empty());
     }
 
     #[tokio::test]

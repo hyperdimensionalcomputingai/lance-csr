@@ -3,6 +3,11 @@
 
 //! High-level Cypher query interface for Lance datasets
 
+mod deadline;
+
+#[doc(hidden)]
+pub use deadline::with_execution_deadline;
+
 use crate::ast::CypherQuery as CypherAST;
 use crate::ast::ReadingClause;
 use crate::config::GraphConfig;
@@ -625,6 +630,7 @@ impl CypherQuery {
         ctx: datafusion::execution::context::SessionContext,
     ) -> Result<datafusion::dataframe::DataFrame> {
         let (_logical_plan, df_logical_plan) = self.create_logical_plans(catalog)?;
+        let ctx = deadline::context(ctx);
         ctx.execute_logical_plan(df_logical_plan)
             .await
             .map_err(|e| GraphError::ExecutionError {
@@ -916,6 +922,7 @@ impl CypherQuery {
         let (logical_plan, df_logical_plan) = self.create_logical_plans(catalog)?;
 
         // Phase 4: DataFusion Physical Plan
+        let ctx = deadline::context(ctx.clone());
         let df = ctx
             .execute_logical_plan(df_logical_plan.clone())
             .await
@@ -1332,6 +1339,101 @@ impl CypherQueryBuilder {
 mod tests {
     use super::*;
     use crate::config::GraphConfig;
+
+    #[tokio::test]
+    async fn cartesian_stream_yields_and_drops_before_full_collection() {
+        use arrow_array::{ArrayRef, Int64Array};
+        use datafusion::datasource::{DefaultTableSource, MemTable};
+        use datafusion::execution::context::{SessionConfig, SessionContext};
+        use futures::TryStreamExt;
+        use lance_graph_catalog::InMemoryCatalog;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let batch = RecordBatch::try_from_iter([(
+            "id",
+            Arc::new(Int64Array::from_iter_values(0..1000)) as ArrayRef,
+        )])
+        .unwrap();
+        let table = Arc::new(MemTable::try_new(batch.schema(), vec![vec![batch]]).unwrap());
+        let catalog = Arc::new(
+            InMemoryCatalog::new()
+                .with_node_source("Person", Arc::new(DefaultTableSource::new(table))),
+        );
+        let ctx = SessionContext::new_with_config(
+            SessionConfig::new()
+                .with_target_partitions(1)
+                .with_round_robin_repartition(false),
+        );
+        let config = GraphConfig::builder()
+            .node_table("Person", "id")
+            .build()
+            .unwrap();
+        let query = CypherQuery::new(
+            "MATCH (a:Person), (b:Person) RETURN a.id AS left_id, b.id AS right_id",
+        )
+        .unwrap()
+        .with_config(config.clone());
+        let stream = with_execution_deadline(
+            Some(std::time::Instant::now() + std::time::Duration::from_secs(60)),
+            query.execute_stream_with_catalog_and_context(catalog.clone(), ctx.clone()),
+        )
+        .await
+        .unwrap();
+        // A fresh Tokio task supplies its own budget; no inherited source yield can pass this test.
+        tokio::spawn(async move {
+            let visited = Arc::new(AtomicUsize::new(0));
+            let progress = visited.clone();
+            let mut read = Box::pin(stream.try_fold(0_usize, move |count, batch| {
+                progress.fetch_add(batch.num_rows(), Ordering::SeqCst);
+                futures::future::ready(Ok(count + batch.num_rows()))
+            }));
+            assert!(futures::poll!(read.as_mut()).is_pending());
+            let stopped = visited.load(Ordering::SeqCst);
+            assert!(stopped > 0 && stopped < 1_000_000);
+            drop(read);
+            tokio::task::yield_now().await;
+            assert_eq!(visited.load(Ordering::SeqCst), stopped);
+        })
+        .await
+        .unwrap();
+        let result = query
+            .execute_with_catalog_and_context(catalog.clone(), ctx.clone())
+            .await
+            .unwrap();
+        assert_eq!(result.num_rows(), 1_000_000);
+        assert_eq!(result.num_columns(), 2);
+
+        let filtered = CypherQuery::new(
+            "MATCH (a:Person), (b:Person) WHERE a.id + b.id >= 999 RETURN count(*) AS n",
+        )
+        .unwrap()
+        .with_config(config);
+        let expired = with_execution_deadline(
+            Some(std::time::Instant::now() - std::time::Duration::from_secs(1)),
+            filtered.execute_with_catalog_and_context(catalog.clone(), ctx.clone()),
+        )
+        .await
+        .unwrap_err();
+        assert!(expired.to_string().contains("Query timeout exceeded"));
+        for timed in [false, true] {
+            let result = with_execution_deadline(
+                timed.then(|| std::time::Instant::now() + std::time::Duration::from_secs(60)),
+                filtered.execute_with_catalog_and_context(catalog.clone(), ctx.clone()),
+            )
+            .await
+            .unwrap();
+            assert_eq!(result.num_rows(), 1);
+            assert_eq!(
+                result
+                    .column(0)
+                    .as_any()
+                    .downcast_ref::<Int64Array>()
+                    .unwrap()
+                    .value(0),
+                500_500
+            );
+        }
+    }
 
     #[test]
     fn test_parse_simple_cypher_query() {

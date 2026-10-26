@@ -117,6 +117,10 @@ impl BackgroundExecutor {
         F::Output: Send,
     {
         deadline.check()?;
+        let future = lance_graph::query::with_execution_deadline(
+            deadline.instant().map(tokio::time::Instant::into_std),
+            future,
+        );
         let future = Self::result_or_interrupt(future, deadline);
         if let Some(py) = py {
             py.detach(move || self.runtime.block_on(future))
