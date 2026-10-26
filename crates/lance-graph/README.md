@@ -26,6 +26,15 @@ matches and visitors to traverse the fold input and body while respecting iterat
 scope. Prefer parsing Cypher text to construct these expressions; the parser resolves local variable
 references so they cannot accidentally bind to graph variables with the same name.
 
+## Rust AST migration for path values
+
+Named ordinary paths add `PathPattern.variable`; set it to `None` in existing unnamed-path struct
+literals, or `Some(name)` for `p = (a)-[:R]->(b)`. Shortest-path names still use
+`ShortestPathSpec.variable`. Exhaustive matches and visitors must handle `LogicalOperator::PathMatch`
+by traversing its input and path pattern. It retains ordered node and relationship records, so a path
+value must not be replaced by its length. Public `nodes(path)` still returns integer keys; the Cypher
+guide describes the separate Arrow record returned by a path value.
+
 ## Quick Start
 
 ```rust

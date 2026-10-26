@@ -27,6 +27,7 @@ impl DataFusionPlanner {
             let mut analysis = ctx.analysis.clone();
             Self::collect_labels(input, &mut analysis.var_to_label);
             let mut branch = PlanningContext::new(&analysis);
+            branch.path_sources = ctx.path_sources.clone();
             branch.relationship_instance_idx = ctx.relationship_instance_idx.clone();
             plans.push(self.build_operator(&mut branch, input)?);
             // Branches consume distinct relationship instances, in analysis order.
