@@ -52,6 +52,11 @@ QUERIES = [
     # Target filter moved into the CSR node (start is more selective than b).
     "MATCH (a:Person)-[:KNOWS]->(b:Person) "
     "WHERE a.id = 1 AND b.age >= 40 RETURN b.name",
+    # Reuse a filter column in the projection, including reconstructed target ids.
+    "MATCH (a:Person)-[:KNOWS]->(b:Person) "
+    "WHERE a.id = 1 AND b.id >= 2 AND b.age >= 30 RETURN b.id, b.age, b.name",
+    "MATCH (a:Person)-[:KNOWS]->(b:Person) "
+    "WHERE a.id = 1 AND b.age > 100 RETURN b.age, b.name",
     # Closing edges: cycles back to an already-bound variable (duplicates included).
     "MATCH (a:Person)-[:KNOWS]->(b:Person)-[:KNOWS]->(a) RETURN a.id, b.id",
     "MATCH (a:Person)-[:KNOWS]->(b:Person), (b)<-[:KNOWS]-(a) RETURN count(*) AS n",
@@ -119,9 +124,37 @@ def test_variable_length_hops_use_csr(datasets):
     plan = csr.explain("MATCH (a:Person)-[:KNOWS*1..2]-(b:Person) RETURN b.id")
     lines = plan[plan.index("physical_plan") :].splitlines()
     expands = [line for line in lines if "CsrExpandExec" in line]
-    # One expansion for the 1-hop branch and two for the 2-hop branch.
-    assert len(expands) == 3 and all("undirected" in line for line in expands)
+    assert len(expands) == 1 and "iterative hops=1..2" in expands[0]
+    assert "undirected" in expands[0]
+    assert "UnionExec" not in "\n".join(lines)
     assert "HashJoinExec" not in "\n".join(lines)
+
+
+@pytest.mark.parametrize("use_csr", [False, True])
+@pytest.mark.parametrize("hops", ["0..0", "0..2"])
+def test_variable_length_zero_hop_is_identity(datasets, use_csr, hops):
+    engine = CypherEngine(CONFIG, datasets, use_csr=use_csr)
+    got = engine.execute(
+        f"MATCH (a:Person {{id: 1}})-[:KNOWS*{hops}]->(b:Person) "
+        "RETURN b.id AS id, b.name AS name"
+    ).to_pylist()
+    expected = [(1, "a")]
+    if hops == "0..2":
+        expected += [(2, "b")] * 2 + [(3, "c")] * 4
+    assert sorted((r["id"], r["name"]) for r in got) == sorted(expected)
+
+
+def test_variable_length_plan_does_not_grow_with_maximum(datasets):
+    engine = CypherEngine(CONFIG, datasets, use_csr=True)
+    for maximum in [2, 5, 20]:
+        plan = engine.explain(
+            f"MATCH (a:Person)-[:KNOWS*1..{maximum}]->(b:Person) RETURN b.id"
+        )
+        physical = plan[plan.index("physical_plan") :]
+        assert physical.count("CsrExpandExec") == 1
+        assert "UnionExec" not in physical
+    with pytest.raises(NotImplementedError, match="20"):
+        engine.execute("MATCH (a:Person)-[:KNOWS*1..21]->(b:Person) RETURN b.id")
 
 
 def test_source_filter_pushed_below_csr(datasets):

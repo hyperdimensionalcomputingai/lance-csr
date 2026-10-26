@@ -7,9 +7,11 @@ Uses the graph from ``test_engine_csr.py``: people 1-6 named a-f, with valid edg
 (twice), 1->3, 2->3, 3->3 and 5->1; 4->99 points at a missing person.
 """
 
+import warnings
+
 import pyarrow as pa
 import pytest
-from lance_csr import CypherEngine
+from lance_csr import CypherEngine, GraphConfig
 from test_engine_csr import CONFIG, KNOWS, PEOPLE
 
 CASES = [
@@ -137,3 +139,55 @@ def test_shortest_paths_shares_a_source_across_targets(use_csr):
         (2, 2, [5, 1, 2]),
         (3, 2, [5, 1, 3]),
     ]
+
+
+@pytest.mark.parametrize("use_csr", [False, True])
+@pytest.mark.parametrize(("target", "hops", "missing"), [(3, 2, False), (6, -1, True)])
+@pytest.mark.parametrize(
+    "projection",
+    [
+        "RETURN CASE p IS NULL WHEN true THEN -1 ELSE length(p) END AS hops, "
+        "p IS NULL AS missing",
+        "RETURN CASE WHEN p IS NOT NULL THEN length(p) ELSE -1 END AS hops, "
+        "p IS NULL AS missing",
+        "WITH p AS q RETURN CASE q IS NULL WHEN true THEN -1 "
+        "ELSE length(q) END AS hops, q IS NULL AS missing",
+        "WITH p AS q WHERE q IS NOT NULL OR q IS NULL "
+        "RETURN coalesce(length(q), -1) AS hops, q IS NULL AS missing",
+    ],
+)
+def test_shortest_path_null_checks_keep_compact_plan(
+    use_csr, target, hops, missing, projection
+):
+    engine = CypherEngine(CONFIG, {"Person": PEOPLE, "KNOWS": KNOWS}, use_csr=use_csr)
+    query = (
+        f"MATCH (a:Person {{id: 5}}), (b:Person {{id: {target}}}) "
+        "OPTIONAL MATCH p = shortestPath((a)-[:KNOWS*1..5]-(b)) " + projection
+    )
+    assert engine.execute(query).to_pylist() == [{"hops": hops, "missing": missing}]
+    plan = engine.explain(query)
+    assert "ShortestPathExec" in plan
+    assert "PathMatchExec" not in plan
+
+
+@pytest.mark.parametrize("use_csr", [False, True])
+def test_variable_length_target_inherits_source_label_without_endpoints(use_csr):
+    # The deprecated builder records no endpoint labels; an unlabeled
+    # variable-length target then takes the source's label, as before.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        config = (
+            GraphConfig.builder()
+            .with_node_label("Person", "id")
+            .with_relationship("KNOWS", "src", "dst")
+            .build()
+        )
+    data = {
+        "Person": pa.table({"id": [1, 2, 3, 4], "name": ["A", "B", "C", "D"]}),
+        "KNOWS": pa.table({"src": [1, 2, 2], "dst": [2, 3, 4]}),
+    }
+    rows = CypherEngine(config, data, use_csr).execute(
+        "MATCH (a:Person)-[:KNOWS*1..2]->(b) WHERE a.id = 1 "
+        "RETURN b.name AS name ORDER BY name"
+    )
+    assert rows.to_pylist() == [{"name": "B"}, {"name": "C"}, {"name": "D"}]

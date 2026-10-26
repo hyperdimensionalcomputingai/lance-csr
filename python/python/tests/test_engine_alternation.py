@@ -128,6 +128,51 @@ def test_variable_length_alternation_follows_endpoint_labels(datasets, use_csr):
     assert rows(got) == [(20, 10), (21, 10)]
 
 
+@pytest.mark.parametrize("use_csr", [False, True])
+@pytest.mark.parametrize("minimum", [0, 1])
+def test_variable_length_mixed_labels_keep_identity_separate(use_csr, minimum):
+    builder = GraphConfig.builder().node_table("Tag", "id").node_table("TagClass", "id")
+    cfg = (
+        builder.rel_table("hasType", "Tag", "TagClass", "src", "dst")
+        .rel_table("isSubclassOf", "TagClass", "TagClass", "src", "dst")
+        .build()
+    )
+    tables = {
+        "Tag": pa.table({"id": [1, 2]}),
+        "TagClass": pa.table({"id": [1, 2, 3], "name": ["one", "two", "three"]}),
+        "hasType": pa.table({"src": [1, 1, 2, 1], "dst": [1, 1, 2, 99]}),
+        "isSubclassOf": pa.table({"src": [1, 2], "dst": [2, 3]}),
+    }
+    engine = CypherEngine(cfg, tables, use_csr=use_csr)
+    query = (
+        f"MATCH (t:Tag {{id: 1}})-[:hasType|isSubclassOf*{minimum}..3]->(c:TagClass) "
+        "RETURN c.id, c.name"
+    )
+    assert rows(engine.execute(query)) == [
+        (1, "one"),
+        (1, "one"),
+        (2, "two"),
+        (2, "two"),
+        (3, "three"),
+        (3, "three"),
+    ]
+    if use_csr:
+        plan = engine.explain(query)
+        physical = plan[plan.index("physical_plan") :]
+        assert physical.count("CsrExpandExec") == 1
+        assert "UnionExec" not in physical
+    # Equal integer keys in different labels never form a zero-hop path.
+    identity = (
+        "MATCH (t:Tag {id: 1})-[:hasType|isSubclassOf*0..0]->(c:TagClass) RETURN c.id"
+    )
+    assert rows(engine.execute(identity)) == []
+    same_label = (
+        "MATCH (t:TagClass {id: 1})-[:hasType|isSubclassOf*0..2]->(c:TagClass) "
+        "RETURN c.id"
+    )
+    assert rows(engine.execute(same_label)) == [(1,), (2,), (3,)]
+
+
 def test_collect_distinct(datasets):
     engine = CypherEngine(config(), datasets)
     got = engine.execute(

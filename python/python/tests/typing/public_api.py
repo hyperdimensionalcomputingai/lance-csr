@@ -1,7 +1,7 @@
 """Strict static consumer; checked by make lint, not executed by pytest."""
 
 from datetime import date
-from typing import assert_type
+from typing import TYPE_CHECKING, TypeAlias, assert_type
 
 from lance import LanceDataset
 from lance_csr import (
@@ -19,6 +19,19 @@ from lance_csr import (
     __version__,
 )
 from pyarrow import RecordBatch, RecordBatchReader, Table
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+ParameterResult: TypeAlias = (
+    int
+    | float
+    | str
+    | bool
+    | None
+    | list["ParameterResult"]
+    | dict[str, "ParameterResult"]
+)
 
 
 def public_api(
@@ -53,12 +66,19 @@ def public_api(
     CypherEngine(config, {"Person": batch})
     CypherEngine(config, {"Person": reader})
     CypherEngine(config, {"Person": dataset})
+    CypherEngine(config, datasets, target_partitions=1)
+    CypherEngine(config, datasets, target_partitions=None)
 
     one = CypherQuery(query).with_config(config).with_parameter("id", 1)
     assert_type(one, CypherQuery)
+    assert_type(one.with_parameter("ids", [1, 2]), CypherQuery)
+    assert_type(engine.execute(query, timeout=1.0), Table)
+    assert_type(engine.execute_batches(query, timeout=1.0), RecordBatchReader)
+    assert_type(one.execute(datasets, timeout=1.0), Table)
     one.with_parameter("day", date(2026, 1, 1))
     assert_type(one.query_text(), str)
-    assert_type(one.parameters(), dict[str, int | float | str | bool | None])
+    parameters: Mapping[str, ParameterResult] = one.parameters()
+    assert_type(len(parameters), int)
     assert_type(one.variables(), list[str])
     assert_type(one.node_labels(), list[str])
     assert_type(one.relationship_types(), list[str])
@@ -89,7 +109,9 @@ def public_api(
     assert_type(SqlEngine(datasets).execute(sql.sql()), Table)
 
     # Rejected calls are checked too: removing a type restriction makes these unused.
+    CypherEngine(config, datasets, target_partitions="1")  # pyright: ignore[reportArgumentType]
+    CypherEngine(config, datasets, False, 1)  # pyright: ignore[reportCallIssue]
     engine.execute(query, {"id": object()})  # pyright: ignore[reportArgumentType]
     vector.top_k("5")  # pyright: ignore[reportArgumentType]
-    one.with_parameter("ids", [1, 2])  # pyright: ignore[reportArgumentType]
+    one.with_parameter("ids", {1, 2})  # pyright: ignore[reportArgumentType]
     namespace.base_uri = "elsewhere"  # pyright: ignore[reportAttributeAccessIssue]

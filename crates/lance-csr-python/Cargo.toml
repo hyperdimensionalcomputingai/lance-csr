@@ -21,4 +21,4 @@ lance-csr = { path = "../lance-csr" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 pyo3 = { version = "0.28", features = ["extension-module", "abi3-py312", "py-clone"] }
-tokio = { version = "1.37", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1.37", features = ["rt-multi-thread", "macros", "sync", "time"] }

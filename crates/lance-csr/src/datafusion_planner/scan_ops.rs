@@ -44,7 +44,7 @@ impl DataFusionPlanner {
                     let filter_exprs: Vec<Expr> = properties
                         .iter()
                         .map(|(k, v)| {
-                            let lit_expr = super::expression::to_df_value_expr(
+                            let lit_expr = self.unresolved_value_expr(
                                 &crate::ast::ValueExpression::Literal(v.clone()),
                             );
                             Expr::BinaryExpr(BinaryExpr {
@@ -140,9 +140,8 @@ impl DataFusionPlanner {
 
         // Apply relationship property filters (e.g., -[r {since: 2020}]->)
         for (k, v) in relationship_properties.iter() {
-            let lit_expr = super::expression::to_df_value_expr(
-                &crate::ast::ValueExpression::Literal(v.clone()),
-            );
+            let lit_expr =
+                self.unresolved_value_expr(&crate::ast::ValueExpression::Literal(v.clone()));
             let filter_expr = Expr::BinaryExpr(BinaryExpr {
                 left: Box::new(col(k)),
                 op: Operator::Eq,
@@ -358,6 +357,7 @@ mod tests {
             input: Box::new(scan),
             source_variable: "foo_bar".to_string(), // Will generate _temp_foo_bar_1
             target_variable: "baz".to_string(),
+            target_label: "Person".to_string(),
             relationship_types: vec!["KNOWS".to_string()],
             direction: crate::ast::RelationshipDirection::Outgoing,
             min_length: Some(2),

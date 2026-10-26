@@ -10,7 +10,7 @@ use crate::ast::*;
 use crate::error::{GraphError, Result};
 use nom::{
     branch::alt,
-    bytes::complete::{tag, tag_no_case, take_while1},
+    bytes::complete::{tag, tag_no_case, take_while, take_while1},
     character::complete::{char, digit0, digit1, multispace0, multispace1, one_of, satisfy},
     combinator::{map, map_res, not, opt, peek, recognize},
     multi::{many0, many1, separated_list0, separated_list1},
@@ -36,6 +36,11 @@ pub fn parse_cypher_query(input: &str) -> Result<CypherQuery> {
     }
 
     let mut query = query;
+    normalize_inline_properties(&mut query);
+    Ok(query)
+}
+
+fn normalize_inline_properties(query: &mut CypherQuery) {
     let stages = query
         .further_with_stages
         .iter_mut()
@@ -47,11 +52,15 @@ pub fn parse_cypher_query(input: &str) -> Result<CypherQuery> {
         .chain(&mut query.post_with_reading_clauses)
         .chain(stages)
     {
-        if let ReadingClause::Match(m) = clause {
-            move_variable_properties_to_where(m, &mut anonymous);
+        match clause {
+            ReadingClause::Match(m) => move_variable_properties_to_where(m, &mut anonymous),
+            ReadingClause::Call(inner) => normalize_inline_properties(inner),
+            ReadingClause::Unwind(_) => {}
         }
     }
-    Ok(query)
+    for branch in &mut query.union_branches {
+        normalize_inline_properties(&mut branch.query);
+    }
 }
 
 /// Inline node properties whose value is a variable or property from an earlier clause
@@ -106,6 +115,24 @@ fn move_variable_properties_to_where(clause: &mut MatchClause, anonymous: &mut u
 
 // Top-level parser for a complete Cypher query
 fn cypher_query(input: &str) -> IResult<&str, CypherQuery> {
+    let (input, mut query) = single_query(input)?;
+    let (input, branches) = many0(pair(union_header, single_query))(input)?;
+    query.union_branches = branches
+        .into_iter()
+        .map(|(all, query)| UnionBranch { all, query })
+        .collect();
+    Ok((input, query))
+}
+
+fn union_header(input: &str) -> IResult<&str, bool> {
+    let (input, _) = multispace0(input)?;
+    let (input, _) = tag_no_case("UNION")(input)?;
+    let (input, _) = multispace1(input)?;
+    let (input, all) = opt(terminated(tag_no_case("ALL"), multispace1))(input)?;
+    Ok((input, all.is_some()))
+}
+
+fn single_query(input: &str) -> IResult<&str, CypherQuery> {
     let (input, _) = multispace0(input)?;
     let (input, reading_clauses) = many0(reading_clause)(input)?;
     let (input, pre_with_where) = opt(where_clause)(input)?;
@@ -140,6 +167,7 @@ fn cypher_query(input: &str) -> IResult<&str, CypherQuery> {
             post_with_reading_clauses,
             post_with_where_clause: post_with_where,
             further_with_stages,
+            union_branches: Vec::new(),
             return_clause,
             limit,
             order_by,
@@ -153,7 +181,15 @@ fn reading_clause(input: &str) -> IResult<&str, ReadingClause> {
     alt((
         map(match_clause, ReadingClause::Match),
         map(unwind_clause, ReadingClause::Unwind),
+        map(call_clause, |query| ReadingClause::Call(Box::new(query))),
     ))(input)
+}
+
+fn call_clause(input: &str) -> IResult<&str, CypherQuery> {
+    let (input, _) = multispace0(input)?;
+    let (input, _) = tag_no_case("CALL")(input)?;
+    let (input, _) = multispace0(input)?;
+    delimited(char('{'), cypher_query, preceded(multispace0, char('}')))(input)
 }
 
 // Parse a MATCH clause
@@ -204,6 +240,7 @@ fn unwind_clause(input: &str) -> IResult<&str, UnwindClause> {
 fn graph_pattern(input: &str) -> IResult<&str, GraphPattern> {
     alt((
         map(shortest_path_pattern, GraphPattern::Path),
+        map(named_path_pattern, GraphPattern::Path),
         map(path_pattern, GraphPattern::Path),
         map(node_pattern, GraphPattern::Node),
     ))(input)
@@ -232,6 +269,18 @@ fn shortest_path_pattern(input: &str) -> IResult<&str, PathPattern> {
     Ok((input, path))
 }
 
+// Named ordinary paths retain their textual node and relationship order.
+fn named_path_pattern(input: &str) -> IResult<&str, PathPattern> {
+    let (input, variable) = delimited(
+        multispace0,
+        identifier,
+        tuple((multispace0, char('='), multispace0)),
+    )(input)?;
+    let (input, mut path) = path_pattern(input)?;
+    path.variable = Some(variable.to_string());
+    Ok((input, path))
+}
+
 // Parse a path pattern (only if there are segments)
 fn path_pattern(input: &str) -> IResult<&str, PathPattern> {
     let (input, start_node) = node_pattern(input)?;
@@ -251,6 +300,7 @@ fn path_pattern(input: &str) -> IResult<&str, PathPattern> {
             start_node,
             segments,
             shortest: None,
+            variable: None,
         },
     ))
 }
@@ -492,6 +542,11 @@ fn boolean_primary_expression(input: &str) -> IResult<&str, BooleanExpression> {
             where_clause: None,
         }),
         comparison_expression,
+        map(list_predicate, |left| BooleanExpression::Comparison {
+            left,
+            operator: ComparisonOperator::Equal,
+            right: ValueExpression::Literal(PropertyValue::Boolean(true)),
+        }),
     ))(input)
 }
 
@@ -669,6 +724,8 @@ fn basic_value_expression(input: &str) -> IResult<&str, ValueExpression> {
         list_comprehension,
         list_literal, // Then a list of any expressions [a.x, 'y'] (or [])
         map_literal,
+        reduce_expression,
+        list_predicate,
         parse_parameter,                               // Try $parameter
         function_call,                                 // Regular function calls
         map(property_value, ValueExpression::Literal), // Try literals BEFORE property references
@@ -729,6 +786,62 @@ fn list_comprehension(input: &str) -> IResult<&str, ValueExpression> {
             list: Box::new(list),
             filter: filter.map(|w| Box::new(w.expression)),
             map: map.map(Box::new),
+        },
+    ))
+}
+
+fn reduce_expression(input: &str) -> IResult<&str, ValueExpression> {
+    let (input, _) = tuple((tag_no_case("reduce"), multispace0, char('('), multispace0))(input)?;
+    let (input, accumulator) = identifier(input)?;
+    let (input, initial) =
+        preceded(tuple((multispace0, char('='), multispace0)), expression)(input)?;
+    let (input, variable) = preceded(comma_ws, identifier)(input)?;
+    let (input, list) = preceded(
+        tuple((multispace1, tag_no_case("IN"), multispace1)),
+        value_expression,
+    )(input)?;
+    let (input, mut body) =
+        preceded(tuple((multispace0, char('|'), multispace0)), expression)(input)?;
+    let (input, _) = tuple((multispace0, char(')')))(input)?;
+    mark_locals(&mut body, &[accumulator, variable]);
+    Ok((
+        input,
+        ValueExpression::Reduce {
+            accumulator: accumulator.to_lowercase(),
+            initial: Box::new(initial),
+            variable: variable.to_lowercase(),
+            list: Box::new(list),
+            expression: Box::new(body),
+        },
+    ))
+}
+
+fn list_predicate(input: &str) -> IResult<&str, ValueExpression> {
+    let (input, kind) = alt((
+        tag_no_case("all"),
+        tag_no_case("any"),
+        tag_no_case("none"),
+        tag_no_case("single"),
+    ))(input)?;
+    let (input, variable) =
+        preceded(tuple((multispace0, char('('), multispace0)), identifier)(input)?;
+    let (input, list) = preceded(
+        tuple((multispace1, tag_no_case("IN"), multispace1)),
+        value_expression,
+    )(input)?;
+    let (input, mut predicate) = preceded(
+        tuple((multispace1, tag_no_case("WHERE"), multispace1)),
+        expression,
+    )(input)?;
+    let (input, _) = tuple((multispace0, char(')')))(input)?;
+    mark_locals(&mut predicate, &[variable]);
+    Ok((
+        input,
+        ValueExpression::ListPredicate {
+            kind: kind.to_lowercase(),
+            variable: variable.to_lowercase(),
+            list: Box::new(list),
+            predicate: Box::new(predicate),
         },
     ))
 }
@@ -1309,35 +1422,37 @@ fn order_by_item(input: &str) -> IResult<&str, OrderByItem> {
 }
 
 // Parse a LIMIT clause
-fn limit_clause(input: &str) -> IResult<&str, u64> {
+fn limit_clause(input: &str) -> IResult<&str, RowCount> {
     let (input, _) = multispace0(input)?;
     let (input, _) = tag_no_case("LIMIT")(input)?;
     let (input, _) = multispace1(input)?;
-    let (input, limit) = integer_literal(input)?;
-    // Negative counts are an error, not a wrap-around to a huge u64.
-    let limit = u64::try_from(limit).map_err(|_| {
-        nom::Err::Failure(nom::error::Error::new(input, nom::error::ErrorKind::Verify))
-    })?;
-    Ok((input, limit))
+    row_count(input)
 }
 
 // Parse a SKIP clause
-fn skip_clause(input: &str) -> IResult<&str, u64> {
+fn skip_clause(input: &str) -> IResult<&str, RowCount> {
     let (input, _) = multispace0(input)?;
     let (input, _) = tag_no_case("SKIP")(input)?;
     let (input, _) = multispace1(input)?;
-    let (input, skip) = integer_literal(input)?;
-    let skip = u64::try_from(skip).map_err(|_| {
+    row_count(input)
+}
+
+fn row_count(input: &str) -> IResult<&str, RowCount> {
+    if let Ok((remaining, name)) = parameter(input) {
+        return Ok((remaining, RowCount::Parameter(name)));
+    }
+    let (remaining, value) = integer_literal(input)?;
+    let value = u64::try_from(value).map_err(|_| {
         nom::Err::Failure(nom::error::Error::new(input, nom::error::ErrorKind::Verify))
     })?;
-    Ok((input, skip))
+    Ok((remaining, RowCount::Literal(value)))
 }
 
 // Parse pagination clauses (SKIP and LIMIT)
-fn pagination_clauses(input: &str) -> IResult<&str, (Option<u64>, Option<u64>)> {
+fn pagination_clauses(input: &str) -> IResult<&str, (Option<RowCount>, Option<RowCount>)> {
     let (mut remaining, _) = multispace0(input)?;
-    let mut skip: Option<u64> = None;
-    let mut limit: Option<u64> = None;
+    let mut skip: Option<RowCount> = None;
+    let mut limit: Option<RowCount> = None;
 
     loop {
         let before = remaining;
@@ -1380,14 +1495,14 @@ fn string_literal(input: &str) -> IResult<&str, String> {
 
 fn double_quoted_string(input: &str) -> IResult<&str, String> {
     let (input, _) = char('"')(input)?;
-    let (input, content) = take_while1(|c| c != '"')(input)?;
+    let (input, content) = take_while(|c| c != '"')(input)?;
     let (input, _) = char('"')(input)?;
     Ok((input, content.to_string()))
 }
 
 fn single_quoted_string(input: &str) -> IResult<&str, String> {
     let (input, _) = char('\'')(input)?;
-    let (input, content) = take_while1(|c| c != '\'')(input)?;
+    let (input, content) = take_while(|c| c != '\'')(input)?;
     let (input, _) = char('\'')(input)?;
     Ok((input, content.to_string()))
 }
@@ -1702,7 +1817,7 @@ mod tests {
         let query = "MATCH (n:Person) RETURN n.name LIMIT 10";
         let result = parse_cypher_query(query).unwrap();
 
-        assert_eq!(result.limit, Some(10));
+        assert_eq!(result.limit, Some(RowCount::Literal(10)));
     }
 
     #[test]
@@ -1710,7 +1825,7 @@ mod tests {
         let query = "MATCH (n:Person) RETURN n.name SKIP 5";
         let result = parse_cypher_query(query).unwrap();
 
-        assert_eq!(result.skip, Some(5));
+        assert_eq!(result.skip, Some(RowCount::Literal(5)));
         assert_eq!(result.limit, None);
     }
 
@@ -1719,8 +1834,8 @@ mod tests {
         let query = "MATCH (n:Person) RETURN n.name SKIP 5 LIMIT 10";
         let result = parse_cypher_query(query).unwrap();
 
-        assert_eq!(result.skip, Some(5));
-        assert_eq!(result.limit, Some(10));
+        assert_eq!(result.skip, Some(RowCount::Literal(5)));
+        assert_eq!(result.limit, Some(RowCount::Literal(10)));
     }
 
     #[test]
@@ -1728,7 +1843,7 @@ mod tests {
         let query = "MATCH (n:Person) RETURN n.name ORDER BY n.age SKIP 5";
         let result = parse_cypher_query(query).unwrap();
 
-        assert_eq!(result.skip, Some(5));
+        assert_eq!(result.skip, Some(RowCount::Literal(5)));
         assert!(result.order_by.is_some());
     }
 
@@ -1737,8 +1852,8 @@ mod tests {
         let query = "MATCH (n:Person) RETURN n.name ORDER BY n.age SKIP 5 LIMIT 10";
         let result = parse_cypher_query(query).unwrap();
 
-        assert_eq!(result.skip, Some(5));
-        assert_eq!(result.limit, Some(10));
+        assert_eq!(result.skip, Some(RowCount::Literal(5)));
+        assert_eq!(result.limit, Some(RowCount::Literal(10)));
         assert!(result.order_by.is_some());
     }
 
@@ -2294,6 +2409,27 @@ mod tests {
     }
 
     #[test]
+    fn unions_preserve_modes_and_quoted_keywords() {
+        let query = parse_cypher_query(
+            "RETURN 'UNION' AS n UNION ALL RETURN 'ALL' AS n UNION RETURN 'UNION ALL' AS n",
+        )
+        .unwrap();
+        assert_eq!(query.union_branches.len(), 2);
+        assert!(query.union_branches[0].all);
+        assert!(!query.union_branches[1].all);
+        assert!(parse_cypher_query("RETURN 1 AS n UNION ALL").is_err());
+    }
+
+    #[test]
+    fn pagination_accepts_parameters_without_losing_names() {
+        let query = parse_cypher_query("RETURN 1 AS n SKIP $offset LIMIT $count").unwrap();
+        assert_eq!(query.skip, Some(RowCount::Parameter("offset".to_string())));
+        assert_eq!(query.limit, Some(RowCount::Parameter("count".to_string())));
+        assert!(parse_cypher_query("RETURN 1 LIMIT -1").is_err());
+        assert!(parse_cypher_query("RETURN 1 LIMIT 1.5").is_err());
+    }
+
+    #[test]
     fn test_integer_lists_preserve_precision() {
         for literal in ["[1, 2, 3]", "[-19791209300775, 16777217]", "[]"] {
             assert!(parse_vector_literal(literal).is_err());
@@ -2488,7 +2624,7 @@ mod tests {
             .iter()
             .map(|c| match c {
                 ReadingClause::Match(m) => m,
-                ReadingClause::Unwind(_) => unreachable!(),
+                ReadingClause::Unwind(_) | ReadingClause::Call(_) => unreachable!(),
             })
             .collect();
         assert_eq!(clauses.len(), 3);
@@ -2517,5 +2653,32 @@ mod tests {
             query.return_clause.items[0].expression,
             ValueExpression::Variable("nullCount".into())
         );
+    }
+    #[test]
+    fn reduce_keeps_inputs_in_outer_scope_and_marks_local_properties() {
+        let q =
+            parse_cypher_query("WITH {n:1} AS x RETURN reduce(s=x.n, x IN [x] | s+x.n)").unwrap();
+        let ValueExpression::Reduce {
+            initial,
+            list,
+            expression,
+            ..
+        } = &q.return_clause.items[0].expression
+        else {
+            panic!("expected reduce");
+        };
+        assert!(matches!(initial.as_ref(), ValueExpression::Property(p) if p.variable == "x"));
+        let mut input_locals = 0;
+        transform_value(&mut list.as_ref().clone(), &mut |v| {
+            input_locals += usize::from(matches!(v, ValueExpression::LocalVariable(_)))
+        });
+        assert_eq!(input_locals, 0);
+        let mut body_locals = Vec::new();
+        transform_value(&mut expression.as_ref().clone(), &mut |v| {
+            if let ValueExpression::LocalVariable(n) = v {
+                body_locals.push(n.clone());
+            }
+        });
+        assert_eq!(body_locals, ["s", "x"]);
     }
 }

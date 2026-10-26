@@ -37,8 +37,10 @@ pub struct RelationshipInstance {
 /// Planning context that tracks state during plan building
 pub struct PlanningContext<'a> {
     pub analysis: &'a QueryAnalysis,
+    pub(crate) path_sources: crate::path_inventory::SourceBatches,
     pub(crate) relationship_instance_idx: HashMap<String, usize>,
     /// Element rows of the list comprehensions being built, innermost last.
+    pub(crate) call_input: Option<datafusion::logical_expr::LogicalPlan>,
     pub(crate) comprehension_elements: Vec<datafusion::logical_expr::LogicalPlan>,
 }
 
@@ -46,8 +48,10 @@ impl<'a> PlanningContext<'a> {
     pub fn new(analysis: &'a QueryAnalysis) -> Self {
         Self {
             analysis,
+            path_sources: Default::default(),
             relationship_instance_idx: HashMap::new(),
             comprehension_elements: Vec::new(),
+            call_input: None,
         }
     }
 
@@ -73,6 +77,20 @@ impl<'a> PlanningContext<'a> {
 }
 
 /// Analyze the logical plan to extract metadata
+/// The label a variable-length target resolves to: its own label, or the source's
+/// when the pattern left it unlabeled (the planner's `"Node"` default), so
+/// `(a:Person)-[:KNOWS*1..2]->(b)` makes `b` a Person, as single-label graphs expect.
+// shortcut: an explicit `(b:Node)` is indistinguishable from the default; make the default an Option if a graph ever needs a real `Node` label on a variable-length target.
+pub(crate) fn variable_length_target_label(
+    target_label: &str,
+    source_label: Option<&String>,
+) -> String {
+    match source_label {
+        Some(source) if target_label == "Node" => source.clone(),
+        _ => target_label.to_string(),
+    }
+}
+
 pub fn analyze(logical_plan: &LogicalOperator) -> Result<QueryAnalysis> {
     let mut analysis = QueryAnalysis::default();
     let mut rel_counter: HashMap<String, usize> = HashMap::new();
@@ -144,6 +162,7 @@ fn analyze_operator(
             input,
             source_variable,
             target_variable,
+            target_label,
             relationship_types,
             direction,
             relationship_variable,
@@ -154,13 +173,11 @@ fn analyze_operator(
             // Recursively analyze input first
             analyze_operator(input, analysis, rel_counter)?;
 
-            // Infer target variable's label from source variable
-            // For (a:Person)-[:KNOWS]->(b), b also gets label Person
-            if let Some(source_label) = analysis.var_to_label.get(source_variable).cloned() {
-                analysis
-                    .var_to_label
-                    .insert(target_variable.clone(), source_label);
-            }
+            let label = variable_length_target_label(
+                target_label,
+                analysis.var_to_label.get(source_variable),
+            );
+            analysis.var_to_label.insert(target_variable.clone(), label);
 
             // For variable-length paths, register multiple instances (one per hop)
             // We need to register instances for all possible hop counts
@@ -205,7 +222,8 @@ fn analyze_operator(
         | LogicalOperator::Distinct { input } => {
             analyze_operator(input, analysis, rel_counter)?;
         }
-        LogicalOperator::Join { left, right, .. } => {
+        LogicalOperator::Join { left, right, .. }
+        | LogicalOperator::QueryUnion { left, right, .. } => {
             analyze_operator(left, analysis, rel_counter)?;
             analyze_operator(right, analysis, rel_counter)?;
         }
@@ -221,6 +239,18 @@ fn analyze_operator(
             if let Some(label) = label {
                 analysis.var_to_label.insert(alias.clone(), label.clone());
                 analysis.required_datasets.insert(label.clone());
+            }
+        }
+        LogicalOperator::PathMatch { input, path } => {
+            analyze_operator(input, analysis, rel_counter)?;
+            for node in
+                std::iter::once(&path.start_node).chain(path.segments.iter().map(|s| &s.end_node))
+            {
+                if let (Some(variable), Some(label)) = (&node.variable, node.labels.first()) {
+                    analysis
+                        .var_to_label
+                        .insert(variable.clone(), label.clone());
+                }
             }
         }
         LogicalOperator::ShortestPath { input, .. } => {
@@ -255,6 +285,21 @@ fn analyze_operator(
                 analysis.required_datasets.insert(label.clone());
             }
             analyze_operator(element, analysis, rel_counter)?;
+        }
+        LogicalOperator::Apply {
+            input,
+            inner,
+            labels,
+            ..
+        } => {
+            analyze_operator(input, analysis, rel_counter)?;
+            analysis
+                .required_datasets
+                .extend(analyze(inner)?.required_datasets);
+            analysis.var_to_label.extend(labels.clone());
+        }
+        LogicalOperator::CallInput { labels } => {
+            analysis.var_to_label.extend(labels.clone());
         }
         LogicalOperator::ComprehensionElement | LogicalOperator::SingleRow => {}
     }
@@ -371,6 +416,7 @@ mod tests {
             input: Box::new(scan_a),
             source_variable: "a".to_string(),
             target_variable: "b".to_string(),
+            target_label: "Person".to_string(),
             relationship_types: vec!["KNOWS".to_string()],
             direction: RelationshipDirection::Outgoing,
             relationship_variable: None,

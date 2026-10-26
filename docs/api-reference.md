@@ -64,12 +64,25 @@ Keys match labels case-insensitively.
 
 | Exception | When |
 | --- | --- |
-| `ValueError` | Invalid query, unknown label, missing dataset or column, unsupported parameter type, empty `datasets` |
+| `ValueError` | Invalid query, incompatible known operand types (with expression and type details), unknown label, missing dataset or column, unsupported parameter type, empty `datasets` |
 | `NotImplementedError` | A Cypher feature that parses but isn't supported |
 | `RuntimeError` | Execution or I/O failures |
 | `TypeError` | A dataset value of an unsupported type, such as a LanceDB `Table` |
 
 ---
+
+`CypherEngine.execute`, `CypherEngine.execute_batches` and `CypherQuery.execute` accept keyword-only
+`timeout` in seconds (`None` means no deadline). Zero expires immediately; negative, nonfinite or
+unrepresentable durations raise `ValueError`. One deadline includes planning, every batch and pauses
+between reads. Before returning a reader, expiry raises `TimeoutError`. Reading an expired native Arrow
+reader raises `pyarrow.ArrowInvalid` containing `Query timeout exceeded`. Earlier batches remain valid.
+Expiry or reader close releases the stream even while the caller is idle; the engine remains usable.
+
+Cancellation is cooperative. Traversal loops yield at bounded work intervals, and timed cross joins
+yield between output batches. Timed nested-loop joins check the deadline while evaluating candidates,
+including batches that produce no matches. Synchronous parsing,
+Python data providers and foreign blocking calls cannot be forcibly preempted. Deadlines are checked
+between planning stages and before accepting completed results; this is not a hard real-time limit.
 
 ## `GraphConfig`
 
@@ -115,27 +128,36 @@ See [Graph schema](graph-schema.md).
 
 <!-- skip-check -->
 ```python
-CypherEngine(config: GraphConfig, datasets: dict, use_csr: bool = False)
+CypherEngine(config: GraphConfig, datasets: dict, use_csr: bool = False, *, target_partitions: int | None = None)
 ```
 
 Registers `datasets` once and reuses the catalog, DataFusion session and (with `use_csr=True`) CSR index
-across queries. Safe to share between threads.
+across queries. Safe to share between threads. `execute()` and `execute_batches()` reuse up to 128
+unoptimized query templates per snapshot, keyed by exact text and scalar parameter names/types. Values are
+bound before optimization on every call. Containers, rich path values, `CALL` subqueries, parameterized `SKIP`/`LIMIT` and unsupported template
+shapes use ordinary planning. `explain()` always plans directly; successful `refresh()` clears the cache.
+See [Repeated queries](lance.md#repeated-queries) for the scope and limits.
 
 | Parameter | Description |
 | --- | --- |
 | `config` | The graph mapping. |
 | `datasets` | See [Datasets](#datasets). Lance datasets are pinned to the version passed in and not read here. |
 | `use_csr` | Build the experimental [CSR index](csr.md) for relationship types with integer endpoints, and node indexes for labels with unique integer keys. Default `False`. |
+| `target_partitions` | Optional integer target from 1 to 1024 for DataFusion query partitioning. `None` keeps DataFusion's default. Keyword-only; preserved by `refresh()`. It is not a thread or memory limit. See [Query parallelism](lance.md#query-parallelism). |
 
 Raises `ValueError` if `datasets` is empty, a configured key or endpoint column is missing, or a Lance dataset
 was opened through a namespace client and can't be reopened by URI. Raises `RuntimeError` if a dataset can't
-be opened.
+be opened. For `target_partitions`, booleans and non-integers other than `None` raise `TypeError`;
+values outside 1 to 1024 raise `ValueError`.
 
-`#!python execute(query: str, params: dict | None = None) -> pyarrow.Table`
+`#!python execute(query: str, params: dict | None = None, *, timeout: float | None = None) -> pyarrow.Table`
 :   Runs `query` and returns the whole result. `params` binds `$name` parameters: `int`, `float`, `str`,
-    `bool`, `None`, `datetime.datetime` and `datetime.date`.
+    `bool`, `None`, lists, string-keyed nested maps, `datetime.datetime` and `datetime.date`.
+    Integers must fit signed 64-bit values; nesting beyond 128 levels, cycles and unsupported values raise `ValueError`.
+    Direct counts from `size()` of an unmapped list comprehension have a non-nullable Arrow field;
+    see [Cypher functions](cypher.md#functions).
 
-`#!python execute_batches(query: str, params: dict | None = None) -> pyarrow.RecordBatchReader`
+`#!python execute_batches(query: str, params: dict | None = None, *, timeout: float | None = None) -> pyarrow.RecordBatchReader`
 :   Streams the result. Planning errors raise immediately; execution errors raise while reading. The reader
     keeps its snapshot alive across `refresh()`.
 
@@ -144,8 +166,8 @@ be opened.
 
 `#!python refresh() -> None`
 :   Moves every Lance dataset to its latest version and updates the CSR, node indexes and statistics.
-    All-or-nothing; running queries keep their snapshot, and concurrent calls run one at a time. See
-    [Lance datasets](lance.md#refresh).
+    All-or-nothing; running queries keep their snapshot, and concurrent calls run one at a time. Preserves
+    `target_partitions`. See [Lance datasets](lance.md#refresh).
 
 `#!python dataset_versions() -> dict[str, int]`
 :   The pinned version of each Lance dataset. PyArrow inputs are not listed.
@@ -165,6 +187,12 @@ be opened.
 
 ---
 
+Cypher named paths can be returned as Arrow structs containing `length`, `nodes`, `node_records` and
+`relationships`. They retain their values through `collect()` and `UNWIND`; `nodes(path)` returns integer
+keys, and `relationships(path)` returns typed relationship records. `startNode(r)` and `endNode(r)` return
+the stored endpoint node records. Their occurrence identities are query-local. See
+[path values and their memory cost](cypher.md#path-values).
+
 ## `CypherQuery`
 
 <!-- skip-check -->
@@ -180,7 +208,7 @@ A parsed Cypher query. Raises `ValueError` if `query_text` doesn't parse. Builde
 `#!python with_parameter(key: str, value: object) -> CypherQuery`
 :   Binds `$key` to `value`.
 
-`#!python execute(datasets: dict, strategy: ExecutionStrategy | None = None) -> pyarrow.Table`
+`#!python execute(datasets: dict, strategy: ExecutionStrategy | None = None, *, timeout: float | None = None) -> pyarrow.Table`
 :   Runs the query. Datasets are read into memory for this call.
 
 `#!python execute_with_namespace(namespace: DirNamespace, strategy: ExecutionStrategy | None = None) -> pyarrow.Table`
@@ -190,7 +218,8 @@ A parsed Cypher query. Raises `ValueError` if `query_text` doesn't parse. Builde
 :   The plans, as for `CypherEngine.explain`.
 
 `#!python to_sql(datasets: dict, dialect: SqlDialect | None = None) -> str`
-:   The equivalent SQL, as joins. See [From Cypher to SQL](sql.md#from-cypher-to-sql).
+:   Exports supported expressions as SQL joins. Raises `NotImplementedError` for runtime-only Cypher
+    functions without a faithful SQL translation. See [From Cypher to SQL](sql.md#from-cypher-to-sql).
 
 `#!python execute_with_vector_rerank(datasets: dict, vector_search: VectorSearch) -> pyarrow.Table`
 :   Runs the query, then reranks by vector similarity.
@@ -199,7 +228,7 @@ A parsed Cypher query. Raises `ValueError` if `query_text` doesn't parse. Builde
 :   The query text and the bound parameters.
 
 `#!python variables() -> list[str]`, `#!python node_labels() -> list[str]`, `#!python relationship_types() -> list[str]`
-:   Names referenced by the query.
+:   Names referenced by the query, including independently scoped UNION branches. List ordering is not guaranteed.
 
 ---
 

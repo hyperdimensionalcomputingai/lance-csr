@@ -1,9 +1,10 @@
 //! Run Cypher over Lance datasets from Rust, with no Python.
 //!
 //! Writes a small social graph as two Lance datasets in a temporary directory, opens
-//! them in a CSR-backed engine, runs a two-hop query, then appends an edge and picks
-//! it up with `refresh()`. The documentation includes this file section by section
-//! (the `--8<--` markers), so keep it compiling and its printed output in step.
+//! them in a CSR-backed engine, runs a two-hop query, appends an edge and picks it up
+//! with `refresh()`, and runs a query under a deadline. The documentation includes this
+//! file section by section (the `--8<--` markers), so keep it compiling and its printed
+//! output in step.
 //!
 //! ```bash
 //! cargo run -p lance-csr --example embedded_query
@@ -11,12 +12,15 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use arrow::util::pretty::print_batches;
 use arrow_array::{Int64Array, RecordBatch, RecordBatchIterator, StringArray};
 use arrow_schema::{DataType, Field, Schema};
 use lance::dataset::{Dataset, WriteMode, WriteParams};
+use lance_csr::query::with_execution_deadline;
 use lance_csr::{CypherEngine, EngineSource, GraphConfig};
+use tokio::time::{timeout_at, Instant};
 
 fn knows(src: Vec<i64>, dst: Vec<i64>) -> lance_csr::Result<RecordBatch> {
     let schema = Arc::new(Schema::new(vec![
@@ -117,5 +121,24 @@ async fn main() -> lance_csr::Result<()> {
     );
     // 5 edges, update=delta, version=Some(2)
     // --8<-- [end:refresh]
+
+    // --8<-- [start:timeout]
+    // One deadline for both: checks inside nested-loop joins, and a timer that stops
+    // everything else (cross joins yield to it between batches).
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let pairs = engine.execute(
+        "MATCH (a:Person), (b:Person) RETURN count(*) AS pairs",
+        HashMap::new(),
+    );
+    match timeout_at(deadline, with_execution_deadline(Some(deadline), pairs)).await {
+        Ok(result) => print_batches(&[result?])?,
+        Err(_) => println!("query timed out"),
+    }
+    // +-------+
+    // | pairs |
+    // +-------+
+    // | 16    |
+    // +-------+
+    // --8<-- [end:timeout]
     Ok(())
 }

@@ -71,6 +71,9 @@ What `refresh()` guarantees:
 - **Schema changes are picked up.** New columns are queryable after the refresh.
 - **All or nothing.** The replacement is validated in full before it's swapped in. On error, nothing changes
   and the previous snapshot keeps working.
+- **Concurrent refreshes cannot overwrite a newer published snapshot with an older candidate.** If another
+  refresh publishes first, the overlapping refresh retries from that snapshot and reopens the latest datasets.
+  The retry can add work when refreshes overlap; it does not block queries while the replacement is built.
 - **Running queries are unaffected.** Queries and `execute_batches()` readers that started before the refresh
   finish on their original snapshot.
 - **The CSR updates incrementally**, as described in [Keeping the CSR current](csr.md#keeping-the-csr-current).
@@ -78,6 +81,41 @@ What `refresh()` guarantees:
 
 A refresh reopens each dataset by its URI with the same `storage_options` it was opened with, so object-store
 credentials carry over.
+
+## Repeated queries
+
+`execute()` and `execute_batches()` keep up to 128 query templates per engine snapshot. Reuse the exact
+query text with `$name` parameters to reuse parsing, semantic analysis, graph logical planning and
+DataFusion logical planning. Every execution binds its own values before optimization and physical planning;
+rows and results are never cached. Query text and parameter names/types identify each template, with nulls
+separate from non-null values. Least recently used templates are evicted at the limit.
+
+Lists, maps and parameterized `SKIP`/`LIMIT` counts use ordinary planning because their shape or value can
+change the plan. Queries whose operators cannot produce a reusable template fall back to ordinary planning. `explain()` plans the current values directly. A successful `refresh()` starts an empty cache for the
+new snapshot, including a refresh whose datasets did not change; active readers retain their existing plans.
+These rules apply with and without CSR. They do not promise a speedup for a particular workload.
+
+## Query parallelism
+
+`CypherEngine(..., target_partitions=None)` keeps DataFusion's default query partitioning. If you have
+measured your workload, you can choose a target from 1 to 1024 explicitly:
+
+```python
+serial_engine = CypherEngine(
+    config,
+    {"Person": lance.dataset("person.lance"), "KNOWS": lance.dataset("knows.lance")},
+    use_csr=True,
+    target_partitions=1,
+)
+print(serial_engine.execute("MATCH (p:Person) RETURN count(*) AS n").to_pylist())  # [{'n': 4}]
+serial_engine.refresh()  # retains target_partitions=1
+```
+
+The target is a planning preference, not a thread or memory limit; operators may use a different number
+of partitions. A lower target can help short queries while making larger joins and scans slower. Compare
+your full workload in the storage mode you use before choosing a value. The default remains unchanged,
+and `refresh()` preserves your choice. Booleans and non-integers other than `None` raise `TypeError`;
+zero, negative and out-of-range integers raise `ValueError`.
 
 ## Streaming large results
 

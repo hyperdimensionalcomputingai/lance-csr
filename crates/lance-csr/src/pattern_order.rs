@@ -48,6 +48,7 @@ pub(crate) fn reorder_patterns(
     filter: Option<&BooleanExpression>,
     config: &GraphConfig,
 ) -> Option<Vec<GraphPattern>> {
+    if patterns.iter().any(|p| matches!(p, GraphPattern::Path(path) if path.variable.is_some() || path.shortest.is_some())) { return None; }
     let graph = PatternGraph::from_patterns(patterns)?;
     if graph.edges.is_empty() || !graph.is_connected() {
         return None;
@@ -258,7 +259,24 @@ fn value_variables<'a>(expr: &'a ValueExpression, out: &mut HashSet<&'a str>) {
                 value_variables(m, out);
             }
         }
-        ValueExpression::Literal(_)
+        ValueExpression::Reduce {
+            initial,
+            list,
+            expression,
+            ..
+        } => {
+            value_variables(initial, out);
+            value_variables(list, out);
+            value_variables(expression, out);
+        }
+        ValueExpression::ListPredicate {
+            list, predicate, ..
+        } => {
+            value_variables(list, out);
+            value_variables(predicate, out);
+        }
+        ValueExpression::LocalVariable(_)
+        | ValueExpression::Literal(_)
         | ValueExpression::Parameter(_)
         | ValueExpression::VectorLiteral(_) => {}
     }
@@ -415,6 +433,7 @@ impl PatternGraph {
                     start_node,
                     segments,
                     shortest: None,
+                    variable: None,
                 }));
             }
             // The next path starts at a bound node that still has an unused edge.

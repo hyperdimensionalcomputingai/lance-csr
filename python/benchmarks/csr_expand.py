@@ -34,6 +34,7 @@ QUERIES = {
     # Same shapes returning a non-id target column, so the target rows are fetched.
     "point_name": "MATCH (a:Person)-[:KNOWS]->(b:Person) WHERE a.id = 42 RETURN b.name",
     "selective_1pct_name": None,
+    "selective_1pct_name_filtered": None,
     "all_edges": "MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN count(*) AS n",
 }
 
@@ -85,6 +86,9 @@ def child(root: Path, mode: str, repeats: int) -> dict:
         f"MATCH (a:Person)-[:KNOWS]->(b:Person) WHERE a.id < {nodes // 100} RETURN b.id"
     )
     queries["selective_1pct_name"] = queries["selective_1pct"].replace("b.id", "b.name")
+    queries["selective_1pct_name_filtered"] = queries["selective_1pct_name"].replace(
+        "RETURN", "AND b.name STARTS WITH 'n1' RETURN"
+    )
 
     def open_engine():
         datasets = {

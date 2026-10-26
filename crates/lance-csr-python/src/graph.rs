@@ -26,19 +26,20 @@ use datafusion::execution::context::SessionContext;
 use futures::StreamExt;
 use lance_csr::{
     ast::{DistanceMetric as RustDistanceMetric, GraphPattern, ReadingClause},
-    engine::{CypherEngine as RustCypherEngine, EngineSource},
+    engine::{CypherEngine as RustCypherEngine, EngineSource, MAX_TARGET_PARTITIONS},
     CypherQuery as RustCypherQuery, ExecutionStrategy as RustExecutionStrategy,
     GraphConfig as RustGraphConfig, GraphError as RustGraphError, SqlDialect as RustSqlDialect,
     SqlQuery as RustSqlQuery, VectorSearch as RustVectorSearch,
 };
 use pyo3::{
-    exceptions::{PyNotImplementedError, PyRuntimeError, PyValueError},
+    exceptions::{PyNotImplementedError, PyRuntimeError, PyTypeError, PyValueError},
     prelude::*,
-    types::PyDict,
+    types::{PyBool, PyDict, PyInt, PyList},
     IntoPyObject,
 };
 use serde_json::Value as JsonValue;
 
+use crate::executor::{QueryDeadline, QUERY_TIMEOUT_MESSAGE};
 use crate::namespace::PyDirNamespace;
 use crate::RT;
 
@@ -586,7 +587,7 @@ impl CypherQuery {
         Ok(dict.unbind())
     }
 
-    /// Convert query to SQL
+    /// Export supported Cypher expressions as SQL
     ///
     /// Parameters
     /// ----------
@@ -602,6 +603,8 @@ impl CypherQuery {
     ///
     /// Raises
     /// ------
+    /// NotImplementedError
+    ///     If a runtime-only Cypher function has no faithful SQL translation
     /// RuntimeError
     ///     If SQL generation fails
     #[pyo3(signature = (datasets, dialect=None))]
@@ -654,13 +657,16 @@ impl CypherQuery {
     /// >>> # Explicit strategy
     /// >>> from lance.graph import ExecutionStrategy
     /// >>> result = query.execute(datasets, strategy=ExecutionStrategy.DataFusion)
-    #[pyo3(signature = (datasets, strategy=None))]
+    #[pyo3(signature = (datasets, strategy=None, *, timeout=None))]
     fn execute(
         &self,
         py: Python,
         datasets: &Bound<'_, PyDict>,
         strategy: Option<ExecutionStrategy>,
+        timeout: Option<f64>,
     ) -> PyResult<Py<PyAny>> {
+        let deadline = QueryDeadline::new(timeout)?;
+        deadline.check()?;
         // Convert datasets to Arrow batches while holding the GIL
         let arrow_datasets = python_datasets_to_batches(datasets)?;
 
@@ -672,7 +678,11 @@ impl CypherQuery {
 
         // Use RT.block_on with Some(py) like the scanner to_pyarrow method
         let result_batch = RT
-            .block_on(Some(py), inner_query.execute(arrow_datasets, rust_strategy))?
+            .block_on_until(
+                Some(py),
+                deadline,
+                inner_query.execute(arrow_datasets, rust_strategy),
+            )?
             .map_err(graph_error_to_pyerr)?;
 
         record_batch_to_python_table(py, &result_batch)
@@ -847,10 +857,25 @@ impl CypherQuery {
 
 // Helper functions to convert between Python and JSON values
 fn python_to_json(value: &Bound<'_, PyAny>) -> PyResult<JsonValue> {
+    python_to_json_value(value, 0)
+}
+
+/// Match serde_json's nesting bound and reject cycles before exhausting the Rust stack.
+fn python_to_json_value(value: &Bound<'_, PyAny>, depth: usize) -> PyResult<JsonValue> {
+    if depth >= 128 {
+        return Err(PyValueError::new_err(
+            "Parameter nesting exceeds 128 levels (possibly a cyclic container)",
+        ));
+    }
     if value.is_none() {
         Ok(JsonValue::Null)
     } else if let Ok(b) = value.extract::<bool>() {
         Ok(JsonValue::Bool(b))
+    } else if value.is_instance_of::<PyInt>() {
+        let i = value.extract::<i64>().map_err(|_| {
+            PyValueError::new_err("Integer parameters must fit signed 64-bit values")
+        })?;
+        Ok(JsonValue::Number(i.into()))
     } else if let Ok(i) = value.extract::<i64>() {
         Ok(JsonValue::Number(i.into()))
     } else if let Ok(f) = value.extract::<f64>() {
@@ -860,6 +885,21 @@ fn python_to_json(value: &Bound<'_, PyAny>) -> PyResult<JsonValue> {
         ))
     } else if let Ok(s) = value.extract::<String>() {
         Ok(JsonValue::String(s))
+    } else if let Ok(values) = value.cast::<PyList>() {
+        let values = values
+            .iter()
+            .map(|v| python_to_json_value(&v, depth + 1))
+            .collect::<PyResult<Vec<_>>>()?;
+        Ok(JsonValue::Array(values))
+    } else if let Ok(values) = value.cast::<PyDict>() {
+        let mut map = serde_json::Map::new();
+        for (key, value) in values.iter() {
+            let key = key
+                .extract::<String>()
+                .map_err(|_| PyValueError::new_err("Map parameter keys must be strings"))?;
+            map.insert(key, python_to_json_value(&value, depth + 1)?);
+        }
+        Ok(JsonValue::Object(map))
     } else if value.hasattr("isoformat")? {
         // datetime and date: ISO 8601 text, which DataFusion casts when comparing with
         // timestamp and date columns.
@@ -888,9 +928,19 @@ fn json_to_python(py: Python, value: &JsonValue) -> PyResult<Py<PyAny>> {
             }
         }
         JsonValue::String(s) => Ok(s.as_str().into_pyobject(py)?.unbind().into()),
-        JsonValue::Array(_) | JsonValue::Object(_) => {
-            // For complex types, convert to string representation
-            Ok(value.to_string().into_pyobject(py)?.unbind().into())
+        JsonValue::Array(values) => {
+            let values = values
+                .iter()
+                .map(|v| json_to_python(py, v))
+                .collect::<PyResult<Vec<_>>>()?;
+            Ok(PyList::new(py, values)?.into_any().unbind())
+        }
+        JsonValue::Object(values) => {
+            let map = PyDict::new(py);
+            for (key, value) in values {
+                map.set_item(key, json_to_python(py, value)?)?;
+            }
+            Ok(map.into_any().unbind())
         }
     }
 }
@@ -1231,6 +1281,120 @@ impl RecordBatchReader for BlockingBatchReader {
     }
 }
 
+/// A timed reader owns its stream independently of calls into Arrow's C interface.
+struct TimedBatchState {
+    stream: Option<datafusion::physical_plan::SendableRecordBatchStream>,
+    expired: bool,
+}
+
+struct DeadlineBatchReader {
+    schema: arrow_schema::SchemaRef,
+    state: Arc<tokio::sync::Mutex<TimedBatchState>>,
+    deadline: tokio::time::Instant,
+    watchdog: tokio::task::JoinHandle<()>,
+    finished: bool,
+}
+
+fn stream_timeout_error() -> arrow_schema::ArrowError {
+    arrow_schema::ArrowError::ExternalError(Box::new(std::io::Error::new(
+        std::io::ErrorKind::TimedOut,
+        QUERY_TIMEOUT_MESSAGE,
+    )))
+}
+
+impl Iterator for DeadlineBatchReader {
+    type Item = Result<RecordBatch, arrow_schema::ArrowError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.finished {
+            return None;
+        }
+        let result = RT.runtime.block_on(async {
+            let mut state = self.state.lock().await;
+            if state.expired || tokio::time::Instant::now() >= self.deadline {
+                state.stream.take();
+                state.expired = true;
+                return Some(Err(stream_timeout_error()));
+            }
+            let stream = state.stream.as_mut()?;
+            let result = tokio::select! {
+                biased;
+                _ = tokio::time::sleep_until(self.deadline) => None,
+                result = stream.next() => Some(result),
+            };
+            match result {
+                None => {
+                    state.stream.take();
+                    state.expired = true;
+                    Some(Err(stream_timeout_error()))
+                }
+                Some(result) => {
+                    if tokio::time::Instant::now() >= self.deadline {
+                        state.stream.take();
+                        state.expired = true;
+                        return Some(Err(stream_timeout_error()));
+                    }
+                    if result.as_ref().is_none_or(|result| result.is_err()) {
+                        state.stream.take();
+                    }
+                    result.map(|r| {
+                        r.map_err(|e| arrow_schema::ArrowError::ExternalError(Box::new(e)))
+                    })
+                }
+            }
+        });
+        if result.as_ref().is_none_or(|r| r.is_err()) {
+            self.finished = true;
+            self.watchdog.abort();
+        }
+        result
+    }
+}
+
+impl RecordBatchReader for DeadlineBatchReader {
+    fn schema(&self) -> arrow_schema::SchemaRef {
+        self.schema.clone()
+    }
+}
+
+impl Drop for DeadlineBatchReader {
+    fn drop(&mut self) {
+        self.watchdog.abort();
+        if let Ok(mut state) = self.state.try_lock() {
+            state.stream.take();
+        }
+    }
+}
+
+fn reader_with_deadline(
+    stream: datafusion::physical_plan::SendableRecordBatchStream,
+    deadline: QueryDeadline,
+) -> Box<dyn RecordBatchReader + Send> {
+    let schema = stream.schema();
+    let Some(deadline) = deadline.instant() else {
+        return Box::new(BlockingBatchReader { schema, stream });
+    };
+    let state = Arc::new(tokio::sync::Mutex::new(TimedBatchState {
+        stream: Some(stream),
+        expired: false,
+    }));
+    let watched = state.clone();
+    let watchdog = RT.runtime.spawn(async move {
+        tokio::time::sleep_until(deadline).await;
+        let mut state = watched.lock().await;
+        if state.stream.take().is_some() {
+            state.expired = true;
+        }
+    });
+    Box::new(DeadlineBatchReader {
+        schema,
+        state,
+        deadline,
+        watchdog,
+        finished: false,
+    })
+}
+
 /// Cypher query engine with cached catalog for efficient multi-query execution
 ///
 /// The engine registers each dataset once and reuses the catalog and DataFusion
@@ -1281,23 +1445,48 @@ impl CypherEngine {
     /// datasets : dict
     ///     Dictionary mapping table names to Lance datasets or PyArrow tables.
     ///     Lance datasets are not read here; PyArrow inputs are held in memory.
+    /// target_partitions : int or None, optional
+    ///     Target for DataFusion query partitioning, from 1 to 1024, preserved by
+    ///     refresh(). None keeps DataFusion's default. This is not a thread or memory limit.
     ///
     /// Raises
     /// ------
     /// ValueError
-    ///     If no datasets are given, a configured id/endpoint column is missing, or a
+    ///     If no datasets are given, a configured id/endpoint column is missing, a
     ///     Lance dataset cannot be reopened by URI (for example, namespace-vended
-    ///     credentials)
+    ///     credentials), or target_partitions is outside 1 to 1024
+    /// TypeError
+    ///     If target_partitions is a boolean or a non-integer value other than None
     /// RuntimeError
     ///     If a dataset cannot be opened or registered
     #[new]
-    #[pyo3(signature = (config, datasets, use_csr = false))]
+    #[pyo3(signature = (config, datasets, use_csr = false, *, target_partitions = None))]
     fn new(
         py: Python,
         config: &GraphConfig,
         datasets: &Bound<'_, PyDict>,
         use_csr: bool,
+        target_partitions: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
+        let target_partitions = target_partitions
+            .map(|value| {
+                if value.is_instance_of::<PyBool>() || !value.is_instance_of::<PyInt>() {
+                    return Err(PyTypeError::new_err(
+                        "target_partitions must be an integer or None",
+                    ));
+                }
+                // Out-of-range values that still fit a usize are rejected by the engine.
+                value
+                    .extract::<usize>()
+                    .ok()
+                    .filter(|value| *value > 0)
+                    .ok_or_else(|| {
+                        PyValueError::new_err(format!(
+                            "target_partitions must be between 1 and {MAX_TARGET_PARTITIONS}"
+                        ))
+                    })
+            })
+            .transpose()?;
         let mut sources = HashMap::new();
         for (key, value) in datasets.iter() {
             let name: String = key.extract()?;
@@ -1307,7 +1496,12 @@ impl CypherEngine {
         let inner = RT
             .block_on(
                 Some(py),
-                RustCypherEngine::new(config.inner.clone(), sources, use_csr),
+                RustCypherEngine::with_target_partitions(
+                    config.inner.clone(),
+                    sources,
+                    use_csr,
+                    target_partitions,
+                ),
             )?
             .map_err(graph_error_to_pyerr)?;
         Ok(Self { inner })
@@ -1323,25 +1517,33 @@ impl CypherEngine {
     ///     The Cypher query
     /// params : dict, optional
     ///     Values for ``$name`` parameters in the query: numbers, strings, booleans,
-    ///     ``None``, and ``datetime``/``date`` values (compared as timestamps and dates).
-    ///     ``execute_batches`` and ``explain`` take the same argument.
+    ///     ``None``, lists, string-keyed maps, and ``datetime``/``date`` values (compared
+    ///     as timestamps and dates). ``execute_batches`` and ``explain`` take the same argument.
+    /// timeout : float, optional
+    ///     Nonnegative number of seconds for the whole query; expiry raises
+    ///     ``TimeoutError``. Cancellation is cooperative.
     ///
     /// Raises
     /// ------
     /// ValueError
     ///     If the query is invalid
+    /// TimeoutError
+    ///     If the query runs past ``timeout``
     /// RuntimeError
     ///     If query execution fails
-    #[pyo3(signature = (query, params = None))]
+    #[pyo3(signature = (query, params = None, *, timeout = None))]
     fn execute(
         &self,
         py: Python,
         query: &str,
         params: Option<&Bound<'_, PyDict>>,
+        timeout: Option<f64>,
     ) -> PyResult<Py<PyAny>> {
+        let deadline = QueryDeadline::new(timeout)?;
+        deadline.check()?;
         let params = python_params(params)?;
         let result_batch = RT
-            .block_on(Some(py), self.inner.execute(query, params))?
+            .block_on_until(Some(py), deadline, self.inner.execute(query, params))?
             .map_err(graph_error_to_pyerr)?;
         record_batch_to_python_table(py, &result_batch)
     }
@@ -1352,23 +1554,26 @@ impl CypherEngine {
     /// stream with bounded memory; joins, sorts and aggregations may still buffer.
     /// The reader keeps its snapshot alive, so a concurrent ``refresh()`` does not
     /// affect it. Planning errors raise immediately; execution errors raise while reading.
-    #[pyo3(signature = (query, params = None))]
+    /// ``timeout`` keeps one deadline including pauses. Initial expiry raises
+    /// ``TimeoutError``; expired reads raise ArrowInvalid: Query timeout exceeded.
+    #[pyo3(signature = (query, params = None, *, timeout = None))]
     fn execute_batches(
         &self,
         py: Python,
         query: &str,
         params: Option<&Bound<'_, PyDict>>,
+        timeout: Option<f64>,
     ) -> PyResult<Py<PyAny>> {
         use arrow::pyarrow::IntoPyArrow;
 
+        let deadline = QueryDeadline::new(timeout)?;
+        deadline.check()?;
         let params = python_params(params)?;
         let stream = RT
-            .block_on(Some(py), self.inner.execute_stream(query, params))?
+            .block_on_until(Some(py), deadline, self.inner.execute_stream(query, params))?
             .map_err(graph_error_to_pyerr)?;
-        let reader: Box<dyn RecordBatchReader + Send> = Box::new(BlockingBatchReader {
-            schema: stream.schema(),
-            stream,
-        });
+        deadline.check()?;
+        let reader = reader_with_deadline(stream, deadline);
         Ok(reader.into_pyarrow(py)?.unbind())
     }
 
@@ -1728,6 +1933,97 @@ pub fn register_graph_module(py: Python, parent_module: &Bound<'_, PyModule>) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn retained_stream() -> (
+        datafusion::physical_plan::SendableRecordBatchStream,
+        std::sync::Weak<arrow_array::Int64Array>,
+    ) {
+        let values = Arc::new(arrow_array::Int64Array::from(vec![1_i64]));
+        let retained = Arc::downgrade(&values);
+        let schema = Arc::new(Schema::new(vec![arrow_schema::Field::new(
+            "id",
+            arrow_schema::DataType::Int64,
+            false,
+        )]));
+        let batch = RecordBatch::try_new(schema.clone(), vec![values]).unwrap();
+        let stream = datafusion::physical_plan::stream::RecordBatchStreamAdapter::new(
+            schema,
+            futures::stream::iter(vec![Ok(batch)]),
+        );
+        (Box::pin(stream), retained)
+    }
+
+    #[test]
+    fn timed_reader_releases_unconsumed_stream_at_deadline() {
+        let (stream, retained) = retained_stream();
+        let mut reader = reader_with_deadline(stream, QueryDeadline::new(Some(0.02)).unwrap());
+        let stop = std::time::Instant::now() + std::time::Duration::from_secs(1);
+        while retained.upgrade().is_some() && std::time::Instant::now() < stop {
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        assert!(
+            retained.upgrade().is_none(),
+            "idle deadline must drop the owned stream"
+        );
+        assert!(reader
+            .next()
+            .unwrap()
+            .unwrap_err()
+            .to_string()
+            .contains(QUERY_TIMEOUT_MESSAGE));
+        assert!(reader.next().is_none());
+    }
+
+    #[test]
+    fn closing_timed_reader_releases_stream_before_deadline() {
+        let (stream, retained) = retained_stream();
+        let reader = reader_with_deadline(stream, QueryDeadline::new(Some(10.0)).unwrap());
+        drop(reader);
+        assert!(retained.upgrade().is_none());
+    }
+
+    #[test]
+    fn timed_reader_releases_stream_after_an_execution_error() {
+        let (stream, retained) = RT.runtime.block_on(async {
+            let values = Arc::new(arrow_array::StringArray::from(vec!["2"]));
+            let retained = Arc::downgrade(&values);
+            let schema = Arc::new(Schema::new(vec![arrow_schema::Field::new(
+                "value",
+                arrow_schema::DataType::Utf8,
+                false,
+            )]));
+            let bad = RecordBatch::try_new(
+                schema.clone(),
+                vec![Arc::new(arrow_array::StringArray::from(vec!["invalid"]))],
+            )
+            .unwrap();
+            let remaining = RecordBatch::try_new(schema.clone(), vec![values]).unwrap();
+            let ctx = SessionContext::new();
+            ctx.register_table(
+                "input",
+                Arc::new(MemTable::try_new(schema, vec![vec![bad, remaining]]).unwrap()),
+            )
+            .unwrap();
+            let stream = ctx
+                .sql("SELECT CAST(value AS BIGINT) AS value FROM input")
+                .await
+                .unwrap()
+                .execute_stream()
+                .await
+                .unwrap();
+            (stream, retained)
+        });
+        let mut reader = reader_with_deadline(stream, QueryDeadline::new(Some(10.0)).unwrap());
+        assert!(retained.upgrade().is_some());
+        let error = reader.next().unwrap().unwrap_err().to_string();
+        assert!(error.contains("invalid"), "{error}");
+        assert!(!error.contains(QUERY_TIMEOUT_MESSAGE), "{error}");
+        assert!(
+            retained.upgrade().is_none(),
+            "error must release the owned stream"
+        );
+        assert!(reader.next().is_none());
+    }
 
     #[test]
     fn test_split_vector_column_with_alias() {
