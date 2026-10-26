@@ -4823,16 +4823,14 @@ async fn test_unwind_simple_list() {
     }
 }
 
-/// Test that COUNT(x) where x comes from UNWIND fails gracefully
-/// This documents a known limitation: COUNT(variable) assumes variable__id exists,
-/// but UNWIND-created variables don't have __id columns.
+/// COUNT(x) where x comes from UNWIND counts the values: UNWIND variables have no
+/// `x__id` column, so the aggregate counts the value column itself.
 #[tokio::test]
-async fn test_count_unwind_variable_known_limitation() {
+async fn test_count_unwind_variable() {
     let config = create_graph_config();
     let person_batch = create_person_dataset();
 
-    // COUNT(x) where x comes from UNWIND - x has no __id column
-    let query = CypherQuery::new("UNWIND [1, 2, 3] AS x RETURN COUNT(x)")
+    let query = CypherQuery::new("UNWIND [1, 2, 3] AS x RETURN COUNT(x) AS n")
         .unwrap()
         .with_config(config);
 
@@ -4841,15 +4839,15 @@ async fn test_count_unwind_variable_known_limitation() {
 
     let result = query
         .execute(datasets, Some(ExecutionStrategy::DataFusion))
-        .await;
-
-    // This currently fails because COUNT(x) looks for x__id which doesn't exist
-    // If this starts passing in the future, update the test to verify correct count (3)
-    assert!(
-        result.is_err(),
-        "COUNT(unwind_variable) should fail - no __id column. If this passes, \
-         the limitation has been fixed and test should verify COUNT returns 3"
-    );
+        .await
+        .unwrap();
+    let n = result
+        .column_by_name("n")
+        .unwrap()
+        .as_any()
+        .downcast_ref::<Int64Array>()
+        .unwrap();
+    assert_eq!(n.value(0), 3);
 }
 
 #[tokio::test]

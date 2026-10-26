@@ -647,3 +647,43 @@ def test_path_where_on_start_node(use_csr, query, expected):
         "KNOWS": pa.table({"src": [1, 2], "dst": [2, 3]}),
     }
     assert CypherEngine(config, data, use_csr).execute(query).to_pylist() == expected
+
+
+@pytest.mark.parametrize("use_csr", [False, True])
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        # Parallel edges 2->3 make two distinct paths.
+        (
+            "MATCH p = (a:Person)-[:KNOWS]->(b:Person) RETURN count(DISTINCT p) AS n",
+            [{"n": 3}],
+        ),
+        ("MATCH p = (a:Person)-[:KNOWS]->(b:Person) RETURN count(p) AS n", [{"n": 3}]),
+        (
+            "UNWIND [1, 2, 2, null] AS x RETURN count(x) AS n, count(DISTINCT x) AS d",
+            [{"n": 3, "d": 2}],
+        ),
+        (
+            "MATCH (p:Person) WITH p.name AS name "
+            "RETURN count(name) AS n, count(DISTINCT name) AS d",
+            [{"n": 3, "d": 3}],
+        ),
+        (
+            "MATCH (p:Person) RETURN count(p) AS n, count(DISTINCT p) AS d",
+            [{"n": 4, "d": 4}],
+        ),
+    ],
+)
+def test_count_of_paths_and_values(use_csr, query, expected):
+    # count(v) uses v's id column for nodes and relationships, and the value otherwise.
+    config = (
+        GraphConfig.builder()
+        .node_table("Person", "id")
+        .rel_table("KNOWS", "Person", "Person", "src", "dst")
+        .build()
+    )
+    data = {
+        "Person": pa.table({"id": [1, 2, 3, 4], "name": ["A", "B", "C", None]}),
+        "KNOWS": pa.table({"src": [1, 2, 2], "dst": [2, 3, 3]}),
+    }
+    assert CypherEngine(config, data, use_csr).execute(query).to_pylist() == expected
