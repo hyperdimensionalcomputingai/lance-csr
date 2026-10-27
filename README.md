@@ -311,20 +311,11 @@ Mean query latency in milliseconds (lower is better, fastest per query in bold):
 
 ## Contributing
 
-Contributions within the [project's goals](#goals) are welcome! Please explain the problem your PR solves,
-why the change is needed, and how it helps users. Agent-assisted contributions are welcome too: bring a clear
-motivation, review the generated code, and validate it. We may close PRs that lack a concrete problem or rationale;
-if you're unsure whether an idea fits, open an issue to discuss it first.
-
-We guide improvements with empirical evidence. Before submitting a code change, benchmark it against `main`
-on both suites, using the same hardware and settings for each comparison:
-
-- [GDC SNB SF1, 30-query workload](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc).
-- [GDC SNB Interactive complex queries (IC1–IC14)](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc-complex).
-
-Include a before-and-after results table, correctness checks, and enough setup details to reproduce the runs in
-your PR. We only accept changes that preserve correctness and avoid significant performance regressions in
-either suite. Documentation-only changes do not need benchmark runs.
+Contributions within the [project's goals](#goals) are welcome, from people and from their coding agents. Every
+pull request should explain the problem it solves and why the change is needed, and back that up with evidence:
+a regression test for a bug fix, and before-and-after results from both benchmark suites for a code change.
+[`CONTRIBUTING.md`](CONTRIBUTING.md) explains what to include and how to build the benchmark harness that
+measures your branch against `main`. If you're unsure whether an idea fits, open an issue to discuss it first.
 
 ## Credits
 
