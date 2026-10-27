@@ -32,11 +32,13 @@ TARGETS = [ROOT / "README.md", ROOT / "docs" / "benchmarks.md"]
 BENCHMARKS = {
     "ic": {
         "repo": "hyperdimensionalcomputingai/graph-benchmark-ldbc-complex",
-        "ref": "c185123edd58b37b417bc4deb2fec643fdbd5e61",
+        "ref": "f3e63fd2b7239a1364a864458f3e7ae07f0d833f",
+        # When lance-csr was re-run alone; omit when every engine ran together.
+        "others_measured": "2026-10-24",
         "label": "IC{n}",
         "engines": [
-            ("lance-csr-0.2.0-memory", "lance-csr 0.2.0, in memory"),
-            ("lance-csr-0.2.0-lazy", "lance-csr 0.2.0, lazy"),
+            ("lance-csr-0.3.1-memory", "lance-csr 0.3.1, in memory"),
+            ("lance-csr-0.3.1-lazy", "lance-csr 0.3.1, lazy"),
             ("neo4j-2026.09.0", "Neo4j 2026.09.0"),
             ("kuzu-0.11.3", "Kuzu 0.11.3"),
             ("ladybug-0.21.2", "Ladybug 0.21.2"),
@@ -44,11 +46,13 @@ BENCHMARKS = {
     },
     "q30": {
         "repo": "hyperdimensionalcomputingai/graph-benchmark-ldbc",
-        "ref": "6260689aa1fba4eeb4e99958430386b2fcd13f71",
+        "ref": "b649bc166cb5a04a542882fc070d9c4d83507c65",
+        # When lance-csr was re-run alone; omit when every engine ran together.
+        "others_measured": "2026-10-24",
         "label": "Q{n}",
         "engines": [
-            ("lance-csr-0.2.0-memory", "lance-csr 0.2.0, in memory"),
-            ("lance-csr-0.2.0-lazy", "lance-csr 0.2.0, lazy"),
+            ("lance-csr-0.3.1-memory", "lance-csr 0.3.1, in memory"),
+            ("lance-csr-0.3.1-lazy", "lance-csr 0.3.1, lazy"),
             ("neo4j-2026.09.0", "Neo4j 2026.09.0"),
             ("kuzu-0.11.3", "Kuzu 0.11.3"),
             ("ladybug-0.21.2", "Ladybug 0.21.2"),
@@ -155,11 +159,19 @@ def render(key: str, spec: dict) -> dict[str, str]:
         summary.append(f"| {mode} | " + " | ".join(cells) + " |")
 
     commit = f"https://github.com/{spec['repo']}/tree/{spec['ref']}"
+    # Battery power can throttle the CPU, so say when a run used it.
+    power = " on battery power" if env.get("power") == "Battery Power" else ""
+    when = (
+        f"lance-csr was measured on {env['date']}{power} and the other engines on {spec['others_measured']}, "
+        "on the same machine, with"
+        if "others_measured" in spec
+        else f"Measured on {env['date']}{power}. Every engine ran one after another with"
+    )
     notes = [
         (
-            f"- Measured on {env['date']} on {env['machine']}, {env['os']}, from the benchmark repository at "
-            f"commit [`{spec['ref'][:7]}`]({commit}). Every engine ran one after another with the repository's "
-            "`run_benchmarks.sh` settings; see its README to reproduce the runs."
+            f"- Run on {env['machine']}, {env['os']}, from the benchmark repository at commit "
+            f"[`{spec['ref'][:7]}`]({commit}). {when} the repository's `run_benchmarks.sh` settings; see its "
+            "README to reproduce the runs."
         ),
         "- Ratios are geometric means of the per-query ratios, over the queries both engines answered correctly.",
     ]
