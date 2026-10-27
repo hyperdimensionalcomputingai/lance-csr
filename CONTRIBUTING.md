@@ -116,7 +116,7 @@ bench() {  # usage: bench <main|branch> <memory|lazy>
     --benchmark-timer=time.perf_counter --benchmark-calibration-precision=10 \
     --benchmark-warmup=off --benchmark-warmup-iterations=5 --benchmark-disable-gc \
     --benchmark-sort=fullname \
-    --benchmark-storage="file://$BENCH/runs/$suite" --benchmark-save="$2-$1")
+    --benchmark-storage="file://$BENCH/runs/$suite" --benchmark-save="$1-$2")
 }
 ```
 
@@ -142,13 +142,18 @@ wrong, however fast it is.
 
 ### 4. Compare
 
-`pytest-benchmark compare` lists the saved runs side by side. From a benchmark repository's root:
+`pytest-benchmark compare` lists the saved runs side by side, one table per query. From a benchmark
+repository's root, for the `memory` runs (use `'*/*-lazy'` for the others):
 
 ```bash
 suite=$(basename "$PWD")
-(cd lance_csr && uv run --frozen pytest-benchmark compare "$BENCH/runs/$suite/*/*memory-*.json" \
-  --group-by=name --columns=mean,stddev --time-unit=ms)
+(cd lance_csr && uv run --frozen pytest-benchmark --storage "file://$BENCH/runs/$suite" \
+  compare '*/*-memory' --group-by=name --columns=mean,stddev --time-unit=ms)
 ```
+
+Each row is labelled with the start of its run's name, such as `0001_main-me` or `0002_branch-`. The saved
+JSON files (`$BENCH/runs/<suite>/<machine>/*.json`) hold every statistic, if you or your agent want to compute
+the summary below with a script.
 
 For each suite and mode, report the mean latency per query on `main` and on your branch, the change, and
 the geometric mean of the per-query ratios. The difference between the two `main` runs tells you how much
