@@ -42,8 +42,8 @@ Over the 14 queries, lance-csr's speed relative to each engine:
 
 | lance-csr mode | vs Neo4j | vs Kuzu | vs Ladybug |
 | --- | ---: | ---: | ---: |
-| In memory | 2.8× faster | 4.3× faster | 2.2× faster |
-| Lazy (Lance on disk) | 1.3× faster | 2.0× faster | 0.92× (slower) |
+| In memory | 4.0× faster | 6.2× faster | 3.3× faster |
+| Lazy (Lance on disk) | 1.8× faster | 2.8× faster | 1.3× faster |
 
 <!-- /bench:ic:summary -->
 
@@ -51,28 +51,28 @@ Over the 14 queries, lance-csr's speed relative to each engine:
 
     <!-- bench:ic:table -->
 
-    | Query | lance-csr 0.2.0, in memory | lance-csr 0.2.0, lazy | Neo4j 2026.09.0 | Kuzu 0.11.3 | Ladybug 0.21.2 |
+    | Query | lance-csr 0.3.1, in memory | lance-csr 0.3.1, lazy | Neo4j 2026.09.0 | Kuzu 0.11.3 | Ladybug 0.21.2 |
     | --- | ---: | ---: | ---: | ---: | ---: |
-    | IC1 | 26.84 | 32.72 | 51.39 | **13.51** | n/a |
-    | IC2 | **2.72** | 29.38 | 44.73 | 24.97 | 15.56 |
-    | IC3 | **75.28** | 515.33 | 894.91 | 105.21 | 100.16 |
-    | IC4 | **6.42** | 14.66 | 13.05 | 29.66 | 11.83 |
-    | IC5 | **95.15** | 114.29 | 1,022.62 | 747.75 | 309.02 |
-    | IC6 | 23.76 | **23.40** | 231.25 | 1,114.76 | 234.21 |
-    | IC7 | 21.86 | 37.82 | **7.14** | 453.74 | 370.55 |
-    | IC8 | **2.16** | 3.96 | 3.00 | 73.44 | 4.95 |
-    | IC9 | **43.62** | 1,144.25 | 802.28 | 130.96 | 62.14 |
-    | IC10 | 105.03 | 143.71 | 91.68 | 74.90 | **13.69** |
-    | IC11 | 5.02 | 7.80 | 11.02 | 4.71 | **2.51** |
-    | IC12 | 151.98 | 167.25 | 133.87 | **92.26** | 133.84 |
-    | IC13 | 4.86 | 4.99 | **0.92** | 14.16 | 47.55 |
-    | IC14 | **64.43** | 65.08 | 522.56 | 1,871.19 | n/a |
+    | IC1 | 26.33 | 32.80 | 51.39 | **13.51** | n/a |
+    | IC2 | **2.61** | 26.25 | 44.73 | 24.97 | 15.56 |
+    | IC3 | **58.70** | 417.80 | 894.91 | 105.21 | 100.16 |
+    | IC4 | **6.23** | 13.18 | 13.05 | 29.66 | 11.83 |
+    | IC5 | **77.07** | 110.05 | 1,022.62 | 747.75 | 309.02 |
+    | IC6 | **22.96** | 26.19 | 231.25 | 1,114.76 | 234.21 |
+    | IC7 | 20.95 | 32.71 | **7.14** | 453.74 | 370.55 |
+    | IC8 | **2.02** | 3.10 | 3.00 | 73.44 | 4.95 |
+    | IC9 | **38.17** | 819.62 | 802.28 | 130.96 | 62.14 |
+    | IC10 | 104.99 | 138.36 | 91.68 | 74.90 | **13.69** |
+    | IC11 | 3.66 | 5.92 | 11.02 | 4.71 | **2.51** |
+    | IC12 | **19.92** | 28.94 | 133.87 | 92.26 | 133.84 |
+    | IC13 | 1.07 | 1.50 | **0.92** | 14.16 | 47.55 |
+    | IC14 | **47.69** | 48.57 | 522.56 | 1,871.19 | n/a |
 
     <!-- /bench:ic:table -->
 
 <!-- bench:ic:notes -->
 
-- Measured on 2026-10-24 on Apple M5, 24 GB, macOS 26.6.2, from the benchmark repository at commit [`c185123`](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc-complex/tree/c185123edd58b37b417bc4deb2fec643fdbd5e61). Every engine ran one after another with the repository's `run_benchmarks.sh` settings; see its README to reproduce the runs.
+- Run on Apple M5, 24 GB, macOS 26.6.2, from the benchmark repository at commit [`6a582ba`](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc-complex/tree/6a582bad2ab447777d6f010e61405e838645ba33). lance-csr was measured on 2026-10-27 on battery power and the other engines on 2026-10-24, on the same machine, with the repository's `run_benchmarks.sh` settings; see its README to reproduce the runs.
 - Ratios are geometric means of the per-query ratios, over the queries both engines answered correctly.
 - Ladybug 0.21.2: IC1 returned a wrong answer; IC14 failed (RuntimeError), so they are not timed.
 
@@ -99,8 +99,8 @@ Over the 30 queries, lance-csr's speed relative to each engine:
 
 | lance-csr mode | vs Neo4j | vs Kuzu | vs Ladybug | vs lance-graph |
 | --- | ---: | ---: | ---: | ---: |
-| In memory | 3.3× faster | 3.7× faster | 2.4× faster | 4.2× faster |
-| Lazy (Lance on disk) | 1.9× faster | 2.2× faster | 1.4× faster | 2.5× faster |
+| In memory | 3.5× faster | 4.0× faster | 2.5× faster | 4.5× faster |
+| Lazy (Lance on disk) | 2.0× faster | 2.2× faster | 1.4× faster | 2.5× faster |
 
 <!-- /bench:q30:summary -->
 
@@ -108,44 +108,44 @@ Over the 30 queries, lance-csr's speed relative to each engine:
 
     <!-- bench:q30:table -->
 
-    | Query | lance-csr 0.2.0, in memory | lance-csr 0.2.0, lazy | Neo4j 2026.09.0 | Kuzu 0.11.3 | Ladybug 0.21.2 | lance-graph 0.5.4 |
+    | Query | lance-csr 0.3.1, in memory | lance-csr 0.3.1, lazy | Neo4j 2026.09.0 | Kuzu 0.11.3 | Ladybug 0.21.2 | lance-graph 0.5.4 |
     | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-    | Q1 | **0.74** | 1.18 | 1.28 | 1.73 | 1.22 | 1.30 |
-    | Q2 | **0.58** | 1.41 | 3.26 | 1.32 | 1.12 | 2.34 |
-    | Q3 | 0.69 | 0.83 | **0.66** | 1.03 | 0.79 | 1.86 |
-    | Q4 | 0.54 | 0.83 | 2.66 | 0.85 | **0.39** | 2.98 |
-    | Q5 | **0.82** | 2.24 | 2.78 | 3.44 | 4.00 | 2.04 |
-    | Q6 | **0.47** | 0.75 | 2.60 | 0.66 | 0.79 | 0.73 |
-    | Q7 | 1.09 | 1.13 | **0.43** | 27.73 | 25.11 | 15.68 |
-    | Q8 | **0.68** | 1.82 | 7.29 | 2.72 | 3.38 | 1.14 |
-    | Q9 | 0.86 | 1.38 | **0.76** | 1.73 | 1.34 | 1.89 |
-    | Q10 | **0.77** | 0.98 | 3.79 | 1.55 | 1.78 | 26.69 |
-    | Q11 | **1.59** | 1.99 | 10.28 | 7.96 | 4.63 | 3.08 |
-    | Q12 | **0.84** | 7.77 | 2.55 | 17.16 | 7.84 | 18.68 |
-    | Q13 | **0.80** | 1.06 | 6.65 | 42.66 | 5.84 | 9.62 |
-    | Q14 | 0.55 | 0.69 | **0.46** | 1.56 | 0.90 | 2.91 |
-    | Q15 | **0.56** | 0.78 | 2.37 | 2.38 | 1.16 | 3.02 |
-    | Q16 | **0.70** | 1.16 | 1.26 | 1.78 | 1.04 | 4.33 |
-    | Q17 | **0.98** | 1.44 | 3.09 | 2.62 | 1.74 | 2.30 |
-    | Q18 | **0.70** | 1.17 | 3.11 | 1.51 | 1.22 | 1.76 |
-    | Q19 | **0.98** | 1.61 | 4.86 | 11.66 | 3.43 | 19.93 |
-    | Q20 | **2.12** | 19.59 | 421.92 | 13.25 | 14.15 | 3.13 |
-    | Q21 | 0.77 | 0.94 | 0.51 | **0.44** | 0.50 | 1.46 |
-    | Q22 | **0.71** | 0.93 | 2.66 | 23.34 | 7.46 | 13.41 |
-    | Q23 | **0.74** | 1.22 | 3.13 | 1.19 | 0.79 | 2.42 |
-    | Q24 | **0.69** | 1.07 | 0.72 | 1.23 | 0.81 | 1.75 |
-    | Q25 | **0.80** | 1.24 | 2.86 | 1.45 | 1.27 | 1.47 |
-    | Q26 | 0.75 | 1.10 | **0.65** | 3.37 | 1.15 | 2.93 |
-    | Q27 | **0.87** | 1.33 | 2.22 | 17.96 | 3.71 | 24.84 |
-    | Q28 | **1.39** | 2.31 | 2.37 | 1.51 | 1.78 | 2.50 |
-    | Q29 | **0.69** | 1.03 | 2.62 | 1.02 | 0.72 | 2.96 |
-    | Q30 | 35.36 | 39.70 | 1,359.98 | 146.52 | 97.77 | **34.31** |
+    | Q1 | **0.69** | 1.19 | 1.28 | 1.73 | 1.22 | 1.30 |
+    | Q2 | **0.50** | 1.42 | 3.26 | 1.32 | 1.12 | 2.34 |
+    | Q3 | 0.69 | 0.80 | **0.66** | 1.03 | 0.79 | 1.86 |
+    | Q4 | 0.50 | 0.78 | 2.66 | 0.85 | **0.39** | 2.98 |
+    | Q5 | **0.86** | 2.38 | 2.78 | 3.44 | 4.00 | 2.04 |
+    | Q6 | **0.44** | 0.82 | 2.60 | 0.66 | 0.79 | 0.73 |
+    | Q7 | 1.00 | 1.06 | **0.43** | 27.73 | 25.11 | 15.68 |
+    | Q8 | **0.62** | 1.74 | 7.29 | 2.72 | 3.38 | 1.14 |
+    | Q9 | 0.79 | 1.42 | **0.76** | 1.73 | 1.34 | 1.89 |
+    | Q10 | **0.70** | 0.95 | 3.79 | 1.55 | 1.78 | 26.69 |
+    | Q11 | **1.47** | 2.07 | 10.28 | 7.96 | 4.63 | 3.08 |
+    | Q12 | **0.68** | 7.08 | 2.55 | 17.16 | 7.84 | 18.68 |
+    | Q13 | **0.73** | 1.01 | 6.65 | 42.66 | 5.84 | 9.62 |
+    | Q14 | 0.48 | 0.64 | **0.46** | 1.56 | 0.90 | 2.91 |
+    | Q15 | **0.51** | 0.74 | 2.37 | 2.38 | 1.16 | 3.02 |
+    | Q16 | **0.64** | 1.08 | 1.26 | 1.78 | 1.04 | 4.33 |
+    | Q17 | **0.93** | 1.41 | 3.09 | 2.62 | 1.74 | 2.30 |
+    | Q18 | **0.65** | 1.10 | 3.11 | 1.51 | 1.22 | 1.76 |
+    | Q19 | **0.97** | 1.36 | 4.86 | 11.66 | 3.43 | 19.93 |
+    | Q20 | **2.15** | 17.09 | 421.92 | 13.25 | 14.15 | 3.13 |
+    | Q21 | 0.71 | 0.80 | 0.51 | **0.44** | 0.50 | 1.46 |
+    | Q22 | **0.65** | 0.99 | 2.66 | 23.34 | 7.46 | 13.41 |
+    | Q23 | **0.66** | 1.19 | 3.13 | 1.19 | 0.79 | 2.42 |
+    | Q24 | **0.62** | 1.02 | 0.72 | 1.23 | 0.81 | 1.75 |
+    | Q25 | **0.72** | 1.22 | 2.86 | 1.45 | 1.27 | 1.47 |
+    | Q26 | 0.70 | 1.06 | **0.65** | 3.37 | 1.15 | 2.93 |
+    | Q27 | **0.80** | 1.39 | 2.22 | 17.96 | 3.71 | 24.84 |
+    | Q28 | **1.30** | 2.27 | 2.37 | 1.51 | 1.78 | 2.50 |
+    | Q29 | **0.67** | 0.98 | 2.62 | 1.02 | 0.72 | 2.96 |
+    | Q30 | 49.64 | 50.47 | 1,359.98 | 146.52 | 97.77 | **34.31** |
 
     <!-- /bench:q30:table -->
 
 <!-- bench:q30:notes -->
 
-- Measured on 2026-10-24 on Apple M5, 24 GB, macOS 26.6.2, from the benchmark repository at commit [`6260689`](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc/tree/6260689aa1fba4eeb4e99958430386b2fcd13f71). Every engine ran one after another with the repository's `run_benchmarks.sh` settings; see its README to reproduce the runs.
+- Run on Apple M5, 24 GB, macOS 26.6.2, from the benchmark repository at commit [`1fedd8b`](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc/tree/1fedd8bd213d071adf3a3c1c60c6da1c518ed121). lance-csr was measured on 2026-10-27 on battery power and the other engines on 2026-10-24, on the same machine, with the repository's `run_benchmarks.sh` settings; see its README to reproduce the runs.
 - Ratios are geometric means of the per-query ratios, over the queries both engines answered correctly.
 
 <!-- /bench:q30:notes -->
