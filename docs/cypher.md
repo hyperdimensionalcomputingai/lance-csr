@@ -10,6 +10,10 @@ There are two ways to run Cypher, and most code wants the first:
 | CSR index | `use_csr=True` | Not available |
 | Streaming results | `execute_batches()` | No |
 
+A query may end with one optional semicolon, including after `SKIP` or `LIMIT`.
+Whitespace may follow it. Each execution call accepts one query; repeated semicolons
+and additional statements are rejected. Semicolons inside string literals are ordinary text.
+
 The examples on this page share this setup:
 
 ```python

@@ -19,7 +19,7 @@ use nom::{
 };
 use std::collections::HashMap;
 
-/// Parse a complete Cypher query
+/// Parse one complete Cypher query with an optional trailing semicolon.
 pub fn parse_cypher_query(input: &str) -> Result<CypherQuery> {
     let (remaining, query) = cypher_query(input).map_err(|e| GraphError::ParseError {
         message: format!("Failed to parse Cypher query: {}", e),
@@ -27,6 +27,7 @@ pub fn parse_cypher_query(input: &str) -> Result<CypherQuery> {
         location: snafu::Location::new(file!(), line!(), column!()),
     })?;
 
+    let remaining = remaining.strip_prefix(';').unwrap_or(remaining);
     if !remaining.trim().is_empty() {
         return Err(GraphError::ParseError {
             message: format!("Unexpected input after query: {}", remaining),
@@ -1615,6 +1616,36 @@ fn length_range(input: &str) -> IResult<&str, LengthRange> {
 mod tests {
     use super::*;
     use crate::ast::{BooleanExpression, ComparisonOperator, PropertyValue, ValueExpression};
+
+    #[test]
+    fn test_optional_trailing_semicolon() {
+        for query in [
+            "MATCH (n:Person) RETURN n.name",
+            "MATCH (n:Person) RETURN n.id ORDER BY n.id SKIP 1 LIMIT 2",
+            "MATCH (n:Person) WITH n.name AS name RETURN name",
+            "MATCH (n:Person) RETURN 'a;b' AS text",
+        ] {
+            let expected = parse_cypher_query(query).unwrap();
+            for suffix in [";", " ;", "; \n\t"] {
+                assert_eq!(
+                    parse_cypher_query(&format!("{query}{suffix}")).unwrap(),
+                    expected
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_semicolon_does_not_allow_multiple_statements() {
+        for query in [
+            ";",
+            "MATCH (n:Person) RETURN n.id;;",
+            "MATCH (n:Person) RETURN n.id; MATCH (m:Person) RETURN m.id",
+            "MATCH (n:Person) RETURN n.id; garbage",
+        ] {
+            assert!(parse_cypher_query(query).is_err(), "accepted {query}");
+        }
+    }
 
     #[test]
     fn test_parse_simple_node_query() {
