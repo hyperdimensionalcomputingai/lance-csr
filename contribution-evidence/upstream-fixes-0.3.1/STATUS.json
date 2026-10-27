@@ -1,0 +1,39 @@
+{
+  "tested_base": "f5a986e822032a3aa8c52af55ad08e92504ee73c",
+  "observed_main": "6effd0db0c002912cf969fd7447ea7a3ce2631df",
+  "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration.",
+  "workflow": "Every candidate debug gate passed before any final production build.",
+  "benchmark_acceptance": "passed",
+  "deferred": [
+    "Untyped variable-length relationships (#104)",
+    "Factorized intermediates (#163)",
+    "Optional Lance / DataFusion-only build (#171)",
+    "JNI bindings (#115)"
+  ],
+  "issues": [
+    {
+      "upstream_issue": 123,
+      "branch": "codex/fix-aggregate-predicates",
+      "head": "80d4438884872ce9d18c528caa1519441a9460ce",
+      "python_tests_passed": 1387,
+      "wheel_sha256": "529a2d13bf739af63e2ddbeb4845182c6711d9ce5780382862c26ff340c0b1ca",
+      "native_sha256": "56f4156f70bcf19702d09a7f587aed0747032eded5eb66d98f04debc6795b3e1"
+    },
+    {
+      "upstream_issue": 105,
+      "branch": "codex/fix-column-casing",
+      "head": "e6df15716a052af380e8a5d2da340cc506ecd188",
+      "python_tests_passed": 1393,
+      "wheel_sha256": "d902a964f5c1818e33e8edddd5dfb12f1482d46bb43e2dc9b6719095b3f574c4",
+      "native_sha256": "75ae7526df67d4411f7c2f36c4e3f356683381a951b30aaae3b01c7f1b14795e"
+    },
+    {
+      "upstream_issue": 101,
+      "branch": "codex/fix-trailing-semicolon",
+      "head": "28096751241a8707042091e5012f99ce1f32f594",
+      "python_tests_passed": 1299,
+      "wheel_sha256": "ab069af7ae0ecc09ed5ece5dd36ff2a8d04d50ebce9de5f55a87b1c84bd5dfec",
+      "native_sha256": "4640af6c6103c9acb88548c8cbc1e255240907e43cfec81e91cb2b99af396af5"
+    }
+  ]
+}

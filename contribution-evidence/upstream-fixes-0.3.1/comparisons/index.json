@@ -1,0 +1,154 @@
+{
+  "comparisons": [
+    {
+      "before": "submit-main",
+      "after": "submit-123",
+      "suite": "q30",
+      "mode": "memory",
+      "report": "/private/tmp/lance-csr-submissions/submit-comparisons/123-q30-memory.json",
+      "geometric_mean_speedup": 0.924053744304828,
+      "flags_above_10_percent": [
+        6,
+        11,
+        12,
+        14,
+        15,
+        18,
+        19,
+        22,
+        23,
+        26,
+        27,
+        28
+      ]
+    },
+    {
+      "before": "submit-main",
+      "after": "submit-123",
+      "suite": "q30",
+      "mode": "lazy",
+      "report": "/private/tmp/lance-csr-submissions/submit-comparisons/123-q30-lazy.json",
+      "geometric_mean_speedup": 1.0244860789411954,
+      "flags_above_10_percent": [
+        3,
+        4
+      ]
+    },
+    {
+      "before": "submit-main",
+      "after": "submit-123",
+      "suite": "ic",
+      "mode": "memory",
+      "report": "/private/tmp/lance-csr-submissions/submit-comparisons/123-ic-memory.json",
+      "geometric_mean_speedup": 0.9939829335675394,
+      "flags_above_10_percent": []
+    },
+    {
+      "before": "submit-main",
+      "after": "submit-123",
+      "suite": "ic",
+      "mode": "lazy",
+      "report": "/private/tmp/lance-csr-submissions/submit-comparisons/123-ic-lazy.json",
+      "geometric_mean_speedup": 0.9991571081395559,
+      "flags_above_10_percent": [
+        12
+      ]
+    },
+    {
+      "before": "submit-main",
+      "after": "submit-105",
+      "suite": "q30",
+      "mode": "memory",
+      "report": "/private/tmp/lance-csr-submissions/submit-comparisons/105-q30-memory.json",
+      "geometric_mean_speedup": 0.988873810742722,
+      "flags_above_10_percent": [
+        12
+      ]
+    },
+    {
+      "before": "submit-main",
+      "after": "submit-105",
+      "suite": "q30",
+      "mode": "lazy",
+      "report": "/private/tmp/lance-csr-submissions/submit-comparisons/105-q30-lazy.json",
+      "geometric_mean_speedup": 1.0354695070217101,
+      "flags_above_10_percent": [
+        3,
+        6,
+        7
+      ]
+    },
+    {
+      "before": "submit-main",
+      "after": "submit-105",
+      "suite": "ic",
+      "mode": "memory",
+      "report": "/private/tmp/lance-csr-submissions/submit-comparisons/105-ic-memory.json",
+      "geometric_mean_speedup": 0.9580779191051967,
+      "flags_above_10_percent": [
+        8,
+        9,
+        12
+      ]
+    },
+    {
+      "before": "submit-main",
+      "after": "submit-105",
+      "suite": "ic",
+      "mode": "lazy",
+      "report": "/private/tmp/lance-csr-submissions/submit-comparisons/105-ic-lazy.json",
+      "geometric_mean_speedup": 0.9711473304274635,
+      "flags_above_10_percent": [
+        3,
+        9,
+        13
+      ]
+    },
+    {
+      "before": "submit-main",
+      "after": "submit-101",
+      "suite": "q30",
+      "mode": "memory",
+      "report": "/private/tmp/lance-csr-submissions/submit-comparisons/101-q30-memory.json",
+      "geometric_mean_speedup": 0.9998823822513105,
+      "flags_above_10_percent": [
+        22
+      ]
+    },
+    {
+      "before": "submit-main",
+      "after": "submit-101",
+      "suite": "q30",
+      "mode": "lazy",
+      "report": "/private/tmp/lance-csr-submissions/submit-comparisons/101-q30-lazy.json",
+      "geometric_mean_speedup": 1.0198841157669305,
+      "flags_above_10_percent": [
+        1,
+        4,
+        6,
+        10,
+        11,
+        12,
+        13
+      ]
+    },
+    {
+      "before": "submit-main",
+      "after": "submit-101",
+      "suite": "ic",
+      "mode": "memory",
+      "report": "/private/tmp/lance-csr-submissions/submit-comparisons/101-ic-memory.json",
+      "geometric_mean_speedup": 1.0042061082482479,
+      "flags_above_10_percent": []
+    },
+    {
+      "before": "submit-main",
+      "after": "submit-101",
+      "suite": "ic",
+      "mode": "lazy",
+      "report": "/private/tmp/lance-csr-submissions/submit-comparisons/101-ic-lazy.json",
+      "geometric_mean_speedup": 1.0213968312672395,
+      "flags_above_10_percent": []
+    }
+  ]
+}

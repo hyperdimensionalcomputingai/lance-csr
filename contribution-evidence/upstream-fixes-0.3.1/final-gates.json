@@ -1,0 +1,188 @@
+{
+  "rule": "Retain complete first-pass means. Repeat each query above 1.10 after/before twice in paired/reversed order; both repeats above 1.10 require longer prospectively defined measurements before readiness. Missing or failed measurements cannot pass.",
+  "first_comparison_index_sha256": "8882ad60d952fb90e8ac3d387ed1d71cc6af5207e1ad16ac46cac59446ff9792",
+  "repeat_plan_sha256": "359f4a3979e0b76fde4a998af8f07dab95340e6f554cdd4d49691b2292cade97",
+  "comparisons": [
+    {
+      "before": "submit-main",
+      "after": "submit-123",
+      "suite": "q30",
+      "mode": "memory",
+      "report": "/private/tmp/lance-csr-submissions/submit-comparisons/123-q30-memory.json",
+      "geometric_mean_speedup": 0.924053744304828,
+      "flags_above_10_percent": [
+        6,
+        11,
+        12,
+        14,
+        15,
+        18,
+        19,
+        22,
+        23,
+        26,
+        27,
+        28
+      ],
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "submit-main",
+      "after": "submit-123",
+      "suite": "q30",
+      "mode": "lazy",
+      "report": "/private/tmp/lance-csr-submissions/submit-comparisons/123-q30-lazy.json",
+      "geometric_mean_speedup": 1.0244860789411954,
+      "flags_above_10_percent": [
+        3,
+        4
+      ],
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "submit-main",
+      "after": "submit-123",
+      "suite": "ic",
+      "mode": "memory",
+      "report": "/private/tmp/lance-csr-submissions/submit-comparisons/123-ic-memory.json",
+      "geometric_mean_speedup": 0.9939829335675394,
+      "flags_above_10_percent": [],
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "submit-main",
+      "after": "submit-123",
+      "suite": "ic",
+      "mode": "lazy",
+      "report": "/private/tmp/lance-csr-submissions/submit-comparisons/123-ic-lazy.json",
+      "geometric_mean_speedup": 0.9991571081395559,
+      "flags_above_10_percent": [
+        12
+      ],
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "submit-main",
+      "after": "submit-105",
+      "suite": "q30",
+      "mode": "memory",
+      "report": "/private/tmp/lance-csr-submissions/submit-comparisons/105-q30-memory.json",
+      "geometric_mean_speedup": 0.988873810742722,
+      "flags_above_10_percent": [
+        12
+      ],
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "submit-main",
+      "after": "submit-105",
+      "suite": "q30",
+      "mode": "lazy",
+      "report": "/private/tmp/lance-csr-submissions/submit-comparisons/105-q30-lazy.json",
+      "geometric_mean_speedup": 1.0354695070217101,
+      "flags_above_10_percent": [
+        3,
+        6,
+        7
+      ],
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "submit-main",
+      "after": "submit-105",
+      "suite": "ic",
+      "mode": "memory",
+      "report": "/private/tmp/lance-csr-submissions/submit-comparisons/105-ic-memory.json",
+      "geometric_mean_speedup": 0.9580779191051967,
+      "flags_above_10_percent": [
+        8,
+        9,
+        12
+      ],
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "submit-main",
+      "after": "submit-105",
+      "suite": "ic",
+      "mode": "lazy",
+      "report": "/private/tmp/lance-csr-submissions/submit-comparisons/105-ic-lazy.json",
+      "geometric_mean_speedup": 0.9711473304274635,
+      "flags_above_10_percent": [
+        3,
+        9,
+        13
+      ],
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "submit-main",
+      "after": "submit-101",
+      "suite": "q30",
+      "mode": "memory",
+      "report": "/private/tmp/lance-csr-submissions/submit-comparisons/101-q30-memory.json",
+      "geometric_mean_speedup": 0.9998823822513105,
+      "flags_above_10_percent": [
+        22
+      ],
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "submit-main",
+      "after": "submit-101",
+      "suite": "q30",
+      "mode": "lazy",
+      "report": "/private/tmp/lance-csr-submissions/submit-comparisons/101-q30-lazy.json",
+      "geometric_mean_speedup": 1.0198841157669305,
+      "flags_above_10_percent": [
+        1,
+        4,
+        6,
+        10,
+        11,
+        12,
+        13
+      ],
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "submit-main",
+      "after": "submit-101",
+      "suite": "ic",
+      "mode": "memory",
+      "report": "/private/tmp/lance-csr-submissions/submit-comparisons/101-ic-memory.json",
+      "geometric_mean_speedup": 1.0042061082482479,
+      "flags_above_10_percent": [],
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    },
+    {
+      "before": "submit-main",
+      "after": "submit-101",
+      "suite": "ic",
+      "mode": "lazy",
+      "report": "/private/tmp/lance-csr-submissions/submit-comparisons/101-ic-lazy.json",
+      "geometric_mean_speedup": 1.0213968312672395,
+      "flags_above_10_percent": [],
+      "repeatable_regressions": [],
+      "acceptance": "passed_performance_gate"
+    }
+  ],
+  "surviving_groups": [],
+  "all_passed": true,
+  "limits": [
+    "First-pass suite means and flags are retained unchanged.",
+    "Engineering measurements on one macOS arm64 host; other platforms are unverified.",
+    "Golden answers, dataset manifests and benchmark repositories are preserved."
+  ]
+}
