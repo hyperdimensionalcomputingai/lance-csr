@@ -4,11 +4,16 @@ lance-csr aims to be a fast, correct, **single-machine** Cypher engine on Lance 
 [project goals](README.md#goals)). Distributed execution is out of scope. Contributions within those goals
 are welcome, from people and from their coding agents.
 
-What we ask of every pull request is a reason. Each line of code is something we maintain for good, so a
-change has to show that it fixes a real problem or makes real queries faster, and that it doesn't break
-anything else along the way. This guide explains what that means in practice, and how to build the
-benchmark harness that provides the evidence. It is written so that you can hand it to a coding agent and
-have it follow the steps.
+What matters in a pull request:
+
+- **A clear reason:** the problem it solves, or the queries it makes faster.
+- **Correct results:** every test and benchmark answer still checks out.
+- **Evidence:** a regression test for a bug fix; before-and-after numbers from both benchmark suites for a
+  code change.
+- **No surprises:** no unexplained slowdowns elsewhere.
+
+The sections below cover each of these, including a step-by-step benchmark harness you can hand to a coding
+agent.
 
 ## Start with the why
 
