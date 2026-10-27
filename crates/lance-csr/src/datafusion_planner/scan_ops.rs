@@ -10,9 +10,20 @@ use crate::ast::{PropertyValue, RelationshipDirection};
 use crate::case_insensitive::qualify_column;
 use crate::config::RelationshipMapping;
 use crate::error::Result;
+use datafusion::common::Column;
 use datafusion::logical_expr::{col, BinaryExpr, Expr, LogicalPlan, LogicalPlanBuilder, Operator};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+
+/// Bind a property filter to its physical field spelling before scan aliasing.
+pub(super) fn source_column(schema: &arrow_schema::Schema, name: &str) -> Expr {
+    let physical = schema
+        .fields()
+        .iter()
+        .find(|field| field.name().eq_ignore_ascii_case(name))
+        .map_or(name, |field| field.name().as_str());
+    col(Column::new_unqualified(physical))
+}
 
 // Forward declare DataFusionPlanner to add methods to it
 use super::DataFusionPlanner;
@@ -48,7 +59,7 @@ impl DataFusionPlanner {
                                 &crate::ast::ValueExpression::Literal(v.clone()),
                             );
                             Expr::BinaryExpr(BinaryExpr {
-                                left: Box::new(col(k)),
+                                left: Box::new(source_column(&schema, k)),
                                 op: Operator::Eq,
                                 right: Box::new(lit_expr),
                             })
@@ -79,7 +90,7 @@ impl DataFusionPlanner {
                     .iter()
                     .map(|field| {
                         let qualified_name = qualify_column(variable, field.name());
-                        col(field.name()).alias(&qualified_name)
+                        col(Column::new_unqualified(field.name())).alias(&qualified_name)
                     })
                     .collect();
 
@@ -143,7 +154,7 @@ impl DataFusionPlanner {
             let lit_expr =
                 self.unresolved_value_expr(&crate::ast::ValueExpression::Literal(v.clone()));
             let filter_expr = Expr::BinaryExpr(BinaryExpr {
-                left: Box::new(col(k)),
+                left: Box::new(source_column(&rel_schema, k)),
                 op: Operator::Eq,
                 right: Box::new(lit_expr),
             });
@@ -163,7 +174,7 @@ impl DataFusionPlanner {
             .iter()
             .map(|field| {
                 let qualified_name = qualify_column(&rel_instance.alias, field.name());
-                col(field.name()).alias(&qualified_name)
+                col(Column::new_unqualified(field.name())).alias(&qualified_name)
             })
             .collect();
 
@@ -209,14 +220,14 @@ impl DataFusionPlanner {
             .fields()
             .iter()
             .map(|f| match f.name() {
-                n if *n == src => col(&dst).alias(&src),
-                n if *n == dst => col(&src).alias(&dst),
-                n => col(n),
+                n if *n == src => col(Column::new_unqualified(&dst)).alias(&src),
+                n if *n == dst => col(Column::new_unqualified(&src)).alias(&dst),
+                n => col(Column::new_unqualified(n)),
             })
             .collect();
         let reversed = builder
             .clone()
-            .filter(col(&src).not_eq(col(&dst)))
+            .filter(col(Column::new_unqualified(&src)).not_eq(col(Column::new_unqualified(&dst))))
             .and_then(|b| b.project(swapped))
             .and_then(|b| b.build())
             .map_err(|e| self.plan_error("Failed to reverse undirected edges", e))?;
@@ -272,6 +283,49 @@ mod tests {
         DataFusionPlanner, GraphPhysicalPlanner,
     };
     use crate::logical_plan::{LogicalOperator, ProjectionItem};
+
+    #[tokio::test]
+    async fn test_mixed_case_physical_fields_and_inline_filter() {
+        use arrow_array::{Int64Array, RecordBatch, StringArray};
+        use datafusion::execution::context::SessionContext;
+        use std::sync::Arc;
+
+        let ctx = SessionContext::new();
+        ctx.register_batch(
+            "person",
+            RecordBatch::try_from_iter(vec![
+                ("ID", Arc::new(Int64Array::from(vec![1, 2])) as _),
+                (
+                    "firstName",
+                    Arc::new(StringArray::from(vec!["Bill", "Alice"])) as _,
+                ),
+            ])
+            .unwrap(),
+        )
+        .unwrap();
+        let config = person_config();
+        for query in [
+            "MATCH (p:Person {FIRSTNAME: 'Alice'}) RETURN p.id AS id",
+            "MATCH (p:Person) WHERE p.firstName = 'Alice' RETURN p.ID AS id",
+        ] {
+            let result = crate::query::CypherQuery::new(query)
+                .unwrap()
+                .with_config(config.clone())
+                .execute_with_context(ctx.clone())
+                .await
+                .unwrap();
+            assert_eq!(result.num_rows(), 1);
+            assert_eq!(
+                result
+                    .column(0)
+                    .as_any()
+                    .downcast_ref::<Int64Array>()
+                    .unwrap()
+                    .value(0),
+                2
+            );
+        }
+    }
 
     #[test]
     fn test_df_planner_inline_property_filter() {
