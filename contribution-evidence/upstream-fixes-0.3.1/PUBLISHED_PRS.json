@@ -1,0 +1,316 @@
+{
+  "verified_utc": "2026-10-27T00:08:29.587895+00:00",
+  "evidence_commit": "4e6349469c4e5a436136e74a29e153e68e5b6f79",
+  "evidence_archive_sha256": "8a96a5a5ee85d63705c8da6bcb5b8d16c893e6c56acef80b69a6cb4f60d42d5c",
+  "remote_archive_blob_sha": "f7bce952a8da9b8a7a76b69f47f7e4e7e453e75c",
+  "remote_archive_bytes": 2731667,
+  "creation_method": "Authenticated GitHub CLI as stugorf after GitHub connector returned 403 Resource not accessible by integration.",
+  "attribution": "Submitted by David Hughes (@stugorf), with AI Collaboration.",
+  "pull_requests": [
+    {
+      "upstream_issue": 123,
+      "number": 65,
+      "url": "https://github.com/hyperdimensionalcomputingai/lance-csr/pull/65",
+      "title": "fix(query): preserve empty-input distinct counts",
+      "head_branch": "codex/fix-aggregate-predicates",
+      "head_commit": "80d4438884872ce9d18c528caa1519441a9460ce",
+      "base_branch": "main",
+      "base_commit": "6effd0db0c002912cf969fd7447ea7a3ce2631df",
+      "author": "stugorf",
+      "state": "open",
+      "draft": false,
+      "merged": false,
+      "auto_merge": null,
+      "mergeable_at_snapshot": true,
+      "created_at": "2026-10-27T00:06:51Z",
+      "body_sha256": "d8db7ce0142d0d8049b58804cdd213688a9e90bce6e7c734a4e7e830aea2c864",
+      "initial_ci_checks": [
+        {
+          "__typename": "CheckRun",
+          "completedAt": "0001-01-01T00:00:00Z",
+          "conclusion": "",
+          "detailsUrl": "https://github.com/hyperdimensionalcomputingai/lance-csr/actions/runs/40424278527/job/121926047653",
+          "name": "test (3.12)",
+          "startedAt": "2026-10-27T00:06:58Z",
+          "status": "IN_PROGRESS",
+          "workflowName": "Python Tests"
+        },
+        {
+          "__typename": "CheckRun",
+          "completedAt": "0001-01-01T00:00:00Z",
+          "conclusion": "",
+          "detailsUrl": "https://github.com/hyperdimensionalcomputingai/lance-csr/actions/runs/40424278392/job/121926046588",
+          "name": "test",
+          "startedAt": "2026-10-27T00:06:58Z",
+          "status": "IN_PROGRESS",
+          "workflowName": "Rust Tests"
+        },
+        {
+          "__typename": "CheckRun",
+          "completedAt": "2026-10-27T00:07:12Z",
+          "conclusion": "SUCCESS",
+          "detailsUrl": "https://github.com/hyperdimensionalcomputingai/lance-csr/actions/runs/40424278564/job/121926047017",
+          "name": "build",
+          "startedAt": "2026-10-27T00:06:58Z",
+          "status": "COMPLETED",
+          "workflowName": "Docs"
+        },
+        {
+          "__typename": "CheckRun",
+          "completedAt": "2026-10-27T00:07:19Z",
+          "conclusion": "SUCCESS",
+          "detailsUrl": "https://github.com/hyperdimensionalcomputingai/lance-csr/actions/runs/40424278339/job/121926046952",
+          "name": "format",
+          "startedAt": "2026-10-27T00:06:58Z",
+          "status": "COMPLETED",
+          "workflowName": "Style Check"
+        },
+        {
+          "__typename": "CheckRun",
+          "completedAt": "0001-01-01T00:00:00Z",
+          "conclusion": "",
+          "detailsUrl": "https://github.com/hyperdimensionalcomputingai/lance-csr/actions/runs/40424278339/job/121926046998",
+          "name": "clippy",
+          "startedAt": "2026-10-27T00:06:58Z",
+          "status": "IN_PROGRESS",
+          "workflowName": "Style Check"
+        },
+        {
+          "__typename": "CheckRun",
+          "completedAt": "2026-10-27T00:07:11Z",
+          "conclusion": "SUCCESS",
+          "detailsUrl": "https://github.com/hyperdimensionalcomputingai/lance-csr/actions/runs/40424278527/job/121926047371",
+          "name": "lint",
+          "startedAt": "2026-10-27T00:06:58Z",
+          "status": "COMPLETED",
+          "workflowName": "Python Tests"
+        },
+        {
+          "__typename": "CheckRun",
+          "completedAt": "2026-10-27T00:07:06Z",
+          "conclusion": "SUCCESS",
+          "detailsUrl": "https://github.com/hyperdimensionalcomputingai/lance-csr/actions/runs/40424278339/job/121926046686",
+          "name": "Spell Check",
+          "startedAt": "2026-10-27T00:06:58Z",
+          "status": "COMPLETED",
+          "workflowName": "Style Check"
+        },
+        {
+          "__typename": "CheckRun",
+          "completedAt": "2026-10-26T23:43:24Z",
+          "conclusion": "SUCCESS",
+          "detailsUrl": "https://dash.cloudflare.com/?to=/07f020ffb584a6d461defd2e37fa353e/pages/view/lance-csr/d5b7c287-8659-4d3e-b7da-c8d67cd73d36",
+          "name": "Cloudflare Pages",
+          "startedAt": "2026-10-26T23:43:24Z",
+          "status": "COMPLETED",
+          "workflowName": ""
+        }
+      ]
+    },
+    {
+      "upstream_issue": 105,
+      "number": 66,
+      "url": "https://github.com/hyperdimensionalcomputingai/lance-csr/pull/66",
+      "title": "fix(planner): preserve physical column casing in graph scans",
+      "head_branch": "codex/fix-column-casing",
+      "head_commit": "e6df15716a052af380e8a5d2da340cc506ecd188",
+      "base_branch": "main",
+      "base_commit": "6effd0db0c002912cf969fd7447ea7a3ce2631df",
+      "author": "stugorf",
+      "state": "open",
+      "draft": false,
+      "merged": false,
+      "auto_merge": null,
+      "mergeable_at_snapshot": true,
+      "created_at": "2026-10-27T00:07:01Z",
+      "body_sha256": "4f88f2b0699a7999016f56362794282ad546ca1a52767f82ab303a3780082cd5",
+      "initial_ci_checks": [
+        {
+          "__typename": "CheckRun",
+          "completedAt": "0001-01-01T00:00:00Z",
+          "conclusion": "",
+          "detailsUrl": "https://github.com/hyperdimensionalcomputingai/lance-csr/actions/runs/40424295176/job/121926100971",
+          "name": "test (3.12)",
+          "startedAt": "2026-10-27T00:07:06Z",
+          "status": "IN_PROGRESS",
+          "workflowName": "Python Tests"
+        },
+        {
+          "__typename": "CheckRun",
+          "completedAt": "0001-01-01T00:00:00Z",
+          "conclusion": "",
+          "detailsUrl": "https://github.com/hyperdimensionalcomputingai/lance-csr/actions/runs/40424295215/job/121926101435",
+          "name": "test",
+          "startedAt": "2026-10-27T00:07:06Z",
+          "status": "IN_PROGRESS",
+          "workflowName": "Rust Tests"
+        },
+        {
+          "__typename": "CheckRun",
+          "completedAt": "2026-10-27T00:07:17Z",
+          "conclusion": "SUCCESS",
+          "detailsUrl": "https://github.com/hyperdimensionalcomputingai/lance-csr/actions/runs/40424295097/job/121926100446",
+          "name": "build",
+          "startedAt": "2026-10-27T00:07:06Z",
+          "status": "COMPLETED",
+          "workflowName": "Docs"
+        },
+        {
+          "__typename": "CheckRun",
+          "completedAt": "2026-10-27T00:07:27Z",
+          "conclusion": "SUCCESS",
+          "detailsUrl": "https://github.com/hyperdimensionalcomputingai/lance-csr/actions/runs/40424295132/job/121926101643",
+          "name": "format",
+          "startedAt": "2026-10-27T00:07:07Z",
+          "status": "COMPLETED",
+          "workflowName": "Style Check"
+        },
+        {
+          "__typename": "CheckRun",
+          "completedAt": "0001-01-01T00:00:00Z",
+          "conclusion": "",
+          "detailsUrl": "https://github.com/hyperdimensionalcomputingai/lance-csr/actions/runs/40424295132/job/121926101268",
+          "name": "clippy",
+          "startedAt": "2026-10-27T00:07:07Z",
+          "status": "IN_PROGRESS",
+          "workflowName": "Style Check"
+        },
+        {
+          "__typename": "CheckRun",
+          "completedAt": "2026-10-27T00:07:18Z",
+          "conclusion": "SUCCESS",
+          "detailsUrl": "https://github.com/hyperdimensionalcomputingai/lance-csr/actions/runs/40424295176/job/121926100804",
+          "name": "lint",
+          "startedAt": "2026-10-27T00:07:06Z",
+          "status": "COMPLETED",
+          "workflowName": "Python Tests"
+        },
+        {
+          "__typename": "CheckRun",
+          "completedAt": "2026-10-27T00:07:14Z",
+          "conclusion": "SUCCESS",
+          "detailsUrl": "https://github.com/hyperdimensionalcomputingai/lance-csr/actions/runs/40424295132/job/121926101603",
+          "name": "Spell Check",
+          "startedAt": "2026-10-27T00:07:07Z",
+          "status": "COMPLETED",
+          "workflowName": "Style Check"
+        },
+        {
+          "__typename": "CheckRun",
+          "completedAt": "2026-10-26T23:43:07Z",
+          "conclusion": "SUCCESS",
+          "detailsUrl": "https://dash.cloudflare.com/?to=/07f020ffb584a6d461defd2e37fa353e/pages/view/lance-csr/dccf763a-09b0-43ff-879f-573eda0f3cd5",
+          "name": "Cloudflare Pages",
+          "startedAt": "2026-10-26T23:43:07Z",
+          "status": "COMPLETED",
+          "workflowName": ""
+        }
+      ]
+    },
+    {
+      "upstream_issue": 101,
+      "number": 67,
+      "url": "https://github.com/hyperdimensionalcomputingai/lance-csr/pull/67",
+      "title": "fix(parser): accept one trailing Cypher semicolon",
+      "head_branch": "codex/fix-trailing-semicolon",
+      "head_commit": "28096751241a8707042091e5012f99ce1f32f594",
+      "base_branch": "main",
+      "base_commit": "6effd0db0c002912cf969fd7447ea7a3ce2631df",
+      "author": "stugorf",
+      "state": "open",
+      "draft": false,
+      "merged": false,
+      "auto_merge": null,
+      "mergeable_at_snapshot": true,
+      "created_at": "2026-10-27T00:07:13Z",
+      "body_sha256": "5a830ea0a5d486c3bd1742d67b19b80a3e5063cd1803b87decc2db30928753f1",
+      "initial_ci_checks": [
+        {
+          "__typename": "CheckRun",
+          "completedAt": "0001-01-01T00:00:00Z",
+          "conclusion": "",
+          "detailsUrl": "https://github.com/hyperdimensionalcomputingai/lance-csr/actions/runs/40424323353/job/121926193573",
+          "name": "build",
+          "startedAt": "2026-10-27T00:07:22Z",
+          "status": "IN_PROGRESS",
+          "workflowName": "Docs"
+        },
+        {
+          "__typename": "CheckRun",
+          "completedAt": "0001-01-01T00:00:00Z",
+          "conclusion": "",
+          "detailsUrl": "https://github.com/hyperdimensionalcomputingai/lance-csr/actions/runs/40424323267/job/121926192854",
+          "name": "test (3.12)",
+          "startedAt": "2026-10-27T00:07:21Z",
+          "status": "IN_PROGRESS",
+          "workflowName": "Python Tests"
+        },
+        {
+          "__typename": "CheckRun",
+          "completedAt": "0001-01-01T00:00:00Z",
+          "conclusion": "",
+          "detailsUrl": "https://github.com/hyperdimensionalcomputingai/lance-csr/actions/runs/40424323160/job/121926192567",
+          "name": "test",
+          "startedAt": "2026-10-27T00:07:21Z",
+          "status": "IN_PROGRESS",
+          "workflowName": "Rust Tests"
+        },
+        {
+          "__typename": "CheckRun",
+          "completedAt": "0001-01-01T00:00:00Z",
+          "conclusion": "",
+          "detailsUrl": "https://github.com/hyperdimensionalcomputingai/lance-csr/actions/runs/40424323216/job/121926192696",
+          "name": "format",
+          "startedAt": "2026-10-27T00:07:21Z",
+          "status": "IN_PROGRESS",
+          "workflowName": "Style Check"
+        },
+        {
+          "__typename": "CheckRun",
+          "completedAt": "0001-01-01T00:00:00Z",
+          "conclusion": "",
+          "detailsUrl": "https://github.com/hyperdimensionalcomputingai/lance-csr/actions/runs/40424323267/job/121926193079",
+          "name": "lint",
+          "startedAt": "2026-10-27T00:07:21Z",
+          "status": "IN_PROGRESS",
+          "workflowName": "Python Tests"
+        },
+        {
+          "__typename": "CheckRun",
+          "completedAt": "0001-01-01T00:00:00Z",
+          "conclusion": "",
+          "detailsUrl": "https://github.com/hyperdimensionalcomputingai/lance-csr/actions/runs/40424323216/job/121926192979",
+          "name": "clippy",
+          "startedAt": "2026-10-27T00:07:21Z",
+          "status": "IN_PROGRESS",
+          "workflowName": "Style Check"
+        },
+        {
+          "__typename": "CheckRun",
+          "completedAt": "2026-10-27T00:07:27Z",
+          "conclusion": "SUCCESS",
+          "detailsUrl": "https://github.com/hyperdimensionalcomputingai/lance-csr/actions/runs/40424323216/job/121926193012",
+          "name": "Spell Check",
+          "startedAt": "2026-10-27T00:07:21Z",
+          "status": "COMPLETED",
+          "workflowName": "Style Check"
+        },
+        {
+          "__typename": "CheckRun",
+          "completedAt": "2026-10-26T23:42:46Z",
+          "conclusion": "SUCCESS",
+          "detailsUrl": "https://dash.cloudflare.com/?to=/07f020ffb584a6d461defd2e37fa353e/pages/view/lance-csr/baa736cd-8301-4bfa-9c9f-5c86066e30ed",
+          "name": "Cloudflare Pages",
+          "startedAt": "2026-10-26T23:42:46Z",
+          "status": "COMPLETED",
+          "workflowName": ""
+        }
+      ]
+    }
+  ],
+  "limits": [
+    "No merge or auto-merge enabled.",
+    "Hosted Rust, Clippy and Python jobs were still running at this initial snapshot; use PR checks for current status.",
+    "Deferred feature requests remain outside these three bug fixes."
+  ]
+}
