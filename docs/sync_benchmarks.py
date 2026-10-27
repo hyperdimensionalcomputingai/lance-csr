@@ -32,7 +32,7 @@ TARGETS = [ROOT / "README.md", ROOT / "docs" / "benchmarks.md"]
 BENCHMARKS = {
     "ic": {
         "repo": "hyperdimensionalcomputingai/graph-benchmark-ldbc-complex",
-        "ref": "6a582bad2ab447777d6f010e61405e838645ba33",
+        "ref": "93cc37e218dbed87fc28879ed63007a1454d05d2",
         # When lance-csr was re-run alone; omit when every engine ran together.
         "others_measured": "2026-10-24",
         "label": "IC{n}",
@@ -46,7 +46,7 @@ BENCHMARKS = {
     },
     "q30": {
         "repo": "hyperdimensionalcomputingai/graph-benchmark-ldbc",
-        "ref": "1fedd8bd213d071adf3a3c1c60c6da1c518ed121",
+        "ref": "b967cc295d68df0cc29fe385e52529a6dad463fb",
         # When lance-csr was re-run alone; omit when every engine ran together.
         "others_measured": "2026-10-24",
         "label": "Q{n}",
@@ -159,7 +159,8 @@ def render(key: str, spec: dict) -> dict[str, str]:
         summary.append(f"| {mode} | " + " | ".join(cells) + " |")
 
     commit = f"https://github.com/{spec['repo']}/tree/{spec['ref']}"
-    power = f" on {env['power'].lower()}" if "power" in env else ""
+    # Battery power can throttle the CPU, so say when a run used it.
+    power = " on battery power" if env.get("power") == "Battery Power" else ""
     when = (
         f"lance-csr was measured on {env['date']}{power} and the other engines on {spec['others_measured']}, "
         "on the same machine, with"
