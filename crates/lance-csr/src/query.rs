@@ -108,6 +108,43 @@ pub(crate) fn normalize_record_batch(batch: &RecordBatch) -> Result<RecordBatch>
     })
 }
 
+/// Build a query-local frame without unsafe distinct-count statistics shortcuts.
+fn query_dataframe(
+    ctx: &datafusion::execution::context::SessionContext,
+    plan: datafusion::logical_expr::LogicalPlan,
+) -> datafusion::dataframe::DataFrame {
+    use datafusion::execution::session_state::SessionStateBuilder;
+    use datafusion::logical_expr::{Expr, LogicalPlan};
+
+    fn has_distinct_count(plan: &LogicalPlan) -> bool {
+        if let LogicalPlan::Aggregate(aggregate) = plan {
+            if aggregate.aggr_expr.iter().any(|expr| {
+                matches!(expr.clone().unalias(), Expr::AggregateFunction(f)
+                    if f.func.name() == "count" && f.params.distinct)
+            }) {
+                return true;
+            }
+        }
+        plan.inputs().into_iter().any(has_distinct_count)
+    }
+
+    let mut state = ctx.state();
+    if has_distinct_count(&plan) {
+        // shortcut: DataFusion 54 treats filtered distinct estimates as exact; remove
+        // when upstream COUNT DISTINCT statistics preserve empty-input semantics.
+        let rules = state
+            .physical_optimizers()
+            .iter()
+            .filter(|rule| rule.name() != "aggregate_statistics")
+            .cloned()
+            .collect();
+        state = SessionStateBuilder::from(state)
+            .with_physical_optimizer_rules(rules)
+            .build();
+    }
+    datafusion::dataframe::DataFrame::new(state, plan)
+}
+
 /// Execution strategy for Cypher queries
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ExecutionStrategy {
@@ -796,12 +833,7 @@ impl CypherQuery {
     ) -> Result<datafusion::dataframe::DataFrame> {
         let (_logical_plan, df_logical_plan) = self.create_logical_plans(catalog)?;
         let ctx = deadline::context(ctx);
-        ctx.execute_logical_plan(df_logical_plan)
-            .await
-            .map_err(|e| GraphError::ExecutionError {
-                message: format!("Failed to execute DataFusion plan: {}", e),
-                location: snafu::Location::new(file!(), line!(), column!()),
-            })
+        Ok(query_dataframe(&ctx, df_logical_plan))
     }
 
     /// Execute using the DataFusion planner with in-memory datasets
@@ -1146,13 +1178,7 @@ impl CypherQuery {
 
         // Phase 4: DataFusion Physical Plan
         let ctx = deadline::context(ctx.clone());
-        let df = ctx
-            .execute_logical_plan(df_logical_plan.clone())
-            .await
-            .map_err(|e| GraphError::ExecutionError {
-                message: format!("Failed to execute DataFusion plan: {}", e),
-                location: snafu::Location::new(file!(), line!(), column!()),
-            })?;
+        let df = query_dataframe(&ctx, df_logical_plan.clone());
 
         let physical_plan =
             df.create_physical_plan()
@@ -2346,6 +2372,81 @@ mod tests {
         let expected: std::collections::HashSet<String> =
             ["Alice", "Bob"].iter().map(|s| s.to_string()).collect();
         assert_eq!(name_set, expected, "Should return Alice and Bob");
+    }
+
+    #[tokio::test]
+    async fn test_aggregate_predicates_on_empty_input() {
+        use arrow_array::{BooleanArray, Int64Array};
+        use datafusion::execution::context::SessionContext;
+
+        let ctx = SessionContext::new();
+        ctx.register_batch(
+            "Person",
+            RecordBatch::try_from_iter(vec![("id", Arc::new(Int64Array::from(vec![1, 2])) as _)])
+                .unwrap(),
+        )
+        .unwrap();
+        let rules_before: Vec<_> = ctx
+            .state()
+            .physical_optimizers()
+            .iter()
+            .map(|rule| rule.name().to_owned())
+            .collect();
+        let config = GraphConfig::builder()
+            .node_table("Person", "id")
+            .build()
+            .unwrap();
+        for (predicate, expected) in [("p.id = 99", false), ("p.id = 1", true)] {
+            let query = CypherQuery::new(&format!(
+                "MATCH (p:Person) WHERE {predicate} RETURN count(DISTINCT p.id) AS n, \
+                 count(DISTINCT p.id) > 0 AS present, \
+                 CASE WHEN count(*) > 0 THEN 1 ELSE 0 END AS flag"
+            ))
+            .unwrap()
+            .with_config(config.clone());
+            let result = query.execute_with_context(ctx.clone()).await.unwrap();
+            assert_eq!(result.num_rows(), 1);
+            assert_eq!(
+                result
+                    .column(0)
+                    .as_any()
+                    .downcast_ref::<Int64Array>()
+                    .unwrap()
+                    .value(0),
+                i64::from(expected)
+            );
+            assert_eq!(
+                result
+                    .column(1)
+                    .as_any()
+                    .downcast_ref::<BooleanArray>()
+                    .unwrap()
+                    .value(0),
+                expected
+            );
+            assert_eq!(
+                result
+                    .column(2)
+                    .as_any()
+                    .downcast_ref::<Int64Array>()
+                    .unwrap()
+                    .value(0),
+                i64::from(expected)
+            );
+        }
+        let rules_after: Vec<_> = ctx
+            .state()
+            .physical_optimizers()
+            .iter()
+            .map(|rule| rule.name().to_owned())
+            .collect();
+        assert_eq!(
+            rules_before, rules_after,
+            "caller session must remain unchanged"
+        );
+        assert!(rules_after
+            .iter()
+            .any(|name| name == "aggregate_statistics"));
     }
 
     #[tokio::test]
