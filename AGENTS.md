@@ -31,3 +31,4 @@
 - Follow the existing history style (`feat(graph):`, `docs:`, `refactor(query):`), using imperative, ≤72-character subjects.
 - Reference issues or discussions when relevant and include brief context in the body.
 - PRs should describe scope, list test commands run, mention benchmark deltas when applicable, and highlight impacts on bindings or examples.
+- Before a PR claims a code change is faster, or doesn't slow anything down, follow `CONTRIBUTING.md`: explain the problem and why the change is needed, and measure the branch against `main` on both benchmark suites with its harness (release wheels loaded with `uv run --with`, both `memory` and `lazy` modes). Never edit benchmark queries, expected answers or runner settings, and report every query.

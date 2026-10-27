@@ -76,6 +76,10 @@ behaviour, update the guide and the [API reference](api-reference.md) in the sam
   an imperative subject of at most 72 characters.
 - Describe the scope, list the test commands you ran, and note any impact on the Python bindings, examples or
   docs.
-- For performance-sensitive changes, include numbers from [`python/benchmarks/`](benchmarks.md#engine-micro-benchmarks).
+- Explain the problem the change solves and why it's needed. For a code change, include before-and-after
+  results from both [benchmark suites](benchmarks.md), measured against `main` with the harness described in
+  [`CONTRIBUTING.md`](https://github.com/hyperdimensionalcomputingai/lance-csr/blob/main/CONTRIBUTING.md#build-the-benchmark-harness).
+  Numbers from [`python/benchmarks/`](benchmarks.md#engine-micro-benchmarks) can support a claim but don't
+  replace the two suites.
 
 See [Project structure](project_structure.md) for a map of the code.
