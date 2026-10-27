@@ -72,7 +72,7 @@ Over the 14 queries, lance-csr's speed relative to each engine:
 
 <!-- bench:ic:notes -->
 
-- Run on Apple M5, 24 GB, macOS 26.6.2, from the benchmark repository at commit [`93cc37e`](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc-complex/tree/93cc37e218dbed87fc28879ed63007a1454d05d2). lance-csr was measured on 2026-10-27 and the other engines on 2026-10-24, on the same machine, with the repository's `run_benchmarks.sh` settings; see its README to reproduce the runs.
+- Run on Apple M5, 24 GB, macOS 26.6.2, from the benchmark repository at commit [`f3e63fd`](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc-complex/tree/f3e63fd2b7239a1364a864458f3e7ae07f0d833f). lance-csr was measured on 2026-10-27 and the other engines on 2026-10-24, on the same machine, with the repository's `run_benchmarks.sh` settings; see its README to reproduce the runs.
 - Ratios are geometric means of the per-query ratios, over the queries both engines answered correctly.
 - Ladybug 0.21.2: IC1 returned a wrong answer; IC14 failed (RuntimeError), so they are not timed.
 
@@ -145,7 +145,7 @@ Over the 30 queries, lance-csr's speed relative to each engine:
 
 <!-- bench:q30:notes -->
 
-- Run on Apple M5, 24 GB, macOS 26.6.2, from the benchmark repository at commit [`b967cc2`](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc/tree/b967cc295d68df0cc29fe385e52529a6dad463fb). lance-csr was measured on 2026-10-27 and the other engines on 2026-10-24, on the same machine, with the repository's `run_benchmarks.sh` settings; see its README to reproduce the runs.
+- Run on Apple M5, 24 GB, macOS 26.6.2, from the benchmark repository at commit [`b649bc1`](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc/tree/b649bc166cb5a04a542882fc070d9c4d83507c65). lance-csr was measured on 2026-10-27 and the other engines on 2026-10-24, on the same machine, with the repository's `run_benchmarks.sh` settings; see its README to reproduce the runs.
 - Ratios are geometric means of the per-query ratios, over the queries both engines answered correctly.
 
 <!-- /bench:q30:notes -->
