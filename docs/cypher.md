@@ -314,6 +314,11 @@ RETURN length(p), nodes(p)
   Named paths also support typed variable-length alternation through their edge inventory.
   Unnamed undirected variable-length alternation remains unsupported.
 - **Undirected variable-length paths** skip immediate backtracking (`a-b-a`).
+- **Relationship uniqueness**: within one `MATCH`, two single-hop relationships of the same type never
+  bind the same edge, whether they are named or anonymous, in one pattern or in comma-separated parts.
+  `(a)-[:KNOWS]->(b)<-[:KNOWS]-(c)` therefore never matches `c = a`. Separate `MATCH` clauses may bind the
+  same edge again. Edges are compared by their endpoints, so two parallel edges between the same nodes
+  count as one. Variable-length and untyped relationships are not checked, except inside a named path.
 - **`shortestPath` and `allShortestPaths`** need exactly one relationship type, no relationship variable,
   and named end nodes. Their length is unbounded unless you give a maximum. `nodes(p)` returns the node keys.
   With no path, `MATCH` drops the row and `OPTIONAL MATCH` returns `null`. `shortestPath` chooses one path
