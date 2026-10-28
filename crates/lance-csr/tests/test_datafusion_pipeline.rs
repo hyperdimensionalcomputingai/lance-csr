@@ -5026,6 +5026,37 @@ async fn test_datafusion_variable_reuse_with_count_distinct() {
 }
 
 #[tokio::test]
+async fn test_datafusion_relationship_variable_reuse_binds_the_same_edge() {
+    let mut datasets = HashMap::new();
+    datasets.insert("Person".to_string(), create_person_dataset());
+    datasets.insert("KNOWS".to_string(), create_knows_dataset());
+
+    // The second part has no type and its endpoints no labels: both come from `r`.
+    let query = CypherQuery::new(
+        "MATCH (a:Person)-[r:KNOWS]->(b:Person), (c)-[r]->(d) \
+         RETURN COUNT(*) AS total, \
+                SUM(CASE WHEN a.id = c.id AND b.id = d.id THEN 1 ELSE 0 END) AS same",
+    )
+    .unwrap()
+    .with_config(create_graph_config());
+    let result = query
+        .execute(datasets, Some(ExecutionStrategy::DataFusion))
+        .await
+        .unwrap();
+
+    let value = |i: usize| {
+        result
+            .column(i)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap()
+            .value(0)
+    };
+    // One row per KNOWS edge, each with c = a and d = b.
+    assert_eq!((value(0), value(1)), (5, 5));
+}
+
+#[tokio::test]
 async fn test_datafusion_variable_reuse_triangle_pattern() {
     let config = create_graph_config();
     let person_batch = create_person_dataset();

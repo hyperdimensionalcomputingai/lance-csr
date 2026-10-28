@@ -10,9 +10,18 @@ use crate::datafusion_planner::join_ops::{SourceJoinParams, TargetJoinParams};
 use crate::datafusion_planner::DataFusionPlanner;
 use crate::error::Result;
 use crate::logical_plan::*;
-use datafusion::logical_expr::{col, LogicalPlan, LogicalPlanBuilder};
+use datafusion::logical_expr::{col, lit, Expr, JoinType, LogicalPlan, LogicalPlanBuilder};
 use std::collections::HashMap;
 use std::sync::Arc;
+
+/// A relationship variable that an earlier hop bound, met again in a pattern.
+struct BoundRelationship<'a> {
+    variable: &'a str,
+    rel_map: &'a crate::config::RelationshipMapping,
+    rel_schema: arrow_schema::SchemaRef,
+    /// Whether this hop's type matches the bound one; a mismatch matches nothing.
+    same_type: bool,
+}
 
 impl DataFusionPlanner {
     /// Build a relationship expansion (graph traversal) as a series of joins
@@ -86,6 +95,40 @@ impl DataFusionPlanner {
         let Some(rel_source) = cat.relationship_source(&rel_map.relationship_type) else {
             return Ok(left_plan);
         };
+
+        if let Some(var) = relationship_variable {
+            let bound_source = qualify_column(var, &rel_map.source_id_field);
+            if left_plan
+                .schema()
+                .field_with_unqualified_name(&bound_source)
+                .is_ok()
+            {
+                let bound_type = ctx
+                    .analysis
+                    .relationship_instances
+                    .iter()
+                    .find(|r| r.alias == var)
+                    .map(|r| &r.rel_type);
+                let bound = BoundRelationship {
+                    variable: var,
+                    rel_map,
+                    rel_schema: rel_source.schema(),
+                    same_type: bound_type.is_some_and(|t| t.eq_ignore_ascii_case(rel_type)),
+                };
+                return self.join_bound_relationship(
+                    ctx,
+                    cat,
+                    left_plan,
+                    &bound,
+                    source_variable,
+                    target_variable,
+                    target_label,
+                    direction,
+                    relationship_properties,
+                    target_properties,
+                );
+            }
+        }
 
         // A bound relationship variable or relationship property filter needs the
         // relationship's other columns, which the CSR does not carry.
@@ -175,6 +218,96 @@ impl DataFusionPlanner {
             target_properties,
         };
         self.join_relationship_to_target(builder, cat, &target_params)
+    }
+
+    /// A hop over a relationship variable the input already binds: the same edge again, so
+    /// its endpoint columns must equal the two nodes' ids, and no relationship is scanned.
+    // shortcut: an undirected binding holds its edge as walked, so a later directed reuse
+    // compares against that orientation; upgrade by keeping the stored endpoints too.
+    #[allow(clippy::too_many_arguments)]
+    fn join_bound_relationship(
+        &self,
+        ctx: &PlanningContext,
+        cat: &Arc<dyn crate::GraphSourceCatalog>,
+        left_plan: LogicalPlan,
+        bound: &BoundRelationship,
+        source_variable: &str,
+        target_variable: &str,
+        target_label: &str,
+        direction: &RelationshipDirection,
+        relationship_properties: &HashMap<String, crate::ast::PropertyValue>,
+        target_properties: &HashMap<String, crate::ast::PropertyValue>,
+    ) -> Result<LogicalPlan> {
+        let (_, source_map) = self.get_target_node_mapping(ctx, source_variable)?;
+        let target_map = self.config.get_node_mapping(target_label).ok_or_else(|| {
+            crate::error::GraphError::ConfigError {
+                message: format!("No mapping found for target label: {}", target_label),
+                location: snafu::Location::new(file!(), line!(), column!()),
+            }
+        })?;
+        let rel_column = |name: &str| {
+            let physical = bound
+                .rel_schema
+                .fields()
+                .iter()
+                .find(|f| f.name().eq_ignore_ascii_case(name))
+                .map_or(name, |f| f.name());
+            col(qualify_column(bound.variable, physical))
+        };
+        let source = col(qualify_column(source_variable, &source_map.id_field));
+        let target_key = qualify_column(target_variable, &target_map.id_field);
+        let target = col(&target_key);
+        let ends = |from: Expr, to: Expr| source.clone().eq(from).and(target.clone().eq(to));
+        let (src, dst) = (
+            rel_column(&bound.rel_map.source_id_field),
+            rel_column(&bound.rel_map.target_id_field),
+        );
+        let mut condition = match direction {
+            RelationshipDirection::Outgoing => ends(src, dst),
+            RelationshipDirection::Incoming => ends(dst, src),
+            RelationshipDirection::Undirected => ends(src.clone(), dst.clone()).or(ends(dst, src)),
+        }
+        .and(lit(bound.same_type));
+        for (k, v) in relationship_properties {
+            let value =
+                self.unresolved_value_expr(&crate::ast::ValueExpression::Literal(v.clone()));
+            condition = condition.and(rel_column(k).eq(value));
+        }
+
+        let builder = LogicalPlanBuilder::from(left_plan);
+        let target_bound = builder
+            .schema()
+            .field_with_unqualified_name(&target_key)
+            .is_ok();
+        let builder = if target_bound {
+            if !target_properties.is_empty() {
+                return Err(crate::error::GraphError::PlanError {
+                    message: format!(
+                        "Property filters on reused variable '{}' are not yet supported",
+                        target_variable
+                    ),
+                    location: snafu::Location::new(file!(), line!(), column!()),
+                });
+            }
+            builder.filter(condition)
+        } else {
+            let target_source = cat.node_source(target_label).ok_or_else(|| {
+                crate::error::GraphError::ConfigError {
+                    message: format!("No node source for target label: {}", target_label),
+                    location: snafu::Location::new(file!(), line!(), column!()),
+                }
+            })?;
+            let scan = self.build_target_scan(
+                target_source,
+                target_label,
+                target_variable,
+                target_properties,
+            )?;
+            builder.join_on(scan, JoinType::Inner, [condition])
+        };
+        builder
+            .and_then(|b| b.build())
+            .map_err(|e| self.plan_error("Failed to plan bound relationship", e))
     }
 
     /// Replace "relationship scan + source join" with a CSR lookup, if an adjacency
