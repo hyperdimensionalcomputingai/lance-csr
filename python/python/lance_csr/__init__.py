@@ -18,18 +18,11 @@ except ImportError as e:
         "Run `maturin develop` (or install the package) before importing."
     ) from e
 
-GraphConfig = _bindings.graph.GraphConfig
-GraphConfigBuilder = _bindings.graph.GraphConfigBuilder
-CypherQuery = _bindings.graph.CypherQuery
-CypherEngine = _bindings.graph.CypherEngine
-SqlQuery = _bindings.graph.SqlQuery
-SqlEngine = _bindings.graph.SqlEngine
-ExecutionStrategy = _bindings.graph.ExecutionStrategy
-SqlDialect = _bindings.graph.SqlDialect
-VectorSearch = _bindings.graph.VectorSearch
-DistanceMetric = _bindings.graph.DistanceMetric
-
-DirNamespace = _bindings.graph.DirNamespace
+from .config import GraphConfig, GraphConfigBuilder
+from .cypher import CypherEngine, CypherQuery, ExecutionStrategy
+from .namespace import DirNamespace
+from .sql import SqlDialect, SqlEngine, SqlQuery
+from .vector import DistanceMetric, VectorSearch
 
 __all__ = [
     "GraphConfig",
@@ -45,4 +38,4 @@ __all__ = [
     "DirNamespace",
 ]
 
-__version__ = _bindings.__version__
+__version__: str = _bindings.__version__

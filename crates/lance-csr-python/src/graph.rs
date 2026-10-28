@@ -43,7 +43,6 @@ use crate::executor::{QueryDeadline, QUERY_TIMEOUT_MESSAGE};
 use crate::namespace::PyDirNamespace;
 use crate::RT;
 
-/// Execution strategy for Cypher queries
 #[pyclass(name = "ExecutionStrategy", module = "lance_csr.graph", from_py_object)]
 #[derive(Clone, Copy)]
 pub enum ExecutionStrategy {
@@ -62,7 +61,6 @@ impl From<ExecutionStrategy> for RustExecutionStrategy {
     }
 }
 
-/// SQL dialect for generating SQL from Cypher queries
 #[pyclass(name = "SqlDialect", module = "lance_csr.graph", from_py_object)]
 #[derive(Clone, Copy)]
 pub enum SqlDialect {
@@ -90,7 +88,6 @@ impl From<SqlDialect> for RustSqlDialect {
     }
 }
 
-/// Distance metric for vector similarity search
 #[pyclass(name = "DistanceMetric", module = "lance_csr.graph", from_py_object)]
 #[derive(Clone, Copy)]
 pub enum DistanceMetric {
@@ -112,25 +109,6 @@ impl From<DistanceMetric> for RustDistanceMetric {
     }
 }
 
-/// Vector similarity search builder
-///
-/// This class provides an explicit API for vector similarity search that can work with:
-/// - In-memory PyArrow tables (brute-force search)
-/// - Lance datasets (ANN search with indices)
-///
-/// This is distinct from the UDF-based vector search (`vector_distance()`, `vector_similarity()`)
-/// which is integrated into Cypher queries.
-///
-/// Examples
-/// --------
-/// >>> from lance_csr import VectorSearch, DistanceMetric
-/// >>>
-/// >>> # Basic vector search on a PyArrow table
-/// >>> results = VectorSearch("embedding") \
-/// ...     .query_vector([0.1, 0.2, 0.3]) \
-/// ...     .metric(DistanceMetric.Cosine) \
-/// ...     .top_k(10) \
-/// ...     .search(table)
 #[pyclass(name = "VectorSearch", module = "lance_csr.graph", from_py_object)]
 #[derive(Clone)]
 pub struct VectorSearch {
@@ -142,17 +120,6 @@ pub struct VectorSearch {
 
 #[pymethods]
 impl VectorSearch {
-    /// Create a new VectorSearch builder
-    ///
-    /// Parameters
-    /// ----------
-    /// column : str
-    ///     Name of the vector column to search
-    ///
-    /// Returns
-    /// -------
-    /// VectorSearch
-    ///     A new VectorSearch builder
     #[new]
     fn new(column: &str) -> Self {
         Self {
@@ -161,17 +128,6 @@ impl VectorSearch {
         }
     }
 
-    /// Set the query vector
-    ///
-    /// Parameters
-    /// ----------
-    /// vector : list[float]
-    ///     The query vector for similarity computation
-    ///
-    /// Returns
-    /// -------
-    /// VectorSearch
-    ///     A new builder with the query vector set
     fn query_vector(&self, vector: Vec<f32>) -> Self {
         Self {
             inner: self.inner.clone().query_vector(vector),
@@ -179,17 +135,6 @@ impl VectorSearch {
         }
     }
 
-    /// Set the distance metric
-    ///
-    /// Parameters
-    /// ----------
-    /// metric : DistanceMetric
-    ///     The distance metric to use (L2, Cosine, or Dot)
-    ///
-    /// Returns
-    /// -------
-    /// VectorSearch
-    ///     A new builder with the metric set
     fn metric(&self, metric: DistanceMetric) -> Self {
         Self {
             inner: self.inner.clone().metric(metric.into()),
@@ -197,17 +142,6 @@ impl VectorSearch {
         }
     }
 
-    /// Set the number of results to return
-    ///
-    /// Parameters
-    /// ----------
-    /// k : int
-    ///     Number of top results to return
-    ///
-    /// Returns
-    /// -------
-    /// VectorSearch
-    ///     A new builder with top_k set
     fn top_k(&self, k: usize) -> Self {
         Self {
             inner: self.inner.clone().top_k(k),
@@ -215,17 +149,6 @@ impl VectorSearch {
         }
     }
 
-    /// Whether to include the distance column in results
-    ///
-    /// Parameters
-    /// ----------
-    /// include : bool
-    ///     If True, adds a distance column to results (default: True)
-    ///
-    /// Returns
-    /// -------
-    /// VectorSearch
-    ///     A new builder with the setting applied
     fn include_distance(&self, include: bool) -> Self {
         Self {
             inner: self.inner.clone().include_distance(include),
@@ -233,17 +156,6 @@ impl VectorSearch {
         }
     }
 
-    /// Set the name of the distance column
-    ///
-    /// Parameters
-    /// ----------
-    /// name : str
-    ///     Name for the distance column (default: "_distance")
-    ///
-    /// Returns
-    /// -------
-    /// VectorSearch
-    ///     A new builder with the column name set
     fn distance_column_name(&self, name: &str) -> Self {
         Self {
             inner: self.inner.clone().distance_column_name(name),
@@ -251,22 +163,6 @@ impl VectorSearch {
         }
     }
 
-    /// Use Lance ANN index when datasets are Lance datasets.
-    ///
-    /// This enables a vector-first execution path that queries the Lance index
-    /// and then runs the Cypher query on the top-k results. This can be much faster
-    /// for large datasets but may change semantics when the Cypher query includes
-    /// filters or additional constraints.
-    ///
-    /// Parameters
-    /// ----------
-    /// enabled : bool
-    ///     If True, use Lance ANN index for vector search when possible.
-    ///
-    /// Returns
-    /// -------
-    /// VectorSearch
-    ///     A new builder with the setting applied
     fn use_lance_index(&self, enabled: bool) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -274,24 +170,6 @@ impl VectorSearch {
         }
     }
 
-    /// Execute brute-force vector search on a PyArrow table
-    ///
-    /// Parameters
-    /// ----------
-    /// table : pyarrow.Table
-    ///     The table containing vectors to search
-    ///
-    /// Returns
-    /// -------
-    /// pyarrow.Table
-    ///     Results sorted by similarity with top_k rows
-    ///
-    /// Raises
-    /// ------
-    /// ValueError
-    ///     If query vector is not set or column not found
-    /// RuntimeError
-    ///     If search execution fails
     fn search(&self, py: Python, table: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
         let batch = python_any_to_record_batch(table)?;
         let batch = normalize_record_batch(batch)?;
@@ -323,7 +201,6 @@ pub(crate) fn graph_error_to_pyerr(err: RustGraphError) -> PyErr {
     }
 }
 
-/// Graph configuration for interpreting Lance datasets as property graphs
 #[pyclass(name = "GraphConfig", module = "lance_csr.graph", from_py_object)]
 #[derive(Clone)]
 pub struct GraphConfig {
@@ -332,13 +209,11 @@ pub struct GraphConfig {
 
 #[pymethods]
 impl GraphConfig {
-    /// Create a new GraphConfig builder
     #[staticmethod]
     fn builder() -> GraphConfigBuilder {
         GraphConfigBuilder::new()
     }
 
-    /// Get node labels
     fn node_labels(&self) -> Vec<String> {
         // Extract from the config's node mappings
         self.inner
@@ -347,7 +222,6 @@ impl GraphConfig {
             .collect()
     }
 
-    /// Get relationship types
     fn relationship_types(&self) -> Vec<String> {
         // Extract from the config's relationship mappings
         self.inner
@@ -365,7 +239,6 @@ impl GraphConfig {
     }
 }
 
-/// Builder for GraphConfig
 #[pyclass(
     name = "GraphConfigBuilder",
     module = "lance_csr.graph",
@@ -379,7 +252,8 @@ pub struct GraphConfigBuilder {
 /// Raise a ``DeprecationWarning`` pointing at the caller's line.
 fn deprecated(py: Python, message: &std::ffi::CStr) -> PyResult<()> {
     let category = py.get_type::<pyo3::exceptions::PyDeprecationWarning>();
-    PyErr::warn(py, &category, message, 1)
+    // Level 2 skips the Python wrapper method and points at its caller.
+    PyErr::warn(py, &category, message, 2)
 }
 
 #[pymethods]
@@ -391,46 +265,12 @@ impl GraphConfigBuilder {
         }
     }
 
-    /// Add a node table: the nodes with ``label``, one per row of the dataset of the
-    /// same name, identified by its ``primary_key`` column.
-    ///
-    /// Parameters
-    /// ----------
-    /// label : str
-    ///     The node label, and the name of its dataset (e.g., "Person")
-    /// primary_key : str
-    ///     The column that identifies each node
-    ///
-    /// Returns
-    /// -------
-    /// GraphConfigBuilder
-    ///     A new builder with the node table added
     fn node_table(&self, label: &str, primary_key: &str) -> Self {
         Self {
             inner: self.inner.clone().node_table(label, primary_key),
         }
     }
 
-    /// Add a relationship table: edges of type ``rel_type`` from ``from_table`` nodes to
-    /// ``to_table`` nodes, one per row of the dataset of the same name.
-    ///
-    /// Parameters
-    /// ----------
-    /// rel_type : str
-    ///     The relationship type, and the name of its dataset (e.g., "KNOWS")
-    /// from_table : str
-    ///     The node table at the source end
-    /// to_table : str
-    ///     The node table at the target end
-    /// src : str
-    ///     The column holding the source node's key
-    /// dst : str
-    ///     The column holding the target node's key
-    ///
-    /// Returns
-    /// -------
-    /// GraphConfigBuilder
-    ///     A new builder with the relationship table added
     fn rel_table(
         &self,
         rel_type: &str,
@@ -447,13 +287,11 @@ impl GraphConfigBuilder {
         }
     }
 
-    /// Deprecated: use ``node_table``.
     fn with_node_label(&self, py: Python, label: &str, id_field: &str) -> PyResult<Self> {
         deprecated(py, c"with_node_label() is deprecated; use node_table()")?;
         Ok(self.node_table(label, id_field))
     }
 
-    /// Deprecated: use ``rel_table``, which also takes the node tables at both ends.
     #[pyo3(signature = (rel_type, source_field, target_field, source_label=None, target_label=None))]
     fn with_relationship(
         &self,
@@ -486,24 +324,12 @@ impl GraphConfigBuilder {
         Ok(Self { inner })
     }
 
-    /// Build the GraphConfig
-    ///
-    /// Returns
-    /// -------
-    /// GraphConfig
-    ///     The configured graph config
-    ///
-    /// Raises
-    /// ------
-    /// RuntimeError
-    ///     If the configuration is invalid
     fn build(&self) -> PyResult<GraphConfig> {
         let config = self.inner.clone().build().map_err(graph_error_to_pyerr)?;
         Ok(GraphConfig { inner: config })
     }
 }
 
-/// Cypher query interface for Lance datasets
 #[pyclass(name = "CypherQuery", module = "lance_csr.graph", from_py_object)]
 #[derive(Clone)]
 pub struct CypherQuery {
@@ -512,58 +338,18 @@ pub struct CypherQuery {
 
 #[pymethods]
 impl CypherQuery {
-    /// Create a new Cypher query
-    ///
-    /// Parameters
-    /// ----------
-    /// query_text : str
-    ///     The Cypher query string
-    ///
-    /// Returns
-    /// -------
-    /// CypherQuery
-    ///     The parsed query
-    ///
-    /// Raises
-    /// ------
-    /// RuntimeError
-    ///     If the query cannot be parsed
     #[new]
     fn new(query_text: &str) -> PyResult<Self> {
         let query = RustCypherQuery::new(query_text).map_err(graph_error_to_pyerr)?;
         Ok(Self { inner: query })
     }
 
-    /// Set the graph configuration
-    ///
-    /// Parameters
-    /// ----------
-    /// config : GraphConfig
-    ///     The graph configuration
-    ///
-    /// Returns
-    /// -------
-    /// CypherQuery
-    ///     A new query instance with the config set
     fn with_config(&self, config: &GraphConfig) -> Self {
         Self {
             inner: self.inner.clone().with_config(config.inner.clone()),
         }
     }
 
-    /// Add a query parameter
-    ///
-    /// Parameters
-    /// ----------
-    /// key : str
-    ///     Parameter name
-    /// value : object
-    ///     Parameter value (will be converted to JSON)
-    ///
-    /// Returns
-    /// -------
-    /// CypherQuery
-    ///     A new query instance with the parameter added
     fn with_parameter(&self, key: &str, value: &Bound<'_, PyAny>) -> PyResult<Self> {
         // Convert Python value to JSON
         let json_value = python_to_json(value)?;
@@ -572,12 +358,10 @@ impl CypherQuery {
         })
     }
 
-    /// Get the query text
     fn query_text(&self) -> &str {
         self.inner.query_text()
     }
 
-    /// Get query parameters
     fn parameters(&self, py: Python) -> PyResult<Py<PyDict>> {
         let dict = PyDict::new(py);
         for (key, value) in self.inner.parameters() {
@@ -587,26 +371,6 @@ impl CypherQuery {
         Ok(dict.unbind())
     }
 
-    /// Export supported Cypher expressions as SQL
-    ///
-    /// Parameters
-    /// ----------
-    /// datasets : dict
-    ///     Dictionary mapping table names to Lance datasets
-    /// dialect : SqlDialect, optional
-    ///     SQL dialect to use. Defaults to SqlDialect.Default (generic DataFusion SQL).
-    ///
-    /// Returns
-    /// -------
-    /// str
-    ///     The generated SQL query
-    ///
-    /// Raises
-    /// ------
-    /// NotImplementedError
-    ///     If a runtime-only Cypher function has no faithful SQL translation
-    /// RuntimeError
-    ///     If SQL generation fails
     #[pyo3(signature = (datasets, dialect=None))]
     fn to_sql(
         &self,
@@ -630,33 +394,6 @@ impl CypherQuery {
         Ok(sql)
     }
 
-    /// Execute query against Lance datasets
-    ///
-    /// Parameters
-    /// ----------
-    /// datasets : dict
-    ///     Dictionary mapping table names to Lance datasets
-    /// strategy : ExecutionStrategy, optional
-    ///     Execution strategy to use (defaults to DataFusion)
-    ///
-    /// Returns
-    /// -------
-    /// pyarrow.Table
-    ///     Query results as Arrow table
-    ///
-    /// Raises
-    /// ------
-    /// RuntimeError
-    ///     If query execution fails
-    ///
-    /// Examples
-    /// --------
-    /// >>> # Default strategy (DataFusion)
-    /// >>> result = query.execute(datasets)
-    ///
-    /// >>> # Explicit strategy
-    /// >>> from lance.graph import ExecutionStrategy
-    /// >>> result = query.execute(datasets, strategy=ExecutionStrategy.DataFusion)
     #[pyo3(signature = (datasets, strategy=None, *, timeout=None))]
     fn execute(
         &self,
@@ -688,24 +425,6 @@ impl CypherQuery {
         record_batch_to_python_table(py, &result_batch)
     }
 
-    /// Execute query using a namespace resolver.
-    ///
-    /// Parameters
-    /// ----------
-    /// namespace : DirNamespace
-    ///     Directory-backed namespace that resolves table names to Lance datasets.
-    /// strategy : ExecutionStrategy, optional
-    ///     Execution strategy to use (defaults to DataFusion)
-    ///
-    /// Returns
-    /// -------
-    /// pyarrow.Table
-    ///     Query results as Arrow table
-    ///
-    /// Raises
-    /// ------
-    /// RuntimeError
-    ///     If query execution fails
     #[pyo3(signature = (namespace, strategy=None))]
     fn execute_with_namespace(
         &self,
@@ -727,25 +446,6 @@ impl CypherQuery {
         record_batch_to_python_table(py, &result_batch)
     }
 
-    /// Explain query using the DataFusion planner with in-memory datasets
-    ///
-    /// Parameters
-    /// ----------
-    /// datasets : dict
-    ///     Dictionary mapping table names to in-memory tables (pyarrow.Table, LanceDataset, etc.)
-    ///     Keys should match node labels and relationship types in the graph config.
-    ///
-    /// Returns
-    /// -------
-    /// str
-    ///     Query graph logical plan, DataFusion logical plan, DataFusion physical plan as string
-    ///
-    /// Raises
-    /// ------
-    /// ValueError
-    ///     If the query is invalid or datasets are missing
-    /// RuntimeError
-    ///     If query explain fails
     fn explain(&self, py: Python, datasets: &Bound<'_, PyDict>) -> PyResult<String> {
         // Convert datasets to Arrow RecordBatch map
         let arrow_datasets = python_datasets_to_batches(datasets)?;
@@ -761,63 +461,18 @@ impl CypherQuery {
         Ok(plan)
     }
 
-    /// Get variables used in the query
     fn variables(&self) -> Vec<String> {
         self.inner.variables()
     }
 
-    /// Get node labels referenced in the query
     fn node_labels(&self) -> Vec<String> {
         self.inner.ast().get_node_labels()
     }
 
-    /// Get relationship types referenced in the query
     fn relationship_types(&self) -> Vec<String> {
         self.inner.ast().get_relationship_types()
     }
 
-    /// Execute Cypher query, then apply vector search reranking on results
-    ///
-    /// This is a convenience method for the common GraphRAG pattern:
-    /// 1. Run Cypher query to get candidate entities via graph traversal
-    /// 2. Rerank candidates by vector similarity
-    ///
-    /// Parameters
-    /// ----------
-    /// datasets : dict
-    ///     Dictionary mapping table names to Lance datasets or PyArrow tables
-    /// vector_search : VectorSearch
-    ///     VectorSearch configuration for reranking
-    ///     (Use VectorSearch.use_lance_index(True) to enable a vector-first
-    ///     execution path when datasets are Lance datasets.)
-    ///
-    /// Returns
-    /// -------
-    /// pyarrow.Table
-    ///     Results sorted by vector similarity with top_k rows
-    ///
-    /// Raises
-    /// ------
-    /// ValueError
-    ///     If the query is invalid or vector search is misconfigured
-    /// RuntimeError
-    ///     If query execution fails
-    ///
-    /// Examples
-    /// --------
-    /// >>> from lance_csr import CypherQuery, VectorSearch, DistanceMetric, GraphConfig
-    /// >>>
-    /// >>> config = GraphConfig.builder().node_table("Document", "id").build()
-    /// >>> query = CypherQuery("MATCH (d:Document) WHERE d.category = 'tech' RETURN d.id, d.name, d.embedding")
-    /// >>> query = query.with_config(config)
-    /// >>>
-    /// >>> results = query.execute_with_vector_rerank(
-    /// ...     datasets,
-    /// ...     VectorSearch("d.embedding")
-    /// ...         .query_vector([0.1, 0.2, 0.3])
-    /// ...         .metric(DistanceMetric.Cosine)
-    /// ...         .top_k(10)
-    /// ... )
     fn execute_with_vector_rerank(
         &self,
         py: Python,
@@ -1395,40 +1050,6 @@ fn reader_with_deadline(
     })
 }
 
-/// Cypher query engine with cached catalog for efficient multi-query execution
-///
-/// The engine registers each dataset once and reuses the catalog and DataFusion
-/// context across queries.
-///
-/// Lance datasets are read lazily from storage, pinned to the version passed in:
-/// writes made later (by this or another process) are not visible until
-/// ``refresh()``. Each dataset is pinned separately; versions across tables are not
-/// a transactional multi-table snapshot. PyArrow tables are held in memory and
-/// never change; supply a new engine to replace them.
-///
-/// Examples
-/// --------
-/// >>> from lance_csr import CypherEngine, GraphConfig
-/// >>> import pyarrow as pa
-/// >>>
-/// >>> # Setup
-/// >>> config = GraphConfig.builder() \\
-/// ...     .node_table("Person", "id") \\
-/// ...     .rel_table("KNOWS", "Person", "Person", "src_id", "dst_id") \\
-/// ...     .build()
-/// >>>
-/// >>> datasets = {
-/// ...     "Person": person_table,
-/// ...     "KNOWS": knows_table
-/// ... }
-/// >>>
-/// >>> # Create engine once
-/// >>> engine = CypherEngine(config, datasets)
-/// >>>
-/// >>> # Execute multiple queries efficiently
-/// >>> result1 = engine.execute("MATCH (p:Person) WHERE p.age > 30 RETURN p.name")
-/// >>> result2 = engine.execute("MATCH (p:Person)-[:KNOWS]->(f) RETURN p.name, f.name")
-/// >>> result3 = engine.execute("MATCH (p:Person) RETURN count(*)")
 #[pyclass(name = "CypherEngine", module = "lance_csr.graph")]
 pub struct CypherEngine {
     inner: RustCypherEngine,
@@ -1436,29 +1057,6 @@ pub struct CypherEngine {
 
 #[pymethods]
 impl CypherEngine {
-    /// Create a new CypherEngine with cached catalog
-    ///
-    /// Parameters
-    /// ----------
-    /// config : GraphConfig
-    ///     The graph configuration defining node labels and relationships
-    /// datasets : dict
-    ///     Dictionary mapping table names to Lance datasets or PyArrow tables.
-    ///     Lance datasets are not read here; PyArrow inputs are held in memory.
-    /// target_partitions : int or None, optional
-    ///     Target for DataFusion query partitioning, from 1 to 1024, preserved by
-    ///     refresh(). None keeps DataFusion's default. This is not a thread or memory limit.
-    ///
-    /// Raises
-    /// ------
-    /// ValueError
-    ///     If no datasets are given, a configured id/endpoint column is missing, a
-    ///     Lance dataset cannot be reopened by URI (for example, namespace-vended
-    ///     credentials), or target_partitions is outside 1 to 1024
-    /// TypeError
-    ///     If target_partitions is a boolean or a non-integer value other than None
-    /// RuntimeError
-    ///     If a dataset cannot be opened or registered
     #[new]
     #[pyo3(signature = (config, datasets, use_csr = false, *, target_partitions = None))]
     fn new(
@@ -1507,30 +1105,6 @@ impl CypherEngine {
         Ok(Self { inner })
     }
 
-    /// Execute a Cypher query and return the full result as a ``pyarrow.Table``.
-    ///
-    /// The whole result is held in memory; use ``execute_batches`` for large outputs.
-    ///
-    /// Parameters
-    /// ----------
-    /// query : str
-    ///     The Cypher query
-    /// params : dict, optional
-    ///     Values for ``$name`` parameters in the query: numbers, strings, booleans,
-    ///     ``None``, lists, string-keyed maps, and ``datetime``/``date`` values (compared
-    ///     as timestamps and dates). ``execute_batches`` and ``explain`` take the same argument.
-    /// timeout : float, optional
-    ///     Nonnegative number of seconds for the whole query; expiry raises
-    ///     ``TimeoutError``. Cancellation is cooperative.
-    ///
-    /// Raises
-    /// ------
-    /// ValueError
-    ///     If the query is invalid
-    /// TimeoutError
-    ///     If the query runs past ``timeout``
-    /// RuntimeError
-    ///     If query execution fails
     #[pyo3(signature = (query, params = None, *, timeout = None))]
     fn execute(
         &self,
@@ -1548,14 +1122,6 @@ impl CypherEngine {
         record_batch_to_python_table(py, &result_batch)
     }
 
-    /// Execute a Cypher query and stream results as a ``pyarrow.RecordBatchReader``.
-    ///
-    /// Batches are computed as the reader is consumed. Scans, filters and projections
-    /// stream with bounded memory; joins, sorts and aggregations may still buffer.
-    /// The reader keeps its snapshot alive, so a concurrent ``refresh()`` does not
-    /// affect it. Planning errors raise immediately; execution errors raise while reading.
-    /// ``timeout`` keeps one deadline including pauses. Initial expiry raises
-    /// ``TimeoutError``; expired reads raise ArrowInvalid: Query timeout exceeded.
     #[pyo3(signature = (query, params = None, *, timeout = None))]
     fn execute_batches(
         &self,
@@ -1577,7 +1143,6 @@ impl CypherEngine {
         Ok(reader.into_pyarrow(py)?.unbind())
     }
 
-    /// Return the query plan, including the physical plan with pushed-down scans.
     #[pyo3(signature = (query, params = None))]
     fn explain(
         &self,
@@ -1590,22 +1155,11 @@ impl CypherEngine {
             .map_err(graph_error_to_pyerr)
     }
 
-    /// Move every Lance dataset to its latest version.
-    ///
-    /// Datasets whose version and commit time are unchanged keep their open handle.
-    /// The replacement is validated in full before it is swapped in; on error nothing
-    /// changes and the previous snapshot stays usable. Queries already running finish
-    /// on the snapshot they started with. PyArrow inputs are unchanged. Concurrent calls
-    /// from several threads run one at a time.
     fn refresh(&self, py: Python) -> PyResult<()> {
         RT.block_on(Some(py), self.inner.refresh())?
             .map_err(graph_error_to_pyerr)
     }
 
-    /// Node id -> row index statistics per node label (experimental, ``use_csr=True``).
-    ///
-    /// Same fields as ``csr_stats`` with ``rows`` instead of ``edges``. A label is
-    /// missing when its ids are not unique integers; its targets then use a join.
     fn node_index_stats(&self, py: Python) -> PyResult<Py<PyAny>> {
         let stats = PyDict::new(py);
         for (label, entry) in self.inner.node_index_stats() {
@@ -1618,17 +1172,6 @@ impl CypherEngine {
         Ok(stats.into_any().unbind())
     }
 
-    /// CSR adjacency statistics per relationship type (experimental, ``use_csr=True``).
-    ///
-    /// - ``edges``: live indexed edges (null endpoints are skipped).
-    /// - ``delta_edges`` / ``tombstones``: appended and removed edges held outside
-    ///   the base CSR since its last full build.
-    /// - ``update``: how the last refresh produced it: ``build`` (first),
-    ///   ``rebuild`` (full), ``delta`` (changes applied) or ``reused`` (no edge change).
-    /// - ``version``: relationship dataset version it reflects (``None`` for PyArrow).
-    /// - ``build_ms``: wall time of that build or delta, both directions.
-    ///
-    /// An identical dict after ``refresh()`` means the snapshot itself was unchanged.
     fn csr_stats(&self, py: Python) -> PyResult<Py<PyAny>> {
         let stats = PyDict::new(py);
         for (rel_type, entry) in self.inner.csr_stats() {
@@ -1644,34 +1187,16 @@ impl CypherEngine {
         Ok(stats.into_any().unbind())
     }
 
-    /// Pinned version of each Lance dataset, keyed by dataset name.
     fn dataset_versions(&self) -> HashMap<String, u64> {
         self.inner.dataset_versions()
     }
 
-    /// Get the graph configuration
     fn config(&self) -> GraphConfig {
         GraphConfig {
             inner: self.inner.config().clone(),
         }
     }
 
-    /// Execute Cypher query with vector reranking
-    ///
-    /// Convenience method combining graph traversal and vector similarity ranking.
-    /// See CypherQuery.execute_with_vector_rerank for detailed documentation.
-    ///
-    /// Parameters
-    /// ----------
-    /// query : str
-    ///     Cypher query string
-    /// vector_search : VectorSearch
-    ///     Vector search configuration
-    ///
-    /// Returns
-    /// -------
-    /// pyarrow.Table
-    ///     Results sorted by vector similarity
     fn execute_with_vector_rerank(
         &self,
         py: Python,
@@ -1698,21 +1223,6 @@ impl CypherEngine {
     }
 }
 
-/// Execute raw SQL queries against in-memory datasets
-///
-/// This class allows executing standard SQL directly against Arrow tables,
-/// without requiring a GraphConfig or Cypher parsing. DataFusion handles
-/// SQL parsing and execution.
-///
-/// Examples
-/// --------
-/// >>> import pyarrow as pa
-/// >>> from lance_csr import SqlQuery
-/// >>>
-/// >>> person = pa.table({"id": [1, 2], "name": ["Alice", "Bob"], "age": [28, 34]})
-/// >>> query = SqlQuery("SELECT name, age FROM person WHERE age > 30")
-/// >>> result = query.execute({"person": person})
-/// >>> print(result.to_pandas())
 #[pyclass(name = "SqlQuery", module = "lance_csr.graph")]
 pub struct SqlQuery {
     inner: RustSqlQuery,
@@ -1720,17 +1230,6 @@ pub struct SqlQuery {
 
 #[pymethods]
 impl SqlQuery {
-    /// Create a new SQL query
-    ///
-    /// Parameters
-    /// ----------
-    /// sql : str
-    ///     The SQL query string
-    ///
-    /// Returns
-    /// -------
-    /// SqlQuery
-    ///     A new SQL query instance
     #[new]
     fn new(sql: &str) -> Self {
         Self {
@@ -1738,27 +1237,10 @@ impl SqlQuery {
         }
     }
 
-    /// Get the SQL query text
     fn sql(&self) -> &str {
         self.inner.sql()
     }
 
-    /// Execute query against in-memory datasets
-    ///
-    /// Parameters
-    /// ----------
-    /// datasets : dict
-    ///     Dictionary mapping table names to PyArrow tables or Lance datasets
-    ///
-    /// Returns
-    /// -------
-    /// pyarrow.Table
-    ///     Query results as Arrow table
-    ///
-    /// Raises
-    /// ------
-    /// RuntimeError
-    ///     If query execution fails
     fn execute(&self, py: Python, datasets: &Bound<'_, PyDict>) -> PyResult<Py<PyAny>> {
         let arrow_datasets = python_datasets_to_batches(datasets)?;
         let inner = self.inner.clone();
@@ -1770,22 +1252,6 @@ impl SqlQuery {
         record_batch_to_python_table(py, &result_batch)
     }
 
-    /// Return the execution plan as a string
-    ///
-    /// Parameters
-    /// ----------
-    /// datasets : dict
-    ///     Dictionary mapping table names to PyArrow tables or Lance datasets
-    ///
-    /// Returns
-    /// -------
-    /// str
-    ///     The DataFusion logical and physical execution plan
-    ///
-    /// Raises
-    /// ------
-    /// RuntimeError
-    ///     If planning fails
     fn explain(&self, py: Python, datasets: &Bound<'_, PyDict>) -> PyResult<String> {
         let arrow_datasets = python_datasets_to_batches(datasets)?;
         let inner = self.inner.clone();
@@ -1802,24 +1268,6 @@ impl SqlQuery {
     }
 }
 
-/// Cached SQL execution engine for running multiple queries against the same datasets
-///
-/// This class registers datasets once during initialization and reuses the
-/// DataFusion SessionContext for subsequent queries, avoiding repeated setup.
-///
-/// Examples
-/// --------
-/// >>> from lance_csr import SqlEngine
-/// >>> import pyarrow as pa
-/// >>>
-/// >>> datasets = {
-/// ...     "person": pa.table({"id": [1, 2], "name": ["Alice", "Bob"], "age": [28, 34]}),
-/// ...     "knows": pa.table({"src": [1], "dst": [2]}),
-/// ... }
-/// >>>
-/// >>> engine = SqlEngine(datasets)
-/// >>> result1 = engine.execute("SELECT * FROM person WHERE age > 30")
-/// >>> result2 = engine.execute("SELECT p.name FROM person p JOIN knows k ON p.id = k.src")
 #[pyclass(name = "SqlEngine", module = "lance_csr.graph")]
 pub struct SqlEngine {
     context: Arc<SessionContext>,
@@ -1827,25 +1275,6 @@ pub struct SqlEngine {
 
 #[pymethods]
 impl SqlEngine {
-    /// Create a new SqlEngine with cached datasets
-    ///
-    /// Parameters
-    /// ----------
-    /// datasets : dict
-    ///     Dictionary mapping table names to PyArrow tables or Lance datasets.
-    ///     Table names are lowercased for consistency.
-    ///
-    /// Returns
-    /// -------
-    /// SqlEngine
-    ///     A new engine instance ready to execute queries
-    ///
-    /// Raises
-    /// ------
-    /// ValueError
-    ///     If no datasets are provided
-    /// RuntimeError
-    ///     If table registration fails
     #[new]
     fn new(datasets: &Bound<'_, PyDict>) -> PyResult<Self> {
         let arrow_datasets = python_datasets_to_batches(datasets)?;
@@ -1878,22 +1307,6 @@ impl SqlEngine {
         })
     }
 
-    /// Execute a SQL query using the cached datasets
-    ///
-    /// Parameters
-    /// ----------
-    /// sql : str
-    ///     The SQL query string to execute
-    ///
-    /// Returns
-    /// -------
-    /// pyarrow.Table
-    ///     Query results as Arrow table
-    ///
-    /// Raises
-    /// ------
-    /// RuntimeError
-    ///     If query execution fails
     fn execute(&self, py: Python, sql: &str) -> PyResult<Py<PyAny>> {
         let query = RustSqlQuery::new(sql);
         let context = self.context.as_ref().clone();

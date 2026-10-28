@@ -210,8 +210,9 @@ cargo fmt --all --check
 cd python && make test && make lint
 ```
 
-When you change user-facing behaviour or the Python API, update the affected guide pages and
-`docs/api-reference.md` in the same pull request, then run
+When you change user-facing behaviour or the Python API, update the affected guide pages and the docstrings
+of the Python classes in `python/python/lance_csr/` (which generate `docs/api-reference.md`) in the same
+pull request, then run
 `uv run --project docs --locked zensical build --strict` and `uvx typos@1.26.0 .`.
 
 ## Report a bug or suggest an improvement

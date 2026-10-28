@@ -5,6 +5,14 @@ on the other pages (the [graph schema](graph-schema.md), the [supported Cypher](
 the [CSR index](csr.md) and [version pinning](lance.md)) applies to Rust too. This page covers what's
 different: installing the crate, the async API, and the Rust types.
 
+!!! info "Rust API reference"
+
+    Every public Rust type and function is documented on docs.rs:
+    [`lance-csr`](https://docs.rs/lance-csr) for the engine, and
+    [`lance-csr-catalog`](https://docs.rs/lance-csr-catalog) for `DirNamespace` and the catalog types.
+    Both crates are published on crates.io as [`lance-csr`](https://crates.io/crates/lance-csr) and
+    [`lance-csr-catalog`](https://crates.io/crates/lance-csr-catalog).
+
 Every Rust snippet on this page comes from
 [`examples/embedded_query.rs`](https://github.com/hyperdimensionalcomputingai/lance-csr/blob/main/crates/lance-csr/examples/embedded_query.rs),
 which CI compiles and runs. Run it yourself from a checkout:

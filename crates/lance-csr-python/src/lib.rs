@@ -1,3 +1,8 @@
+//! The private compiled module behind the `lance_csr` Python package.
+//!
+//! Users see the Python classes in `python/python/lance_csr/`, which wrap these and
+//! carry the docstrings and type hints. Document Python behaviour there, not here.
+
 use std::sync::LazyLock;
 
 use pyo3::prelude::*;

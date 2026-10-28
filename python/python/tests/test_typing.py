@@ -1,6 +1,7 @@
-"""Keep shipped stubs aligned with the compiled public API."""
+"""Keep the private stubs and public Python classes aligned with the compiled API."""
 
 import ast
+import enum
 import inspect
 from pathlib import Path
 
@@ -114,16 +115,74 @@ def check_class(node, runtime):
         assert runtime_signature(runtime) == stub_signature(constructor), node.name
 
 
-def test_public_stubs_match_compiled_extension():
+def test_private_stubs_match_compiled_extension():
     classes = stub_classes()
     assert set(lance_csr.__all__) == classes.keys()
     assert {
         name for name in vars(_internal.graph) if not name.startswith("_")
     } == classes.keys()
     for name, node in classes.items():
-        runtime = getattr(_internal.graph, name)
-        assert getattr(lance_csr, name) is runtime
-        check_class(node, runtime)
+        check_class(node, getattr(_internal.graph, name))
+
+
+def public_names(cls):
+    return {name for name in vars(cls) if not name.startswith("_")}
+
+
+@pytest.mark.parametrize("name", lance_csr.__all__)
+def test_public_class_wraps_compiled_class(name):
+    """Each public class has the compiled members, signatures and enum values."""
+    check_wrapper(getattr(lance_csr, name), getattr(_internal.graph, name), name)
+
+
+def test_wrapper_check_detects_changed_signature():
+    class SqlQuery:
+        def __init__(self, sql: str) -> None: ...
+        def sql(self) -> str: ...
+        def execute(self, datasets, extra=None): ...
+        def explain(self, datasets): ...
+
+    with pytest.raises(AssertionError, match="SqlQuery.execute"):
+        check_wrapper(SqlQuery, _internal.graph.SqlQuery, "SqlQuery")
+
+
+def check_wrapper(public, compiled, name):
+    if issubclass(public, enum.Enum):
+        assert {m.name: int(m) for m in public} == {
+            k: int(getattr(compiled, k)) for k in public_names(compiled)
+        }
+        return
+    assert public_names(public) == public_names(compiled), name
+    for member in public_names(public):
+        value = inspect.getattr_static(public, member)
+        if isinstance(value, property):
+            continue
+        assert runtime_signature(getattr(public, member)) == runtime_signature(
+            getattr(compiled, member)
+        ), f"{name}.{member}"
+    if compiled.__text_signature__ is not None:
+        assert runtime_signature(public) == runtime_signature(compiled), name
+
+
+@pytest.mark.parametrize("name", lance_csr.__all__)
+def test_public_class_is_documented_and_typed(name):
+    public = getattr(lance_csr, name)
+    assert inspect.getdoc(public), name
+    if issubclass(public, enum.Enum):
+        return
+    for member in public_names(public):
+        value = inspect.getattr_static(public, member)
+        function = (
+            value.fget if isinstance(value, property) else getattr(public, member)
+        )
+        assert inspect.getdoc(function), f"{name}.{member}"
+        assert "return" in function.__annotations__, f"{name}.{member}"
+        parameters = inspect.signature(function).parameters.values()
+        assert all(
+            p.annotation is not inspect.Parameter.empty
+            for p in parameters
+            if p.name != "self"
+        ), f"{name}.{member}"
 
 
 def test_stub_check_detects_missing_method():
@@ -134,7 +193,7 @@ def test_stub_check_detects_missing_method():
         if not isinstance(item, ast.FunctionDef) or item.name != "refresh"
     ]
     with pytest.raises(AssertionError, match="public members differ"):
-        check_class(node, lance_csr.CypherEngine)
+        check_class(node, _internal.graph.CypherEngine)
 
 
 def test_stub_check_detects_changed_default():
@@ -146,4 +205,4 @@ def test_stub_check_detects_changed_default():
     )
     execute.args.defaults = [ast.Constant(False)]
     with pytest.raises(AssertionError, match="CypherEngine.execute"):
-        check_class(node, lance_csr.CypherEngine)
+        check_class(node, _internal.graph.CypherEngine)
