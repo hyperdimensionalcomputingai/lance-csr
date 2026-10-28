@@ -250,6 +250,8 @@ pub struct LogicalPlanner<'a> {
     calls: usize,
     /// The node label of each path variable's nodes, for `nodes(path)`.
     path_labels: HashMap<String, String>,
+    /// The types each relationship variable was first written with.
+    relationship_types: HashMap<String, Vec<String>>,
     rich_paths: bool,
     /// The rows a projection or WHERE started from, while its EXISTS marks and
     /// comprehensions are being added: each is seeded from these, not from the rows with
@@ -269,6 +271,7 @@ impl<'a> LogicalPlanner<'a> {
             comprehensions: 0,
             calls: 0,
             path_labels: HashMap::new(),
+            relationship_types: HashMap::new(),
             rich_paths: false,
             seed_source: None,
         }
@@ -853,9 +856,10 @@ impl<'a> LogicalPlanner<'a> {
                 location: snafu::Location::new(file!(), line!(), column!()),
             });
         }
+        let typed = self.reuse_relationship_types(&match_clause.patterns)?;
         let inferred = MatchClause {
             patterns: crate::pattern_alternatives::infer_labels(
-                &match_clause.patterns,
+                &typed,
                 self.config,
                 &self.variables,
             ),
@@ -949,6 +953,64 @@ impl<'a> LogicalPlanner<'a> {
             Some((_, predicate)) => self.filter(plan, &predicate),
             None => Ok(plan),
         }
+    }
+
+    /// A relationship variable written again without a type (`(c)-[r]->(d)`) takes the types
+    /// it was first written with, so its endpoints get labels and it plans as the same edge.
+    // shortcut: types are remembered by name for the whole query, even once WITH drops the
+    // variable; scope them like `variables` if a query reuses a name for a new relationship.
+    fn reuse_relationship_types(&mut self, patterns: &[GraphPattern]) -> Result<Vec<GraphPattern>> {
+        fn relationships(patterns: &mut [GraphPattern]) -> Vec<&mut RelationshipPattern> {
+            patterns
+                .iter_mut()
+                .filter_map(|p| match p {
+                    GraphPattern::Path(path) => Some(path),
+                    GraphPattern::Node(_) => None,
+                })
+                .flat_map(|path| path.segments.iter_mut())
+                .map(|s| &mut s.relationship)
+                .filter(|r| r.variable.is_some())
+                .collect()
+        }
+        let mut patterns = patterns.to_vec();
+        // Whether each variable seen in this clause was variable-length.
+        let mut seen: HashMap<String, bool> = HashMap::new();
+        for rel in relationships(&mut patterns) {
+            let var = rel
+                .variable
+                .as_ref()
+                .expect("filtered to named relationships");
+            let variable_length = rel.length.is_some();
+            if let Some(earlier_variable_length) = seen.insert(var.clone(), variable_length) {
+                if variable_length || earlier_variable_length {
+                    return Err(GraphError::UnsupportedFeature {
+                        feature: format!(
+                            "reusing relationship variable '{var}' in a variable-length segment"
+                        ),
+                        location: Location::new(file!(), line!(), column!()),
+                    });
+                }
+            }
+        }
+        for rel in relationships(&mut patterns) {
+            if !rel.types.is_empty() {
+                let var = rel
+                    .variable
+                    .clone()
+                    .expect("filtered to named relationships");
+                self.relationship_types
+                    .entry(var)
+                    .or_insert_with(|| rel.types.clone());
+            }
+        }
+        for rel in relationships(&mut patterns) {
+            if rel.types.is_empty() {
+                if let Some(types) = self.relationship_types.get(rel.variable.as_ref().unwrap()) {
+                    rel.types = types.clone();
+                }
+            }
+        }
+        Ok(patterns)
     }
 
     /// openCypher binds each relationship at most once per MATCH. For single-hop relationships

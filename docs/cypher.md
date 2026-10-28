@@ -319,6 +319,13 @@ RETURN length(p), nodes(p)
   `(a)-[:KNOWS]->(b)<-[:KNOWS]-(c)` therefore never matches `c = a`. Separate `MATCH` clauses may bind the
   same edge again. Edges are compared by their endpoints, so two parallel edges between the same nodes
   count as one. Variable-length and untyped relationships are not checked, except inside a named path.
+- **Reused relationship variables**: writing a bound relationship variable again, as in
+  `MATCH (a)-[r:KNOWS]->(b), (c)-[r]->(d)`, matches that same relationship, so `c = a` and `d = b`. This
+  also works in a later `MATCH` clause or after `WITH r`. The type can be left out; a different type
+  matches nothing. An undirected reuse matches both orientations. When the first binding is undirected,
+  a later directed reuse follows the direction the first one walked the edge, not its stored direction.
+  Reusing a relationship variable in a variable-length segment is not supported; within one `MATCH` it
+  raises an error.
 - **`shortestPath` and `allShortestPaths`** need exactly one relationship type, no relationship variable,
   and named end nodes. Their length is unbounded unless you give a maximum. `nodes(p)` returns the node keys.
   With no path, `MATCH` drops the row and `OPTIONAL MATCH` returns `null`. `shortestPath` chooses one path
