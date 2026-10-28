@@ -895,6 +895,8 @@ impl<'a> LogicalPlanner<'a> {
             .as_deref()
             .or(oriented.as_deref())
             .unwrap_or(&match_clause.patterns);
+        let distinct = self.distinct_relationships(patterns);
+        let patterns = distinct.as_ref().map_or(patterns, |(named, _)| named);
 
         let mut plan = base;
         for pattern in patterns {
@@ -939,10 +941,119 @@ impl<'a> LogicalPlanner<'a> {
             }
         }
 
-        plan.ok_or_else(|| GraphError::PlanError {
+        let plan = plan.ok_or_else(|| GraphError::PlanError {
             message: "Failed to plan MATCH clause".to_string(),
             location: snafu::Location::new(file!(), line!(), column!()),
-        })
+        })?;
+        match distinct {
+            Some((_, predicate)) => self.filter(plan, &predicate),
+            None => Ok(plan),
+        }
+    }
+
+    /// openCypher binds each relationship at most once per MATCH. For single-hop relationships
+    /// that could bind the same edge, returns the patterns with their anonymous nodes named
+    /// and a predicate that the edges differ, compared by their endpoint node ids.
+    // shortcut: variable-length and untyped hops are left out, and two distinct edges joining
+    // the same nodes count as one; upgrade by carrying edge row ids through the hops.
+    fn distinct_relationships(
+        &self,
+        patterns: &[GraphPattern],
+    ) -> Option<(Vec<GraphPattern>, BooleanExpression)> {
+        let mut named = patterns.to_vec();
+        let mut labels: HashMap<String, String> = self.variables.clone();
+        let mut hops = Vec::new();
+        let mut anonymous = 0;
+        for (index, pattern) in named.iter_mut().enumerate() {
+            let GraphPattern::Path(path) = pattern else {
+                continue;
+            };
+            if path.shortest.is_some() {
+                continue;
+            }
+            // The path operator already keeps the edges of one path apart, by edge row.
+            let path_operator = path.variable.is_some()
+                || (self.rich_paths
+                    && path
+                        .segments
+                        .iter()
+                        .any(|s| s.relationship.variable.is_some()));
+            let mut name = |node: &mut NodePattern| {
+                let var = node
+                    .variable
+                    .get_or_insert_with(|| {
+                        anonymous += 1;
+                        format!("_rel_end_{}_{anonymous}", self.variables.len())
+                    })
+                    .clone();
+                if let Some(label) = node.labels.first() {
+                    labels.entry(var.clone()).or_insert_with(|| label.clone());
+                }
+                var
+            };
+            let mut start = name(&mut path.start_node);
+            for segment in &mut path.segments {
+                let end = name(&mut segment.end_node);
+                let rel = &segment.relationship;
+                if rel.length.is_none() && !rel.types.is_empty() {
+                    let (src, dst) = match rel.direction {
+                        RelationshipDirection::Incoming => (end.clone(), start.clone()),
+                        _ => (start.clone(), end.clone()),
+                    };
+                    let undirected = rel.direction == RelationshipDirection::Undirected;
+                    let exact = path_operator.then_some(index);
+                    hops.push((
+                        src,
+                        dst,
+                        undirected,
+                        rel.types.clone(),
+                        rel.variable.clone(),
+                        exact,
+                    ));
+                }
+                start = end;
+            }
+        }
+
+        // Endpoints of different labels are never the same node.
+        let eq = |a: &String, b: &String| {
+            let (la, lb) = (labels.get(a)?, labels.get(b)?);
+            la.eq_ignore_ascii_case(lb)
+                .then(|| BooleanExpression::Comparison {
+                    left: ValueExpression::Variable(a.clone()),
+                    operator: ComparisonOperator::Equal,
+                    right: ValueExpression::Variable(b.clone()),
+                })
+        };
+        let both = |a: Option<BooleanExpression>, b: Option<BooleanExpression>| {
+            Some(BooleanExpression::And(Box::new(a?), Box::new(b?)))
+        };
+        let mut predicate: Option<BooleanExpression> = None;
+        for (i, (s1, d1, u1, t1, v1, x1)) in hops.iter().enumerate() {
+            for (s2, d2, u2, t2, v2, x2) in &hops[i + 1..] {
+                let overlap = t1
+                    .iter()
+                    .any(|a| t2.iter().any(|b| a.eq_ignore_ascii_case(b)));
+                let shared = v1.is_some() && v1 == v2;
+                if !overlap || shared || (x1.is_some() && x1 == x2) {
+                    continue;
+                }
+                let forward = both(eq(s1, s2), eq(d1, d2));
+                // An undirected hop may have walked its edge either way round.
+                let backward = (*u1 || *u2).then(|| both(eq(s1, d2), eq(d1, s2))).flatten();
+                let same = match (forward, backward) {
+                    (Some(f), Some(b)) => BooleanExpression::Or(Box::new(f), Box::new(b)),
+                    (Some(e), None) | (None, Some(e)) => e,
+                    (None, None) => continue,
+                };
+                let differ = BooleanExpression::Not(Box::new(same));
+                predicate = Some(match predicate {
+                    Some(p) => BooleanExpression::And(Box::new(p), Box::new(differ)),
+                    None => differ,
+                });
+            }
+        }
+        predicate.map(|p| (named, p))
     }
 
     /// `input` filtered by `predicate`, after turning any EXISTS in it into mark columns.
@@ -2606,6 +2717,61 @@ mod tests {
     }
 
     #[test]
+    fn test_same_type_hops_bind_distinct_relationships() {
+        let config = GraphConfig::builder()
+            .node_table("P", "id")
+            .rel_table("R", "P", "P", "src", "dst")
+            .rel_table("S", "P", "P", "src", "dst")
+            .build()
+            .unwrap();
+        let filtered = |q: &str| {
+            let logical = LogicalPlanner::new(&config)
+                .plan(&parse_cypher_query(q).unwrap())
+                .unwrap();
+            let LogicalOperator::Project { input, .. } = logical else {
+                panic!("Expected Project at top level");
+            };
+            match *input {
+                LogicalOperator::Filter { predicate, .. } => Some(predicate),
+                _ => None,
+            }
+        };
+        let id = |v: &str| {
+            ValueExpression::Property(PropertyRef {
+                variable: v.into(),
+                property: "id".into(),
+            })
+        };
+        let eq = |a: &str, b: &str| BooleanExpression::Comparison {
+            left: id(a),
+            operator: ComparisonOperator::Equal,
+            right: id(b),
+        };
+        assert_eq!(
+            filtered("MATCH (a:P)-[:R]->(b:P)<-[:R]-(c:P) RETURN a"),
+            Some(BooleanExpression::Not(Box::new(BooleanExpression::And(
+                Box::new(eq("a", "c")),
+                Box::new(eq("b", "b")),
+            ))))
+        );
+        // Anonymous endpoints are named so they can be compared.
+        assert!(filtered("MATCH (a:P)-[:R]->(:P)<-[:R]-(c:P) RETURN a").is_some());
+        // Different types, one shared variable, or separate MATCH clauses never collide.
+        assert_eq!(
+            filtered("MATCH (a:P)-[:R]->(b:P)<-[:S]-(c:P) RETURN a"),
+            None
+        );
+        assert_eq!(
+            filtered("MATCH (a:P)-[r:R]->(b:P), (c:P)-[r:R]->(d:P) RETURN a"),
+            None
+        );
+        assert_eq!(
+            filtered("MATCH (a:P)-[:R]->(b:P) MATCH (c:P)-[:R]->(b) RETURN a"),
+            None
+        );
+    }
+
+    #[test]
     fn test_variable_only_node_default_label() {
         let q = "MATCH (x) RETURN x.name";
         let ast = parse_cypher_query(q).unwrap();
@@ -2724,33 +2890,36 @@ mod tests {
         let mut planner = LogicalPlanner::new(&config);
         let logical_plan = planner.plan(&ast).unwrap();
 
-        // Expect: Project { Expand(shared->b) { Expand(a->shared) { Scan(a) } } }
-        match &logical_plan {
-            LogicalOperator::Project { input, .. } => match input.as_ref() {
-                LogicalOperator::Expand {
-                    input: inner,
-                    source_variable,
-                    target_variable,
-                    ..
-                } => {
-                    assert_eq!(source_variable, "shared");
-                    assert_eq!(target_variable, "b");
+        // Expect: Project { Filter(distinct KNOWS) { Expand(shared->b) { Expand(a->shared) } } }
+        let LogicalOperator::Project { input, .. } = &logical_plan else {
+            panic!("Expected Project at top level");
+        };
+        let LogicalOperator::Filter { input, .. } = input.as_ref() else {
+            panic!("Expected relationship uniqueness Filter");
+        };
+        match input.as_ref() {
+            LogicalOperator::Expand {
+                input: inner,
+                source_variable,
+                target_variable,
+                ..
+            } => {
+                assert_eq!(source_variable, "shared");
+                assert_eq!(target_variable, "b");
 
-                    match inner.as_ref() {
-                        LogicalOperator::Expand {
-                            source_variable: first_src,
-                            target_variable: first_dst,
-                            ..
-                        } => {
-                            assert_eq!(first_src, "a");
-                            assert_eq!(first_dst, "shared");
-                        }
-                        _ => panic!("Expected first Expand (a->shared)"),
+                match inner.as_ref() {
+                    LogicalOperator::Expand {
+                        source_variable: first_src,
+                        target_variable: first_dst,
+                        ..
+                    } => {
+                        assert_eq!(first_src, "a");
+                        assert_eq!(first_dst, "shared");
                     }
+                    _ => panic!("Expected first Expand (a->shared)"),
                 }
-                _ => panic!("Expected second Expand (shared->b)"),
-            },
-            _ => panic!("Expected Project at top level"),
+            }
+            _ => panic!("Expected second Expand (shared->b)"),
         }
     }
 

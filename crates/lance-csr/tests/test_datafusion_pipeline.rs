@@ -5020,10 +5020,9 @@ async fn test_datafusion_variable_reuse_with_count_distinct() {
         .downcast_ref::<Int64Array>()
         .unwrap();
 
-    // Distinct people who have at least 2 people knowing them:
-    // Bob (known by Alice), Charlie (known by Alice and Bob),
-    // David (known by Charlie), Eve (known by David) = 4 people
-    assert_eq!(counts.value(0), 4);
+    // The two KNOWS edges must differ, so only people known by at least 2 people count:
+    // Charlie (known by Alice and Bob) = 1 person
+    assert_eq!(counts.value(0), 1);
 }
 
 #[tokio::test]
