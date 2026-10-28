@@ -9,37 +9,18 @@ use std::collections::HashMap;
 
 /// Configuration for mapping Lance datasets to property graphs
 ///
-/// # Important: Case-Insensitive Keys
-///
-/// **WARNING**: `node_mappings` and `relationship_mappings` store keys as **lowercase** for
-/// case-insensitive behavior. If you directly insert into these maps, you **must** normalize
-/// keys to lowercase to maintain invariants.
-///
-/// **Recommended**: Use `GraphConfigBuilder` instead of direct field access. The builder
-/// automatically normalizes keys.
-///
-/// # Future API Changes
-///
-/// These fields may become private in a future major version to enforce invariants.
-/// Use the lookup and iterator accessors for reads, and [`GraphConfigBuilder`] for writes.
-/// The mapping fields remain public for source compatibility until a breaking release.
+/// Node labels and relationship types are case-insensitive: the mappings are keyed by their
+/// lowercase form. Build a config with [`GraphConfigBuilder`], which normalizes keys, and read
+/// it through the lookup and iterator accessors. Deserialization goes through the builder too,
+/// so a deserialized config is validated like a built one.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(try_from = "GraphConfigBuilder")]
 pub struct GraphConfig {
-    /// Mapping of node labels to their field configurations
-    ///
-    /// **Keys are stored as lowercase** for case-insensitive lookups.
-    /// Use `get_node_mapping()` for lookups instead of direct access.
-    ///
-    /// TODO: Make this private to enforce key normalization invariants
-    pub node_mappings: HashMap<String, NodeMapping>,
+    /// Node labels (lowercase) to their field configurations
+    node_mappings: HashMap<String, NodeMapping>,
 
-    /// Mapping of relationship types to their field configurations
-    ///
-    /// **Keys are stored as lowercase** for case-insensitive lookups.
-    /// Use `get_relationship_mapping()` for lookups instead of direct access.
-    ///
-    /// TODO: Make this private to enforce key normalization invariants
-    pub relationship_mappings: HashMap<String, RelationshipMapping>,
+    /// Relationship types (lowercase) to their field configurations
+    relationship_mappings: HashMap<String, RelationshipMapping>,
 
     /// Default node ID field if not specified in mappings
     pub default_node_id_field: String,
@@ -204,7 +185,8 @@ impl GraphConfig {
 }
 
 /// Builder for GraphConfig
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Deserialize)]
+#[serde(default)]
 pub struct GraphConfigBuilder {
     node_mappings: HashMap<String, NodeMapping>,
     relationship_mappings: HashMap<String, RelationshipMapping>,
@@ -365,6 +347,14 @@ impl GraphConfigBuilder {
     }
 }
 
+impl TryFrom<GraphConfigBuilder> for GraphConfig {
+    type Error = GraphError;
+
+    fn try_from(builder: GraphConfigBuilder) -> Result<Self> {
+        builder.build()
+    }
+}
+
 impl NodeMapping {
     /// Create a new node mapping
     pub fn new<S: Into<String>>(label: S, id_field: S) -> Self {
@@ -517,6 +507,25 @@ mod tests {
         );
 
         assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn deserialization_validates_through_the_builder() {
+        let config = GraphConfig::builder()
+            .node_table("Person", "id")
+            .rel_table("KNOWS", "Person", "Person", "src", "dst")
+            .build()
+            .unwrap();
+        let json = serde_json::to_string(&config).unwrap();
+        let restored: GraphConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.get_node_mapping("PERSON").unwrap().label, "Person");
+        assert!(restored.get_relationship_mapping("knows").is_some());
+
+        let unnormalized = json.replace("\"person\":", "\"Person\":");
+        let message = serde_json::from_str::<GraphConfig>(&unnormalized)
+            .unwrap_err()
+            .to_string();
+        assert!(message.contains("not normalized"), "{message}");
     }
 
     #[test]
