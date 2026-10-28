@@ -7,6 +7,8 @@ on:
     paths:
       - docs/**
       - zensical.toml
+      # The Python API reference is generated from these docstrings.
+      - python/python/lance_csr/**
       # Pages include this example with --8<--.
       - crates/lance-csr/examples/**
       - .github/workflows/docs.yml

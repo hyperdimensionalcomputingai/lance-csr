@@ -7,6 +7,8 @@ dependencies = []
 
 [dependency-groups]
 docs = [
+    "mkdocstrings==1.0.8",
+    "mkdocstrings-python==2.0.10",
     "zensical==0.0.72",
 ]
 

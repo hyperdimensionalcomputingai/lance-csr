@@ -34,8 +34,9 @@ the internals; `rust.md` covers the same engine for Rust developers. The CSR ind
 
 ## Accuracy comes first
 
-- **Document what exists on `main`.** Read the code, tests and docstrings before writing. The Python API is
-  defined in `crates/lance-csr-python/src/graph.rs`, on top of the Rust `CypherEngine` in
+- **Document what exists on `main`.** Read the code, tests and docstrings before writing. The public Python
+  classes are in `python/python/lance_csr/`, wrapping the compiled bindings in
+  `crates/lance-csr-python/src/graph.rs`, on top of the Rust `CypherEngine` in
   `crates/lance-csr/src/engine.rs`; the Cypher surface in `crates/lance-csr/src/`
   (`parser.rs`, `semantic.rs`, `logical_plan.rs`). Never describe planned features as shipped.
 - **Every Python example runs.** `check_snippets.py` executes each page's `python` blocks in order, in one
@@ -56,8 +57,11 @@ the internals; `rust.md` covers the same engine for Rust developers. The CSR ind
 - A snippet that can't run on its own (it needs LanceDB, a remote store or an ANN index) gets a
   `<!-- skip-check -->` line directly above its fence. Use this sparingly.
 - **Every user-facing knob is documented**: constructor arguments, keyword arguments, builder methods, enum
-  members, defaults, return types and the exceptions raised. When you add or change one, update both the guide
-  page that teaches it and `api-reference.md`, in the same pull request as the code.
+  members, defaults, return types and the exceptions raised. When you add or change one, update the guide page
+  that teaches it and the docstring of the Python class in `python/python/lance_csr/`, in the same pull request
+  as the code. `api-reference.md` renders those docstrings with mkdocstrings (NumPy style); its prose sections
+  (type checking, datasets, exceptions, timeouts, path values) are still written by hand. Docstring examples
+  run as doctests in `make test`.
 - State limits plainly. Don't claim a property ("constant memory", "never materializes") unless code and
   benchmarks show it. Performance numbers come from `benchmarks.md` sources only, with their methodology.
 - Keep scope in mind: lance-csr is single-machine. Don't document distributed execution or proprietary HDC

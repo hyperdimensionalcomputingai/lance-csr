@@ -51,7 +51,7 @@ jobs:
         run: uv run --no-sync maturin develop
       - name: Run tests
         working-directory: python
-        run: uv run --no-sync pytest python/tests/ -v
+        run: uv run --no-sync pytest python/tests/ --doctest-modules python/lance_csr -v
 
   lint:
     runs-on: ubuntu-24.04

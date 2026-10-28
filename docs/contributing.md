@@ -68,7 +68,8 @@ uv run --no-sync python ../docs/check_snippets.py csr.md    # one page
 ```
 
 `docs/AGENTS.md` has the writing guidelines. In short: when a pull request changes a user-facing API or
-behaviour, update the guide and the [API reference](api-reference.md) in the same pull request.
+behaviour, update the guide and the docstrings that generate the [API reference](api-reference.md) in the same pull
+request.
 
 ## Pull requests
 
