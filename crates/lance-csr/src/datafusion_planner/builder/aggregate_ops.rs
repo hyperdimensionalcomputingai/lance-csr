@@ -36,24 +36,61 @@ fn split_aggregates(expr: &mut ValueExpression, aggregates: &mut Vec<(String, Va
     });
 }
 
-/// `count(v)` lowers to `count(v__id)`, which only nodes and relationships have. For a
+/// `count(v)` lowers to `count(v__id)`, which nodes resolve to their key earlier. For a
 /// value without an id column (a path, or an UNWIND or WITH value), count the value itself.
+/// For a relationship, count the rows where any of its `v__*` columns is set: a matched
+/// relationship has non-null endpoints, an unmatched OPTIONAL one has none. `DISTINCT`
+/// compares all its columns, so parallel edges with identical properties count once.
 fn count_values_without_ids(
     args: &mut [datafusion::logical_expr::Expr],
+    distinct: bool,
     schema: &datafusion::common::DFSchema,
 ) {
+    use datafusion::logical_expr::{lit, when, Expr};
     for arg in args {
-        let datafusion::logical_expr::Expr::Column(column) = arg else {
+        let Expr::Column(column) = arg else {
             continue;
         };
         let Some(variable) = column.name.strip_suffix("__id") else {
             continue;
         };
-        if !schema.has_column_with_unqualified_name(&column.name)
-            && schema.has_column_with_unqualified_name(variable)
-        {
-            *arg = col(datafusion::common::Column::new_unqualified(variable));
+        if schema.has_column_with_unqualified_name(&column.name) {
+            continue;
         }
+        if schema.has_column_with_unqualified_name(variable) {
+            *arg = col(datafusion::common::Column::new_unqualified(variable));
+            continue;
+        }
+        let prefix = format!("{variable}__");
+        let columns: Vec<_> = schema
+            .iter()
+            .filter(|(_, f)| f.name().starts_with(&prefix))
+            .map(|(q, f)| {
+                (
+                    f.name()[prefix.len()..].to_string(),
+                    Expr::Column((q, f).into()),
+                )
+            })
+            .collect();
+        let Some(bound) = columns
+            .iter()
+            .map(|(_, c)| c.clone().is_not_null())
+            .reduce(Expr::or)
+        else {
+            continue;
+        };
+        let value = if distinct {
+            datafusion::functions::core::expr_fn::named_struct(
+                columns
+                    .into_iter()
+                    .flat_map(|(name, c)| [lit(name), c])
+                    .collect(),
+            )
+        } else {
+            lit(1_i64)
+        };
+        // Building a CASE can only fail on an empty WHEN list, which `bound` rules out.
+        *arg = when(bound, value).end().expect("CASE with one WHEN");
     }
 }
 
@@ -108,7 +145,8 @@ impl DataFusionPlanner {
                             f.params.order_by = ordering.to_vec();
                         }
                         if f.func.name() == "count" {
-                            count_values_without_ids(&mut f.params.args, &schema);
+                            let distinct = f.params.distinct;
+                            count_values_without_ids(&mut f.params.args, distinct, &schema);
                         }
                     }
                     agg_exprs.push(aggregate.alias(column));
@@ -230,5 +268,28 @@ mod tests {
             "plan missing Aggregate or count: {}",
             s
         );
+    }
+
+    #[test]
+    fn count_of_a_relationship_counts_rows_where_it_matched() {
+        use arrow_schema::{DataType, Field, Schema};
+        let schema = datafusion::common::DFSchema::try_from(Schema::new(vec![
+            Field::new("r__src", DataType::Int64, true),
+            Field::new("r__since", DataType::Int64, true),
+            Field::new("p__id", DataType::Int64, true),
+        ]))
+        .unwrap();
+        let count = |distinct| {
+            let mut args = vec![datafusion::logical_expr::col("r__id")];
+            super::count_values_without_ids(&mut args, distinct, &schema);
+            args[0].to_string()
+        };
+        let plain = count(false);
+        assert!(
+            plain.contains("r__src IS NOT NULL OR r__since IS NOT NULL"),
+            "{plain}"
+        );
+        assert!(!plain.contains("p__id"), "{plain}");
+        assert!(count(true).contains("named_struct"), "{}", count(true));
     }
 }

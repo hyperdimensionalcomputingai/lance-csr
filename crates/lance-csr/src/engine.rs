@@ -47,8 +47,8 @@ use serde_json::Value as JsonValue;
 
 use crate::config::GraphConfig;
 use crate::csr_expand::{
-    edge_changes, is_supported_id_type, Adjacency, AdjacencyCatalog, CsrQueryPlanner, NodeRows,
-    PruneCsrTargetColumns, PushCsrTargetFilters,
+    edge_changes, is_supported_id_type, Adjacency, AdjacencyCatalog, CsrQueryPlanner, EdgeRows,
+    NodeRows, PruneCsrTargetColumns, PushCsrTargetFilters,
 };
 use crate::error::{GraphError, Result};
 use crate::key_statistics::KeyStatisticsProvider;
@@ -116,6 +116,35 @@ impl EngineSource {
             }
             _ => false,
         }
+    }
+
+    /// Rows addressable by the edge rows of an adjacency built from this source.
+    fn edge_rows(&self) -> Arc<EdgeRows> {
+        Arc::new(match self {
+            Self::Lance { dataset, .. } => EdgeRows::from_lance(dataset.clone()),
+            Self::Arrow(batch) => EdgeRows::from_batch(batch.clone()),
+        })
+    }
+
+    /// `from` and `to` of every row, with row addresses for Lance; Arrow rows are
+    /// numbered by position, so the batch is read as is, in order.
+    async fn edge_stream(
+        &self,
+        from: &str,
+        to: &str,
+    ) -> Result<futures::stream::BoxStream<'static, Result<RecordBatch>>> {
+        let scan_error =
+            |e: lance::Error| exec_error(format!("Failed to scan edges for CSR: {}", e));
+        Ok(match self {
+            Self::Lance { dataset, .. } => {
+                let mut scanner = dataset.scan();
+                scanner.project(&[from, to]).map_err(scan_error)?;
+                scanner.with_row_address();
+                let stream = scanner.try_into_stream().await.map_err(scan_error)?;
+                stream.map(move |b| b.map_err(scan_error)).boxed()
+            }
+            Self::Arrow(batch) => futures::stream::iter([Ok(batch.clone())]).boxed(),
+        })
     }
 
     /// Row count: free for Arrow input, from Lance metadata otherwise.
@@ -233,6 +262,8 @@ struct CsrEntry {
     source: EngineSource,
     outgoing: Arc<Adjacency>,
     incoming: Arc<Adjacency>,
+    /// Rows of `source`, for relationship columns the adjacencies don't hold.
+    edges: Arc<EdgeRows>,
     /// Wall time of the last build or delta application.
     build_ms: f64,
     /// How the last refresh produced this entry: build, rebuild, delta or reused.
@@ -282,25 +313,35 @@ async fn try_apply_csr_delta(
     if changes.is_empty() {
         return Some(CsrEntry {
             source: source.clone(),
+            edges: source.edge_rows(),
             build_ms: elapsed(),
             update: "reused",
             ..old.clone()
         });
     }
-    let base = old.outgoing.base_edges() as f64;
-    let pending = old.outgoing.delta_edges() + old.outgoing.tombstones() + changes.len() as u64;
-    if pending as f64 > CSR_REBUILD_FRACTION * base {
+    let too_large =
+        |pending: u64| pending as f64 > CSR_REBUILD_FRACTION * old.outgoing.base_edges() as f64;
+    if too_large(
+        old.outgoing.delta_edges() + old.outgoing.tombstones() + changes.added.len() as u64,
+    ) {
         return None;
     }
-    let flip = |edges: &[(i64, i64)]| edges.iter().map(|&(a, b)| (b, a)).collect::<Vec<_>>();
+    // Removed rows are only counted by applying them; one direction is enough to decide.
     let outgoing = old.outgoing.with_changes(&changes.added, &changes.removed);
-    let incoming = old
-        .incoming
-        .with_changes(&flip(&changes.added), &flip(&changes.removed));
+    if too_large(outgoing.delta_edges() + outgoing.tombstones()) {
+        return None;
+    }
+    let flipped: Vec<_> = changes
+        .added
+        .iter()
+        .map(|&(a, b, row)| (b, a, row))
+        .collect();
+    let incoming = old.incoming.with_changes(&flipped, &changes.removed);
     Some(CsrEntry {
         source: source.clone(),
         outgoing: Arc::new(outgoing),
         incoming: Arc::new(incoming),
+        edges: source.edge_rows(),
         build_ms: elapsed(),
         update: "delta",
     })
@@ -326,6 +367,7 @@ impl EngineState {
         for (rel_type, entry) in &self.csr {
             catalog.insert(rel_type, true, entry.outgoing.clone());
             catalog.insert(rel_type, false, entry.incoming.clone());
+            catalog.insert_edges(rel_type, entry.edges.clone());
         }
         for (label, entry) in &self.node_index {
             catalog.insert_nodes(label, entry.rows.clone());
@@ -458,7 +500,7 @@ async fn build_engine_state(
     validate_sources(config, &schemas)?;
     let (csr, node_index) = if use_csr {
         (
-            build_csr_entries(config, &sources, &schemas, &ctx, previous).await?,
+            build_csr_entries(config, &sources, &schemas, previous).await?,
             build_node_index(config, &sources, previous).await?,
         )
     } else {
@@ -701,7 +743,6 @@ async fn build_csr_entries(
     config: &GraphConfig,
     sources: &HashMap<String, EngineSource>,
     schemas: &HashMap<String, SchemaRef>,
-    ctx: &SessionContext,
     previous: Option<&EngineState>,
 ) -> Result<HashMap<String, CsrEntry>> {
     let mut entries = HashMap::new();
@@ -745,16 +786,8 @@ async fn build_csr_entries(
         }
 
         let started = std::time::Instant::now();
-        let table = name.to_lowercase();
         // Two projected scans of the endpoint columns, one per direction.
-        let scan = || async {
-            ctx.table(table.as_str())
-                .await?
-                .select_columns(&[src.name().as_str(), dst.name().as_str()])?
-                .execute_stream()
-                .await
-                .map_err(|e| exec_error(format!("Failed to scan edges for CSR: {}", e)))
-        };
+        let scan = || source.edge_stream(src.name(), dst.name());
         let outgoing = Adjacency::build(scan().await?, src.name(), dst.name()).await?;
         let incoming = Adjacency::build(scan().await?, dst.name(), src.name()).await?;
         entries.insert(
@@ -763,6 +796,7 @@ async fn build_csr_entries(
                 source: source.clone(),
                 outgoing: Arc::new(outgoing),
                 incoming: Arc::new(incoming),
+                edges: source.edge_rows(),
                 build_ms: started.elapsed().as_secs_f64() * 1e3,
                 update: if previous_entry.is_some() {
                     "rebuild"

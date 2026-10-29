@@ -80,7 +80,8 @@ engine = CypherEngine(config, datasets, use_csr=True)  # (1)!
 
 CSR adjacency
 :   Per relationship type with integer endpoints: outgoing and incoming neighbour lists. Built from the
-    relationship table only.
+    relationship table only. Each neighbour also records the row its edge came from (its Lance row address,
+    or its row number in an in-memory table), so a hop can fetch the relationship's own columns by position.
 
 Node index
 :   Per node label with unique integer keys: a map from key to row position. It lets the CSR fetch target
@@ -88,8 +89,10 @@ Node index
 
 !!! info "Memory cost"
 
-    Expect about **70 bytes per edge** of extra peak memory, for both directions together. The index lives in
-    memory even when the tables are read lazily from Lance.
+    Expect about **95 bytes per edge** of extra peak memory while the CSR is built, for both directions
+    together (measured at 10M edges with `python/benchmarks/csr_expand.py`). About 32 bytes per edge stay
+    resident afterwards: each direction holds the neighbour key and the edge's row for every edge. The index
+    lives in memory even when the tables are read lazily from Lance.
 
     During query execution, each CSR expansion partition keeps one input batch and collects at most one
     output chunk of neighbour positions before fetching properties. It yields that chunk before visiting
@@ -114,8 +117,8 @@ The CSR answers a hop when **all** of these hold:
       `uint16` or `uint32`);
 - [x] the hop has exactly **one relationship type** (alternation still qualifies, because each alternative is
       planned as its own branch);
-- [x] the relationship has **no variable and no property map**: `-[:KNOWS]->` qualifies,
-      `-[k:KNOWS]->` and `-[:KNOWS {since: 2020}]->` do not.
+- [x] the relationship has **no inline property map**: `-[:KNOWS]->` and `-[k:KNOWS]->` qualify,
+      `-[:KNOWS {since: 2020}]->` does not (write `WHERE k.since = 2020` instead).
 
 When those hold, it covers:
 
@@ -128,7 +131,8 @@ When those hold, it covers:
 | <code>(a)-[:LIKES_POST&#124;LIKES_COMMENT]->(m)</code> | :material-check: one expansion per branch |
 | `OPTIONAL MATCH (a)-[:KNOWS]->(b)` | :material-check: |
 | `shortestPath((a)-[:KNOWS*]-(b))` | :material-check: the search walks the CSR adjacency |
-| `(a)-[k:KNOWS]->(b)` | :material-close: hash join, because `k` must be materialized |
+| `(a)-[k:KNOWS]->(b)` | :material-check: `k`'s other columns are fetched by edge row (single hops only) |
+| `(a)-[k:KNOWS {since: 2020}]->(b)` | :material-close: hash join |
 | endpoints of type `string`, `float` or `uint64` | :material-close: hash join |
 
 Everything else in the query (filters, aggregations, sorts and any hop the CSR can't take) is planned by
@@ -165,10 +169,26 @@ Traversal state grows with the hop limit, not the number of pending paths. Resid
 batches, fetched target properties and downstream operators still contribute to query memory. Branching
 graphs can produce exponentially many matches even though traversal resumes between output batches.
 
-!!! tip "Leave relationship variables out unless you need them"
+### Relationship variables
 
-    `MATCH (a)-[k:KNOWS]->(b) RETURN b.name` falls back to joins only because it names `k`. If you don't read
-    `k`'s properties, write `-[:KNOWS]->` and keep the CSR.
+A hop that names its relationship, as in `MATCH (a)-[k:KNOWS]->(b) WHERE k.since > 2020 RETURN b.name`,
+stays on the CSR. Each neighbour carries the row its edge came from, so the expansion fetches the columns of
+`k` that the query reads by position (Lance `take` by row address, or Arrow `take`), and only those.
+`explain()` shows them as `edge=k[k__since]` on the `CsrExpand` line. Parallel edges between the same two
+nodes are separate rows, each with its own properties, as on the join path.
+
+A `WHERE` condition that reads only `k`'s own columns, such as `k.since > 2020`, moves into the expansion
+(`edge_filter=` in `explain()`), so failing edges are dropped before anything else is fetched. A small hop
+fetches just the filter's columns for each batch of expanded edges. Once a hop has expanded more than 1/256
+of the relationship's edges, it reads the filter's columns once, in order, and skips failing edges from then
+on. Conditions that mix `k` with other variables stay after the expansion.
+
+!!! note "Large hops on lazily read tables"
+
+    A hop that expands a large share of a relationship and returns several properties of its target node
+    fetches those properties one batch of scattered rows at a time. On Lance datasets read lazily, that can be
+    slower than the join path, which reads the node table once. This holds whether or not the hop names its
+    relationship. IC5 in the [benchmarks](benchmarks.md) is such a query.
 
 ### The fused target lookup
 
@@ -246,7 +266,7 @@ is pinned to a version until you call [`refresh()`](lance.md#refresh), which upd
 flowchart TD
     R["engine.refresh()"] --> V{"Relationship dataset<br/>changed?"}
     V -- no --> U["reused"]
-    V -- yes --> D{"Diff between the two<br/>Lance versions available?"}
+    V -- yes --> D{"Same endpoint<br/>columns?"}
     D -- no --> RB["rebuild"]
     D -- yes --> S{"Pending changes > 25%<br/>of the base CSR?"}
     S -- yes --> RB
@@ -254,8 +274,10 @@ flowchart TD
 ```
 
 - **Appends** become delta edges and **deletes** become tombstones, both applied on top of the base CSR.
-- Once the accumulated delta would exceed **25%** of the base, or the dataset was overwritten, or the old
-  version's files are gone, the CSR is **rebuilt** and the delta folded in.
+  Deleted and rewritten rows are matched by the row each CSR entry records, so only added fragments are
+  read. Compaction and `cleanup_old_versions()` don't force a rebuild: nothing is read from the old version.
+- Once the accumulated delta would exceed **25%** of the base, or the dataset was overwritten, the CSR is
+  **rebuilt** and the delta folded in.
 - **Node-table writes never touch the CSR**: it stores raw target keys, not row positions. A changed node
   table rebuilds only its node index.
 - The replacement is validated in full before it's swapped in. If anything fails, nothing changes and the
@@ -272,6 +294,6 @@ The 25% threshold is fixed: lookups pay a little for every pending delta edge, a
 | Integer node keys and edge endpoints | **Turn it on**; you get the fused target lookup too |
 | String or UUID keys | Little benefit; add an integer id column if traversal matters |
 | Only node lookups and aggregations, no hops | Leave it off; it costs build time and memory for nothing |
-| Very large edge tables and tight memory | Budget ~70 bytes per edge before turning it on |
+| Very large edge tables and tight memory | Budget ~95 bytes per edge of peak memory before turning it on |
 
 The [benchmarks](benchmarks.md) were all run with `use_csr=True`.

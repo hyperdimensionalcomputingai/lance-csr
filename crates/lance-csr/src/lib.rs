@@ -7,6 +7,9 @@
 //! It interprets Lance datasets as property graphs and translates Cypher queries into
 //! DataFusion SQL queries for execution.
 //!
+//! **Experimental.** The Rust API is not stable yet: breaking changes are possible over the
+//! next few weeks while the CSR work lands. Pin an exact version if you depend on it.
+//!
 //! # Features
 //!
 //! - Cypher query parsing and AST representation

@@ -130,11 +130,9 @@ impl DataFusionPlanner {
             }
         }
 
-        // A bound relationship variable or relationship property filter needs the
-        // relationship's other columns, which the CSR does not carry.
-        let csr_eligible = relationship_variable.is_none()
-            && relationship_properties.is_empty()
-            && relationship_types.len() == 1;
+        // Inline relationship property filters are applied by the relationship scan,
+        // so they keep the join.
+        let csr_eligible = relationship_properties.is_empty() && relationship_types.len() == 1;
 
         // Join relationship with target node using the explicit target_label (case-insensitive)
         let target_node_map = self.config.get_node_mapping(target_label).ok_or_else(|| {
@@ -176,6 +174,7 @@ impl DataFusionPlanner {
                 &rel_source.schema(),
                 direction,
                 target_lookup,
+                relationship_variable.is_some(),
             )?
         } else {
             None
@@ -314,7 +313,8 @@ impl DataFusionPlanner {
     /// exists for this relationship and direction and every id column is an integer.
     ///
     /// The node outputs the two endpoint columns under the names the relationship
-    /// scan would use, so the target join that follows is unchanged.
+    /// scan would use, so the target join that follows is unchanged. A named
+    /// relationship (`named`) also gets its other columns, fetched by edge row.
     #[allow(clippy::too_many_arguments)]
     fn try_build_csr_expand(
         &self,
@@ -326,8 +326,9 @@ impl DataFusionPlanner {
         rel_schema: &arrow_schema::SchemaRef,
         direction: &RelationshipDirection,
         target: Option<crate::csr_expand::TargetLookup>,
+        named: bool,
     ) -> Result<Option<LogicalPlan>> {
-        use crate::csr_expand::{is_supported_id_type, CsrExpandNode, Neighbors};
+        use crate::csr_expand::{is_supported_id_type, CsrExpandNode, EdgeLookup, Neighbors};
         use datafusion::logical_expr::Extension;
 
         let Some(catalog) = self.adjacency.as_ref() else {
@@ -379,6 +380,27 @@ impl DataFusionPlanner {
         {
             return Ok(None);
         }
+        let edge = if named {
+            let names: Vec<&str> = rel_schema
+                .fields()
+                .iter()
+                .map(|f| f.name().as_str())
+                .collect();
+            let edge = catalog.edges(rel_type).and_then(|rows| {
+                EdgeLookup::new(
+                    rel_alias,
+                    rows.clone(),
+                    &names,
+                    [key_field.name(), neighbor_field.name()],
+                )
+            });
+            if edge.is_none() {
+                return Ok(None);
+            }
+            edge
+        } else {
+            None
+        };
 
         let output = |f: &arrow_schema::Field| {
             arrow_schema::Field::new(
@@ -394,6 +416,7 @@ impl DataFusionPlanner {
             output(&neighbor_field),
             adjacency,
             target,
+            edge,
         )?;
         Ok(Some(LogicalPlan::Extension(Extension {
             node: Arc::new(node),
@@ -921,6 +944,7 @@ impl DataFusionPlanner {
             output(Self::get_target_join_key(direction, rel_map)),
             adjacency,
             target,
+            None,
         )?
         .with_traversal(walk);
         if closing && target_properties.is_empty() {

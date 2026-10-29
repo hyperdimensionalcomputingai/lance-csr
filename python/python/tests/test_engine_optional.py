@@ -30,6 +30,16 @@ CASES = [
         "RETURN a.id, count(b.id) AS n",
         [(1, 3), (2, 1), (3, 1), (4, 0), (5, 1), (6, 0)],
     ),
+    # count(r) counts matched relationships; DISTINCT folds the identical 1->2 edges.
+    (
+        "MATCH (a:Person) OPTIONAL MATCH (a)-[r:KNOWS]->(b:Person) "
+        "RETURN a.id, count(r) AS n, count(DISTINCT r) AS d",
+        [(1, 3, 2), (2, 1, 1), (3, 1, 1), (4, 0, 0), (5, 1, 1), (6, 0, 0)],
+    ),
+    (
+        "MATCH (a:Person)-[r:KNOWS]->(b:Person) WITH r RETURN count(r) AS n",
+        [(6,)],
+    ),
     # A WHERE between MATCH and OPTIONAL MATCH filters the MATCH.
     (
         "MATCH (a:Person) WHERE a.id < 3 OPTIONAL MATCH (a)<-[:KNOWS]-(c:Person) "

@@ -5,6 +5,9 @@ with a CSR (compressed sparse row) adjacency index for fast multi-hop traversal.
 Arrow tables as property graphs. The [lance-csr Python package](https://pypi.org/project/lance-csr/) wraps this
 crate.
 
+> **Experimental.** The Rust API is not stable yet: breaking changes are possible over the next few
+> weeks while the CSR work lands. Pin an exact version (`lance-csr = "=x.y.z"`) if you depend on it.
+
 ## Features
 
 - Cypher query parsing and AST construction

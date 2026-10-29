@@ -161,12 +161,12 @@ impl TraversalCursor {
             let next = (step.from == frame.label)
                 .then(|| {
                     step.adjacency
-                        .candidates_from(frame.key, &mut frame.position)
+                        .candidates_from::<false>(frame.key, &mut frame.position)
                         .next()
                 })
                 .flatten();
             let key = match next {
-                Some(Some(key)) => key as i64,
+                Some(Some((key, _))) => key as i64,
                 Some(None) => continue,
                 None => {
                     frame.step += 1;
@@ -298,7 +298,11 @@ mod tests {
         catalog.insert(
             "hasType",
             true,
-            Arc::new(base.with_changes(&[], &vec![(1, 1); 4999])),
+            Arc::new(base.with_changes(&[], &{
+                let mut removed = crate::csr_expand::RemovedRows::default();
+                removed.rows(0, 0..4999);
+                removed
+            })),
         );
         let walk = Traversal::new(
             &config,
@@ -351,10 +355,10 @@ mod tests {
     #[tokio::test]
     async fn walk_yields_while_no_candidate_can_match_the_target_label() {
         let (config, mut catalog) = graph().await;
-        let adjacency = catalog
-            .get("isSubclass", true)
-            .unwrap()
-            .with_changes(&vec![(1, 1); 4096], &[]);
+        let adjacency = catalog.get("isSubclass", true).unwrap().with_changes(
+            &(0..4096).map(|row| (1, 1, row)).collect::<Vec<_>>(),
+            &Default::default(),
+        );
         catalog.insert("isSubclass", true, Arc::new(adjacency));
         let walk = Traversal::new(
             &config,
