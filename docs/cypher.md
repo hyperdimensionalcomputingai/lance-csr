@@ -305,6 +305,12 @@ MATCH p = shortestPath((a:Person {id: 1})-[:KNOWS*]-(b:Person {id: 4}))
 RETURN length(p), nodes(p)
 ```
 
+- **Untyped relationships** (`MATCH (a)-[]-(b) RETURN a,b` or
+  `MATCH path = (a)-[]-(b) RETURN path`) range over the configured relationship types.
+  Endpoint mappings resolve unlabeled nodes without combining identities from different tables.
+  Undirected matches include both orientations; a self-loop appears once and parallel edges remain
+  distinct. Whole-node returns in these queries use typed Arrow entity records. The existing
+  alternative-branch bound still applies.
 - **Variable length** defaults to a minimum of 1 and a maximum of 20 hops; a maximum above 20 is rejected.
   `*0..` also matches the source itself, once per input row; `*0..0` matches only that identity. The start
   and end must have the same label and key for a zero-hop match. Eligible CSR paths use one iterative

@@ -17,6 +17,7 @@ impl DataFusionPlanner {
         ctx: &mut PlanningContext,
         input: &LogicalOperator,
         path: &PathPattern,
+        node_values: bool,
     ) -> Result<LogicalPlan> {
         let error = |message: String| GraphError::UnsupportedFeature {
             feature: message,
@@ -198,6 +199,7 @@ impl DataFusionPlanner {
             plans,
             PathSpec {
                 variable,
+                node_values,
                 sources: ctx.path_sources.clone(),
                 nodes,
                 edges,

@@ -183,3 +183,15 @@ def test_collect_distinct(datasets):
         (1, ["a"], 3),
         (2, ["b"], 1),
     ]
+
+
+@pytest.mark.parametrize("use_csr", [False, True])
+def test_anonymous_relationships_return_all_types(datasets, use_csr):
+    engine = CypherEngine(config(), datasets, use_csr=use_csr)
+    result = engine.execute("MATCH (a)-[]-(b) RETURN a,b")
+    assert result.num_rows == 12
+    labels = {row["a"]["__lance_csr_identity"]["label"] for row in result.to_pylist()}
+    assert labels == {"Person", "Post", "Comment"}
+    paths = engine.execute("MATCH path = (a)-[]-(b) RETURN path")
+    assert paths.num_rows == 12
+    assert all(row["path"]["length"] == 1 for row in paths.to_pylist())

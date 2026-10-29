@@ -176,3 +176,98 @@ async fn construction_errors_are_config_errors() {
         other => panic!("expected a ConfigError, got {:?}", other.err()),
     }
 }
+
+#[tokio::test]
+async fn anonymous_patterns_keep_mixed_label_identity_and_query_semantics() {
+    use arrow_array::{cast::AsArray, StructArray};
+    for use_csr in [false, true] {
+        let project = RecordBatch::try_from_iter([
+            (
+                "id",
+                Arc::new(Int64Array::from(vec![1])) as arrow_array::ArrayRef,
+            ),
+            (
+                "title",
+                Arc::new(StringArray::from(vec!["Project one"])) as arrow_array::ArrayRef,
+            ),
+        ])
+        .unwrap();
+        let cfg = GraphConfig::builder()
+            .node_table("Person", "id")
+            .node_table("Project", "id")
+            .rel_table("KNOWS", "Person", "Person", "src_id", "dst_id")
+            .rel_table("WORKS_ON", "Person", "Project", "src_id", "dst_id")
+            .build()
+            .unwrap();
+        let engine = CypherEngine::new(
+            cfg,
+            HashMap::from([
+                ("Person".into(), EngineSource::Arrow(people())),
+                ("Project".into(), EngineSource::Arrow(project)),
+                (
+                    "KNOWS".into(),
+                    EngineSource::Arrow(knows(&[(1, 2), (1, 2), (1, 1)])),
+                ),
+                ("WORKS_ON".into(), EngineSource::Arrow(knows(&[(1, 1)]))),
+            ]),
+            use_csr,
+        )
+        .await
+        .unwrap();
+        for query in [
+            "MATCH (a)-[]-(b) RETURN a,b",
+            "MATCH (a)-[r]-(b) RETURN a,r,b",
+            "MATCH p = (a)-[]-(b) RETURN p",
+        ] {
+            let batch = engine.execute(query, HashMap::new()).await.unwrap();
+            assert_eq!(batch.num_rows(), 7, "{query}");
+            if let Some(column) = batch.column_by_name("a") {
+                let entity = column.as_any().downcast_ref::<StructArray>().unwrap();
+                let identity = entity
+                    .column_by_name("__lance_csr_identity")
+                    .unwrap()
+                    .as_struct();
+                let labels = identity.column_by_name("label").unwrap().as_string::<i32>();
+                assert!((0..labels.len()).any(|row| labels.value(row) == "Person"));
+                assert!((0..labels.len()).any(|row| labels.value(row) == "Project"));
+            }
+        }
+        for (query, expected) in [
+            ("MATCH (a)-[]-(b) RETURN count(*) AS total", 7),
+            (
+                "MATCH (a)-[]-(b) WHERE a.name = 'Alice' RETURN count(*) AS total",
+                4,
+            ),
+        ] {
+            let batch = engine.execute(query, HashMap::new()).await.unwrap();
+            assert_eq!(
+                batch
+                    .column_by_name("total")
+                    .unwrap()
+                    .as_primitive::<arrow_array::types::Int64Type>()
+                    .value(0),
+                expected
+            );
+        }
+        let alias = engine
+            .execute(
+                "MATCH (a)-[]-(b) WITH a AS friend RETURN friend",
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(alias.num_rows(), 7);
+        assert!(matches!(
+            alias.schema().field(0).data_type(),
+            DataType::Struct(_)
+        ));
+        let limit = engine
+            .execute(
+                "MATCH p = (a)-[]-(b) RETURN p SKIP 2 LIMIT 3",
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(limit.num_rows(), 3);
+    }
+}

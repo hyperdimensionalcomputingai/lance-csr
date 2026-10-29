@@ -154,7 +154,11 @@ impl DataFusionPlanner {
                 optional,
                 keys,
             } => self.build_optional_match(ctx, input, optional, keys),
-            LogicalOperator::PathMatch { input, path } => self.build_path_match(ctx, input, path),
+            LogicalOperator::PathMatch {
+                input,
+                path,
+                node_values,
+            } => self.build_path_match(ctx, input, path, *node_values),
             LogicalOperator::ShortestPath {
                 input,
                 source_variable,

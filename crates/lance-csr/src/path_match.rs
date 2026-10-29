@@ -54,6 +54,8 @@ pub(crate) struct Step {
 #[derive(Debug)]
 pub(crate) struct PathSpec {
     pub variable: String,
+    /// Expose typed boundary-node values alongside their property columns.
+    pub node_values: bool,
     pub sources: crate::path_inventory::SourceBatches,
     pub nodes: Vec<NodeSource>,
     pub edges: Vec<EdgeSource>,
@@ -73,6 +75,7 @@ pub(crate) struct PathMatchNode {
 
 #[derive(Debug, Clone)]
 enum Output {
+    NodeValue { boundary: usize },
     RelationshipValue { step: usize },
     Node { boundary: usize, property: usize },
     Relationship { step: usize, property: usize },
@@ -97,6 +100,20 @@ impl PathMatchNode {
         let mut fields = Vec::new();
         let mut outputs = Vec::new();
         let input = inputs[0].schema();
+        for (boundary, binding) in spec
+            .bindings
+            .iter()
+            .enumerate()
+            .filter(|_| spec.node_values)
+        {
+            let name = binding.variable.to_lowercase();
+            if !input.has_column_with_unqualified_name(&name)
+                && !fields.iter().any(|f: &Field| f.name() == &name)
+            {
+                fields.push(Field::new(name, node_type.clone(), true));
+                outputs.push(Output::NodeValue { boundary });
+            }
+        }
         for (boundary, binding) in spec.bindings.iter().enumerate().skip(1) {
             if input.has_column_with_unqualified_name(&binding.id_column) {
                 continue;
@@ -409,6 +426,13 @@ impl ExecutionPlan for PathMatchExec {
                             .collect::<std::result::Result<_, _>>()?;
                         for output in &outputs {
                             let (array, positions) = match output {
+                                Output::NodeValue { boundary } => {
+                                    let positions = UInt32Array::from_iter_values(
+                                        paths.iter().map(|p| p.nodes[p.boundaries[*boundary]]),
+                                    );
+                                    columns.push(take(&p.graph.inventory.nodes, &positions, None)?);
+                                    continue;
+                                }
                                 Output::RelationshipValue { step } => {
                                     let positions = UInt32Array::from_iter_values(
                                         paths.iter().map(|p| p.edges[p.boundaries[*step]]),
@@ -892,6 +916,7 @@ mod tests {
         };
         let spec = PathSpec {
             variable: "p".into(),
+            node_values: false,
             sources: Default::default(),
             nodes: vec![NodeSource {
                 label: "Person".into(),

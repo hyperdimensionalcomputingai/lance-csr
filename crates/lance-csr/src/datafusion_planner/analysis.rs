@@ -241,7 +241,7 @@ fn analyze_operator(
                 analysis.required_datasets.insert(label.clone());
             }
         }
-        LogicalOperator::PathMatch { input, path } => {
+        LogicalOperator::PathMatch { input, path, .. } => {
             analyze_operator(input, analysis, rel_counter)?;
             for node in
                 std::iter::once(&path.start_node).chain(path.segments.iter().map(|s| &s.end_node))
