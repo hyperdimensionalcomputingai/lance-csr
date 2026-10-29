@@ -16,7 +16,7 @@ install: sync
 	$(RUN) maturin develop
 
 test:
-	$(RUN) pytest $(PYTEST_ARGS) python/tests --doctest-modules python/lance_csr
+	$(RUN) pytest -n auto $(PYTEST_ARGS) python/tests --doctest-modules python/lance_csr
 
 lint:
 	$(RUN) ruff check python
