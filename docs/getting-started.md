@@ -125,15 +125,31 @@ print(older.to_pydict())  # {'name': ['Bob', 'David']}
 Pass `use_csr=True` and the engine builds a CSR adjacency index for each relationship type. Multi-hop
 patterns then become array lookups instead of joins:
 
-```python
-engine = CypherEngine(config, datasets, use_csr=True)
+=== "Python"
 
-friends_of_friends = engine.execute("""
-    MATCH (a:Person {name: 'Alice'})-[:KNOWS]->()-[:KNOWS]->(c:Person)
-    RETURN DISTINCT c.name AS friend_of_friend
-""")
-print(friends_of_friends.to_pylist())  # [{'friend_of_friend': 'David'}]
-```
+    ```python
+    engine = CypherEngine(config, datasets, use_csr=True)
+
+    friends_of_friends = engine.execute("""
+        MATCH (a:Person {name: 'Alice'})-[:KNOWS]->()-[:KNOWS]->(c:Person)
+        RETURN DISTINCT c.name AS friend_of_friend
+    """)
+    print(friends_of_friends.to_pylist())  # [{'friend_of_friend': 'David'}]
+    ```
+
+=== "Rust"
+
+    The same engine is a Rust crate (`cargo add lance-csr`). This example reads `Person` and `KNOWS` from
+    Lance datasets on disk, where Alice knows only Bob, so the answer differs from the Python tab. The third
+    argument of `CypherEngine::new` is `use_csr`.
+
+    ```rust
+    --8<-- "crates/lance-csr/examples/embedded_query.rs:engine"
+
+    --8<-- "crates/lance-csr/examples/embedded_query.rs:query"
+    ```
+
+    [Using from Rust](rust.md) has the full, runnable example, along with refresh, errors and timeouts.
 
 !!! tip "When should I turn the CSR on?"
 
