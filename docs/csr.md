@@ -234,8 +234,9 @@ One entry per relationship type that has a CSR:
 
 ```python
 print(engine.csr_stats()["KNOWS"])
-# {'edges': 4, 'delta_edges': 0, 'tombstones': 0, 'update': 'build',
-#  'version': None, 'build_ms': 0.41}  (build_ms varies)
+# {'edges': 4, 'delta_edges': 0, 'tombstones': 0, 'unindexed_edges': 0,
+#  'update': 'build', 'version': None, 'base_version': None,
+#  'build_ms': 0.41}  (build_ms varies)
 ```
 
 | Field | Meaning |
@@ -243,8 +244,10 @@ print(engine.csr_stats()["KNOWS"])
 | `edges` | Live indexed edges. Edges with a null endpoint are skipped. |
 | `delta_edges` | Appended edges held outside the base CSR since its last full build. |
 | `tombstones` | Removed edges masked out since the last full build. |
+| `unindexed_edges` | Live edges outside the base CSR: appended since its last full build and not since removed. Lance index statistics call this `num_unindexed_rows`. |
 | `update` | How the last build or `refresh()` produced it: `build` (first), `rebuild` (full), `delta` (changes applied) or `reused` (no edge change). |
 | `version` | The relationship dataset's Lance version, or `None` for PyArrow input. |
+| `base_version` | The version of the last full build, or `None` for PyArrow input. It trails `version` while deltas apply. |
 | `build_ms` | Wall time of that build or delta, both directions. |
 
 A relationship type missing from `csr_stats()` has no CSR (its endpoints aren't integers) and always joins.
@@ -295,7 +298,8 @@ The engine doesn't watch your datasets for changes. Keeping the CSR in step with
    after all of them commit (see [snapshots are per dataset](lance.md#lazy-version-pinned-reads)). A refresh
    with nothing new reuses the existing CSR, so calling it on a timer or before each batch of queries is fine.
 3. **Check what it did with [`csr_stats()`](#csr_stats)**: `update` says whether the CSR was `reused`, updated
-   with a `delta` or fully rebuilt (`rebuild`).
+   with a `delta` or fully rebuilt (`rebuild`). `base_version` and `unindexed_edges` say how far the base
+   CSR trails the data. Answers are exact either way: delta edges are part of every lookup.
 
 === "Python"
 

@@ -53,8 +53,10 @@ class CsrStats(TypedDict):
     edges: int
     delta_edges: int
     tombstones: int
+    unindexed_edges: int
     update: Literal["build", "rebuild", "delta", "reused"]
     version: int | None
+    base_version: int | None
     build_ms: float
 
 

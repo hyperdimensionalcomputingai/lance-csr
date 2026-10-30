@@ -129,6 +129,8 @@ pub struct Adjacency {
     removed: FastMap<i64, Vec<usize>>,
     added_count: u64,
     removed_count: u64,
+    /// Tombstones that remove appended edges rather than base ones.
+    removed_added_count: u64,
 }
 
 struct CsrBase {
@@ -181,6 +183,7 @@ impl Adjacency {
             removed: FastMap::default(),
             added_count: 0,
             removed_count: 0,
+            removed_added_count: 0,
         })
     }
 
@@ -199,6 +202,7 @@ impl Adjacency {
             removed: self.removed.clone(),
             added_count: self.added_count + added.len() as u64,
             removed_count: self.removed_count,
+            removed_added_count: self.removed_added_count,
         };
         if !removed.is_empty() {
             // A row doesn't say which source holds it, so every live slot is checked.
@@ -229,6 +233,8 @@ impl Adjacency {
                 }
                 if !positions.is_empty() {
                     next.removed_count += positions.len() as u64;
+                    next.removed_added_count +=
+                        positions.iter().filter(|&&p| p >= base_rows.len()).count() as u64;
                     let tombstones = next.removed.entry(key).or_default();
                     tombstones.extend(positions);
                     tombstones.sort_unstable();
@@ -327,6 +333,11 @@ impl Adjacency {
     /// Removed edges recorded as tombstones.
     pub fn tombstones(&self) -> u64 {
         self.removed_count
+    }
+
+    /// Live edges outside the base: appended and not since removed.
+    pub fn unindexed_edges(&self) -> u64 {
+        self.added_count - self.removed_added_count
     }
 }
 
@@ -2513,9 +2524,11 @@ mod tests {
             (next.num_edges(), next.delta_edges(), next.tombstones()),
             (4, 2, 1)
         );
+        assert_eq!(next.unindexed_edges(), 2);
         // Removing an appended edge cancels it; the original is untouched.
         let later = next.with_changes(&[], &rows([4]));
         assert!(neighbors(&later, 9).is_empty());
+        assert_eq!((later.tombstones(), later.unindexed_edges()), (2, 1));
         assert_eq!(neighbors(&base, 1), vec![2, 2, 3]);
         assert!(Arc::ptr_eq(&base.base, &later.base));
     }
@@ -2532,6 +2545,8 @@ mod tests {
         let next = base
             .with_changes(&[(1, 12, 2), (1, 12, 3), (1, 13, 4)], &rows([]))
             .with_changes(&[], &rows([1, 2]));
+        // Row 1 is a base edge, row 2 an appended one.
+        assert_eq!((next.tombstones(), next.unindexed_edges()), (2, 2));
         for (mut offset, expected) in [
             (0, vec![10, 12, 13]),
             (1, vec![12, 13]),

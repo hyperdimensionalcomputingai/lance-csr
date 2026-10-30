@@ -287,10 +287,14 @@ class CypherEngine:
             - `edges`: live indexed edges (null endpoints are skipped).
             - `delta_edges`, `tombstones`: edges appended and removed since the last
               full build, held outside the base CSR.
+            - `unindexed_edges`: live edges outside the base CSR, appended since its
+              last full build and not since removed.
             - `update`: how the last refresh produced it: `"build"` (first), `"rebuild"`
               (full), `"delta"` (changes applied) or `"reused"` (no edge change).
             - `version`: the relationship dataset version it reflects (`None` for
               PyArrow).
+            - `base_version`: the relationship dataset version of the last full
+              build (`None` for PyArrow). It trails `version` while deltas apply.
             - `build_ms`: wall time of that build or delta, both directions.
         """
         return self._inner.csr_stats()
