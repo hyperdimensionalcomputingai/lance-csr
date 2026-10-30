@@ -112,6 +112,36 @@ def datasets(request, tmp_path):
     }
 
 
+def test_target_columns_read_once_over_many_batches(tmp_path):
+    # Fetches more target rows than one batch and an eighth of the node table, so the
+    # expansion switches from per-batch takes to one read of the target columns.
+    n = 3000
+    people = pa.table(
+        {
+            "id": list(range(n)),
+            "name": [None if i % 11 == 0 else f"p{i}" for i in range(n)],
+            "age": [i % 90 for i in range(n)],
+        }
+    )
+    knows = pa.table(
+        {
+            "src": pa.array([i % n for i in range(6 * n)], pa.int64()),
+            "dst": pa.array([(i * 7 + 3) % n for i in range(6 * n)], pa.int64()),
+        }
+    )
+    person = lance.write_dataset(people, tmp_path / "p.lance", max_rows_per_file=700)
+    person.delete("id % 13 = 0")
+    datasets = {"Person": lance.dataset(tmp_path / "p.lance"), "KNOWS": knows}
+    csr = CypherEngine(CONFIG, datasets, use_csr=True)
+    join = CypherEngine(CONFIG, datasets)
+    for query in [
+        "MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN a.id, b.id, b.name, b.age",
+        "MATCH (a:Person)-[:KNOWS]->(b:Person) WHERE b.age > 40 RETURN a.id, b.name",
+        "MATCH (a:Person)<-[:KNOWS]-(b:Person) RETURN count(DISTINCT b.name) AS n",
+    ]:
+        assert rows(csr.execute(query)) == rows(join.execute(query)), query
+
+
 @pytest.mark.parametrize("query", QUERIES)
 def test_csr_matches_join_path(datasets, query):
     csr = CypherEngine(CONFIG, datasets, use_csr=True)

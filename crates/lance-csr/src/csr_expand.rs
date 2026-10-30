@@ -709,6 +709,138 @@ impl NodeRows {
             .take(&self.schema, positions, columns, false)
             .await
     }
+
+    /// `columns` (ascending schema indices) of every row, from one sequential read.
+    /// `None` for an in-memory table, which already gathers without I/O.
+    async fn scan_columns(&self, columns: &[usize]) -> Result<Option<TargetColumns>> {
+        let TableData::Lance(dataset) = &self.data else {
+            return Ok(None);
+        };
+        let scan_error = |e: lance::Error| exec_error(format!("Failed to scan nodes: {}", e));
+        let names: Vec<&str> = columns
+            .iter()
+            .map(|&c| self.schema.field(c).name().as_str())
+            .collect();
+        let mut scanner = dataset.scan();
+        scanner.project(&names).map_err(scan_error)?;
+        scanner.with_row_id();
+        let mut stream = scanner.try_into_stream().await.map_err(scan_error)?;
+        let mut index = FastMap::default();
+        let mut parts: Vec<Vec<ArrayRef>> = vec![Vec::new(); columns.len()];
+        while let Some(batch) = stream.next().await {
+            let batch = batch.map_err(scan_error)?;
+            let row_ids = batch
+                .column_by_name(lance::dataset::ROW_ID)
+                .ok_or_else(|| exec_error("Node scan returned no row ids".into()))?
+                .as_primitive::<arrow::datatypes::UInt64Type>();
+            // Row ids are not offsets (fragments, deletions, stable ids), so map them.
+            for &row_id in row_ids.values() {
+                let next = index.len() as u64;
+                index.insert(row_id, next);
+            }
+            for (part, name) in parts.iter_mut().zip(&names) {
+                part.push(
+                    batch
+                        .column_by_name(name)
+                        .cloned()
+                        .ok_or_else(|| exec_error("Node scan lost a column".into()))?,
+                );
+            }
+            cooperative_yield().await;
+        }
+        let concat_error = |e: arrow::error::ArrowError| exec_error(e.to_string());
+        let arrays = parts
+            .iter()
+            .zip(columns)
+            .map(|(part, &c)| {
+                let part: Vec<&dyn Array> = part.iter().map(|a| a.as_ref()).collect();
+                if part.is_empty() {
+                    Ok((c, new_empty_array(self.schema.field(c).data_type())))
+                } else {
+                    arrow::compute::concat(&part)
+                        .map(|a| (c, a))
+                        .map_err(concat_error)
+                }
+            })
+            .collect::<Result<_>>()?;
+        Ok(Some(TargetColumns {
+            index,
+            columns: arrays,
+        }))
+    }
+}
+
+/// A target table's columns read once, sequentially, for a hop that fetches a large
+/// share of it; later fetches gather from memory instead of reading pages again.
+struct TargetColumns {
+    /// Lance row id -> position in `columns`' arrays.
+    index: FastMap<u64, u64>,
+    /// Schema index -> the column's values for every row.
+    columns: Vec<(usize, ArrayRef)>,
+}
+
+impl TargetColumns {
+    /// Same contract as [`NodeRows::take`], for columns this read covers.
+    fn take(&self, positions: &[u64], columns: &[usize]) -> Result<Vec<ArrayRef>> {
+        let indices = positions
+            .iter()
+            .map(|p| self.index.get(p).copied())
+            .collect::<Option<Vec<_>>>()
+            .ok_or_else(|| exec_error("Node row missing from its own snapshot".into()))?;
+        let indices = UInt64Array::from(indices);
+        columns
+            .iter()
+            .map(|c| {
+                let (_, array) = self
+                    .columns
+                    .iter()
+                    .find(|(column, _)| column == c)
+                    .ok_or_else(|| exec_error("Target column was not read".into()))?;
+                take(array.as_ref(), &indices, None)
+                    .map_err(|e| exec_error(format!("Failed to take rows: {}", e)))
+            })
+            .collect()
+    }
+}
+
+/// Shared by an operator's partitions: target rows fetched so far, and the target
+/// columns once that count made one sequential read worthwhile. `None` once set
+/// means the table is in memory and gathers directly.
+#[derive(Default)]
+struct TargetScanState {
+    fetched: std::sync::atomic::AtomicU64,
+    columns: std::sync::OnceLock<Option<Arc<TargetColumns>>>,
+    building: futures::lock::Mutex<()>,
+}
+
+impl fmt::Debug for TargetScanState {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("TargetScanState")
+            .field("scanned", &self.columns.get().is_some_and(Option::is_some))
+            .finish()
+    }
+}
+
+/// Switch from fetching target columns per chunk to one read of the needed columns
+/// once the fetched target rows pass 1/`TARGET_SCAN_FRACTION` of the node table and
+/// one batch (a scan's setup outweighs one small take), as
+/// [`EDGE_MASK_FRACTION`] does for relationship filters. The read columns stay in
+/// memory for the rest of the query.
+// shortcut: fixed share and no memory budget (the engine sets no DataFusion memory pool); add a reservation and fall back to per-chunk fetches if one is configured.
+const TARGET_SCAN_FRACTION: u64 = 8;
+
+/// Fetch a target's columns from the read-once columns when present, else by row id.
+async fn take_target(
+    target: &TargetLookup,
+    scanned: Option<&TargetColumns>,
+    positions: &[u64],
+    columns: &[usize],
+) -> datafusion::common::Result<Vec<ArrayRef>> {
+    match scanned {
+        Some(scanned) if !columns.is_empty() => scanned.take(positions, columns),
+        _ => target.rows.take(positions, columns).await,
+    }
+    .map_err(|e| datafusion::common::DataFusionError::External(Box::new(e)))
 }
 
 // Summary only, for the same reason as `Adjacency`.
@@ -1577,6 +1709,8 @@ pub struct CsrExpandExec {
     /// The moved relationship filter, if any, and its shared progress.
     edge_filter: Option<CompiledFilter>,
     edge_state: Arc<EdgeFilterState>,
+    /// Target rows fetched so far, and the target columns once read whole.
+    target_state: Arc<TargetScanState>,
     closing_column: Option<String>,
     traversal: Option<Arc<crate::csr_traversal::Traversal>>,
     schema: SchemaRef,
@@ -1612,6 +1746,7 @@ impl CsrExpandExec {
             target_filter,
             edge_filter,
             edge_state: Arc::default(),
+            target_state: Arc::default(),
             closing_column,
             traversal,
             schema,
@@ -1823,10 +1958,12 @@ impl ExpandedRows {
 }
 
 /// Apply the moved target filter to `expanded`, then build the output batch.
+#[allow(clippy::too_many_arguments)]
 async fn materialize(
     batch: &RecordBatch,
     expanded: ExpandedRows,
     target: Option<&TargetLookup>,
+    scanned: Option<&TargetColumns>,
     edge: Option<&EdgeLookup>,
     target_filter: Option<&CompiledFilter>,
     edge_filter: Option<&CompiledFilter>,
@@ -1859,11 +1996,8 @@ async fn materialize(
             .copied()
             .filter(|&c| c != target.rows.id_index)
             .collect();
-        let mut taken = target
-            .rows
-            .take(&target_positions, &fetch)
-            .await
-            .map_err(|e| datafusion::common::DataFusionError::External(Box::new(e)))?
+        let mut taken = take_target(target, scanned, &target_positions, &fetch)
+            .await?
             .into_iter();
         let arrays = filter
             .columns
@@ -1923,11 +2057,8 @@ async fn materialize(
             .copied()
             .filter(|&c| c != id_index && !reused.iter().any(|(column, _)| *column == c))
             .collect();
-        let mut fetched = target
-            .rows
-            .take(&target_positions, &fetch)
-            .await
-            .map_err(|e| datafusion::common::DataFusionError::External(Box::new(e)))?
+        let mut fetched = take_target(target, scanned, &target_positions, &fetch)
+            .await?
             .into_iter();
         for (&c, field) in target.columns.iter().zip(&target.fields) {
             // The target id equals the neighbour value, so it is never fetched.
@@ -2067,9 +2198,33 @@ impl ExecutionPlan for CsrExpandExec {
         let edge_filter = self.edge_filter.clone().map(Arc::new);
         let edge_state = self.edge_state.clone();
         let mask_after = (self.adjacency.num_edges() / EDGE_MASK_FRACTION).max(1);
+        let target_state = self.target_state.clone();
+        // Every non-id column the target fetches: its output and its filter's columns.
+        let scan_columns: Arc<Vec<usize>> = Arc::new(
+            self.target
+                .as_ref()
+                .map(|t| {
+                    let filter = self.target_filter.iter().flat_map(|f| &f.columns);
+                    let mut columns: Vec<usize> = t
+                        .columns
+                        .iter()
+                        .chain(filter)
+                        .copied()
+                        .filter(|&c| c != t.rows.id_index)
+                        .collect();
+                    columns.sort_unstable();
+                    columns.dedup();
+                    columns
+                })
+                .unwrap_or_default(),
+        );
+        let batch_size = context.session_config().batch_size();
+        // A hop that fetches at most one batch makes at most one take: never worth a scan.
+        let scan_after = self.target.as_ref().map_or(1, |t| {
+            (t.rows.num_rows() as u64 / TARGET_SCAN_FRACTION).max(batch_size as u64 + 1)
+        });
         let schema = self.schema.clone();
         let out_schema = schema.clone();
-        let batch_size = context.session_config().batch_size();
         let traversal = self.traversal.clone();
         // Keep one input and one materialization in flight per partition. A hub's
         // remaining neighbours stay in the immutable adjacency until the next poll.
@@ -2082,6 +2237,7 @@ impl ExecutionPlan for CsrExpandExec {
                 schema.clone(),
             );
             let (edge_filter, edge_state) = (edge_filter.clone(), edge_state.clone());
+            let (target_state, scan_columns) = (target_state.clone(), scan_columns.clone());
             let traversal = traversal.clone();
             async move {
                 loop {
@@ -2142,10 +2298,30 @@ impl ExecutionPlan for CsrExpandExec {
                             filter = None;
                         }
                     }
+                    if let Some(target) = target.as_deref().filter(|_| !scan_columns.is_empty()) {
+                        // Same decision as the edge mask: this chunk already uses the read.
+                        use std::sync::atomic::Ordering::Relaxed;
+                        let fetched = chunk.target_positions.len() as u64;
+                        if target_state.columns.get().is_none()
+                            && target_state.fetched.fetch_add(fetched, Relaxed) + fetched
+                                >= scan_after
+                        {
+                            let _building = target_state.building.lock().await;
+                            if target_state.columns.get().is_none() {
+                                let columns =
+                                    target.rows.scan_columns(&scan_columns).await.map_err(|e| {
+                                        datafusion::common::DataFusionError::External(Box::new(e))
+                                    })?;
+                                let _ = target_state.columns.set(columns.map(Arc::new));
+                            }
+                        }
+                    }
+                    let scanned = target_state.columns.get().cloned().flatten();
                     let batch = materialize(
                         &expansion.batch,
                         chunk,
                         target.as_deref(),
+                        scanned.as_deref(),
                         edge.as_deref(),
                         target_filter.as_deref(),
                         filter,
@@ -2652,7 +2828,7 @@ mod tests {
         let adj = Neighbors::directed(Arc::new(adj));
         let mut expansion = BatchExpansion::try_new(input.clone(), 0, None).unwrap();
         let chunk = expansion.next_chunk(&adj, None, 8192).await;
-        let out = materialize(&input, chunk, None, None, None, None, &out_schema)
+        let out = materialize(&input, chunk, None, None, None, None, None, &out_schema)
             .await
             .unwrap();
         assert_eq!(out.num_rows(), 2);
@@ -3019,6 +3195,7 @@ mod tests {
                         expanded,
                         Some(&target),
                         None,
+                        None,
                         Some(&filter),
                         None,
                         &schema,
@@ -3131,6 +3308,7 @@ mod tests {
             &input,
             chunk,
             None,
+            None,
             Some(&edge),
             None,
             Some(&filter),
@@ -3148,7 +3326,7 @@ mod tests {
         expansion.edge_mask = Some(mask);
         let chunk = expansion.next_chunk(&adjacency, None, 8192).await;
         assert_eq!(chunk.edge_rows, vec![1, 2]);
-        let out = materialize(&input, chunk, None, Some(&edge), None, None, &schema)
+        let out = materialize(&input, chunk, None, None, Some(&edge), None, None, &schema)
             .await
             .unwrap();
         assert_eq!(since(&out), vec![20, 30]);
@@ -3170,5 +3348,74 @@ mod tests {
         let (first, second) = (0_u64, 1_u64 << 32);
         assert!(!mask.contains(first) && mask.contains(first + 1));
         assert!(mask.contains(second) && mask.contains(second + 1));
+    }
+
+    #[tokio::test]
+    async fn target_columns_read_once_match_fetches_by_row_id() {
+        use arrow::array::{RecordBatchIterator, StringArray};
+
+        let nodes = RecordBatch::try_from_iter([
+            (
+                "id",
+                Arc::new(Int64Array::from((0..7).collect::<Vec<i64>>())) as ArrayRef,
+            ),
+            (
+                "name",
+                Arc::new(StringArray::from(vec![
+                    Some("a"),
+                    None,
+                    Some("c"),
+                    Some("d"),
+                    Some("e"),
+                    Some("f"),
+                    Some("g"),
+                ])) as ArrayRef,
+            ),
+            (
+                "age",
+                Arc::new(Int64Array::from(vec![70, 71, 72, 73, 74, 75, 76])) as ArrayRef,
+            ),
+        ])
+        .unwrap();
+        assert!(NodeRows::from_batch(nodes.clone(), "id")
+            .unwrap()
+            .unwrap()
+            .scan_columns(&[1])
+            .await
+            .unwrap()
+            .is_none());
+        // Three fragments and a deletion, so row ids are neither dense nor offsets.
+        for stable in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("nodes.lance");
+            let reader = RecordBatchIterator::new(vec![Ok(nodes.clone())], nodes.schema());
+            let params = lance::dataset::WriteParams {
+                max_rows_per_file: 3,
+                enable_stable_row_ids: stable,
+                ..Default::default()
+            };
+            let mut dataset = Dataset::write(reader, path.to_str().unwrap(), Some(params))
+                .await
+                .unwrap();
+            dataset.delete("id = 1").await.unwrap();
+            let rows = NodeRows::from_lance(Arc::new(dataset), "id")
+                .await
+                .unwrap()
+                .unwrap();
+            let scanned = rows.scan_columns(&[1, 2]).await.unwrap().unwrap();
+            let positions: Vec<u64> = [6, 0, 4, 6, 3]
+                .iter()
+                .map(|&id| rows.position(id).unwrap())
+                .collect();
+            for columns in [vec![1, 2], vec![2], vec![]] {
+                let expected = rows.take(&positions, &columns).await.unwrap();
+                let got = scanned.take(&positions, &columns).unwrap();
+                assert_eq!(got.len(), expected.len());
+                for (got, expected) in got.iter().zip(&expected) {
+                    assert_eq!(got.to_data(), expected.to_data(), "stable ids: {stable}");
+                }
+            }
+            assert!(scanned.take(&[u64::MAX], &[2]).is_err());
+        }
     }
 }
