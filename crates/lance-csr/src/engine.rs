@@ -168,11 +168,16 @@ pub struct CsrStats {
     pub delta_edges: u64,
     /// Removed edges held outside the base CSR since its last full build.
     pub tombstones: u64,
+    /// Live edges outside the base CSR: appended since its last full build and not
+    /// since removed. Lance's `num_unindexed_rows`, counted in edges.
+    pub unindexed_edges: u64,
     /// How the last refresh produced it: `build` (first), `rebuild` (full), `delta`
     /// (changes applied) or `reused` (no edge change).
     pub update: &'static str,
     /// Relationship dataset version it reflects (`None` for Arrow input).
     pub version: Option<u64>,
+    /// Relationship dataset version of the last full build (`None` for Arrow input).
+    pub base_version: Option<u64>,
     /// Wall time of that build or delta, both directions.
     pub build_ms: f64,
 }
@@ -264,6 +269,8 @@ struct CsrEntry {
     incoming: Arc<Adjacency>,
     /// Rows of `source`, for relationship columns the adjacencies don't hold.
     edges: Arc<EdgeRows>,
+    /// Version of the snapshot the base was fully built from.
+    base_version: Option<u64>,
     /// Wall time of the last build or delta application.
     build_ms: f64,
     /// How the last refresh produced this entry: build, rebuild, delta or reused.
@@ -342,6 +349,7 @@ async fn try_apply_csr_delta(
         outgoing: Arc::new(outgoing),
         incoming: Arc::new(incoming),
         edges: source.edge_rows(),
+        base_version: old.base_version,
         build_ms: elapsed(),
         update: "delta",
     })
@@ -797,6 +805,7 @@ async fn build_csr_entries(
                 outgoing: Arc::new(outgoing),
                 incoming: Arc::new(incoming),
                 edges: source.edge_rows(),
+                base_version: source.lance_version(),
                 build_ms: started.elapsed().as_secs_f64() * 1e3,
                 update: if previous_entry.is_some() {
                     "rebuild"
@@ -1057,8 +1066,10 @@ impl CypherEngine {
                     edges: entry.outgoing.num_edges(),
                     delta_edges: entry.outgoing.delta_edges(),
                     tombstones: entry.outgoing.tombstones(),
+                    unindexed_edges: entry.outgoing.unindexed_edges(),
                     update: entry.update,
                     version: entry.source.lance_version(),
+                    base_version: entry.base_version,
                     build_ms: entry.build_ms,
                 };
                 (rel_type.clone(), stats)

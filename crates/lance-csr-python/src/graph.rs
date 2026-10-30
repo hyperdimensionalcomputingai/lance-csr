@@ -1136,8 +1136,10 @@ impl CypherEngine {
             item.set_item("edges", entry.edges)?;
             item.set_item("delta_edges", entry.delta_edges)?;
             item.set_item("tombstones", entry.tombstones)?;
+            item.set_item("unindexed_edges", entry.unindexed_edges)?;
             item.set_item("update", entry.update)?;
             item.set_item("version", entry.version)?;
+            item.set_item("base_version", entry.base_version)?;
             item.set_item("build_ms", entry.build_ms)?;
             stats.set_item(rel_type, item)?;
         }

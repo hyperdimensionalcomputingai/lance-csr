@@ -89,6 +89,7 @@ def test_initial_build_reports_build(graph):
     engine, _ = graph()
     s = stats(engine)
     assert (s["update"], s["delta_edges"], s["tombstones"]) == ("build", 0, 0)
+    assert s["unindexed_edges"] == 0 and s["base_version"] == s["version"]
 
 
 def test_append_applied_as_delta(graph):
@@ -97,7 +98,8 @@ def test_append_applied_as_delta(graph):
     engine.refresh()
     s = stats(engine)
     assert (s["update"], s["delta_edges"], s["tombstones"]) == ("delta", 3, 0)
-    assert s["edges"] == 203
+    assert s["edges"] == 203 and s["unindexed_edges"] == 3
+    assert s["base_version"] < s["version"]
     check(engine, uri)
 
 
@@ -159,6 +161,8 @@ def test_sequential_deltas_accumulate(graph):
     engine.refresh()
     s = stats(engine)
     assert s["update"] == "delta" and s["delta_edges"] == 3 and s["tombstones"] == 2
+    # One tombstone removes an appended edge, so two of three appends are still live.
+    assert s["unindexed_edges"] == 2
     check(engine, uri)
 
 
@@ -217,6 +221,7 @@ def test_large_delta_triggers_rebuild(graph):
     engine.refresh()
     s = stats(engine)
     assert (s["update"], s["edges"], s["delta_edges"]) == ("rebuild", 300, 0)
+    assert s["unindexed_edges"] == 0 and s["base_version"] == s["version"]
     check(engine, uri)
 
 
