@@ -2,9 +2,9 @@
 //!
 //! Writes a small social graph as two Lance datasets in a temporary directory, opens
 //! them in a CSR-backed engine, runs a two-hop query, appends an edge and picks it up
-//! with `refresh()`, runs a query under a deadline, and repeats the home page's in-memory
-//! Arrow example. The documentation includes this
-//! file section by section (the `--8<--` markers), so keep it compiling and its printed
+//! with `refresh()`, runs a query under a deadline, and repeats the in-memory Arrow
+//! examples of the home page and the getting started guide. The documentation includes
+//! this file section by section (the `--8<--` markers), so keep it compiling and its printed
 //! output in step.
 //!
 //! ```bash
@@ -20,7 +20,7 @@ use arrow_array::{ArrayRef, Int64Array, RecordBatch, RecordBatchIterator, String
 use arrow_schema::{DataType, Field, Schema};
 use lance::dataset::{Dataset, WriteMode, WriteParams};
 use lance_csr::query::with_execution_deadline;
-use lance_csr::{CypherEngine, EngineSource, GraphConfig};
+use lance_csr::{CypherEngine, CypherQuery, EngineSource, GraphConfig};
 use tokio::time::{timeout_at, Instant};
 
 fn knows(src: Vec<i64>, dst: Vec<i64>) -> lance_csr::Result<RecordBatch> {
@@ -178,5 +178,130 @@ async fn main() -> lance_csr::Result<()> {
     // | Carol  |
     // +--------+
     // --8<-- [end:quickstart]
+
+    getting_started().await
+}
+
+/// The Rust tabs of the getting started guide, one section per Python snippet.
+async fn getting_started() -> lance_csr::Result<()> {
+    // --8<-- [start:gs_datasets]
+    let int = |values: Vec<i64>| Arc::new(Int64Array::from(values)) as ArrayRef;
+    let text = |values: Vec<&str>| Arc::new(StringArray::from(values)) as ArrayRef;
+
+    let datasets = HashMap::from([
+        (
+            "Person".to_string(),
+            RecordBatch::try_from_iter([
+                ("id", int(vec![1, 2, 3, 4])),
+                ("name", text(vec!["Alice", "Bob", "Carol", "David"])),
+                ("age", int(vec![28, 34, 29, 42])),
+            ])?,
+        ),
+        (
+            "City".to_string(),
+            RecordBatch::try_from_iter([
+                ("id", int(vec![10, 20])),
+                ("name", text(vec!["London", "Sydney"])),
+            ])?,
+        ),
+        (
+            "KNOWS".to_string(),
+            RecordBatch::try_from_iter([
+                ("src", int(vec![1, 1, 2, 3])),
+                ("dst", int(vec![2, 3, 4, 4])),
+            ])?,
+        ),
+        (
+            "LIVES_IN".to_string(),
+            RecordBatch::try_from_iter([
+                ("src", int(vec![1, 2, 3, 4])),
+                ("dst", int(vec![10, 10, 20, 20])),
+            ])?,
+        ),
+    ]);
+    // --8<-- [end:gs_datasets]
+
+    // --8<-- [start:gs_config]
+    let config = GraphConfig::builder()
+        .node_table("Person", "id")
+        .node_table("City", "id")
+        .rel_table("KNOWS", "Person", "Person", "src", "dst")
+        .rel_table("LIVES_IN", "Person", "City", "src", "dst")
+        .build()?;
+    // --8<-- [end:gs_config]
+
+    // --8<-- [start:gs_query]
+    // The engine reads each dataset as an `EngineSource`; `false` leaves the CSR off.
+    let sources: HashMap<_, _> = datasets
+        .iter()
+        .map(|(name, batch)| (name.clone(), EngineSource::Arrow(batch.clone())))
+        .collect();
+    let engine = CypherEngine::new(config.clone(), sources.clone(), false).await?;
+
+    let result = engine
+        .execute(
+            "MATCH (p:Person)-[:LIVES_IN]->(c:City {name: 'London'})
+             RETURN p.name AS name, p.age AS age
+             ORDER BY age",
+            HashMap::new(),
+        )
+        .await?;
+    print_batches(&[result])?;
+    // +-------+-----+
+    // | name  | age |
+    // +-------+-----+
+    // | Alice | 28  |
+    // | Bob   | 34  |
+    // +-------+-----+
+    // --8<-- [end:gs_query]
+
+    // --8<-- [start:gs_params]
+    let older = engine
+        .execute(
+            "MATCH (p:Person) WHERE p.age >= $min_age RETURN p.name AS name ORDER BY name",
+            HashMap::from([("min_age".to_string(), serde_json::json!(30))]),
+        )
+        .await?;
+    print_batches(&[older])?;
+    // +-------+
+    // | name  |
+    // +-------+
+    // | Bob   |
+    // | David |
+    // +-------+
+    // --8<-- [end:gs_params]
+
+    // --8<-- [start:gs_csr]
+    let engine = CypherEngine::new(config.clone(), sources, true).await?;
+
+    let friends_of_friends = engine
+        .execute(
+            "MATCH (a:Person {name: 'Alice'})-[:KNOWS]->()-[:KNOWS]->(c:Person)
+             RETURN DISTINCT c.name AS friend_of_friend",
+            HashMap::new(),
+        )
+        .await?;
+    print_batches(&[friends_of_friends])?;
+    // +------------------+
+    // | friend_of_friend |
+    // +------------------+
+    // | David            |
+    // +------------------+
+    // --8<-- [end:gs_csr]
+
+    // --8<-- [start:gs_one_off]
+    let result =
+        CypherQuery::new("MATCH (p:Person) WHERE p.age > 30 RETURN p.name AS name ORDER BY name")?
+            .with_config(config)
+            .execute(datasets, None)
+            .await?;
+    print_batches(&[result])?;
+    // +-------+
+    // | name  |
+    // +-------+
+    // | Bob   |
+    // | David |
+    // +-------+
+    // --8<-- [end:gs_one_off]
     Ok(())
 }
