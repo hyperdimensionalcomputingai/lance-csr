@@ -166,14 +166,14 @@ relationship endpoints (`int8` to `int64`, `uint8` to `uint32`), and its fused t
 integer** node keys. If your keys are strings or UUIDs, queries still work, using joins; consider adding a
 dense integer id column if traversal speed matters.
 
-## Deprecated builder methods
+## Removed builder methods
 
-The 0.1 names still work but raise a `DeprecationWarning`, and will be removed in a later release:
+The 0.1 names, deprecated since 0.2.0, were removed in 0.5.0. Replace them as follows:
 
-| Deprecated | Replacement |
+| Removed | Replacement |
 | --- | --- |
 | `with_node_label(label, id_field)` | `node_table(label, primary_key)` |
 | `with_relationship(rel_type, source_field, target_field, source_label=None, target_label=None)` | `rel_table(rel_type, from_table, to_table, src, dst)` |
 
-`with_relationship` makes the endpoint labels optional; without them, label inference and alternation can't
-pick the right tables.
+`rel_table` needs the node tables at both ends, which `with_relationship` left optional. Add a `node_table`
+for each end before you call `build()`.
