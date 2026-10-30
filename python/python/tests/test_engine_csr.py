@@ -68,10 +68,31 @@ QUERIES = [
     "MATCH (a:Person)<-[:KNOWS*2..2]-(b:Person) RETURN a.id, b.id",
     "MATCH (a:Person)-[:KNOWS*1..3]-(b:Person) WHERE a.id = 1 RETURN b.id, b.name",
     "MATCH (a:Person)-[:KNOWS*1..2]-(b:Person) RETURN count(*) AS n",
-    # Shapes that keep the join path: bound relationship variable, property filter.
     "MATCH (a:Person)-[:KNOWS]-(b:Person) RETURN a.id, b.id",
+    # Relationship variables: other columns are taken by edge row (duplicates included).
     "MATCH (a:Person)-[r:KNOWS]->(b:Person) RETURN a.id, r.since",
+    "MATCH (a:Person)-[r:KNOWS]->(b:Person) RETURN a.id, b.id, r.src, r.dst, r.since",
+    "MATCH (a:Person)<-[r:KNOWS]-(b:Person) WHERE r.since > 2002 RETURN a.id, b.name",
+    "MATCH (a:Person)-[r:KNOWS]-(b:Person) RETURN a.id, b.id, r.src, r.dst, r.since",
+    "MATCH (a:Person)-[r:KNOWS]->(a) RETURN a.id, r.since",
+    "MATCH (a:Person)-[r:KNOWS]->(b:Person) WHERE a.id = 1 RETURN r",
+    "MATCH (a:Person)-[r:KNOWS]-(b:Person) "
+    "RETURN count(r) AS n, count(DISTINCT r) AS d",
+    "MATCH (a:Person)-[r:KNOWS]->(b:Person)-[s:KNOWS]->(c:Person) "
+    "WHERE s.since > r.since RETURN a.id, c.id, r.since, s.since",
+    "MATCH (a:Person)-[r:KNOWS]->(b:Person)<-[s:KNOWS]-(c:Person) "
+    "RETURN a.id, c.id, r.since, s.since",
+    "MATCH (a:Person)-[r:KNOWS]->(b:Person), (c:Person)-[r]->(d:Person) "
+    "RETURN c.id, d.id, r.since",
+    # Relationship-column filters move into the CSR node; mixed ones stay above it.
+    "MATCH (a:Person)-[r:KNOWS]->(b:Person) WHERE r.since >= 2002 AND b.age > 30 "
+    "RETURN a.id, b.id",
+    "MATCH (a:Person)-[r:KNOWS]-(b:Person) WHERE r.since % 2 = 0 OR b.age = 30 "
+    "RETURN a.id, b.id, r.since",
+    "MATCH (a:Person)-[r:KNOWS]->(b:Person) WHERE r.since IS NULL RETURN a.id",
+    # Inline relationship property filters keep the join path.
     "MATCH (a:Person)-[:KNOWS {since: 2001}]->(b:Person) RETURN a.id, b.id",
+    "MATCH (a:Person)-[r:KNOWS {since: 2001}]->(b:Person) RETURN a.id, r.since",
 ]
 
 
@@ -115,8 +136,44 @@ def test_csr_operator_used_only_for_supported_shapes(datasets):
     single = "MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN b.id"
     assert "CsrExpand" in csr.explain(single)
     assert "CsrExpand" not in join.explain(single)
-    bound = "MATCH (a:Person)-[r:KNOWS]->(b:Person) RETURN r.since"
-    assert "CsrExpand" not in csr.explain(bound)
+    named = "MATCH (a:Person)-[r:KNOWS]->(b:Person) RETURN r.since"
+    assert "edge=r[r__since]" in csr.explain(named)
+    filtered = "MATCH (a:Person)-[r:KNOWS]->(b:Person) WHERE r.since > 2002 RETURN b.id"
+    assert "edge_filter=" in csr.explain(filtered)
+    inline = "MATCH (a:Person)-[r:KNOWS {since: 2001}]->(b:Person) RETURN b.id"
+    assert "CsrExpand" not in csr.explain(inline)
+
+
+@pytest.mark.parametrize("lazy", [False, True])
+def test_relationship_filter_over_many_batches(tmp_path, lazy):
+    # Many small input batches, so the expansion passes the point where it switches
+    # from per-batch filter fetches to one read of the filter column.
+    n = 300
+    people = pa.table({"id": list(range(n)), "age": [i % 90 for i in range(n)]})
+    knows = pa.table(
+        {
+            "src": pa.array([i % n for i in range(4 * n)], pa.int64()),
+            "dst": pa.array([(i * 7 + 3) % n for i in range(4 * n)], pa.int64()),
+            "since": [1990 + i % 40 for i in range(4 * n)],
+        }
+    )
+    if lazy:
+        people = lance.write_dataset(people, tmp_path / "p.lance", max_rows_per_file=7)
+        knows = lance.write_dataset(knows, tmp_path / "k.lance", max_rows_per_file=50)
+        lance.dataset(tmp_path / "k.lance").delete("since = 2001")
+        knows = lance.dataset(tmp_path / "k.lance")
+    datasets = {"Person": people, "KNOWS": knows}
+    csr = CypherEngine(CONFIG, datasets, use_csr=True)
+    join = CypherEngine(CONFIG, datasets)
+    for query in [
+        "MATCH (a:Person)-[r:KNOWS]->(b:Person) WHERE r.since > 2020 "
+        "RETURN a.id, b.id, r.since",
+        "MATCH (a:Person)<-[r:KNOWS]-(b:Person) WHERE r.since < 1995 AND a.age > 40 "
+        "RETURN a.id, b.id",
+        "MATCH (a:Person)-[r:KNOWS]->(b:Person) WHERE r.since = 2001 "
+        "RETURN count(*) AS n",
+    ]:
+        assert rows(csr.execute(query)) == rows(join.execute(query)), query
 
 
 def test_variable_length_hops_use_csr(datasets):

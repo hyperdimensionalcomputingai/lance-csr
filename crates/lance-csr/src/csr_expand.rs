@@ -94,7 +94,10 @@ use crate::error::{GraphError, Result};
 /// by [`Adjacency::with_changes`]: appended edges per source key, and tombstones as
 /// sorted offsets into each source's base-plus-appended neighbours. Offsets let
 /// readers skip deleted occurrences without copying per-source deletion state.
-/// Identical edges remain distinct occurrences; the base stays at 8 bytes per edge.
+/// Identical edges remain distinct occurrences. Each neighbour carries the row its
+/// edge came from (a Lance row address, or a row index for in-memory input), so the
+/// base holds 16 bytes per edge: relationship columns can be fetched by row, and
+/// deleted edges are found by row without reading the old dataset version.
 ///
 /// # Design note for future changes (read before "optimizing" the delta)
 ///
@@ -121,7 +124,8 @@ use crate::error::{GraphError, Result};
 /// the rebuild threshold is raised.
 pub struct Adjacency {
     base: Arc<CsrBase>,
-    added: FastMap<i64, Vec<u64>>,
+    /// Appended `(neighbour, edge row)` pairs per source key.
+    added: FastMap<i64, Vec<(u64, u64)>>,
     removed: FastMap<i64, Vec<usize>>,
     added_count: u64,
     removed_count: u64,
@@ -137,26 +141,36 @@ impl Adjacency {
     /// Build from a stream of relationship batches, reading edges `from -> to`.
     ///
     /// Column names match case-insensitively. Edges with a null endpoint are
-    /// skipped: they can never satisfy the equality join they replace.
-    pub async fn build(
-        mut stream: SendableRecordBatchStream,
+    /// skipped: they can never satisfy the equality join they replace. Each edge's
+    /// row is read from a `_rowaddr` column when the stream has one (a Lance scan);
+    /// otherwise rows are numbered by their position in the stream.
+    pub async fn build<E: fmt::Display>(
+        mut stream: impl futures::Stream<Item = std::result::Result<RecordBatch, E>> + Unpin,
         from: &str,
         to: &str,
     ) -> Result<Self> {
         let mut dense: FastMap<i64, u64> = FastMap::default();
         let mut builder = CsrIndexBuilder::new();
+        let mut position = 0u64;
         while let Some(batch) = stream.next().await {
             let batch = batch.map_err(|e| exec_error(format!("Failed to read edges: {}", e)))?;
             let from_col = int64_column(&batch, from)?;
             let to_col = int64_column(&batch, to)?;
+            let addresses = batch
+                .column_by_name(ROW_ADDR)
+                .map(|c| c.as_primitive::<arrow::datatypes::UInt64Type>().clone());
             for i in 0..batch.num_rows() {
                 if from_col.is_null(i) || to_col.is_null(i) {
                     continue;
                 }
+                let row = addresses
+                    .as_ref()
+                    .map_or(position + i as u64, |a| a.value(i));
                 let next = dense.len() as u64;
                 let src = *dense.entry(from_col.value(i)).or_insert(next);
-                builder = builder.add_edge(src, to_col.value(i) as u64);
+                builder = builder.add_edge(src, to_col.value(i) as u64, row);
             }
+            position += batch.num_rows() as u64;
         }
         // Explicit vertex count: neighbours are raw ids, not positions, so the
         // builder must not size its offsets from them.
@@ -170,57 +184,59 @@ impl Adjacency {
         })
     }
 
-    /// A new adjacency sharing this base, with `added` and `removed` edges
-    /// (`(from, to)` in this adjacency's direction) on top of the existing delta.
+    /// A new adjacency sharing this base, with `removed` edge rows tombstoned and
+    /// `added` edges (`(from, to, row)` in this adjacency's direction) appended, on
+    /// top of the existing delta.
     ///
-    /// Callers must only remove edges that are present. `self` is unchanged, so
-    /// snapshots still using it keep their answers. The base is never copied.
+    /// Removals apply to the edges present before this call, so a rewritten fragment
+    /// can drop its old rows and add new ones under the same fragment id. `self` is
+    /// unchanged, so snapshots still using it keep their answers. The base is never copied.
     // shortcut: copies the accumulated delta on refresh; bounded by the engine's 25% rebuild threshold. Upgrade to a persistent map if refreshes get frequent on much larger graphs.
-    pub fn with_changes(&self, added: &[(i64, i64)], removed: &[(i64, i64)]) -> Self {
+    pub fn with_changes(&self, added: &[(i64, i64, u64)], removed: &RemovedRows) -> Self {
         let mut next = Self {
             base: self.base.clone(),
             added: self.added.clone(),
             removed: self.removed.clone(),
             added_count: self.added_count + added.len() as u64,
-            removed_count: self.removed_count + removed.len() as u64,
+            removed_count: self.removed_count,
         };
-        for &(from, to) in added {
-            next.added.entry(from).or_default().push(to as u64);
-        }
-        let mut removals: FastMap<i64, FastMap<u64, usize>> = FastMap::default();
-        for &(from, to) in removed {
-            *removals
-                .entry(from)
-                .or_default()
-                .entry(to as u64)
-                .or_default() += 1;
-        }
-        for (from, mut counts) in removals {
-            let base = next.base_neighbors(from);
-            let added = next.added.get(&from).map_or(&[][..], Vec::as_slice);
-            let prior = next.removed.get(&from).map_or(&[][..], Vec::as_slice);
-            let mut prior = prior.iter().copied().peekable();
-            let mut positions = Vec::new();
-            for (position, neighbor) in base.iter().chain(added).enumerate() {
-                if prior.peek() == Some(&position) {
-                    prior.next();
-                    continue;
+        if !removed.is_empty() {
+            // A row doesn't say which source holds it, so every live slot is checked.
+            let base = self.base.dense.iter().map(|(&key, &v)| (key, v));
+            let added_only = self
+                .added
+                .keys()
+                .filter(|k| !self.base.dense.contains_key(*k));
+            for (key, vertex) in base
+                .map(|(k, v)| (k, Some(v)))
+                .chain(added_only.map(|&k| (k, None)))
+            {
+                let base_rows = vertex.map_or(&[][..], |v| self.base.csr.edge_rows(v));
+                let added_rows = self.added.get(&key).map_or(&[][..], Vec::as_slice);
+                let prior = self.removed.get(&key).map_or(&[][..], Vec::as_slice);
+                let mut prior = prior.iter().copied().peekable();
+                let mut positions = Vec::new();
+                let rows = base_rows
+                    .iter()
+                    .copied()
+                    .chain(added_rows.iter().map(|&(_, r)| r));
+                for (position, row) in rows.enumerate() {
+                    if prior.peek() == Some(&position) {
+                        prior.next();
+                    } else if removed.contains(row) {
+                        positions.push(position);
+                    }
                 }
-                if let Some(count) = counts.get_mut(neighbor) {
-                    positions.push(position);
-                    *count -= 1;
-                    if *count == 0 {
-                        counts.remove(neighbor);
-                    }
-                    if counts.is_empty() {
-                        break;
-                    }
+                if !positions.is_empty() {
+                    next.removed_count += positions.len() as u64;
+                    let tombstones = next.removed.entry(key).or_default();
+                    tombstones.extend(positions);
+                    tombstones.sort_unstable();
                 }
             }
-            debug_assert!(counts.is_empty(), "removed edges must be present");
-            let tombstones = next.removed.entry(from).or_default();
-            tombstones.extend(positions);
-            tombstones.sort_unstable();
+        }
+        for &(from, to, row) in added {
+            next.added.entry(from).or_default().push((to as u64, row));
         }
         next
     }
@@ -230,12 +246,12 @@ impl Adjacency {
         self.neighbors_from(key, &mut 0).for_each(f);
     }
 
+    /// Neighbours and their edge rows in the base.
     #[inline(always)]
-    fn base_neighbors(&self, key: i64) -> &[u64] {
-        self.base
-            .dense
-            .get(&key)
-            .map_or(&[], |&v| self.base.csr.neighbors(v))
+    fn base_slots(&self, key: i64) -> (&[u64], &[u64]) {
+        self.base.dense.get(&key).map_or((&[], &[]), |&v| {
+            (self.base.csr.neighbors(v), self.base.csr.edge_rows(v))
+        })
     }
 
     /// Resume at an occurrence offset, borrowing all neighbour and deletion storage.
@@ -245,33 +261,46 @@ impl Adjacency {
         key: i64,
         offset: &'a mut usize,
     ) -> impl Iterator<Item = u64> + 'a {
-        self.candidates_from(key, offset).flatten()
+        self.candidates_from::<false>(key, offset)
+            .flatten()
+            .map(|(n, _)| n)
     }
 
-    /// Keep tombstones visible to cancellation without repeating lookups for every edge.
+    /// `(neighbour, edge row)` per occurrence, `None` for a tombstone: tombstones stay
+    /// visible to cancellation without repeating lookups for every edge. Without
+    /// `ROWS` the edge row is 0 and never loaded, so plain hops pay nothing for it.
     #[inline(always)]
-    fn candidates_from<'a>(
+    fn candidates_from<'a, const ROWS: bool>(
         &'a self,
         key: i64,
         offset: &'a mut usize,
-    ) -> impl Iterator<Item = Option<u64>> + 'a {
-        let base = self.base_neighbors(key);
+    ) -> impl Iterator<Item = Option<(u64, u64)>> + 'a {
+        let (base, base_rows) = self.base_slots(key);
         let added = self.added.get(&key).map_or(&[][..], Vec::as_slice);
         let removed = self.removed.get(&key).map_or(&[][..], Vec::as_slice);
         let mut removed = &removed[removed.partition_point(|&position| position < *offset)..];
         let added_offset = offset.saturating_sub(base.len());
-        base.get(*offset..)
-            .unwrap_or_default()
+        let base_start = (*offset).min(base.len());
+        let base_rows = &base_rows[base_start..];
+        base[base_start..]
             .iter()
-            .chain(added.get(added_offset..).unwrap_or_default())
-            .map(move |&neighbor| {
+            .enumerate()
+            .map(move |(i, &n)| (n, if ROWS { base_rows[i] } else { 0 }))
+            .chain(
+                added
+                    .get(added_offset..)
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|&(n, row)| (n, if ROWS { row } else { 0 })),
+            )
+            .map(move |slot| {
                 let position = *offset;
                 *offset += 1;
                 if removed.first() == Some(&position) {
                     removed = &removed[1..];
                     None
                 } else {
-                    Some(neighbor)
+                    Some(slot)
                 }
             })
     }
@@ -341,36 +370,75 @@ pub fn is_supported_id_type(data_type: &DataType) -> bool {
     )
 }
 
-/// Edge rows added and removed between two versions of a relationship table, as
-/// `(source, target)` endpoint values in table orientation. Null endpoints are skipped.
+/// Edge rows gone since an adjacency was built, by row address: fragment id in the
+/// high 32 bits, offset in the low 32 (row index for in-memory input, fragment 0).
 #[derive(Debug, Default, PartialEq)]
-pub struct EdgeChanges {
-    pub added: Vec<(i64, i64)>,
-    pub removed: Vec<(i64, i64)>,
+pub struct RemovedRows {
+    /// Fragment id -> newly deleted offsets, or `None` when the whole fragment is gone.
+    fragments: FastMap<u32, Option<HashSet<u32>>>,
 }
 
-impl EdgeChanges {
-    pub fn len(&self) -> usize {
-        self.added.len() + self.removed.len()
+impl RemovedRows {
+    /// Every row of fragment `id`.
+    pub fn fragment(&mut self, id: u32) {
+        self.fragments.insert(id, None);
+    }
+
+    /// Rows `offsets` of fragment `id`.
+    pub fn rows(&mut self, id: u32, offsets: impl IntoIterator<Item = u32>) {
+        if let Some(rows) = self
+            .fragments
+            .entry(id)
+            .or_insert_with(|| Some(HashSet::new()))
+        {
+            rows.extend(offsets);
+        }
+    }
+
+    #[inline]
+    fn contains(&self, row: u64) -> bool {
+        match self.fragments.get(&((row >> 32) as u32)) {
+            None => false,
+            Some(None) => true,
+            Some(Some(offsets)) => offsets.contains(&(row as u32)),
+        }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        self.fragments.is_empty()
+    }
+}
+
+/// Edges added and rows removed between two versions of a relationship table.
+/// `added` holds `(source, target, row address)` in table orientation, skipping
+/// null endpoints.
+#[derive(Debug, Default, PartialEq)]
+pub struct EdgeChanges {
+    pub added: Vec<(i64, i64, u64)>,
+    pub removed: RemovedRows,
+}
+
+impl EdgeChanges {
+    pub fn is_empty(&self) -> bool {
+        self.added.is_empty() && self.removed.is_empty()
     }
 }
 
 /// Diff two versions of a relationship table by fragment, reading only what changed.
 ///
 /// Per fragment id: only in `new` -> its rows are added; only in `old` -> its rows
-/// (as of `old`) are removed; endpoint data files or overlays differ (rewrite,
-/// in-place column update) -> old rows removed and new rows added; only the
-/// deletion file differs -> rows newly deleted are read from `old` by physical
-/// offset. Fragments whose endpoint data and deletions are unchanged are skipped,
-/// so non-endpoint schema changes cost nothing.
+/// are removed; endpoint data files or overlays differ (rewrite, in-place column
+/// update) -> its old rows are removed and its new rows added; only the deletion
+/// file differs -> the rows in `new`'s deletion vector are removed. Fragments whose
+/// endpoint data and deletions are unchanged are skipped, so non-endpoint schema
+/// changes cost nothing.
+///
+/// Removals are row addresses, matched against the rows an adjacency stores, so
+/// nothing is read from `old` beyond its manifest: the diff still works after
+/// `old`'s files are cleaned up.
 ///
 /// Returns `None` when a diff is not meaningful (an endpoint column was dropped,
-/// re-created or retyped); the caller should rebuild. Errors (e.g. `old` files
-/// already deleted) should also lead to a rebuild.
+/// re-created or retyped); the caller should rebuild, as it should on errors.
 pub async fn edge_changes(
     old: &Dataset,
     new: &Dataset,
@@ -410,39 +478,23 @@ pub async fn edge_changes(
         .collect();
 
     let mut changes = EdgeChanges::default();
-    let mut removed_whole = Vec::new();
     let mut added_whole = Vec::new();
-    for (id, old_frag) in &old_frags {
-        let Some(new_frag) = new_frags.get(id) else {
-            removed_whole.push(old_frag.clone());
+    for (&id, old_frag) in &old_frags {
+        let Some(new_frag) = new_frags.get(&id) else {
+            changes.removed.fragment(id as u32);
             continue;
         };
         if endpoint_data(old_frag) != endpoint_data(new_frag) {
-            removed_whole.push(old_frag.clone());
+            changes.removed.fragment(id as u32);
             added_whole.push(new_frag.clone());
         } else if old_frag.deletion_file != new_frag.deletion_file {
-            let deleted = |ds: &Dataset| {
-                let frag = ds.get_fragment(*id as usize);
-                async move {
-                    match frag {
-                        Some(frag) => frag.get_deletion_vector().await.map_err(lance_error),
-                        None => Ok(None),
-                    }
-                }
+            // Rows deleted before `old` are not in the adjacency, so the whole vector will do.
+            let deleted = match new.get_fragment(id as usize) {
+                Some(frag) => frag.get_deletion_vector().await.map_err(lance_error)?,
+                None => None,
             };
-            let (old_dv, new_dv) = (deleted(old).await?, deleted(new).await?);
-            let newly: HashSet<u32> = new_dv
-                .iter()
-                .flat_map(|dv| dv.to_sorted_iter().collect::<Vec<_>>())
-                .filter(|offset| !old_dv.as_ref().is_some_and(|dv| dv.contains(*offset)))
-                .collect();
-            if !newly.is_empty() {
-                let rows = scan_edges(old, vec![old_frag.clone()], src, dst, true).await?;
-                changes.removed.extend(
-                    rows.into_iter()
-                        .filter(|(_, addr)| newly.contains(&((addr & 0xFFFF_FFFF) as u32)))
-                        .map(|(edge, _)| edge),
-                );
+            if let Some(dv) = deleted {
+                changes.removed.rows(id as u32, dv.to_sorted_iter());
             }
         }
     }
@@ -451,53 +503,35 @@ pub async fn edge_changes(
             added_whole.push(new_frag.clone());
         }
     }
-    if !removed_whole.is_empty() {
-        let rows = scan_edges(old, removed_whole, src, dst, false).await?;
-        changes
-            .removed
-            .extend(rows.into_iter().map(|(edge, _)| edge));
-    }
     if !added_whole.is_empty() {
-        let rows = scan_edges(new, added_whole, src, dst, false).await?;
-        changes.added.extend(rows.into_iter().map(|(edge, _)| edge));
+        changes.added = scan_edges(new, added_whole, src, dst).await?;
     }
     Ok(Some(changes))
 }
 
-/// Live `(src, dst)` rows of `fragments` in `ds`, with each row's physical address
-/// when `with_address` is set (otherwise 0). Null endpoints are skipped.
+/// Live `(src, dst, row address)` rows of `fragments` in `ds`. Null endpoints are skipped.
 async fn scan_edges(
     ds: &Dataset,
     fragments: Vec<Fragment>,
     src: &str,
     dst: &str,
-    with_address: bool,
-) -> Result<Vec<((i64, i64), u64)>> {
+) -> Result<Vec<(i64, i64, u64)>> {
     let mut scanner = ds.scan();
     scanner.with_fragments(fragments);
     scanner.project(&[src, dst]).map_err(lance_error)?;
-    if with_address {
-        scanner.with_row_address();
-    }
+    scanner.with_row_address();
     let mut stream = scanner.try_into_stream().await.map_err(lance_error)?;
     let mut out = Vec::new();
     while let Some(batch) = stream.next().await {
         let batch = batch.map_err(lance_error)?;
         let (s, d) = (int64_column(&batch, src)?, int64_column(&batch, dst)?);
-        let addrs = with_address.then(|| {
-            batch
-                .column_by_name(ROW_ADDR)
-                .map(|c| c.as_primitive::<arrow::datatypes::UInt64Type>().clone())
-        });
-        let addrs = match addrs {
-            Some(None) => return Err(exec_error("Edge scan returned no row addresses".into())),
-            Some(Some(a)) => Some(a),
-            None => None,
-        };
+        let addrs = batch
+            .column_by_name(ROW_ADDR)
+            .ok_or_else(|| exec_error("Edge scan returned no row addresses".into()))?
+            .as_primitive::<arrow::datatypes::UInt64Type>();
         for i in 0..batch.num_rows() {
             if s.is_valid(i) && d.is_valid(i) {
-                let addr = addrs.as_ref().map_or(0, |a| a.value(i));
-                out.push(((s.value(i), d.value(i)), addr));
+                out.push((s.value(i), d.value(i), addrs.value(i)));
             }
         }
     }
@@ -512,7 +546,7 @@ fn lance_error(e: lance::Error) -> GraphError {
 pub struct NodeRows {
     /// Node id -> Lance row id, or row index into the in-memory batch.
     positions: FastMap<i64, u64>,
-    data: NodeData,
+    data: TableData,
     schema: SchemaRef,
     /// Index of the id column in `schema`; its values are reconstructed, never fetched.
     id_index: usize,
@@ -520,11 +554,68 @@ pub struct NodeRows {
     fetched_cells: std::sync::atomic::AtomicUsize,
 }
 
-enum NodeData {
-    /// Pinned dataset; positions are Lance row ids (row addresses unless the dataset
-    /// uses stable row ids), which stay valid for this version.
+/// A table whose rows are fetched by position.
+enum TableData {
+    /// Pinned dataset; positions are Lance row ids (node tables) or row addresses
+    /// (relationship tables), which stay valid for this version.
     Lance(Arc<Dataset>),
     Memory(RecordBatch),
+}
+
+impl TableData {
+    /// Fetch `columns` (ascending schema indices) of the rows at `positions`, in
+    /// row order with duplicates kept. Lance positions are row addresses when
+    /// `addresses` is set, row ids otherwise.
+    async fn take(
+        &self,
+        schema: &Schema,
+        positions: &[u64],
+        columns: &[usize],
+        addresses: bool,
+    ) -> Result<Vec<ArrayRef>> {
+        if columns.is_empty() {
+            return Ok(vec![]);
+        }
+        if positions.is_empty() {
+            return Ok(columns
+                .iter()
+                .map(|&c| new_empty_array(schema.field(c).data_type()))
+                .collect());
+        }
+        let take_error = |e: lance::Error| exec_error(format!("Failed to take rows: {}", e));
+        match self {
+            Self::Lance(dataset) => {
+                let names = columns.iter().map(|&c| schema.field(c).name());
+                // Lance returns projected columns in schema order, which `columns` follows.
+                let projection = ProjectionRequest::from_columns(names, dataset.schema());
+                let batch = if addresses {
+                    let plan = projection
+                        .into_projection_plan(dataset.clone())
+                        .map_err(take_error)?;
+                    lance::dataset::TakeBuilder::try_new_from_addresses(
+                        dataset.clone(),
+                        positions.to_vec(),
+                        Arc::new(plan),
+                    )
+                    .map_err(take_error)?
+                    .execute()
+                    .await
+                } else {
+                    dataset.take_rows(positions, projection).await
+                }
+                .map_err(take_error)?;
+                Ok(batch.columns().to_vec())
+            }
+            Self::Memory(batch) => {
+                let indices = UInt64Array::from(positions.to_vec());
+                columns
+                    .iter()
+                    .map(|&c| take(batch.column(c).as_ref(), &indices, None))
+                    .collect::<std::result::Result<_, _>>()
+                    .map_err(|e| exec_error(format!("Failed to take rows: {}", e)))
+            }
+        }
+    }
 }
 
 impl NodeRows {
@@ -557,7 +648,7 @@ impl NodeRows {
         }
         Ok(Some(Self {
             positions,
-            data: NodeData::Lance(dataset),
+            data: TableData::Lance(dataset),
             schema,
             id_index,
             #[cfg(test)]
@@ -578,7 +669,7 @@ impl NodeRows {
         Ok(Some(Self {
             positions,
             schema: batch.schema(),
-            data: NodeData::Memory(batch),
+            data: TableData::Memory(batch),
             id_index,
             #[cfg(test)]
             fetched_cells: std::sync::atomic::AtomicUsize::new(0),
@@ -596,40 +687,16 @@ impl NodeRows {
     /// Fetch `columns` (ascending schema indices) of the rows at `positions`, in
     /// row order with duplicates kept. Returns one array per requested column.
     async fn take(&self, positions: &[u64], columns: &[usize]) -> Result<Vec<ArrayRef>> {
-        if columns.is_empty() {
-            return Ok(vec![]);
-        }
-        if positions.is_empty() {
-            return Ok(columns
-                .iter()
-                .map(|&c| new_empty_array(self.schema.field(c).data_type()))
-                .collect());
-        }
         #[cfg(test)]
-        self.fetched_cells.fetch_add(
-            positions.len() * columns.len(),
-            std::sync::atomic::Ordering::Relaxed,
-        );
-        match &self.data {
-            NodeData::Lance(dataset) => {
-                let names = columns.iter().map(|&c| self.schema.field(c).name());
-                // Lance returns projected columns in schema order, which `columns` follows.
-                let projection = ProjectionRequest::from_columns(names, dataset.schema());
-                let batch = dataset
-                    .take_rows(positions, projection)
-                    .await
-                    .map_err(|e| exec_error(format!("Failed to take target rows: {}", e)))?;
-                Ok(batch.columns().to_vec())
-            }
-            NodeData::Memory(batch) => {
-                let indices = UInt64Array::from(positions.to_vec());
-                columns
-                    .iter()
-                    .map(|&c| take(batch.column(c).as_ref(), &indices, None))
-                    .collect::<std::result::Result<_, _>>()
-                    .map_err(|e| exec_error(format!("Failed to take target rows: {}", e)))
-            }
+        if !columns.is_empty() {
+            self.fetched_cells.fetch_add(
+                positions.len() * columns.len(),
+                std::sync::atomic::Ordering::Relaxed,
+            );
         }
+        self.data
+            .take(&self.schema, positions, columns, false)
+            .await
     }
 }
 
@@ -667,6 +734,245 @@ fn insert_unique(
     true
 }
 
+/// Rows of one relationship table, fetched by the edge rows an [`Adjacency`] stores.
+/// Must be the same snapshot the adjacency describes.
+pub struct EdgeRows {
+    data: TableData,
+    schema: SchemaRef,
+}
+
+impl EdgeRows {
+    /// Rows of a pinned Lance dataset, by row address.
+    pub fn from_lance(dataset: Arc<Dataset>) -> Self {
+        Self {
+            schema: Arc::new(Schema::from(dataset.schema())),
+            data: TableData::Lance(dataset),
+        }
+    }
+
+    /// Rows of an in-memory table, by row index.
+    pub fn from_batch(batch: RecordBatch) -> Self {
+        Self {
+            schema: batch.schema(),
+            data: TableData::Memory(batch),
+        }
+    }
+}
+
+impl EdgeRows {
+    async fn take(&self, rows: &[u64], columns: &[usize]) -> Result<Vec<ArrayRef>> {
+        self.data.take(&self.schema, rows, columns, true).await
+    }
+
+    /// The rows passing `filter`, from one sequential read of its columns.
+    async fn mask(&self, filter: &CompiledFilter) -> Result<EdgeMask> {
+        let mut mask = EdgeMask::default();
+        let df_error = |e: datafusion::common::DataFusionError| exec_error(e.to_string());
+        match &self.data {
+            TableData::Memory(batch) => {
+                let columns = filter.columns.iter().map(|&c| batch.column(c).clone());
+                let keep = filter.keep(columns.collect()).map_err(df_error)?;
+                mask.extend(
+                    keep.iter()
+                        .enumerate()
+                        .filter(|(_, &k)| k)
+                        .map(|(i, _)| i as u64),
+                );
+            }
+            TableData::Lance(dataset) => {
+                let scan_error =
+                    |e: lance::Error| exec_error(format!("Failed to scan edges: {}", e));
+                let names: Vec<&str> = filter
+                    .schema
+                    .fields()
+                    .iter()
+                    .map(|f| f.name().as_str())
+                    .collect();
+                let mut scanner = dataset.scan();
+                scanner.project(&names).map_err(scan_error)?;
+                scanner.with_row_address();
+                let mut stream = scanner.try_into_stream().await.map_err(scan_error)?;
+                while let Some(batch) = stream.next().await {
+                    let batch = batch.map_err(scan_error)?;
+                    let columns = names
+                        .iter()
+                        .map(|n| batch.column_by_name(n).cloned())
+                        .collect::<Option<Vec<_>>>()
+                        .ok_or_else(|| exec_error("Edge scan lost a filter column".into()))?;
+                    let addresses = batch
+                        .column_by_name(ROW_ADDR)
+                        .ok_or_else(|| exec_error("Edge scan returned no row addresses".into()))?
+                        .as_primitive::<arrow::datatypes::UInt64Type>()
+                        .clone();
+                    let keep = filter.keep(columns).map_err(df_error)?;
+                    mask.extend(
+                        keep.iter()
+                            .zip(addresses.values())
+                            .filter(|(&k, _)| k)
+                            .map(|(_, &a)| a),
+                    );
+                    cooperative_yield().await;
+                }
+            }
+        }
+        Ok(mask)
+    }
+}
+
+/// The edge rows that pass a relationship filter: one bitset per fragment id, indexed
+/// by the row's offset in it (row index for in-memory input, fragment 0). Indexed by
+/// fragment id rather than hashed: it is checked once per expanded edge.
+#[derive(Default)]
+struct EdgeMask {
+    fragments: Vec<Vec<u64>>,
+}
+
+impl EdgeMask {
+    fn extend(&mut self, rows: impl Iterator<Item = u64>) {
+        for row in rows {
+            let (fragment, offset) = ((row >> 32) as usize, row as u32 as usize);
+            if self.fragments.len() <= fragment {
+                self.fragments.resize_with(fragment + 1, Vec::new);
+            }
+            let bits = &mut self.fragments[fragment];
+            if bits.len() <= offset / 64 {
+                bits.resize(offset / 64 + 1, 0);
+            }
+            bits[offset / 64] |= 1 << (offset % 64);
+        }
+    }
+
+    #[inline]
+    fn contains(&self, row: u64) -> bool {
+        let offset = row as u32 as usize;
+        self.fragments
+            .get((row >> 32) as usize)
+            .and_then(|bits| bits.get(offset / 64))
+            .is_some_and(|word| word >> (offset % 64) & 1 == 1)
+    }
+}
+
+/// Shared by an operator's partitions: edges expanded before the relationship filter
+/// ran, and the filter's mask once that count made a full read worthwhile.
+#[derive(Default)]
+struct EdgeFilterState {
+    expanded: std::sync::atomic::AtomicU64,
+    mask: std::sync::OnceLock<Arc<EdgeMask>>,
+    building: futures::lock::Mutex<()>,
+}
+
+impl fmt::Debug for EdgeFilterState {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("EdgeFilterState")
+            .field("masked", &self.mask.get().is_some())
+            .finish()
+    }
+}
+
+/// Switch from fetching filter columns per expanded edge to one read of the whole
+/// column once the expanded edges pass 1/`EDGE_MASK_FRACTION` of the relationship's
+/// edges. A batch of scattered rows from a large Lance table touches most of the
+/// column's pages, so each batch fetched before the switch costs about one full read.
+// shortcut: fixed share, measured on IC5 (half of a 1.6M-edge table) and IC11; tune if hops in between regress.
+const EDGE_MASK_FRACTION: u64 = 256;
+
+// Summary only, for the same reason as `Adjacency`.
+impl fmt::Debug for EdgeRows {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("EdgeRows")
+            .field("columns", &self.schema.fields().len())
+            .finish()
+    }
+}
+
+/// A named relationship's columns other than its endpoints, fetched from `rows`.
+#[derive(Clone)]
+pub struct EdgeLookup {
+    variable: String,
+    rows: Arc<EdgeRows>,
+    /// Endpoint column names, output by the expansion itself.
+    endpoints: [String; 2],
+    /// Output fields, named as the relationship scan would name them (`{variable}__{column}`).
+    fields: Vec<Field>,
+    /// For each output field, its column index in `rows` (ascending).
+    columns: Vec<usize>,
+}
+
+impl EdgeLookup {
+    /// Every column of `rows` except `endpoints`, or `None` if `rows` lacks one of
+    /// `names` (the relationship columns the planner expects).
+    pub fn new(
+        variable: &str,
+        rows: Arc<EdgeRows>,
+        names: &[&str],
+        endpoints: [&str; 2],
+    ) -> Option<Self> {
+        let mut columns: Vec<usize> = names
+            .iter()
+            .filter(|n| !endpoints.iter().any(|e| e.eq_ignore_ascii_case(n)))
+            .map(|n| rows.schema.index_of(n).ok())
+            .collect::<Option<_>>()?;
+        columns.sort_unstable();
+        let fields = columns
+            .iter()
+            .map(|&c| {
+                let f = rows.schema.field(c);
+                Field::new(
+                    qualify_column(variable, f.name()),
+                    f.data_type().clone(),
+                    f.is_nullable(),
+                )
+            })
+            .collect();
+        Some(Self {
+            variable: variable.to_string(),
+            rows,
+            endpoints: endpoints.map(str::to_string),
+            fields,
+            columns,
+        })
+    }
+
+    /// Qualified output name (`k__since`) -> the table's own column name, for every
+    /// non-endpoint column, including ones pruned from the output.
+    fn raw_columns(&self) -> HashMap<String, String> {
+        self.rows
+            .schema
+            .fields()
+            .iter()
+            .filter(|f| {
+                !self
+                    .endpoints
+                    .iter()
+                    .any(|e| e.eq_ignore_ascii_case(f.name()))
+            })
+            .map(|f| (qualify_column(&self.variable, f.name()), f.name().clone()))
+            .collect()
+    }
+
+    fn compile_filter(
+        &self,
+        filter: &Expr,
+        state: &SessionState,
+    ) -> datafusion::common::Result<CompiledFilter> {
+        CompiledFilter::new(filter, &self.raw_columns(), &self.rows.schema, state)
+    }
+
+    fn describe_columns(&self) -> String {
+        let names: Vec<_> = self.fields.iter().map(|f| f.name().as_str()).collect();
+        format!("[{}]", names.join(", "))
+    }
+}
+
+impl fmt::Debug for EdgeLookup {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("EdgeLookup")
+            .field("variable", &self.variable)
+            .field("columns", &self.describe_columns())
+            .finish()
+    }
+}
+
 /// A fused target lookup: the target variable's columns, fetched from `rows`.
 #[derive(Clone)]
 pub struct TargetLookup {
@@ -678,14 +984,64 @@ pub struct TargetLookup {
     columns: Vec<usize>,
 }
 
-/// A moved target filter compiled for one query: evaluated per batch on just the
-/// columns it reads, for the candidate target rows of that batch.
+/// A moved target or relationship filter compiled for one query: evaluated on just
+/// the columns it reads, for the candidate rows of each batch.
 #[derive(Debug, Clone)]
-struct CompiledTargetFilter {
+struct CompiledFilter {
     predicate: Arc<dyn PhysicalExpr>,
-    /// Target-table column indices the predicate reads, ascending (`schema`'s order).
+    /// Table column indices the predicate reads, ascending (`schema`'s order).
     columns: Vec<usize>,
     schema: SchemaRef,
+}
+
+impl CompiledFilter {
+    /// Compile `filter`, an expression over qualified columns such as `b__name`,
+    /// against `table`'s own columns; `raw` maps each qualified name to its column.
+    fn new(
+        filter: &Expr,
+        raw: &HashMap<String, String>,
+        table: &Schema,
+        state: &SessionState,
+    ) -> datafusion::common::Result<Self> {
+        let filter = filter
+            .clone()
+            .transform(|e| match &e {
+                Expr::Column(c) => match raw.get(&c.name) {
+                    Some(name) => Ok(Transformed::yes(Expr::Column(Column::from_name(name)))),
+                    None => Ok(Transformed::no(e)),
+                },
+                _ => Ok(Transformed::no(e)),
+            })?
+            .data;
+        let mut columns: Vec<usize> = filter
+            .column_refs()
+            .iter()
+            .map(|c| table.index_of(&c.name))
+            .collect::<std::result::Result<_, _>>()?;
+        columns.sort_unstable();
+        columns.dedup();
+        let schema = Arc::new(table.project(&columns)?);
+        let predicate =
+            state.create_physical_expr(filter, &DFSchema::try_from(schema.as_ref().clone())?)?;
+        Ok(Self {
+            predicate,
+            columns,
+            schema,
+        })
+    }
+
+    /// Which rows of `columns` (one array per filter column) pass; null counts as false.
+    fn keep(&self, columns: Vec<ArrayRef>) -> datafusion::common::Result<Vec<bool>> {
+        let candidates = RecordBatch::try_new(self.schema.clone(), columns)?;
+        let mask = self
+            .predicate
+            .evaluate(&candidates)?
+            .into_array(candidates.num_rows())?;
+        let mask = mask.as_boolean();
+        Ok((0..mask.len())
+            .map(|i| mask.is_valid(i) && mask.value(i))
+            .collect())
+    }
 }
 
 // Summary only, like `Adjacency`: DataFusion formats extension nodes with `{:?}`.
@@ -716,33 +1072,8 @@ impl TargetLookup {
         &self,
         filter: &Expr,
         state: &SessionState,
-    ) -> datafusion::common::Result<CompiledTargetFilter> {
-        let raw = self.raw_columns();
-        let filter = filter
-            .clone()
-            .transform(|e| match &e {
-                Expr::Column(c) => match raw.get(&c.name) {
-                    Some(name) => Ok(Transformed::yes(Expr::Column(Column::from_name(name)))),
-                    None => Ok(Transformed::no(e)),
-                },
-                _ => Ok(Transformed::no(e)),
-            })?
-            .data;
-        let mut columns: Vec<usize> = filter
-            .column_refs()
-            .iter()
-            .map(|c| self.rows.schema.index_of(&c.name))
-            .collect::<std::result::Result<_, _>>()?;
-        columns.sort_unstable();
-        columns.dedup();
-        let schema = Arc::new(self.rows.schema.project(&columns)?);
-        let predicate =
-            state.create_physical_expr(filter, &DFSchema::try_from(schema.as_ref().clone())?)?;
-        Ok(CompiledTargetFilter {
-            predicate,
-            columns,
-            schema,
-        })
+    ) -> datafusion::common::Result<CompiledFilter> {
+        CompiledFilter::new(filter, &self.raw_columns(), &self.rows.schema, state)
     }
 
     /// `[b__id*, b__name]`: output columns, `*` marking the id rebuilt from neighbour values.
@@ -779,9 +1110,19 @@ impl TargetLookup {
 pub struct AdjacencyCatalog {
     entries: HashMap<(String, bool), Arc<Adjacency>>,
     nodes: HashMap<String, Arc<NodeRows>>,
+    edges: HashMap<String, Arc<EdgeRows>>,
 }
 
 impl AdjacencyCatalog {
+    /// Rows of `rel_type`'s table, matching the edge rows of its adjacencies.
+    pub fn insert_edges(&mut self, rel_type: &str, rows: Arc<EdgeRows>) {
+        self.edges.insert(rel_type.to_lowercase(), rows);
+    }
+
+    pub fn edges(&self, rel_type: &str) -> Option<&Arc<EdgeRows>> {
+        self.edges.get(&rel_type.to_lowercase())
+    }
+
     pub fn insert(&mut self, rel_type: &str, outgoing: bool, adjacency: Arc<Adjacency>) {
         self.entries
             .insert((rel_type.to_lowercase(), outgoing), adjacency);
@@ -844,26 +1185,31 @@ impl Neighbors {
         key: i64,
         position: &'a mut NeighborPosition,
     ) -> impl Iterator<Item = u64> + 'a {
-        self.candidates_from(key, position).flatten()
+        self.candidates_from::<false>(key, position)
+            .flatten()
+            .map(|(n, _)| n)
     }
 
-    /// Borrow each adjacency once while exposing tombstones and suppressed self-loops as work.
+    /// `(neighbour, edge row)` candidates, with edge rows only when `ROWS`. Borrow each
+    /// adjacency once while exposing tombstones and suppressed self-loops as work.
     #[inline(always)]
-    pub(crate) fn candidates_from<'a>(
+    pub(crate) fn candidates_from<'a, const ROWS: bool>(
         &'a self,
         key: i64,
         position: &'a mut NeighborPosition,
-    ) -> impl Iterator<Item = Option<u64>> + 'a {
-        let forward = self.forward.candidates_from(key, &mut position.forward);
+    ) -> impl Iterator<Item = Option<(u64, u64)>> + 'a {
+        let forward = self
+            .forward
+            .candidates_from::<ROWS>(key, &mut position.forward);
         let reverse = self
             .reverse
             .as_ref()
-            .map(|r| r.candidates_from(key, &mut position.reverse));
+            .map(|r| r.candidates_from::<ROWS>(key, &mut position.reverse));
         forward.chain(
             reverse
                 .into_iter()
                 .flatten()
-                .map(move |candidate| candidate.filter(|&n| n as i64 != key)),
+                .map(move |candidate| candidate.filter(|&(n, _)| n as i64 != key)),
         )
     }
 
@@ -904,9 +1250,14 @@ pub struct CsrExpandNode {
     adjacency: Neighbors,
     /// When set, the target node's columns are fetched here instead of by a join.
     target: Option<TargetLookup>,
+    /// When set, a named relationship's other columns are fetched here by edge row.
+    edge: Option<EdgeLookup>,
     /// WHERE conjuncts over target columns only, moved here by [`PushCsrTargetFilters`]:
     /// neighbours that fail it are dropped before any take.
     target_filter: Option<Expr>,
+    /// WHERE conjuncts over the named relationship's own columns only, moved here by
+    /// [`PushCsrTargetFilters`]: edges that fail it are dropped before any other take.
+    edge_filter: Option<Expr>,
     /// Closing edge: input column holding the already-bound target id. Only neighbours
     /// equal to it are kept, replacing a filter after a full expansion.
     closing_column: Option<String>,
@@ -922,9 +1273,11 @@ impl CsrExpandNode {
         neighbor_output: Field,
         adjacency: Neighbors,
         target: Option<TargetLookup>,
+        edge: Option<EdgeLookup>,
     ) -> Result<Self> {
         let mut added_fields = vec![key_output.clone(), neighbor_output.clone()];
         added_fields.extend(target.iter().flat_map(|t| t.fields.iter().cloned()));
+        added_fields.extend(edge.iter().flat_map(|e| e.fields.iter().cloned()));
         let added = DFSchema::try_from(Schema::new(added_fields))
             .map_err(|e| plan_error(format!("CsrExpand schema: {}", e)))?;
         let schema = input
@@ -938,7 +1291,9 @@ impl CsrExpandNode {
             neighbor_output,
             adjacency,
             target,
+            edge,
             target_filter: None,
+            edge_filter: None,
             closing_column: None,
             traversal: None,
             schema: Arc::new(schema),
@@ -956,8 +1311,14 @@ impl CsrExpandNode {
         self
     }
 
-    /// The same node over `input` with `target`, keeping the moved filter and closing column.
-    fn rebuilt(&self, input: LogicalPlan, target: Option<TargetLookup>) -> Result<Self> {
+    /// The same node over `input` with `target` and `edge`, keeping the moved filter
+    /// and closing column.
+    fn rebuilt(
+        &self,
+        input: LogicalPlan,
+        target: Option<TargetLookup>,
+        edge: Option<EdgeLookup>,
+    ) -> Result<Self> {
         let mut node = Self::try_new(
             input,
             self.key_column.clone(),
@@ -965,35 +1326,53 @@ impl CsrExpandNode {
             self.neighbor_output.clone(),
             self.adjacency.clone(),
             target,
+            edge,
         )?;
         node.target_filter = self.target_filter.clone();
+        node.edge_filter = self.edge_filter.clone();
         node.closing_column = self.closing_column.clone();
         node.traversal = self.traversal.clone();
         Ok(node)
     }
 
-    /// This node with only the target columns named in `used`, or `None` if nothing changes.
+    /// This node with only the target and edge columns named in `used`, or `None`
+    /// if nothing changes.
     fn with_target_columns(&self, used: &HashSet<String>) -> Option<Self> {
-        let target = self.target.as_ref()?;
-        let (columns, fields): (Vec<usize>, Vec<Field>) = target
-            .columns
-            .iter()
-            .zip(&target.fields)
-            .filter(|(_, f)| used.contains(f.name()))
-            .map(|(&c, f)| (c, f.clone()))
-            .unzip();
-        if fields.len() == target.fields.len() {
+        let keep = |columns: &[usize], fields: &[Field]| -> (Vec<usize>, Vec<Field>) {
+            columns
+                .iter()
+                .zip(fields)
+                .filter(|(_, f)| used.contains(f.name()))
+                .map(|(&c, f)| (c, f.clone()))
+                .unzip()
+        };
+        let target = self.target.as_ref().map(|t| {
+            let (columns, fields) = keep(&t.columns, &t.fields);
+            TargetLookup {
+                columns,
+                fields,
+                ..t.clone()
+            }
+        });
+        let edge = self.edge.as_ref().map(|e| {
+            let (columns, fields) = keep(&e.columns, &e.fields);
+            EdgeLookup {
+                columns,
+                fields,
+                ..e.clone()
+            }
+        });
+        let width = |t: Option<&TargetLookup>, e: Option<&EdgeLookup>| {
+            t.map_or(0, |t| t.fields.len()) + e.map_or(0, |e| e.fields.len())
+        };
+        if width(target.as_ref(), edge.as_ref()) == width(self.target.as_ref(), self.edge.as_ref())
+        {
             return None;
         }
-        let target = TargetLookup {
-            columns,
-            fields,
-            ..target.clone()
-        };
-        self.rebuilt(self.input.clone(), Some(target)).ok()
+        self.rebuilt(self.input.clone(), target, edge).ok()
     }
 
-    /// Names of the columns this node adds (endpoints, then any target columns).
+    /// Names of the columns this node adds (endpoints, then any target and edge columns).
     fn added_columns(&self) -> impl Iterator<Item = &String> {
         [self.key_output.name(), self.neighbor_output.name()]
             .into_iter()
@@ -1001,6 +1380,11 @@ impl CsrExpandNode {
                 self.target
                     .iter()
                     .flat_map(|t| t.fields.iter().map(|f| f.name())),
+            )
+            .chain(
+                self.edge
+                    .iter()
+                    .flat_map(|e| e.fields.iter().map(|f| f.name())),
             )
     }
 }
@@ -1022,7 +1406,17 @@ impl PartialEq for CsrExpandNode {
                 (None, None) => true,
                 _ => false,
             }
+            && match (&self.edge, &other.edge) {
+                (Some(a), Some(b)) => {
+                    a.variable == b.variable
+                        && a.columns == b.columns
+                        && Arc::ptr_eq(&a.rows, &b.rows)
+                }
+                (None, None) => true,
+                _ => false,
+            }
             && self.target_filter == other.target_filter
+            && self.edge_filter == other.edge_filter
             && self.closing_column == other.closing_column
             && match (&self.traversal, &other.traversal) {
                 (Some(a), Some(b)) => Arc::ptr_eq(a, b),
@@ -1039,7 +1433,12 @@ impl Hash for CsrExpandNode {
         self.key_output.name().hash(state);
         self.neighbor_output.name().hash(state);
         self.target.as_ref().map(|t| &t.variable).hash(state);
+        self.edge
+            .as_ref()
+            .map(|e| (&e.variable, &e.columns))
+            .hash(state);
         self.target_filter.hash(state);
+        self.edge_filter.hash(state);
         self.closing_column.hash(state);
     }
 }
@@ -1125,8 +1524,14 @@ impl UserDefinedLogicalNodeCore for CsrExpandNode {
         if let Some(target) = &self.target {
             write!(f, ", take={}{}", target.variable, target.describe_columns())?;
         }
+        if let Some(edge) = &self.edge {
+            write!(f, ", edge={}{}", edge.variable, edge.describe_columns())?;
+        }
         if let Some(filter) = &self.target_filter {
             write!(f, ", filter={}", filter)?;
+        }
+        if let Some(filter) = &self.edge_filter {
+            write!(f, ", edge_filter={}", filter)?;
         }
         if let Some(column) = &self.closing_column {
             write!(f, ", match={}", column)?;
@@ -1143,7 +1548,7 @@ impl UserDefinedLogicalNodeCore for CsrExpandNode {
         inputs: Vec<LogicalPlan>,
     ) -> datafusion::common::Result<Self> {
         let input = inputs.into_iter().next().expect("CsrExpand has one input");
-        self.rebuilt(input, self.target.clone())
+        self.rebuilt(input, self.target.clone(), self.edge.clone())
             .map_err(|e| datafusion::common::DataFusionError::Plan(e.to_string()))
     }
 }
@@ -1155,8 +1560,12 @@ pub struct CsrExpandExec {
     key_column: String,
     adjacency: Neighbors,
     target: Option<TargetLookup>,
+    edge: Option<EdgeLookup>,
     /// The moved target filter, if any.
-    target_filter: Option<CompiledTargetFilter>,
+    target_filter: Option<CompiledFilter>,
+    /// The moved relationship filter, if any, and its shared progress.
+    edge_filter: Option<CompiledFilter>,
+    edge_state: Arc<EdgeFilterState>,
     closing_column: Option<String>,
     traversal: Option<Arc<crate::csr_traversal::Traversal>>,
     schema: SchemaRef,
@@ -1170,7 +1579,9 @@ impl CsrExpandExec {
         key_column: String,
         adjacency: Neighbors,
         target: Option<TargetLookup>,
-        target_filter: Option<CompiledTargetFilter>,
+        edge: Option<EdgeLookup>,
+        target_filter: Option<CompiledFilter>,
+        edge_filter: Option<CompiledFilter>,
         closing_column: Option<String>,
         traversal: Option<Arc<crate::csr_traversal::Traversal>>,
         schema: SchemaRef,
@@ -1186,7 +1597,10 @@ impl CsrExpandExec {
             key_column,
             adjacency,
             target,
+            edge,
             target_filter,
+            edge_filter,
+            edge_state: Arc::default(),
             closing_column,
             traversal,
             schema,
@@ -1203,6 +1617,10 @@ struct BatchExpansion {
     row: usize,
     position: NeighborPosition,
     walk: Option<crate::csr_traversal::TraversalCursor>,
+    /// Record each output row's edge row, for a relationship-column fetch.
+    edge_rows: bool,
+    /// Passing edge rows of the relationship filter, once built: others are skipped.
+    edge_mask: Option<Arc<EdgeMask>>,
 }
 
 impl BatchExpansion {
@@ -1223,6 +1641,8 @@ impl BatchExpansion {
             row: 0,
             position: NeighborPosition::default(),
             walk: None,
+            edge_rows: false,
+            edge_mask: None,
         })
     }
 
@@ -1235,7 +1655,12 @@ impl BatchExpansion {
     ) -> ExpandedRows {
         let mut chunk = ExpandedRows::default();
         loop {
-            if self.fill_chunk(adjacency, target, batch_size, &mut chunk) {
+            let paused = if self.edge_rows {
+                self.fill_chunk::<true>(adjacency, target, batch_size, &mut chunk)
+            } else {
+                self.fill_chunk::<false>(adjacency, target, batch_size, &mut chunk)
+            };
+            if paused {
                 cooperative_yield().await;
             }
             if self.row == self.keys.len() || chunk.rows.len() == batch_size.max(1) {
@@ -1245,7 +1670,7 @@ impl BatchExpansion {
     }
 
     /// Keep coroutine state outside the scan while counting deleted occurrences as work.
-    fn fill_chunk(
+    fn fill_chunk<const ROWS: bool>(
         &mut self,
         adjacency: &Neighbors,
         target: Option<&TargetLookup>,
@@ -1262,13 +1687,21 @@ impl BatchExpansion {
                 let key = self.keys.value(i);
                 let required = self.bound.as_ref().map(|b| b.value(i));
                 for candidate in adjacency
-                    .candidates_from(key, &mut position)
+                    .candidates_from::<ROWS>(key, &mut position)
                     .take(1024 - work)
                 {
                     work += 1;
-                    let Some(neighbor) = candidate else {
+                    let Some((neighbor, edge_row)) = candidate else {
                         continue;
                     };
+                    if ROWS
+                        && self
+                            .edge_mask
+                            .as_ref()
+                            .is_some_and(|m| !m.contains(edge_row))
+                    {
+                        continue;
+                    }
                     let neighbor = neighbor as i64;
                     if required.is_some_and(|r| r != neighbor) {
                         continue;
@@ -1282,6 +1715,9 @@ impl BatchExpansion {
                     chunk.rows.push(i as u32);
                     chunk.key_values.push(key);
                     chunk.neighbor_values.push(neighbor);
+                    if ROWS {
+                        chunk.edge_rows.push(edge_row);
+                    }
                     if chunk.rows.len() == batch_size.max(1) {
                         break 'rows;
                     }
@@ -1353,14 +1789,26 @@ impl BatchExpansion {
     }
 }
 
-/// Expanded rows of one input batch: input row index, both endpoints, and the
-/// target row position when a lookup is fused in.
+/// Expanded rows of one input batch: input row index, both endpoints, the edge row
+/// (single hops only), and the target row position when a lookup is fused in.
 #[derive(Default)]
 struct ExpandedRows {
     rows: Vec<u32>,
     key_values: Vec<i64>,
     neighbor_values: Vec<i64>,
+    edge_rows: Vec<u64>,
     target_positions: Vec<u64>,
+}
+
+impl ExpandedRows {
+    /// Keep the rows whose entry in `keep` is true.
+    fn retain(&mut self, keep: &[bool]) {
+        retain_by_mask(&mut self.rows, keep);
+        retain_by_mask(&mut self.key_values, keep);
+        retain_by_mask(&mut self.neighbor_values, keep);
+        retain_by_mask(&mut self.edge_rows, keep);
+        retain_by_mask(&mut self.target_positions, keep);
+    }
 }
 
 /// Apply the moved target filter to `expanded`, then build the output batch.
@@ -1368,13 +1816,26 @@ async fn materialize(
     batch: &RecordBatch,
     expanded: ExpandedRows,
     target: Option<&TargetLookup>,
-    target_filter: Option<&CompiledTargetFilter>,
+    edge: Option<&EdgeLookup>,
+    target_filter: Option<&CompiledFilter>,
+    edge_filter: Option<&CompiledFilter>,
     schema: &SchemaRef,
 ) -> datafusion::common::Result<RecordBatch> {
+    let mut expanded = expanded;
+    if let (Some(edge), Some(filter)) = (edge, edge_filter) {
+        // Fetch only the relationship filter's columns and drop failing edges first.
+        let columns = edge
+            .rows
+            .take(&expanded.edge_rows, &filter.columns)
+            .await
+            .map_err(|e| datafusion::common::DataFusionError::External(Box::new(e)))?;
+        expanded.retain(&filter.keep(columns)?);
+    }
     let ExpandedRows {
         mut rows,
         mut key_values,
         mut neighbor_values,
+        mut edge_rows,
         mut target_positions,
     } = expanded;
     let mut reused = Vec::new();
@@ -1427,6 +1888,7 @@ async fn materialize(
         retain_by_mask(&mut rows, &keep);
         retain_by_mask(&mut key_values, &keep);
         retain_by_mask(&mut neighbor_values, &keep);
+        retain_by_mask(&mut edge_rows, &keep);
         retain_by_mask(&mut target_positions, &keep);
     }
     let rows = UInt32Array::from(rows);
@@ -1467,6 +1929,14 @@ async fn materialize(
             });
         }
     }
+    if let Some(edge) = edge {
+        let fetched = edge
+            .rows
+            .take(&edge_rows, &edge.columns)
+            .await
+            .map_err(|e| datafusion::common::DataFusionError::External(Box::new(e)))?;
+        columns.extend(fetched);
+    }
     Ok(RecordBatch::try_new(schema.clone(), columns)?)
 }
 
@@ -1490,8 +1960,14 @@ impl DisplayAs for CsrExpandExec {
         if let Some(target) = &self.target {
             write!(f, ", take={}{}", target.variable, target.describe_columns())?;
         }
+        if let Some(edge) = &self.edge {
+            write!(f, ", edge={}{}", edge.variable, edge.describe_columns())?;
+        }
         if let Some(filter) = &self.target_filter {
             write!(f, ", filter={}", filter.predicate)?;
+        }
+        if let Some(filter) = &self.edge_filter {
+            write!(f, ", edge_filter={}", filter.predicate)?;
         }
         if let Some(column) = &self.closing_column {
             write!(f, ", match={}", column)?;
@@ -1551,7 +2027,9 @@ impl ExecutionPlan for CsrExpandExec {
             self.key_column.clone(),
             self.adjacency.clone(),
             self.target.clone(),
+            self.edge.clone(),
             self.target_filter.clone(),
+            self.edge_filter.clone(),
             self.closing_column.clone(),
             self.traversal.clone(),
             self.schema.clone(),
@@ -1573,7 +2051,11 @@ impl ExecutionPlan for CsrExpandExec {
             .transpose()?;
         let adjacency = self.adjacency.clone();
         let target = self.target.clone().map(Arc::new);
+        let edge = self.edge.clone().map(Arc::new);
         let target_filter = self.target_filter.clone().map(Arc::new);
+        let edge_filter = self.edge_filter.clone().map(Arc::new);
+        let edge_state = self.edge_state.clone();
+        let mask_after = (self.adjacency.num_edges() / EDGE_MASK_FRACTION).max(1);
         let schema = self.schema.clone();
         let out_schema = schema.clone();
         let batch_size = context.session_config().batch_size();
@@ -1581,12 +2063,14 @@ impl ExecutionPlan for CsrExpandExec {
         // Keep one input and one materialization in flight per partition. A hub's
         // remaining neighbours stay in the immutable adjacency until the next poll.
         let stream = futures::stream::try_unfold((input, None), move |(mut input, mut pending)| {
-            let (adjacency, target, target_filter, schema) = (
+            let (adjacency, target, edge, target_filter, schema) = (
                 adjacency.clone(),
                 target.clone(),
+                edge.clone(),
                 target_filter.clone(),
                 schema.clone(),
             );
+            let (edge_filter, edge_state) = (edge_filter.clone(), edge_state.clone());
             let traversal = traversal.clone();
             async move {
                 loop {
@@ -1594,9 +2078,20 @@ impl ExecutionPlan for CsrExpandExec {
                         let Some(batch) = input.next().await else {
                             return Ok(None);
                         };
-                        pending = Some(BatchExpansion::try_new(batch?, key_index, closing_index)?);
+                        let mut expansion =
+                            BatchExpansion::try_new(batch?, key_index, closing_index)?;
+                        expansion.edge_rows = edge.is_some();
+                        pending = Some(expansion);
                     }
                     let expansion = pending.as_mut().expect("input batch just set");
+                    // Once built, the mask filters edges during expansion instead.
+                    let mask = edge_filter.as_ref().and(edge_state.mask.get().cloned());
+                    let mut filter = if mask.is_some() {
+                        None
+                    } else {
+                        edge_filter.as_deref()
+                    };
+                    expansion.edge_mask = mask;
                     let chunk = match &traversal {
                         Some(walk) => {
                             expansion
@@ -1613,14 +2108,42 @@ impl ExecutionPlan for CsrExpandExec {
                         pending = None;
                         continue;
                     }
+                    let mut chunk = chunk;
+                    if let (Some(edge), Some(compiled)) = (&edge, filter) {
+                        // Decide before fetching: a chunk that crosses the threshold is
+                        // filtered by the new mask, without its own scattered fetch.
+                        use std::sync::atomic::Ordering::Relaxed;
+                        let expanded = chunk.rows.len() as u64;
+                        if edge_state.expanded.fetch_add(expanded, Relaxed) + expanded >= mask_after
+                        {
+                            let _building = edge_state.building.lock().await;
+                            if edge_state.mask.get().is_none() {
+                                let mask = edge.rows.mask(compiled).await.map_err(|e| {
+                                    datafusion::common::DataFusionError::External(Box::new(e))
+                                })?;
+                                let _ = edge_state.mask.set(Arc::new(mask));
+                            }
+                        }
+                        if let Some(mask) = edge_state.mask.get() {
+                            let keep: Vec<bool> =
+                                chunk.edge_rows.iter().map(|&r| mask.contains(r)).collect();
+                            chunk.retain(&keep);
+                            filter = None;
+                        }
+                    }
                     let batch = materialize(
                         &expansion.batch,
                         chunk,
                         target.as_deref(),
+                        edge.as_deref(),
                         target_filter.as_deref(),
+                        filter,
                         &schema,
                     )
                     .await?;
+                    if batch.num_rows() == 0 {
+                        continue;
+                    }
                     return Ok(Some((batch, (input, pending))));
                 }
             }
@@ -1673,12 +2196,18 @@ impl ExtensionPlanner for CsrExtensionPlanner {
             (Some(target), Some(filter)) => Some(target.compile_filter(filter, session_state)?),
             _ => None,
         };
+        let edge_filter = match (&node.edge, &node.edge_filter) {
+            (Some(edge), Some(filter)) => Some(edge.compile_filter(filter, session_state)?),
+            _ => None,
+        };
         Ok(Some(Arc::new(CsrExpandExec::new(
             physical_inputs[0].clone(),
             node.key_column.clone(),
             node.adjacency.clone(),
             node.target.clone(),
+            node.edge.clone(),
             target_filter,
+            edge_filter,
             node.closing_column.clone(),
             node.traversal.clone(),
             Arc::new(node.schema.as_arrow().clone()),
@@ -1704,8 +2233,9 @@ impl QueryPlanner for CsrQueryPlanner {
     }
 }
 
-/// Optimizer rule: move WHERE conjuncts that read only a fused target's columns into
-/// the CSR node, which evaluates them before taking the target's other columns.
+/// Optimizer rule: move WHERE conjuncts that read only a fused target's columns, or
+/// only a named relationship's own columns, into the CSR node, which evaluates them
+/// before taking that table's other columns.
 ///
 /// Without this, `... WHERE tc.name = 'Athlete'` takes every projected target column
 /// for every expanded row, then filters. The CSR node
@@ -1750,28 +2280,33 @@ impl OptimizerRule for PushCsrTargetFilters {
             let Some(csr) = ext.node.as_any().downcast_ref::<CsrExpandNode>() else {
                 return Ok(Transformed::no(node));
             };
-            let Some(target) = &csr.target else {
-                return Ok(Transformed::no(node));
-            };
-            let target_columns = target.raw_columns();
-            let (moved, kept): (Vec<&Expr>, Vec<&Expr>) = split_conjunction(&filter.predicate)
-                .into_iter()
-                .partition(|e| {
-                    let refs = e.column_refs();
+            let target_columns = csr.target.as_ref().map(TargetLookup::raw_columns);
+            let edge_columns = csr.edge.as_ref().map(EdgeLookup::raw_columns);
+            // Conjuncts over only one table's columns move; anything else stays here.
+            let over = |e: &Expr, columns: &Option<HashMap<String, String>>| {
+                let refs = e.column_refs();
+                columns.as_ref().is_some_and(|columns| {
                     !refs.is_empty()
                         && !e.is_volatile()
-                        && refs.iter().all(|c| target_columns.contains_key(&c.name))
-                });
-            if moved.is_empty() {
+                        && refs.iter().all(|c| columns.contains_key(&c.name))
+                })
+            };
+            let (mut to_target, mut to_edge, mut kept) = (vec![], vec![], vec![]);
+            for e in split_conjunction(&filter.predicate) {
+                if over(e, &target_columns) {
+                    to_target.push(e.clone());
+                } else if over(e, &edge_columns) {
+                    to_edge.push(e.clone());
+                } else {
+                    kept.push(e);
+                }
+            }
+            if to_target.is_empty() && to_edge.is_empty() {
                 return Ok(Transformed::no(node));
             }
             let mut pushed = csr.clone();
-            pushed.target_filter = conjunction(
-                csr.target_filter
-                    .iter()
-                    .cloned()
-                    .chain(moved.into_iter().cloned()),
-            );
+            pushed.target_filter = conjunction(csr.target_filter.iter().cloned().chain(to_target));
+            pushed.edge_filter = conjunction(csr.edge_filter.iter().cloned().chain(to_edge));
             let mut rebuilt = LogicalPlan::Extension(Extension {
                 node: Arc::new(pushed),
             });
@@ -1944,6 +2479,13 @@ mod tests {
         assert_eq!(collect(3), vec![3, 1]);
     }
 
+    /// Rows of an in-memory edge table, by index.
+    fn rows(indices: impl IntoIterator<Item = u64>) -> RemovedRows {
+        let mut removed = RemovedRows::default();
+        removed.rows(0, indices.into_iter().map(|i| i as u32));
+        removed
+    }
+
     fn neighbors(adj: &Adjacency, key: i64) -> Vec<i64> {
         let mut out = Vec::new();
         adj.for_each_neighbor(key, |n| out.push(n as i64));
@@ -1964,7 +2506,7 @@ mod tests {
         .await
         .unwrap();
         // Remove one of the two 1->2 edges, add 1->4 and a new source 9->1.
-        let next = base.with_changes(&[(1, 4), (9, 1)], &[(1, 2)]);
+        let next = base.with_changes(&[(1, 4, 3), (9, 1, 4)], &rows([0]));
         assert_eq!(neighbors(&next, 1), vec![2, 3, 4]);
         assert_eq!(neighbors(&next, 9), vec![1]);
         assert_eq!(
@@ -1972,7 +2514,7 @@ mod tests {
             (4, 2, 1)
         );
         // Removing an appended edge cancels it; the original is untouched.
-        let later = next.with_changes(&[], &[(9, 1)]);
+        let later = next.with_changes(&[], &rows([4]));
         assert!(neighbors(&later, 9).is_empty());
         assert_eq!(neighbors(&base, 1), vec![2, 2, 3]);
         assert!(Arc::ptr_eq(&base.base, &later.base));
@@ -1987,7 +2529,9 @@ mod tests {
         )
         .await
         .unwrap();
-        let next = base.with_changes(&[(1, 12), (1, 12), (1, 13)], &[(1, 11), (1, 12)]);
+        let next = base
+            .with_changes(&[(1, 12, 2), (1, 12, 3), (1, 13, 4)], &rows([]))
+            .with_changes(&[], &rows([1, 2]));
         for (mut offset, expected) in [
             (0, vec![10, 12, 13]),
             (1, vec![12, 13]),
@@ -2045,16 +2589,18 @@ mod tests {
         let mut adj = Adjacency::build(edge_stream(vec![Some(0)], vec![Some(0)]), "src", "dst")
             .await
             .unwrap();
-        let mut expected = vec![0_i64];
+        // (neighbour, row) pairs; row 0 is the base edge.
+        let mut live = vec![(0_i64, 0_u64)];
         for step in 1..=200_i64 {
-            let removed: Vec<(i64, i64)> = if step % 3 == 0 {
-                expected.pop().map(|n| vec![(0, n)]).unwrap_or_default()
-            } else {
-                vec![]
+            let removed = match step % 3 {
+                0 => rows(live.pop().map(|(_, row)| row)),
+                _ => rows([]),
             };
-            adj = adj.with_changes(&[(0, step), (0, step)], &removed);
-            expected.extend([step, step]);
+            let row = 2 * step as u64;
+            adj = adj.with_changes(&[(0, step, row - 1), (0, step, row)], &removed);
+            live.extend([(step, row - 1), (step, row)]);
         }
+        let mut expected: Vec<i64> = live.into_iter().map(|(n, _)| n).collect();
         expected.sort_unstable();
         assert_eq!(neighbors(&adj, 0), expected);
         assert_eq!(adj.num_edges() as usize, expected.len());
@@ -2091,7 +2637,7 @@ mod tests {
         let adj = Neighbors::directed(Arc::new(adj));
         let mut expansion = BatchExpansion::try_new(input.clone(), 0, None).unwrap();
         let chunk = expansion.next_chunk(&adj, None, 8192).await;
-        let out = materialize(&input, chunk, None, None, &out_schema)
+        let out = materialize(&input, chunk, None, None, None, None, &out_schema)
             .await
             .unwrap();
         assert_eq!(out.num_rows(), 2);
@@ -2232,8 +2778,9 @@ mod tests {
         )
         .await
         .unwrap();
-        let removed = (2..n as i64 + 1).map(|id| (1, id)).collect::<Vec<_>>();
-        let adjacency = Neighbors::directed(Arc::new(base.with_changes(&[], &removed)));
+        // Every edge but the last.
+        let adjacency =
+            Neighbors::directed(Arc::new(base.with_changes(&[], &rows(0..n as u64 - 1))));
         let input =
             RecordBatch::try_from_iter([("id", Arc::new(Int64Array::from(vec![1])) as ArrayRef)])
                 .unwrap();
@@ -2266,7 +2813,8 @@ mod tests {
         )
         .await
         .unwrap();
-        let removed: Vec<_> = (1..=n as i64).step_by(2).map(|n| (0, n)).collect();
+        // Odd neighbours: rows 0, 2, 4, ...
+        let removed = rows((0..n as u64).step_by(2));
         let adj = Neighbors::directed(Arc::new(base.with_changes(&[], &removed)));
         let input =
             RecordBatch::try_from_iter([("id", Arc::new(Int64Array::from(vec![0])) as ArrayRef)])
@@ -2335,8 +2883,9 @@ mod tests {
     async fn resumed_neighbors_keep_duplicate_deletions_and_self_loops_exact() {
         let edges = || edge_stream(vec![Some(1); 4], vec![Some(1), Some(2), Some(2), Some(3)]);
         let base = Adjacency::build(edges(), "src", "dst").await.unwrap();
-        let next = base.with_changes(&[(1, 2), (1, 4)], &[(1, 2), (1, 3)]);
-        let later = next.with_changes(&[(1, 3)], &[(1, 2), (1, 2)]);
+        // Rows: 0 = 1->1, 1 and 2 = 1->2, 3 = 1->3.
+        let next = base.with_changes(&[(1, 2, 4), (1, 4, 5)], &rows([1, 3]));
+        let later = next.with_changes(&[(1, 3, 6)], &rows([2, 4]));
         assert_eq!(neighbors(&later, 1), vec![1, 3, 4]);
         assert_eq!(neighbors(&next, 1), vec![1, 2, 2, 4]);
         assert_eq!(neighbors(&base, 1), vec![1, 2, 2, 3]);
@@ -2448,10 +2997,19 @@ mod tests {
                             .map(|&n| source.position(n).unwrap())
                             .collect(),
                         neighbor_values: neighbors,
+                        edge_rows: vec![],
                     };
-                    let out = materialize(&input, expanded, Some(&target), Some(&filter), &schema)
-                        .await
-                        .unwrap();
+                    let out = materialize(
+                        &input,
+                        expanded,
+                        Some(&target),
+                        None,
+                        Some(&filter),
+                        None,
+                        &schema,
+                    )
+                    .await
+                    .unwrap();
                     let expected_rows: Vec<u32> = if threshold == 2 {
                         vec![2, 0, 2, 0]
                     } else {
@@ -2480,5 +3038,122 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn edge_mask_marks_rows_per_fragment() {
+        let mut mask = EdgeMask::default();
+        mask.extend([5, 64, (3 << 32) | 130].into_iter());
+        assert!(mask.contains(5) && mask.contains(64) && mask.contains((3 << 32) | 130));
+        assert!(!mask.contains(6) && !mask.contains(130) && !mask.contains((3 << 32) | 5));
+        assert!(!mask.contains((9 << 32) | 5) && !mask.contains(1 << 20));
+    }
+
+    #[tokio::test]
+    async fn relationship_filter_runs_per_chunk_or_as_a_mask() {
+        use arrow::array::RecordBatchIterator;
+        use datafusion::logical_expr::{col, lit};
+
+        // Rows: 1->2 (since 10), 1->3 (20), 1->2 (30), 2->3 (40).
+        let edges = RecordBatch::try_from_iter([
+            (
+                "src",
+                Arc::new(Int64Array::from(vec![1, 1, 1, 2])) as ArrayRef,
+            ),
+            (
+                "dst",
+                Arc::new(Int64Array::from(vec![2, 3, 2, 3])) as ArrayRef,
+            ),
+            (
+                "since",
+                Arc::new(Int64Array::from(vec![10, 20, 30, 40])) as ArrayRef,
+            ),
+        ])
+        .unwrap();
+        let stream = || {
+            Box::pin(RecordBatchStreamAdapter::new(
+                edges.schema(),
+                futures::stream::iter(vec![Ok(edges.clone())]),
+            ))
+        };
+        let adjacency = Neighbors::directed(Arc::new(
+            Adjacency::build(stream(), "src", "dst").await.unwrap(),
+        ));
+        let rows = Arc::new(EdgeRows::from_batch(edges.clone()));
+        let edge =
+            EdgeLookup::new("r", rows.clone(), &["src", "dst", "since"], ["src", "dst"]).unwrap();
+        let state = datafusion::execution::context::SessionContext::new().state();
+        let filter = edge
+            .compile_filter(&col("r__since").gt(lit(15_i64)), &state)
+            .unwrap();
+        let input = RecordBatch::try_from_iter([(
+            "a__id",
+            Arc::new(Int64Array::from(vec![1])) as ArrayRef,
+        )])
+        .unwrap();
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("a__id", DataType::Int64, true),
+            Field::new("r__src", DataType::Int64, true),
+            Field::new("r__dst", DataType::Int64, true),
+            Field::new("r__since", DataType::Int64, true),
+        ]));
+        let since = |batch: &RecordBatch| {
+            let mut v = batch
+                .column(3)
+                .as_primitive::<Int64Type>()
+                .values()
+                .to_vec();
+            v.sort_unstable();
+            v
+        };
+
+        // Per chunk: the filter column is fetched by edge row, then the rest for survivors.
+        let mut expansion = BatchExpansion::try_new(input.clone(), 0, None).unwrap();
+        expansion.edge_rows = true;
+        let chunk = expansion.next_chunk(&adjacency, None, 8192).await;
+        assert_eq!(chunk.edge_rows.len(), 3);
+        let out = materialize(
+            &input,
+            chunk,
+            None,
+            Some(&edge),
+            None,
+            Some(&filter),
+            &schema,
+        )
+        .await
+        .unwrap();
+        assert_eq!(since(&out), vec![20, 30]);
+
+        // As a mask: failing edges are skipped during expansion, before any take.
+        let mask = Arc::new(rows.mask(&filter).await.unwrap());
+        assert!(!mask.contains(0) && mask.contains(1) && mask.contains(2) && mask.contains(3));
+        let mut expansion = BatchExpansion::try_new(input.clone(), 0, None).unwrap();
+        expansion.edge_rows = true;
+        expansion.edge_mask = Some(mask);
+        let chunk = expansion.next_chunk(&adjacency, None, 8192).await;
+        assert_eq!(chunk.edge_rows, vec![1, 2]);
+        let out = materialize(&input, chunk, None, Some(&edge), None, None, &schema)
+            .await
+            .unwrap();
+        assert_eq!(since(&out), vec![20, 30]);
+
+        // From Lance, across fragments: the mask holds exactly the passing row addresses.
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("edges.lance");
+        let reader = RecordBatchIterator::new(vec![Ok(edges.clone())], edges.schema());
+        let params = lance::dataset::WriteParams {
+            max_rows_per_file: 2,
+            ..Default::default()
+        };
+        let dataset = Dataset::write(reader, path.to_str().unwrap(), Some(params))
+            .await
+            .unwrap();
+        assert_eq!(dataset.get_fragments().len(), 2);
+        let lance_rows = EdgeRows::from_lance(Arc::new(dataset));
+        let mask = lance_rows.mask(&filter).await.unwrap();
+        let (first, second) = (0_u64, 1_u64 << 32);
+        assert!(!mask.contains(first) && mask.contains(first + 1));
+        assert!(mask.contains(second) && mask.contains(second + 1));
     }
 }

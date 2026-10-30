@@ -7,6 +7,8 @@ After each change and ``refresh()``, the CSR engine must return exactly what a
 fresh join-path engine and a freshly built CSR engine return on the new data.
 """
 
+from datetime import timedelta
+
 import lance
 import pyarrow as pa
 import pytest
@@ -26,6 +28,9 @@ QUERIES = [
     "MATCH (a:Person)<-[:KNOWS]-(b:Person) RETURN a.id, b.name",
     "MATCH (a:Person)-[:KNOWS]->(b:Person) WHERE a.id = 3 RETURN b.id",
     "MATCH (a:Person)-[:KNOWS]->(b:Person)-[:KNOWS]->(c:Person) RETURN count(*) AS n",
+    # Relationship columns are taken by edge row, so rows must stay aligned.
+    "MATCH (a:Person)-[r:KNOWS]->(b:Person) RETURN a.id, b.id, r.since",
+    "MATCH (a:Person)<-[r:KNOWS]-(b:Person) WHERE a.id < 10 RETURN a.id, r.since",
 ]
 
 
@@ -164,6 +169,36 @@ def test_compaction_keeps_results(graph):
     ds.optimize.compact_files(target_rows_per_fragment=1000)
     engine.refresh()
     check(engine, uri)
+
+
+def test_deltas_survive_cleanup_of_old_versions(graph):
+    # Removed rows are found by row address, not by reading the old version's files.
+    engine, uri = graph()
+    lance.write_dataset(edges([(3, 4), (4, 3)], 4000), uri, mode="append")
+    lance.write_dataset(edges([(5, 6), (6, 5)], 4002), uri, mode="append")
+    engine.refresh()
+    # Compaction rewrites the two small fragments; cleanup deletes their files.
+    lance.dataset(uri).optimize.compact_files(target_rows_per_fragment=40)
+    lance.dataset(uri).delete("since = 0 OR since = 4003")
+    lance.dataset(uri).cleanup_old_versions(
+        older_than=timedelta(0), delete_unverified=True
+    )
+    engine.refresh()
+    s = stats(engine)
+    assert (s["update"], s["delta_edges"], s["tombstones"]) == ("delta", 7, 5)
+    check(engine, uri)
+
+
+def test_non_endpoint_column_change_is_visible_through_relationship(graph):
+    engine, uri = graph()
+    lance.dataset(uri).add_columns({"weight": "since * 2"})
+    engine.refresh()
+    assert stats(engine)["update"] == "reused"
+    got = engine.execute(
+        "MATCH (a:Person)-[r:KNOWS]->(b:Person) RETURN r.since, r.weight"
+    ).to_pylist()
+    assert len(got) == len(BASE)
+    assert all(row["r.weight"] == 2 * row["r.since"] for row in got)
 
 
 def test_overwrite_triggers_rebuild(graph):

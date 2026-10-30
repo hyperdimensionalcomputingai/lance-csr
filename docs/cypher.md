@@ -319,6 +319,9 @@ RETURN length(p), nodes(p)
   `(a)-[:KNOWS]->(b)<-[:KNOWS]-(c)` therefore never matches `c = a`. Separate `MATCH` clauses may bind the
   same edge again. Edges are compared by their endpoints, so two parallel edges between the same nodes
   count as one. Variable-length and untyped relationships are not checked, except inside a named path.
+- **`count(r)` on a relationship** counts the rows where `r` matched, so an unmatched `OPTIONAL MATCH`
+  counts zero. `count(DISTINCT r)` compares all of `r`'s columns: parallel edges with identical properties
+  count once.
 - **Reused relationship variables**: writing a bound relationship variable again, as in
   `MATCH (a)-[r:KNOWS]->(b), (c)-[r]->(d)`, matches that same relationship, so `c = a` and `d = b`. This
   also works in a later `MATCH` clause or after `WITH r`. The type can be left out; a different type

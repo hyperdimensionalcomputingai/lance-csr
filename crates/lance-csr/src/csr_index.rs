@@ -12,34 +12,46 @@
 //! ```text
 //! Offset Array:  [0, 3, 5, 5, 9, ...]   (one entry per vertex + 1 sentinel)
 //! Neighbor Array: [2, 5, 7, 1, 4, 0, 3, 6, 8, ...]  (destination vertex IDs)
+//! Edge rows:      [...]                            (one source row per neighbour)
 //! ```
 //!
-//! For vertex `v`, its neighbors are `neighbors[offsets[v]..offsets[v+1]]`.
+//! For vertex `v`, its neighbors are `neighbors[offsets[v]..offsets[v+1]]`, and
+//! `edge_rows` at the same positions holds the row each edge came from.
 
 use std::collections::HashMap;
 
 /// In-memory CSR adjacency index for fast neighbor lookup.
 ///
-/// Stores graph topology in two arrays:
+/// Stores graph topology in three arrays:
 /// - `offsets[v]` = start position of vertex v's neighbors in the neighbor array
 /// - `neighbors[offsets[v]..offsets[v+1]]` = destination vertex IDs
+/// - `edge_rows`, aligned with `neighbors` = the row (a Lance row address, or a
+///   row index for in-memory input) each edge came from
 #[derive(Debug, Clone)]
 pub struct CsrIndex {
     offsets: Vec<u64>,
     neighbors: Vec<u64>,
+    edge_rows: Vec<u64>,
 }
 
 impl CsrIndex {
+    fn range(&self, vertex_id: u64) -> std::ops::Range<usize> {
+        let v = vertex_id as usize;
+        if v >= self.offsets.len() - 1 {
+            return 0..0;
+        }
+        self.offsets[v] as usize..self.offsets[v + 1] as usize
+    }
+
     /// Look up all neighbors of a vertex. Returns an empty slice for vertices
     /// with no outgoing edges or vertex IDs beyond the index range.
     pub fn neighbors(&self, vertex_id: u64) -> &[u64] {
-        let v = vertex_id as usize;
-        if v >= self.offsets.len() - 1 {
-            return &[];
-        }
-        let start = self.offsets[v] as usize;
-        let end = self.offsets[v + 1] as usize;
-        &self.neighbors[start..end]
+        &self.neighbors[self.range(vertex_id)]
+    }
+
+    /// The edge rows of a vertex's neighbors, in the same order as [`Self::neighbors`].
+    pub fn edge_rows(&self, vertex_id: u64) -> &[u64] {
+        &self.edge_rows[self.range(vertex_id)]
     }
 
     /// Return the total number of edges in the index.
@@ -50,11 +62,11 @@ impl CsrIndex {
 
 /// Builder for constructing a CSR index from edge data.
 ///
-/// Accepts edges as (source, destination) pairs and builds the compressed
-/// sparse row representation.
+/// Accepts edges as (source, destination, edge row) triples and builds the
+/// compressed sparse row representation.
 #[derive(Debug)]
 pub struct CsrIndexBuilder {
-    edges: Vec<(u64, u64)>,
+    edges: Vec<(u64, u64, u64)>,
     num_vertices: Option<u64>,
 }
 
@@ -73,9 +85,9 @@ impl CsrIndexBuilder {
         self
     }
 
-    /// Add a single directed edge from `src` to `dst`.
-    pub fn add_edge(mut self, src: u64, dst: u64) -> Self {
-        self.edges.push((src, dst));
+    /// Add a single directed edge from `src` to `dst`, read from row `row`.
+    pub fn add_edge(mut self, src: u64, dst: u64, row: u64) -> Self {
+        self.edges.push((src, dst, row));
         self
     }
 
@@ -86,14 +98,14 @@ impl CsrIndexBuilder {
         let num_vertices = self.num_vertices.unwrap_or_else(|| {
             self.edges
                 .iter()
-                .flat_map(|&(s, d)| [s, d])
+                .flat_map(|&(s, d, _)| [s, d])
                 .max()
                 .map(|m| m + 1)
                 .unwrap_or(0)
         });
 
         // Sort by source vertex for CSR construction
-        self.edges.sort_unstable_by_key(|&(src, _)| src);
+        self.edges.sort_unstable_by_key(|&(src, _, _)| src);
 
         // Build offset and neighbor arrays
         let mut offsets = vec![0u64; num_vertices as usize + 1];
@@ -101,7 +113,7 @@ impl CsrIndexBuilder {
 
         // Count degrees
         let mut degree_map: HashMap<u64, u64> = HashMap::new();
-        for &(src, _) in &self.edges {
+        for &(src, _, _) in &self.edges {
             *degree_map.entry(src).or_insert(0) += 1;
         }
 
@@ -113,12 +125,14 @@ impl CsrIndexBuilder {
         }
         offsets[num_vertices as usize] = running;
 
-        // Fill neighbor array
-        for &(_, dst) in &self.edges {
-            neighbors.push(dst);
-        }
+        let edge_rows = self.edges.iter().map(|&(_, _, row)| row).collect();
+        neighbors.extend(self.edges.iter().map(|&(_, dst, _)| dst));
 
-        CsrIndex { offsets, neighbors }
+        CsrIndex {
+            offsets,
+            neighbors,
+            edge_rows,
+        }
     }
 }
 
@@ -140,11 +154,11 @@ mod tests {
     fn sample_index() -> CsrIndex {
         CsrIndexBuilder::new()
             .with_num_vertices(4)
-            .add_edge(0, 1)
-            .add_edge(0, 2)
-            .add_edge(0, 3)
-            .add_edge(1, 2)
-            .add_edge(2, 3)
+            .add_edge(0, 1, 0)
+            .add_edge(0, 2, 1)
+            .add_edge(0, 3, 2)
+            .add_edge(1, 2, 3)
+            .add_edge(2, 3, 4)
             .build()
     }
 
@@ -156,6 +170,9 @@ mod tests {
         assert_eq!(idx.neighbors(1), &[2]);
         assert_eq!(idx.neighbors(2), &[3]);
         assert_eq!(idx.neighbors(3), &[] as &[u64]);
+        assert_eq!(idx.edge_rows(0), &[0, 1, 2]);
+        assert_eq!(idx.edge_rows(2), &[4]);
+        assert_eq!(idx.edge_rows(99), &[] as &[u64]);
     }
 
     #[test]
@@ -181,7 +198,7 @@ mod tests {
     fn test_isolated_vertices() {
         let idx = CsrIndexBuilder::new()
             .with_num_vertices(5)
-            .add_edge(1, 3)
+            .add_edge(1, 3, 5)
             .build();
 
         assert_eq!(idx.neighbors(0), &[] as &[u64]);
@@ -193,7 +210,10 @@ mod tests {
 
     #[test]
     fn test_auto_inferred_num_vertices() {
-        let idx = CsrIndexBuilder::new().add_edge(0, 5).add_edge(3, 7).build();
+        let idx = CsrIndexBuilder::new()
+            .add_edge(0, 5, 6)
+            .add_edge(3, 7, 7)
+            .build();
 
         // Inferred from the max ID (7): vertices up to 7 are addressable.
         assert_eq!(idx.neighbors(7), &[] as &[u64]);
@@ -205,9 +225,9 @@ mod tests {
     fn test_self_loops() {
         let idx = CsrIndexBuilder::new()
             .with_num_vertices(3)
-            .add_edge(0, 0)
-            .add_edge(1, 1)
-            .add_edge(0, 1)
+            .add_edge(0, 0, 8)
+            .add_edge(1, 1, 9)
+            .add_edge(0, 1, 10)
             .build();
 
         assert_eq!(idx.neighbors(0), &[0, 1]);
@@ -218,9 +238,9 @@ mod tests {
     fn test_parallel_edges() {
         let idx = CsrIndexBuilder::new()
             .with_num_vertices(2)
-            .add_edge(0, 1)
-            .add_edge(0, 1)
-            .add_edge(0, 1)
+            .add_edge(0, 1, 11)
+            .add_edge(0, 1, 12)
+            .add_edge(0, 1, 13)
             .build();
 
         // CSR preserves multi-edges
