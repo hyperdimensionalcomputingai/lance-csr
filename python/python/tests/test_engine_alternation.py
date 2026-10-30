@@ -30,17 +30,12 @@ TABLES = {
 }
 
 
-def config(endpoints=True):
+def config():
     builder = GraphConfig.builder()
     for label in ("Person", "Post", "Comment"):
         builder = builder.node_table(label, "id")
     for name, (src, dst, _, _) in RELS.items():
-        if endpoints:
-            builder = builder.rel_table(name, src, dst, "src", "dst")
-        else:
-            # Only the deprecated method can still leave the endpoint tables out.
-            with pytest.deprecated_call():
-                builder = builder.with_relationship(name, "src", "dst")
+        builder = builder.rel_table(name, src, dst, "src", "dst")
     return builder.build()
 
 
@@ -99,22 +94,6 @@ def test_alternation_branches_use_csr(datasets):
     )
     physical = plan[plan.index("physical_plan") :]
     assert physical.count("CsrExpandExec") == 2 and "UnionExec" in physical
-
-
-def test_label_choice_needs_endpoint_labels(datasets):
-    # Without endpoint labels, `m` could be a Post or a Comment for either type.
-    engine = CypherEngine(config(endpoints=False), datasets)
-    with pytest.raises(Exception, match="endpoint labels"):
-        engine.execute(
-            "MATCH (p:Person)<-[:postHasCreator|commentHasCreator]-(m:Post:Comment) "
-            "RETURN m.id"
-        )
-
-
-def test_endpoint_labels_must_be_given_together():
-    builder = GraphConfig.builder().node_table("Post", "id")
-    with pytest.raises(ValueError, match="together"), pytest.deprecated_call():
-        builder.with_relationship("r", "src", "dst", "Post")
 
 
 @pytest.mark.parametrize("use_csr", [False, True])

@@ -46,8 +46,6 @@ def public_api(
     assert_type(config.node_labels(), list[str])
     assert_type(config.relationship_types(), list[str])
     assert_type(GraphConfigBuilder().build(), GraphConfig)
-    assert_type(builder.with_node_label("City", "id"), GraphConfigBuilder)
-    assert_type(builder.with_relationship("R", "src", "dst"), GraphConfigBuilder)
 
     datasets = {"Person": table}
     engine = CypherEngine(config, datasets, use_csr=True)

@@ -107,8 +107,8 @@ hold each end's key (`src` and `dst`). Knowing the ends lets queries leave nodes
 unlabeled where the relationship decides the label (`(p:Person)-[:lives_in]->(c)`), and
 lets relationship-type alternation (`[:likes_post|likes_comment]`) pick the right table.
 
-`with_node_label` and `with_relationship`, the names in lance-csr 0.1, still work but are
-deprecated and will be removed in a later release.
+`with_node_label` and `with_relationship`, the names in lance-csr 0.1, were removed in
+0.5.0; use `node_table` and `rel_table` instead.
 
 ### 3. Lance datasets: snapshots, refresh and streaming
 

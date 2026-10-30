@@ -249,13 +249,6 @@ pub struct GraphConfigBuilder {
     inner: lance_csr::config::GraphConfigBuilder,
 }
 
-/// Raise a ``DeprecationWarning`` pointing at the caller's line.
-fn deprecated(py: Python, message: &std::ffi::CStr) -> PyResult<()> {
-    let category = py.get_type::<pyo3::exceptions::PyDeprecationWarning>();
-    // Level 2 skips the Python wrapper method and points at its caller.
-    PyErr::warn(py, &category, message, 2)
-}
-
 #[pymethods]
 impl GraphConfigBuilder {
     #[new]
@@ -287,42 +280,6 @@ impl GraphConfigBuilder {
         }
     }
 
-    fn with_node_label(&self, py: Python, label: &str, id_field: &str) -> PyResult<Self> {
-        deprecated(py, c"with_node_label() is deprecated; use node_table()")?;
-        Ok(self.node_table(label, id_field))
-    }
-
-    #[pyo3(signature = (rel_type, source_field, target_field, source_label=None, target_label=None))]
-    fn with_relationship(
-        &self,
-        py: Python,
-        rel_type: &str,
-        source_field: &str,
-        target_field: &str,
-        source_label: Option<&str>,
-        target_label: Option<&str>,
-    ) -> PyResult<Self> {
-        deprecated(
-            py,
-            c"with_relationship() is deprecated; use rel_table(), which also takes the node tables at both ends",
-        )?;
-        #[allow(deprecated)]
-        let inner = self
-            .inner
-            .clone()
-            .with_relationship(rel_type, source_field, target_field);
-        #[allow(deprecated)]
-        let inner = match (source_label, target_label) {
-            (Some(src), Some(dst)) => inner.with_relationship_endpoints(rel_type, src, dst),
-            (None, None) => inner,
-            _ => {
-                return Err(PyValueError::new_err(
-                    "source_label and target_label must be given together",
-                ))
-            }
-        };
-        Ok(Self { inner })
-    }
 
     fn build(&self) -> PyResult<GraphConfig> {
         let config = self.inner.clone().build().map_err(graph_error_to_pyerr)?;

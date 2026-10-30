@@ -249,64 +249,10 @@ impl GraphConfigBuilder {
         self
     }
 
-    /// Add a node label mapping.
-    #[deprecated(since = "0.2.0", note = "use `node_table`")]
-    pub fn with_node_label<S: Into<String>>(self, label: S, id_field: S) -> Self {
-        self.node_table(label, id_field)
-    }
-
     /// Add a node mapping with additional configuration
     pub fn with_node_mapping(mut self, mapping: NodeMapping) -> Self {
         let normalized_key = mapping.label.to_lowercase();
         self.node_mappings.insert(normalized_key, mapping);
-        self
-    }
-
-    /// Add a relationship type mapping, without endpoint node tables.
-    #[deprecated(
-        since = "0.2.0",
-        note = "use `rel_table`, which also takes the node tables at both ends"
-    )]
-    pub fn with_relationship<S: Into<String>>(
-        mut self,
-        rel_type: S,
-        source_field: S,
-        target_field: S,
-    ) -> Self {
-        let type_str = rel_type.into();
-        let normalized_key = type_str.to_lowercase();
-        self.relationship_mappings.insert(
-            normalized_key,
-            RelationshipMapping {
-                relationship_type: type_str, // Keep original case for display
-                source_id_field: source_field.into(),
-                target_id_field: target_field.into(),
-                type_field: None,
-                property_fields: Vec::new(),
-                filter_conditions: None,
-                source_label: None,
-                target_label: None,
-            },
-        );
-        self
-    }
-
-    /// Record the node labels a configured relationship type connects (see
-    /// [`RelationshipMapping::source_label`]). No-op for an unknown type.
-    #[deprecated(
-        since = "0.2.0",
-        note = "use `rel_table`, which takes the endpoint node tables"
-    )]
-    pub fn with_relationship_endpoints<S: Into<String>>(
-        mut self,
-        rel_type: &str,
-        source_label: S,
-        target_label: S,
-    ) -> Self {
-        if let Some(mapping) = self.relationship_mappings.get_mut(&rel_type.to_lowercase()) {
-            mapping.source_label = Some(source_label.into());
-            mapping.target_label = Some(target_label.into());
-        }
         self
     }
 
@@ -477,20 +423,6 @@ mod tests {
             .build();
         let message = result.unwrap_err().to_string();
         assert!(message.contains("Company"), "{message}");
-    }
-
-    #[test]
-    #[allow(deprecated)]
-    fn deprecated_builder_methods_still_configure_the_graph() {
-        let config = GraphConfig::builder()
-            .with_node_label("Person", "id")
-            .with_relationship("KNOWS", "src", "dst")
-            .with_relationship_endpoints("KNOWS", "Person", "Person")
-            .build()
-            .unwrap();
-        let knows = config.get_relationship_mapping("knows").unwrap();
-        assert_eq!(config.get_node_mapping("person").unwrap().id_field, "id");
-        assert_eq!(knows.source_label.as_deref(), Some("Person"));
     }
 
     #[test]
