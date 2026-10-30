@@ -3,6 +3,11 @@ on:
   push:
     branches:
       - main
+    paths:
+      - crates/**
+      - Cargo.toml
+      - Cargo.lock
+      - .github/workflows/style.yml
   pull_request:
     paths:
       - crates/**
@@ -47,12 +52,3 @@ jobs:
           sudo apt install -y protobuf-compiler
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
-
-  typos:
-    name: Spell Check
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Check spelling
-        uses: crate-ci/typos@v1.26.0

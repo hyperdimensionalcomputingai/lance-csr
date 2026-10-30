@@ -1,0 +1,21 @@
+# Spelling covers docs and Markdown too, so it runs on every change; it takes seconds.
+name: Spelling
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typos:
+    name: Spell Check
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Check spelling
+        uses: crate-ci/typos@v1.26.0
