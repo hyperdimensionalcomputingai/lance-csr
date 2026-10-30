@@ -2,8 +2,8 @@
 # Apple Silicon (macOS arm64), plus an sdist for every other platform.
 #
 # Pull requests that change how wheels are built (this workflow, the wheel check, the
-# release build profile) build and test them without publishing. Other changes rely on a
-# manual mode=dry_run run before a release, to spare the ~30-minute macOS build.
+# release build profile) build and test them without publishing. A release builds and tests
+# every wheel before publishing, so it needs no separate dry run; see RELEASE.md.
 # A published GitHub release (tag vX.Y.Z) publishes to PyPI after every build and test
 # passes, through PyPI trusted publishing and the protected `pypi` environment; so does
 # a manual run with mode=release. mode=dry_run builds and tests only.
