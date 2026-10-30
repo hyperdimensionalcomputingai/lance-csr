@@ -55,70 +55,103 @@ A graph in lance-csr is a set of ordinary tables plus a `GraphConfig` that says 
 which are relationships, and which columns link them. Here are people, the cities they live in, and who
 knows whom:
 
-```python
-import pyarrow as pa
+=== "Python"
 
-datasets = {
-    "Person": pa.table({
-        "id": [1, 2, 3, 4],
-        "name": ["Alice", "Bob", "Carol", "David"],
-        "age": [28, 34, 29, 42],
-    }),
-    "City": pa.table({"id": [10, 20], "name": ["London", "Sydney"]}),
-    "KNOWS": pa.table({"src": [1, 1, 2, 3], "dst": [2, 3, 4, 4]}),
-    "LIVES_IN": pa.table({"src": [1, 2, 3, 4], "dst": [10, 10, 20, 20]}),
-}
-```
+    ```python
+    import pyarrow as pa
+
+    datasets = {
+        "Person": pa.table({
+            "id": [1, 2, 3, 4],
+            "name": ["Alice", "Bob", "Carol", "David"],
+            "age": [28, 34, 29, 42],
+        }),
+        "City": pa.table({"id": [10, 20], "name": ["London", "Sydney"]}),
+        "KNOWS": pa.table({"src": [1, 1, 2, 3], "dst": [2, 3, 4, 4]}),
+        "LIVES_IN": pa.table({"src": [1, 2, 3, 4], "dst": [10, 10, 20, 20]}),
+    }
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "crates/lance-csr/examples/embedded_query.rs:gs_datasets"
+    ```
 
 Each key of `datasets` is a node label or relationship type. Now describe how they connect:
 
-```python
-from lance_csr import GraphConfig
+=== "Python"
 
-config = (
-    GraphConfig.builder()
-    .node_table("Person", "id")  # (1)!
-    .node_table("City", "id")
-    .rel_table("KNOWS", "Person", "Person", "src", "dst")  # (2)!
-    .rel_table("LIVES_IN", "Person", "City", "src", "dst")
-    .build()
-)
-```
+    ```python
+    from lance_csr import GraphConfig
 
-1. A node table: the label `Person`, read from the dataset named `Person`, identified by its `id` column.
-2. A relationship table: `KNOWS` edges go from `Person` to `Person`; the `src` column holds the source
-   node's `id` and `dst` the target's.
+    config = (
+        GraphConfig.builder()
+        .node_table("Person", "id")  # (1)!
+        .node_table("City", "id")
+        .rel_table("KNOWS", "Person", "Person", "src", "dst")  # (2)!
+        .rel_table("LIVES_IN", "Person", "City", "src", "dst")
+        .build()
+    )
+    ```
+
+    1. A node table: the label `Person`, read from the dataset named `Person`, identified by its `id` column.
+    2. A relationship table: `KNOWS` edges go from `Person` to `Person`; the `src` column holds the source
+       node's `id` and `dst` the target's.
+
+=== "Rust"
+
+    ```rust
+    --8<-- "crates/lance-csr/examples/embedded_query.rs:gs_config"
+    ```
 
 ## Run a query
 
 `CypherEngine` registers the datasets once and runs as many queries as you like against them:
 
-```python
-from lance_csr import CypherEngine
+=== "Python"
 
-engine = CypherEngine(config, datasets)
+    ```python
+    from lance_csr import CypherEngine
 
-result = engine.execute("""
-    MATCH (p:Person)-[:LIVES_IN]->(c:City {name: 'London'})
-    RETURN p.name AS name, p.age AS age
-    ORDER BY age
-""")
-print(result.to_pylist())
-# [{'name': 'Alice', 'age': 28}, {'name': 'Bob', 'age': 34}]
-```
+    engine = CypherEngine(config, datasets)
+
+    result = engine.execute("""
+        MATCH (p:Person)-[:LIVES_IN]->(c:City {name: 'London'})
+        RETURN p.name AS name, p.age AS age
+        ORDER BY age
+    """)
+    print(result.to_pylist())
+    # [{'name': 'Alice', 'age': 28}, {'name': 'Bob', 'age': 34}]
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "crates/lance-csr/examples/embedded_query.rs:gs_query"
+    ```
 
 Results come back as a [`pyarrow.Table`](https://arrow.apache.org/docs/python/generated/pyarrow.Table.html),
-so `to_pylist()`, `to_pydict()`, `to_pandas()` and Polars' `pl.from_arrow()` all work.
+so `to_pylist()`, `to_pydict()`, `to_pandas()` and Polars' `pl.from_arrow()` all work. In Rust, `execute`
+returns an Arrow `RecordBatch`.
 
 Pass values with `$parameters` instead of formatting them into the query string:
 
-```python
-older = engine.execute(
-    "MATCH (p:Person) WHERE p.age >= $min_age RETURN p.name AS name ORDER BY name",
-    {"min_age": 30},
-)
-print(older.to_pydict())  # {'name': ['Bob', 'David']}
-```
+=== "Python"
+
+    ```python
+    older = engine.execute(
+        "MATCH (p:Person) WHERE p.age >= $min_age RETURN p.name AS name ORDER BY name",
+        {"min_age": 30},
+    )
+    print(older.to_pydict())  # {'name': ['Bob', 'David']}
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "crates/lance-csr/examples/embedded_query.rs:gs_params"
+    ```
 
 ## Go multi-hop with the CSR
 
@@ -139,17 +172,11 @@ patterns then become array lookups instead of joins:
 
 === "Rust"
 
-    The same engine is a Rust crate (`cargo add lance-csr`). This example reads `Person` and `KNOWS` from
-    Lance datasets on disk, where Alice knows only Bob, so the answer differs from the Python tab. The third
-    argument of `CypherEngine::new` is `use_csr`.
+    The third argument of `CypherEngine::new` is `use_csr`.
 
     ```rust
-    --8<-- "crates/lance-csr/examples/embedded_query.rs:engine"
-
-    --8<-- "crates/lance-csr/examples/embedded_query.rs:query"
+    --8<-- "crates/lance-csr/examples/embedded_query.rs:gs_csr"
     ```
-
-    [Using from Rust](rust.md) has the full, runnable example, along with refresh, errors and timeouts.
 
 !!! tip "When should I turn the CSR on?"
 
@@ -161,16 +188,24 @@ patterns then become array lookups instead of joins:
 
 For a single query you don't plan to repeat, `CypherQuery` skips the engine:
 
-```python
-from lance_csr import CypherQuery
+=== "Python"
 
-result = (
-    CypherQuery("MATCH (p:Person) WHERE p.age > 30 RETURN p.name AS name ORDER BY name")
-    .with_config(config)
-    .execute(datasets)
-)
-print(result.to_pydict())  # {'name': ['Bob', 'David']}
-```
+    ```python
+    from lance_csr import CypherQuery
+
+    result = (
+        CypherQuery("MATCH (p:Person) WHERE p.age > 30 RETURN p.name AS name ORDER BY name")
+        .with_config(config)
+        .execute(datasets)
+    )
+    print(result.to_pydict())  # {'name': ['Bob', 'David']}
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "crates/lance-csr/examples/embedded_query.rs:gs_one_off"
+    ```
 
 `CypherQuery` rebuilds its context on every `execute()` call, so prefer `CypherEngine` whenever you run more
 than one query against the same data.
