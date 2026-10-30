@@ -2,7 +2,8 @@
 //!
 //! Writes a small social graph as two Lance datasets in a temporary directory, opens
 //! them in a CSR-backed engine, runs a two-hop query, appends an edge and picks it up
-//! with `refresh()`, and runs a query under a deadline. The documentation includes this
+//! with `refresh()`, runs a query under a deadline, and repeats the home page's in-memory
+//! Arrow example. The documentation includes this
 //! file section by section (the `--8<--` markers), so keep it compiling and its printed
 //! output in step.
 //!
@@ -15,7 +16,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use arrow::util::pretty::print_batches;
-use arrow_array::{Int64Array, RecordBatch, RecordBatchIterator, StringArray};
+use arrow_array::{ArrayRef, Int64Array, RecordBatch, RecordBatchIterator, StringArray};
 use arrow_schema::{DataType, Field, Schema};
 use lance::dataset::{Dataset, WriteMode, WriteParams};
 use lance_csr::query::with_execution_deadline;
@@ -140,5 +141,42 @@ async fn main() -> lance_csr::Result<()> {
     // | 16    |
     // +-------+
     // --8<-- [end:timeout]
+
+    // --8<-- [start:quickstart]
+    let config = GraphConfig::builder()
+        .node_table("Person", "id")
+        .rel_table("KNOWS", "Person", "Person", "src", "dst")
+        .build()?;
+    let person = RecordBatch::try_from_iter([
+        ("id", Arc::new(Int64Array::from(vec![1, 2, 3])) as ArrayRef),
+        (
+            "name",
+            Arc::new(StringArray::from(vec!["Alice", "Bob", "Carol"])) as _,
+        ),
+    ])?;
+    let knows = RecordBatch::try_from_iter([
+        ("src", Arc::new(Int64Array::from(vec![1, 2])) as ArrayRef),
+        ("dst", Arc::new(Int64Array::from(vec![2, 3])) as _),
+    ])?;
+    let sources = HashMap::from([
+        ("Person".to_string(), EngineSource::Arrow(person)),
+        ("KNOWS".to_string(), EngineSource::Arrow(knows)),
+    ]);
+    let engine = CypherEngine::new(config, sources, true).await?;
+    let result = engine
+        .execute(
+            "MATCH (a:Person {name: 'Alice'})-[:KNOWS*1..2]->(b) \
+             RETURN b.name AS friend ORDER BY friend",
+            HashMap::new(),
+        )
+        .await?;
+    print_batches(&[result])?;
+    // +--------+
+    // | friend |
+    // +--------+
+    // | Bob    |
+    // | Carol  |
+    // +--------+
+    // --8<-- [end:quickstart]
     Ok(())
 }

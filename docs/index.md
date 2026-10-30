@@ -15,30 +15,38 @@ title: Home
 no server to operate. Its distinguishing feature is a **compressed sparse row (CSR) adjacency index** that turns
 each relationship hop from a hash join into an array lookup, which is what makes multi-hop traversals fast.
 
-```python
-import pyarrow as pa
-from lance_csr import CypherEngine, GraphConfig
+=== "Python"
 
-config = (
-    GraphConfig.builder()
-    .node_table("Person", "id")
-    .rel_table("KNOWS", "Person", "Person", "src", "dst")
-    .build()
-)
-engine = CypherEngine(
-    config,
-    {
-        "Person": pa.table({"id": [1, 2, 3], "name": ["Alice", "Bob", "Carol"]}),
-        "KNOWS": pa.table({"src": [1, 2], "dst": [2, 3]}),
-    },
-    use_csr=True,
-)
-result = engine.execute(
-    "MATCH (a:Person {name: 'Alice'})-[:KNOWS*1..2]->(b) "
-    "RETURN b.name AS friend ORDER BY friend"
-)
-print(result.to_pylist())  # [{'friend': 'Bob'}, {'friend': 'Carol'}]
-```
+    ```python
+    import pyarrow as pa
+    from lance_csr import CypherEngine, GraphConfig
+
+    config = (
+        GraphConfig.builder()
+        .node_table("Person", "id")
+        .rel_table("KNOWS", "Person", "Person", "src", "dst")
+        .build()
+    )
+    engine = CypherEngine(
+        config,
+        {
+            "Person": pa.table({"id": [1, 2, 3], "name": ["Alice", "Bob", "Carol"]}),
+            "KNOWS": pa.table({"src": [1, 2], "dst": [2, 3]}),
+        },
+        use_csr=True,
+    )
+    result = engine.execute(
+        "MATCH (a:Person {name: 'Alice'})-[:KNOWS*1..2]->(b) "
+        "RETURN b.name AS friend ORDER BY friend"
+    )
+    print(result.to_pylist())  # [{'friend': 'Bob'}, {'friend': 'Carol'}]
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "crates/lance-csr/examples/embedded_query.rs:quickstart"
+    ```
 
 <div class="grid cards" markdown>
 
