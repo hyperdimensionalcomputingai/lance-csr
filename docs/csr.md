@@ -264,6 +264,53 @@ flowchart TD
 The 25% threshold is fixed: lookups pay a little for every pending delta edge, and a rebuild clears them.
 `python/benchmarks/csr_delta_accumulated.py` measures that trade-off.
 
+### How to keep the CSR fresh
+
+The engine doesn't watch your datasets for changes. Keeping the CSR in step with the data is up to you:
+
+1. **Write with any Lance writer**: `pylance`, LanceDB or another process.
+2. **Call `refresh()` after the writes your queries should see.** When a writer updates several tables, call it
+   after all of them commit (see [snapshots are per dataset](lance.md#lazy-version-pinned-reads)). A refresh
+   with nothing new reuses the existing CSR, so calling it on a timer or before each batch of queries is fine.
+3. **Check what it did with [`csr_stats()`](#csr_stats)**: `update` says whether the CSR was `reused`, updated
+   with a `delta` or fully rebuilt (`rebuild`).
+
+=== "Python"
+
+    ```python
+    import lance
+
+    lance.write_dataset(datasets["Person"], "person.lance")
+    lance.write_dataset(datasets["KNOWS"], "knows.lance")
+    engine = CypherEngine(
+        config,
+        {"Person": lance.dataset("person.lance"), "KNOWS": lance.dataset("knows.lance")},
+        use_csr=True,
+    )
+
+    # David now knows Alice. The engine doesn't see the write until refresh().
+    lance.write_dataset(pa.table({"src": [4], "dst": [1]}), "knows.lance", mode="append")
+    engine.refresh()
+
+    stats = engine.csr_stats()["KNOWS"]
+    print(stats["edges"], stats["delta_edges"], stats["update"])  # 5 1 delta
+    ```
+
+=== "Rust"
+
+    This continues the on-disk example from [Using from Rust](rust.md), where Bob gains an edge to Alice.
+
+    ```rust
+    --8<-- "crates/lance-csr/examples/embedded_query.rs:refresh"
+    ```
+
+A refresh can only apply a delta when it can compare the version the engine is pinned to with the latest one.
+If you overwrite a relationship dataset, or remove the pinned version's files (for example with
+`cleanup_old_versions()`) before refreshing, the next refresh rebuilds that CSR in full. Refresh more often
+than you clean up old versions to keep updates incremental.
+
+In-memory PyArrow tables never change. To query new in-memory data, build a new engine.
+
 ## Should I turn it on?
 
 | Situation | Recommendation |
