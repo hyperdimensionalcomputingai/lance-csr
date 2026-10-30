@@ -16,7 +16,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: "-C debuginfo=1"
+  RUSTFLAGS: "-C debuginfo=line-tables-only"
   RUST_BACKTRACE: "1"
   CARGO_INCREMENTAL: "0"
 
@@ -30,6 +30,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: "lance-csr-deps"
+          # Pull requests restore main's cache but don't save copies that crowd it out.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install dependencies
         run: |
           sudo apt update
@@ -39,7 +41,9 @@ jobs:
       - name: Run tests
         run: cargo test --workspace
       # The Rust guide includes this example; run it so the documented code works.
+      # Run the binary the workspace test build made: `cargo run -p lance-csr` selects
+      # different features and would recompile lance-csr.
       - name: Run embedded example
-        run: cargo run -p lance-csr --example embedded_query
+        run: target/debug/examples/embedded_query
       - name: Check benchmarks
         run: cargo check -p lance-csr-benches --benches
