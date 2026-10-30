@@ -25,6 +25,7 @@ extra_css = ["stylesheets/extra.css"]
 nav = [
   { "Home" = "index.md" },
   { "Getting started" = "getting-started.md" },
+  { "Benchmarks" = "benchmarks.md" },
   { "Guide" = [
     { "Graph schema" = "graph-schema.md" },
     { "Querying with Cypher" = "cypher.md" },
@@ -35,9 +36,10 @@ nav = [
   ] },
   { "Using from Rust" = "rust.md" },
   { "How it works" = "execution.md" },
-  { "Python API reference" = "api-reference.md" },
-  { "Rust API reference" = "https://docs.rs/lance-csr" },
-  { "Benchmarks" = "benchmarks.md" },
+  { "API reference" = [
+    { "Python" = "api-reference.md" },
+    { "Rust (docs.rs)" = "https://docs.rs/lance-csr" },
+  ] },
   { "Contributing" = [
     { "Contributing" = "contributing.md" },
     { "Project structure" = "project_structure.md" },
