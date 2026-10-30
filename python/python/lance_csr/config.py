@@ -137,33 +137,3 @@ class GraphConfigBuilder:
             label has no node table.
         """
         return GraphConfig._from_inner(self._inner.build())
-
-    def with_node_label(self, label: str, id_field: str) -> Self:
-        """Deprecated: use [`node_table`][lance_csr.GraphConfigBuilder.node_table].
-
-        Emits `DeprecationWarning`.
-        """
-        return self._from_inner(self._inner.with_node_label(label, id_field))
-
-    def with_relationship(
-        self,
-        rel_type: str,
-        source_field: str,
-        target_field: str,
-        source_label: str | None = None,
-        target_label: str | None = None,
-    ) -> Self:
-        """Deprecated: use [`rel_table`][lance_csr.GraphConfigBuilder.rel_table].
-
-        `rel_table` also takes the node tables at both ends. Emits `DeprecationWarning`.
-
-        Raises
-        ------
-        ValueError
-            If only one of `source_label` and `target_label` is given.
-        """
-        return self._from_inner(
-            self._inner.with_relationship(
-                rel_type, source_field, target_field, source_label, target_label
-            )
-        )

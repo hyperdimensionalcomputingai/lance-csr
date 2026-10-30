@@ -38,8 +38,8 @@ The package depends on `pyarrow>=14` and `pylance` 13.x, which uv installs for y
 !!! note "Docs track the `main` branch"
 
     These pages describe the code on `main`. The `node_table` and `rel_table` builder methods arrived in
-    0.2.0; on 0.1.0 use `with_node_label` and `with_relationship` (see
-    [Graph schema](graph-schema.md#deprecated-builder-methods)).
+    0.2.0; on 0.1.0 use `with_node_label` and `with_relationship`, which were removed in 0.5.0 (see
+    [Graph schema](graph-schema.md#removed-builder-methods)).
 
 Check the install:
 

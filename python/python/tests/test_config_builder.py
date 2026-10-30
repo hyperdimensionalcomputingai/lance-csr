@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright The lance-csr Authors
 
-"""The graph config builder: node and relationship tables, and the deprecated names."""
+"""The graph config builder: node and relationship tables."""
 
 import pyarrow as pa
 import pytest
@@ -44,19 +44,3 @@ def test_rel_table_endpoints_must_be_node_tables():
     )
     with pytest.raises(Exception, match="Company"):
         builder.build()
-
-
-def test_deprecated_names_warn_and_still_work():
-    builder = GraphConfig.builder()
-    with pytest.deprecated_call(match="node_table"):
-        builder = builder.with_node_label("Person", "id").with_node_label(
-            "Company", "id"
-        )
-    with pytest.deprecated_call(match="rel_table"):
-        builder = builder.with_relationship(
-            "WORKS_AT", "src", "dst", "Person", "Company"
-        )
-    assert answer(builder.build()) == [
-        {"p.name": "a", "c.name": "c"},
-        {"p.name": "b", "c.name": "c"},
-    ]

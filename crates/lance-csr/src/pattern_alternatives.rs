@@ -594,6 +594,7 @@ fn unsupported(feature: &str) -> GraphError {
 mod tests {
     use super::*;
     use crate::ast::ReadingClause;
+    use crate::config::RelationshipMapping;
     use crate::parser::parse_cypher_query;
 
     fn ldbc_config() -> GraphConfig {
@@ -609,12 +610,19 @@ mod tests {
         ] {
             b = b.rel_table(t, s, d, "src", "dst");
         }
-        // Without endpoint labels, which only the deprecated builder can still configure.
-        #[allow(deprecated)]
-        {
-            b = b.with_relationship("knows", "src", "dst");
-        }
-        b.build().unwrap()
+        // Without endpoint labels, which only a hand-built mapping can leave out.
+        b.with_relationship_mapping(RelationshipMapping {
+            relationship_type: "knows".into(),
+            source_id_field: "src".into(),
+            target_id_field: "dst".into(),
+            type_field: None,
+            property_fields: Vec::new(),
+            filter_conditions: None,
+            source_label: None,
+            target_label: None,
+        })
+        .build()
+        .unwrap()
     }
 
     fn branches(query: &str) -> Result<Vec<String>> {

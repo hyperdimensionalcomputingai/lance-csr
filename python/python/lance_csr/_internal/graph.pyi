@@ -73,15 +73,6 @@ class GraphConfigBuilder:
     def rel_table(
         self, rel_type: str, from_table: str, to_table: str, src: str, dst: str
     ) -> Self: ...
-    def with_node_label(self, label: str, id_field: str) -> Self: ...
-    def with_relationship(
-        self,
-        rel_type: str,
-        source_field: str,
-        target_field: str,
-        source_label: str | None = None,
-        target_label: str | None = None,
-    ) -> Self: ...
     def build(self) -> GraphConfig: ...
 
 @final

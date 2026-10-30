@@ -84,9 +84,3 @@ def test_enums_reach_the_compiled_calls():
     for metric in DistanceMetric:
         assert search.metric(metric).search(table)["id"].to_pylist() == [2]
     assert int(SqlDialect.Sqlite) == 4
-
-
-def test_deprecation_warning_points_at_the_caller():
-    with pytest.warns(DeprecationWarning) as record:
-        GraphConfig.builder().with_node_label("Person", "id")
-    assert record[0].filename == __file__
