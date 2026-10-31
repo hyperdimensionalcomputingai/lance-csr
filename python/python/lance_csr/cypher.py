@@ -258,6 +258,26 @@ class CypherEngine:
         """
         self._inner.refresh()
 
+    def optimize_csr(self) -> None:
+        """Fold each CSR's delta into a new base (experimental; needs `use_csr=True`).
+
+        The CSR's counterpart of Lance's `optimize_indices()`.
+        [`refresh`][lance_csr.CypherEngine.refresh] applies Lance writes as a delta
+        over the base CSR, and rebuilds on its own only once pending changes pass 25%
+        of the base. This rebuilds every CSR that carries a delta now, at the version
+        the engine is pinned to, so lookups stop carrying it. It scans every edge
+        again, so call it after a bulk load or at a quiet time, not after every
+        refresh. It doesn't move to
+        newer versions: call `refresh` first for that. CSRs without a delta, and
+        PyArrow inputs, are left as they are, and query results never change.
+        Afterwards [`csr_stats`][lance_csr.CypherEngine.csr_stats] reports `update`
+        `"rebuild"`, `unindexed_edges` 0 and `base_version` equal to `version`. As for
+        `refresh`, the replacement is validated in full before it's swapped in, and the
+        two run one at a time. See
+        [Folding the delta in](csr.md#folding-the-delta-in).
+        """
+        self._inner.optimize_csr()
+
     def node_index_stats(self) -> dict[str, NodeIndexStats]:
         """Statistics for each node index (experimental; needs `use_csr=True`).
 
@@ -289,8 +309,10 @@ class CypherEngine:
               full build, held outside the base CSR.
             - `unindexed_edges`: live edges outside the base CSR, appended since its
               last full build and not since removed.
-            - `update`: how the last refresh produced it: `"build"` (first), `"rebuild"`
-              (full), `"delta"` (changes applied) or `"reused"` (no edge change).
+            - `update`: how the last refresh or
+              [`optimize_csr`][lance_csr.CypherEngine.optimize_csr] produced it:
+              `"build"` (first), `"rebuild"` (full), `"delta"` (changes applied) or
+              `"reused"` (no edge change).
             - `version`: the relationship dataset version it reflects (`None` for
               PyArrow).
             - `base_version`: the relationship dataset version of the last full

@@ -162,6 +162,47 @@ async fn lance_input_is_pinned_until_refresh() {
 }
 
 #[tokio::test]
+async fn optimize_csr_folds_the_delta_into_the_base() {
+    let dir = tempfile::tempdir().unwrap();
+    let person_uri = dir.path().join("person.lance");
+    let knows_uri = dir.path().join("knows.lance");
+    let (person_uri, knows_uri) = (person_uri.to_str().unwrap(), knows_uri.to_str().unwrap());
+    write(people(), person_uri, WriteMode::Create).await;
+    // A base large enough that one appended edge stays under the 25% rebuild threshold.
+    let base: Vec<_> = [(1, 2), (2, 3)].into_iter().chain([(3, 4); 8]).collect();
+    write(knows(&base), knows_uri, WriteMode::Create).await;
+    let mut sources = HashMap::new();
+    for (name, uri) in [("Person", person_uri), ("KNOWS", knows_uri)] {
+        let source = EngineSource::open_lance(uri, None, HashMap::new());
+        sources.insert(name.to_string(), source.await.unwrap());
+    }
+    let engine = CypherEngine::new(config(), sources, true).await.unwrap();
+
+    write(knows(&[(2, 4)]), knows_uri, WriteMode::Append).await;
+    engine.refresh().await.unwrap();
+    let csr = engine.csr_stats()["KNOWS"].clone();
+    assert_eq!(
+        (csr.update, csr.delta_edges, csr.unindexed_edges),
+        ("delta", 1, 1)
+    );
+    assert_eq!((csr.version, csr.base_version), (Some(2), Some(1)));
+
+    engine.optimize_csr().await.unwrap();
+    let csr = engine.csr_stats()["KNOWS"].clone();
+    assert_eq!((csr.update, csr.edges, csr.delta_edges), ("rebuild", 11, 0));
+    assert_eq!((csr.tombstones, csr.unindexed_edges), (0, 0));
+    assert_eq!((csr.version, csr.base_version), (Some(2), Some(2)));
+    assert_eq!(
+        names(&engine.execute(TWO_HOPS, HashMap::new()).await.unwrap()),
+        ["Carol", "David"]
+    );
+
+    // Nothing left to fold: the CSR is reused as it is.
+    engine.optimize_csr().await.unwrap();
+    assert_eq!(engine.csr_stats()["KNOWS"].build_ms, csr.build_ms);
+}
+
+#[tokio::test]
 async fn construction_errors_are_config_errors() {
     let empty = CypherEngine::new(config(), HashMap::new(), false).await;
     assert!(matches!(empty, Err(GraphError::ConfigError { .. })));

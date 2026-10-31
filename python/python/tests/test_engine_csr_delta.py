@@ -166,6 +166,45 @@ def test_sequential_deltas_accumulate(graph):
     check(engine, uri)
 
 
+def test_optimize_folds_delta_into_base(graph):
+    engine, uri = graph()
+    lance.write_dataset(edges([(7, 8), (7, 9)], 2000), uri, mode="append")
+    lance.dataset(uri).delete("since = 2000 OR since = 0")
+    engine.refresh()
+    before = stats(engine)
+    assert before["update"] == "delta" and before["unindexed_edges"] == 1
+
+    engine.optimize_csr()
+    s = stats(engine)
+    assert (s["update"], s["delta_edges"], s["tombstones"]) == ("rebuild", 0, 0)
+    assert s["unindexed_edges"] == 0 and s["edges"] == before["edges"]
+    assert s["base_version"] == s["version"] == before["version"]
+    check(engine, uri)
+
+    # Nothing left to fold, so the CSR is kept as it is.
+    engine.optimize_csr()
+    assert stats(engine) == s
+
+
+def test_optimize_stays_on_the_pinned_version(graph):
+    engine, uri = graph()
+    before = rows(engine.execute(QUERIES[0]))
+    lance.write_dataset(edges([(7, 8)], 2000), uri, mode="append")
+    engine.optimize_csr()
+    s = stats(engine)
+    # A fresh build has no delta: nothing is rebuilt and the append stays unseen.
+    assert s["update"] == "build" and s["version"] == 1
+    assert rows(engine.execute(QUERIES[0])) == before
+
+
+def test_optimize_without_csr_does_nothing():
+    datasets = {"Person": PEOPLE, "KNOWS": edges(BASE)}
+    engine = CypherEngine(CONFIG, datasets)
+    engine.optimize_csr()
+    assert engine.csr_stats() == {}
+    assert len(engine.execute(QUERIES[0])) == len(BASE)
+
+
 def test_compaction_keeps_results(graph):
     engine, uri = graph()
     ds = lance.dataset(uri)

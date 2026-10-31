@@ -245,7 +245,7 @@ print(engine.csr_stats()["KNOWS"])
 | `delta_edges` | Appended edges held outside the base CSR since its last full build. |
 | `tombstones` | Removed edges masked out since the last full build. |
 | `unindexed_edges` | Live edges outside the base CSR: appended since its last full build and not since removed. Lance index statistics call this `num_unindexed_rows`. |
-| `update` | How the last build or `refresh()` produced it: `build` (first), `rebuild` (full), `delta` (changes applied) or `reused` (no edge change). |
+| `update` | How the last build, `refresh()` or [`optimize_csr()`](#folding-the-delta-in) produced it: `build` (first), `rebuild` (full), `delta` (changes applied) or `reused` (no edge change). |
 | `version` | The relationship dataset's Lance version, or `None` for PyArrow input. |
 | `base_version` | The version of the last full build, or `None` for PyArrow input. It trails `version` while deltas apply. |
 | `build_ms` | Wall time of that build or delta, both directions. |
@@ -287,7 +287,8 @@ flowchart TD
   previous snapshot stays usable. Queries already running finish on the snapshot they started with.
 
 The 25% threshold is fixed: lookups pay a little for every pending delta edge, and a rebuild clears them.
-`python/benchmarks/csr_delta_accumulated.py` measures that trade-off.
+`python/benchmarks/csr_delta_accumulated.py` measures that trade-off. To fold the delta in sooner, call
+[`optimize_csr()`](#folding-the-delta-in).
 
 ### How to keep the CSR fresh
 
@@ -300,6 +301,8 @@ The engine doesn't watch your datasets for changes. Keeping the CSR in step with
 3. **Check what it did with [`csr_stats()`](#csr_stats)**: `update` says whether the CSR was `reused`, updated
    with a `delta` or fully rebuilt (`rebuild`). `base_version` and `unindexed_edges` say how far the base
    CSR trails the data. Answers are exact either way: delta edges are part of every lookup.
+4. **Optionally, fold the delta in with [`optimize_csr()`](#folding-the-delta-in)** at a quiet moment, so
+   lookups stop carrying it.
 
 === "Python"
 
@@ -336,6 +339,43 @@ If you overwrite a relationship dataset, or remove the pinned version's files (f
 than you clean up old versions to keep updates incremental.
 
 In-memory PyArrow tables never change. To query new in-memory data, build a new engine.
+
+### Folding the delta in
+
+The CSR follows Lance's own index design. A Lance index covers the fragments it was built from, and data
+written after that stays unindexed: searches combine indexed results with a scan of the unindexed rows, so
+answers stay correct while latency grows, until you call `optimize_indices()` (see Lance's
+[index maintenance guide](https://lance.org/guide/indexing/#maintain-indexes-after-appends) and the
+[index format](https://lance.org/format/index/#basic-concepts)). The CSR maps onto that one to one:
+
+| Lance index | CSR |
+| --- | --- |
+| The fragments an index was built from | The base CSR, at `base_version` |
+| Unindexed rows, scanned alongside the index | The delta (appended edges and tombstones), read by every lookup |
+| `num_unindexed_rows` in index statistics | `unindexed_edges` in `csr_stats()` |
+| `optimize_indices()` | [`optimize_csr()`][lance_csr.CypherEngine.optimize_csr] |
+
+`optimize_csr()` rebuilds every CSR that carries a delta, at the version the engine is pinned to, so the base
+covers all the data again: `unindexed_edges`, `delta_edges` and `tombstones` drop to 0, `base_version` catches
+up with `version` and `update` says `rebuild`. A CSR without a delta is kept as it is, and answers never change.
+
+```python
+engine.refresh()  # applies the new edges as a delta
+engine.optimize_csr()  # folds it into a new base
+stats = engine.csr_stats()["KNOWS"]
+print(stats["update"], stats["unindexed_edges"])  # rebuild 0
+```
+
+!!! tip "`refresh()` or `optimize_csr()`?"
+
+    Call `refresh()` whenever your queries should see new writes. It's cheap and incremental, and it already
+    rebuilds a CSR on its own once the delta passes 25% of the base. Call `optimize_csr()` only when
+    `csr_stats()` shows a delta built up below that threshold and you want lookups to stop carrying it: after a
+    bulk load, before a latency-sensitive run of queries, or on a schedule at a quiet time. It scans every edge
+    of the relationship dataset again, like the first build, so don't call it after every refresh.
+
+`optimize_csr()` doesn't move to newer data, so call `refresh()` first. Like `refresh()`, it builds the
+replacement in full before swapping it in, and the two run one at a time.
 
 ## Should I turn it on?
 

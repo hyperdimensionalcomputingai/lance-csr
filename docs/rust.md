@@ -148,6 +148,7 @@ The deadline applies only to work inside the call; it isn't stored in the engine
 | `engine.execute(query, params)` → `pyarrow.Table` | `engine.execute(query, params).await` → `RecordBatch` |
 | `engine.execute_batches(...)` → `RecordBatchReader` | `engine.execute_stream(...).await` → stream |
 | `engine.refresh()` | `engine.refresh().await` |
+| `engine.optimize_csr()` | `engine.optimize_csr().await` |
 | `engine.execute(query, timeout=2.0)` | `timeout_at(deadline, with_execution_deadline(Some(deadline), engine.execute(...)))` |
 | `CypherEngine(..., target_partitions=4)` | `CypherEngine::with_target_partitions(config, sources, use_csr, Some(4)).await` |
 | `engine.csr_stats()` → `dict` | `engine.csr_stats()` → `HashMap<String, CsrStats>` |
