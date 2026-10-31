@@ -38,7 +38,7 @@ DataFusion's built-in functions don't always match Cypher's semantics, so the pl
 - Cypher math and scalar functions where DataFusion's equivalents differ;
 - ordered folds and three-valued list predicates, built on DataFusion lambdas;
 - vector distance and similarity functions for [vector search](../vector-search.md) inside Cypher, which came from
-  lance-graph.
+  [lance-graph](https://github.com/lance-format/lance-graph).
 
 ## A workaround for COUNT DISTINCT
 
@@ -49,5 +49,5 @@ workaround goes once DataFusion's statistics handle empty inputs.
 
 ## Running from Python
 
-The GIL is released while a query runs, as it was in lance-graph, so several Python threads can query one engine at
-the same time, and `Ctrl-C` interrupts a running `execute()`.
+The GIL is released while a query runs, as it was in [lance-graph](https://github.com/lance-format/lance-graph), so
+several Python threads can query one engine at the same time, and `Ctrl-C` interrupts a running `execute()`.

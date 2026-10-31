@@ -47,8 +47,8 @@ engine we're building at HDC Labs. [Reach out to us](https://hyperdimensionalcom
 
 ## Why a CSR
 
-lance-graph runs each relationship hop as a join between the edge and node tables. A multi-hop query repeats that
-join at every hop, building a hash table and materializing every intermediate path each time.
+[lance-graph](https://github.com/lance-format/lance-graph) runs each relationship hop as a join between the edge and node tables. A
+multi-hop query repeats that join at every hop, building a hash table and materializing every intermediate path each time.
 [Compressed sparse row (CSR)](https://en.wikipedia.org/wiki/Sparse_matrix#Compressed_sparse_row_(CSR,_CRS_or_Yale_format))
 is the standard compact layout for a sparse matrix, and so for a graph's adjacency: an offsets array indexed by node
 points into one array of neighbor ids, so each node's neighbors sit next to each other. Expanding a hop becomes an
@@ -69,8 +69,8 @@ DataFusion as extension operators, falling back to a join for any hop the CSR ca
   list and pattern comprehensions, maps, relationship alternation, `shortestPath`, `$parameters` and more,
   following openCypher's
   [standardisation scope](https://github.com/opencypher/openCypher/blob/master/docs/standardisation-scope.adoc).
-- **Correctness fixes** to behavior inherited from lance-graph (for example, undirected patterns dropped incoming
-  edges), each with a regression test.
+- **Correctness fixes** to behavior inherited from [lance-graph](https://github.com/lance-format/lance-graph) (for example,
+  undirected patterns dropped incoming edges), each with a regression test.
 - **Current dependencies** (Lance 13, DataFusion 54, Arrow 58, PyO3 0.28), with Delta Lake and Unity Catalog support
   removed.
 
@@ -250,7 +250,7 @@ Mean query latency in milliseconds (lower is better, fastest per query in bold):
 [GDC SF1 benchmark repository](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc) runs 30 custom Cypher
 queries over the GDC SNB SF1 dataset (3.18M nodes, 17.3M relationships), with every result checked against an
 expected answer. lance-csr's [runner](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc/tree/main/lance_csr)
-runs the same query text and Lance datasets as the lance-graph runner.
+runs the same query text and Lance datasets as the [lance-graph](https://github.com/lance-format/lance-graph) runner.
 
 Over the 30 queries, lance-csr's speed relative to each engine:
 

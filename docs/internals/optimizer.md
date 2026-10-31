@@ -5,8 +5,8 @@ rules that understand the [custom operators](operators.md). It also gives DataFu
 the hops that stay relational.
 
 The rules, rewrites and statistics on this page were added in lance-csr. Unrolling a single-type variable-length path
-into one branch per length came from [lance-graph](https://github.com/lance-format/lance-graph); lance-csr added the iterative traversal that replaces it
-when the CSR covers the path.
+into one branch per length came from [lance-graph](https://github.com/lance-format/lance-graph); lance-csr added the
+iterative traversal that replaces it when the CSR covers the path.
 
 ## Logical optimizer rules
 
