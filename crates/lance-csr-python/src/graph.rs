@@ -1117,6 +1117,11 @@ impl CypherEngine {
             .map_err(graph_error_to_pyerr)
     }
 
+    fn optimize_csr(&self, py: Python) -> PyResult<()> {
+        RT.block_on(Some(py), self.inner.optimize_csr())?
+            .map_err(graph_error_to_pyerr)
+    }
+
     fn node_index_stats(&self, py: Python) -> PyResult<Py<PyAny>> {
         let stats = PyDict::new(py);
         for (label, entry) in self.inner.node_index_stats() {

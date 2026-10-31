@@ -171,8 +171,8 @@ pub struct CsrStats {
     /// Live edges outside the base CSR: appended since its last full build and not
     /// since removed. Lance's `num_unindexed_rows`, counted in edges.
     pub unindexed_edges: u64,
-    /// How the last refresh produced it: `build` (first), `rebuild` (full), `delta`
-    /// (changes applied) or `reused` (no edge change).
+    /// How the last refresh or `optimize_csr()` produced it: `build` (first), `rebuild`
+    /// (full), `delta` (changes applied) or `reused` (no edge change).
     pub update: &'static str,
     /// Relationship dataset version it reflects (`None` for Arrow input).
     pub version: Option<u64>,
@@ -273,7 +273,7 @@ struct CsrEntry {
     base_version: Option<u64>,
     /// Wall time of the last build or delta application.
     build_ms: f64,
-    /// How the last refresh produced this entry: build, rebuild, delta or reused.
+    /// How the last refresh or optimize produced this entry: build, rebuild, delta or reused.
     update: &'static str,
 }
 
@@ -460,12 +460,14 @@ fn validate_sources(config: &GraphConfig, schemas: &HashMap<String, SchemaRef>) 
 }
 
 /// Validate sources and register them in a fresh catalog and session context.
+/// `fold_csr_deltas` rebuilds every CSR of `previous` that carries a delta.
 async fn build_engine_state(
     config: &GraphConfig,
     sources: HashMap<String, EngineSource>,
     use_csr: bool,
     target_partitions: Option<usize>,
     previous: Option<&EngineState>,
+    fold_csr_deltas: bool,
 ) -> Result<EngineState> {
     let mut session_config = SessionConfig::new();
     if let Some(partitions) = target_partitions {
@@ -508,7 +510,7 @@ async fn build_engine_state(
     validate_sources(config, &schemas)?;
     let (csr, node_index) = if use_csr {
         (
-            build_csr_entries(config, &sources, &schemas, previous).await?,
+            build_csr_entries(config, &sources, &schemas, previous, fold_csr_deltas).await?,
             build_node_index(config, &sources, previous).await?,
         )
     } else {
@@ -752,6 +754,7 @@ async fn build_csr_entries(
     sources: &HashMap<String, EngineSource>,
     schemas: &HashMap<String, SchemaRef>,
     previous: Option<&EngineState>,
+    fold_deltas: bool,
 ) -> Result<HashMap<String, CsrEntry>> {
     let mut entries = HashMap::new();
     for (_, mapping) in config.iter_relationship_mappings() {
@@ -763,7 +766,8 @@ async fn build_csr_entries(
             continue;
         };
         if let Some(old) = previous.and_then(|p| p.csr.get(rel_type)) {
-            if old.source.same_data(source) {
+            let delta = old.outgoing.delta_edges() + old.outgoing.tombstones() > 0;
+            if old.source.same_data(source) && !(fold_deltas && delta) {
                 entries.insert(rel_type.clone(), old.clone());
                 continue;
             }
@@ -786,7 +790,7 @@ async fn build_csr_entries(
         }
 
         let previous_entry = previous.and_then(|p| p.csr.get(rel_type));
-        if let Some(old) = previous_entry {
+        if let Some(old) = previous_entry.filter(|_| !fold_deltas) {
             if let Some(entry) = try_apply_csr_delta(old, source, src.name(), dst.name()).await {
                 entries.insert(rel_type.clone(), entry);
                 continue;
@@ -887,7 +891,8 @@ impl CypherEngine {
                 )));
             }
         }
-        let state = build_engine_state(&config, sources, use_csr, target_partitions, None).await?;
+        let state =
+            build_engine_state(&config, sources, use_csr, target_partitions, None, false).await?;
         Ok(Self {
             config,
             state: RwLock::new(Arc::new(state)),
@@ -1048,6 +1053,31 @@ impl CypherEngine {
             self.use_csr,
             self.target_partitions,
             Some(&current),
+            false,
+        )
+        .await?;
+        *self.state.write().expect("engine state lock poisoned") = Arc::new(state);
+        Ok(())
+    }
+
+    /// Fold each CSR's delta into a new base, at the snapshot the engine is pinned to: the
+    /// CSR's counterpart of Lance's `optimize_indices()`.
+    ///
+    /// `refresh()` applies changes as a delta over the base CSR and rebuilds on its own
+    /// only once they pass 25% of the base. This rebuilds every CSR that carries a delta
+    /// now, so lookups stop carrying it; one without a delta, and everything else, is
+    /// reused. Results never change. The replacement is validated in full before it is
+    /// swapped in, as for `refresh()`, and the two run one at a time.
+    pub async fn optimize_csr(&self) -> Result<()> {
+        let _refreshing = self.refresh_lock.lock().await;
+        let current = self.snapshot();
+        let state = build_engine_state(
+            &self.config,
+            current.sources.clone(),
+            self.use_csr,
+            self.target_partitions,
+            Some(&current),
+            true,
         )
         .await?;
         *self.state.write().expect("engine state lock poisoned") = Arc::new(state);
