@@ -6,7 +6,9 @@
 # every wheel before publishing, so it needs no separate dry run; see RELEASE.md.
 # A published GitHub release (tag vX.Y.Z) publishes to PyPI after every build and test
 # passes, through PyPI trusted publishing and the protected `pypi` environment; so does
-# a manual run with mode=release. mode=dry_run builds and tests only.
+# a manual run with mode=release. mode=dry_run builds and tests only. Once PyPI has the
+# release, the crates go to crates.io through crates.io trusted publishing and the
+# protected `crates-io` environment.
 name: Python Publish
 
 on:
@@ -212,3 +214,37 @@ jobs:
 
       - name: Publish to PyPI
         run: uv publish --trusted-publishing always dist/*
+
+  publish-crates:
+    # After PyPI, so the two registries never disagree. If only this job fails, rerun it on
+    # its own; the wheels don't need rebuilding. The crates.io trusted publishers for both
+    # crates are registered for this workflow and environment `crates-io`.
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment:
+      name: crates-io
+      url: https://crates.io/crates/lance-csr
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+
+      # Verifying compiles lance, so do it before getting the token, which lasts 30 minutes.
+      # Cargo packages lance-csr-catalog first, since lance-csr depends on it.
+      - name: Package and verify the crates
+        run: cargo package --locked -p lance-csr-catalog -p lance-csr
+
+      - uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+
+      - name: Publish to crates.io
+        run: cargo publish --locked --no-verify -p lance-csr-catalog -p lance-csr
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
