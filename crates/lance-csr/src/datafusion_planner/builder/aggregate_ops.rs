@@ -115,8 +115,9 @@ impl DataFusionPlanner {
     /// afterwards, once per node. Rows before the grouping can outnumber nodes many times
     /// over (an expansion), and carrying each node's columns through the aggregate costs
     /// more than the lookup. With unique ids, grouping by the id and by all the columns are
-    /// the same. From Lance, each lookup is a read the grouping already did without, so
-    /// a Lance node table keeps the plain grouping.
+    /// the same. A Lance node table keeps the plain grouping: the input rows already hold
+    /// the node's columns, read by an earlier step, so grouping by them reads nothing more,
+    /// while a lookup afterwards would read them from disk a second time.
     fn late_node(
         &self,
         ctx: &PlanningContext,

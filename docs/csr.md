@@ -229,7 +229,10 @@ print([line.strip(" |") for line in plan.splitlines() if "NodeLookupExec" in lin
 # ['NodeLookupExec: key=b__id, take=b[b__name]']
 ```
 
-Lance datasets read lazily keep the plain grouping: there, each lookup is a read the grouping does without.
+This applies only when the node table is held in memory. For a Lance dataset read lazily, grouping by a node
+still groups by all of its properties, as before. By the time the query groups by `b`, its rows already hold
+`b`'s properties, read from the dataset by an earlier step, so grouping by them reads nothing more. Looking
+them up after the grouping would read them from disk a second time, which costs more than keeping them.
 
 ### Patterns start at the most selective node
 
