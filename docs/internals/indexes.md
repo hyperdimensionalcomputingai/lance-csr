@@ -5,6 +5,10 @@ it, so neither holds a copy of node or relationship properties. [The CSR index](
 how to turn it on, `csr_stats()`, and when to call `refresh()` and `optimize_csr()`. This page covers how the indexes
 are laid out and maintained.
 
+The compact store of offsets and neighbours came from [lance-graph](https://github.com/lance-format/lance-graph), whose query planner didn't use it.
+lance-csr added the edge rows, the delta and tombstones, the node index and incremental refresh, and wired the store
+into query execution through the [custom operators](operators.md).
+
 ```text
                     Lance datasets (pinned version)
          ┌───────────────────────────┬───────────────────────────┐

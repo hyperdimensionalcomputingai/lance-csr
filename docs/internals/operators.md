@@ -4,6 +4,10 @@ Every graph operator in lance-csr is a DataFusion extension: a logical node that
 `UserDefinedLogicalNodeCore`, lowered by `CsrExtensionPlanner` to its own `ExecutionPlan`. This page covers each one,
 with the plans `engine.explain(query)` prints for it.
 
+All of these operators were added in lance-csr. [lance-graph](https://github.com/lance-format/lance-graph), which lance-csr was forked from, has no
+DataFusion extension nodes: it plans every hop as hash joins, which is the `use_csr=False` plan below and the fallback
+lance-csr keeps for hops the CSR can't take.
+
 The plans below come from a four-person graph: a `Person` table (`id`, `name`, `age`) and a `KNOWS` table (`src`,
 `dst`, `since`) with four edges, in memory, with `use_csr=True`. Plans of real graphs differ in their numbers and
 partitioning, not in their operators.

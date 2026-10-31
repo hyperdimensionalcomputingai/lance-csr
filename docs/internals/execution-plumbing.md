@@ -1,6 +1,7 @@
 # Execution plumbing
 
-The smaller pieces that make the [custom operators](operators.md) run well inside DataFusion.
+This section is about the smaller pieces that make the [custom operators](operators.md) run well inside DataFusion.
+All of them were added in lance-csr, except where a section says they came from [lance-graph](https://github.com/lance-format/lance-graph), which is the upstream this project forked from.
 
 ## Partitioning in-memory tables
 
@@ -35,7 +36,8 @@ DataFusion's built-in functions don't always match Cypher's semantics, so the pl
 - `cypher_field` reads a struct field by name, ignoring case;
 - Cypher math and scalar functions where DataFusion's equivalents differ;
 - ordered folds and three-valued list predicates, built on DataFusion lambdas;
-- vector distance and similarity functions for [vector search](../vector-search.md) inside Cypher.
+- vector distance and similarity functions for [vector search](../vector-search.md) inside Cypher, which came from
+  lance-graph.
 
 ## A workaround for COUNT DISTINCT
 
@@ -46,5 +48,5 @@ workaround goes once DataFusion's statistics handle empty inputs.
 
 ## Running from Python
 
-The GIL is released while a query runs, so several Python threads can query one engine at the same time, and
-`Ctrl-C` interrupts a running `execute()`.
+The GIL is released while a query runs, as it was in lance-graph, so several Python threads can query one engine at
+the same time, and `Ctrl-C` interrupts a running `execute()`.

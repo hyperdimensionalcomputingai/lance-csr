@@ -4,6 +4,10 @@ lance-csr changes plans at two levels: graph rewrites before the plan reaches Da
 rules that understand the [custom operators](operators.md). It also gives DataFusion the join statistics it needs for
 the hops that stay relational.
 
+The rules, rewrites and statistics on this page were added in lance-csr. Unrolling a single-type variable-length path
+into one branch per length came from [lance-graph](https://github.com/lance-format/lance-graph); lance-csr added the iterative traversal that replaces it
+when the CSR covers the path.
+
 ## Logical optimizer rules
 
 DataFusion's own optimizer treats extension nodes as opaque, so two `OptimizerRule`s fill the gaps.

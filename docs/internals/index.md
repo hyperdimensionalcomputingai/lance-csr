@@ -18,6 +18,28 @@ the data structure those pieces read.
 | [Indexes and refresh](indexes.md) | How the CSR adjacency and node indexes are laid out, and how a refresh diffs Lance versions |
 | [Execution plumbing](execution-plumbing.md) | Partitioning, the plan template cache, deadlines and Cypher functions |
 
+## What lance-csr added to lance-graph
+
+lance-csr is a fork of [lance-graph](https://github.com/lance-format/lance-graph), and the two parts of the engine have
+different origins.
+
+From lance-graph
+:   The Cypher parser and semantic analysis, the graph logical plan's core operators (`ScanByLabel`, `Expand`,
+    `VariableLengthExpand`, `Filter`, `Unwind`, `Project`, `Distinct`, `Sort`, `Offset`, `Limit`), and the planner
+    that turns them into DataFusion scans and joins, with variable-length paths unrolled into one branch per length.
+    Vector search functions, releasing the GIL from Python, and a compact CSR neighbour store that lance-graph's query
+    planner didn't use. lance-csr has since extended and fixed much of this code.
+
+Added in lance-csr
+:   Everything this section describes as a DataFusion extension: the extension nodes and their operators, the
+    extension planner, both optimizer rules, the deadline rule and the join statistics. Also the graph rewrites
+    (re-rooting, alternation and multi-label branching), the `OptionalMatch`, `ShortestPath`, `PathMatch` and `Apply`
+    operators, the CSR adjacency and node indexes with incremental refresh, engine snapshots, the plan template cache
+    and the Cypher-specific functions.
+
+lance-graph plans every hop as joins, and lance-csr keeps that planning as the fallback for any hop the CSR can't
+take. Each page in this section says what came from lance-graph where it matters.
+
 ## Design principles
 
 - **The data stays in Lance.** Tables are read through Lance's own `LanceTableProvider`. The graph indexes store
@@ -48,7 +70,8 @@ flowchart TD
     E --> B["Arrow record batches"]
 ```
 
-From graph rewrites onwards, each stage has lance-csr's own machinery. `engine.explain(query)` prints the graph
+Parsing, semantic analysis and the core of both logical plans came from lance-graph. The graph rewrites, the extension
+nodes, the optimizer rules and the extension planner were added in lance-csr. `engine.explain(query)` prints the graph
 logical plan, the DataFusion logical plan and the physical plan, and every custom operator shows up in it by name.
 
 ## Every extension point
@@ -62,30 +85,31 @@ logical plan, the DataFusion logical plan and the physical plan, and every custo
 | `OptimizerRule` | `PushCsrTargetFilters`, `PruneCsrTargetColumns` | Filter pushdown into, and column pruning of, extension nodes |
 | `PhysicalOptimizerRule` | `DeadlineJoins` (`query_deadline_joins`) | Cooperative deadlines in nested-loop and cross joins |
 | `TableProvider` | `KeyStatisticsProvider` | Reports distinct counts of join keys so DataFusion sizes graph joins correctly |
-| `ScalarUDFImpl` | `cypher_list`, `cypher_field`, Cypher math and scalar functions, vector distance and similarity functions | Cypher semantics that DataFusion's built-ins don't match |
+| `ScalarUDFImpl` | `cypher_list`, `cypher_field`, Cypher math and scalar functions; vector distance and similarity functions (from lance-graph) | Cypher semantics that DataFusion's built-ins don't match |
 
-`CypherEngine` builds one DataFusion session per snapshot (in `engine.rs`). It installs `CsrQueryPlanner` and adds
-`PushCsrTargetFilters` before `PruneCsrTargetColumns`, so that pruning can drop the columns a moved filter reads.
-Rust callers that bring their own `SessionContext` must install `CsrQueryPlanner` themselves; contexts created by
-`CypherQuery` and `CypherEngine` already have it.
+Apart from the vector functions, every implementation in this table was added in lance-csr; lance-graph used no
+DataFusion extension points. `CypherEngine` builds one DataFusion session per snapshot (in `engine.rs`). It installs
+`CsrQueryPlanner` and adds `PushCsrTargetFilters` before `PruneCsrTargetColumns`, so that pruning can drop the columns
+a moved filter reads. Rust callers that bring their own `SessionContext` must install `CsrQueryPlanner` themselves;
+contexts created by `CypherQuery` and `CypherEngine` already have it.
 
 ## Source map
 
 All paths are under
 [`crates/lance-csr/src/`](https://github.com/hyperdimensionalcomputingai/lance-csr/tree/main/crates/lance-csr/src).
 
-| File | What it holds |
-| --- | --- |
-| `csr_expand.rs` | `Adjacency`, `NodeRows`, `EdgeRows`, `CsrExpandNode` and `CsrExpandExec`, `CsrExtensionPlanner`, `CsrQueryPlanner`, both optimizer rules, fragment diffing for refresh |
-| `csr_expand/node_lookup.rs` | `NodeLookupNode` and `NodeLookupExec` |
-| `csr_index.rs` | The compact CSR neighbour store |
-| `csr_traversal.rs` | Resumable, typed variable-length walks |
-| `shortest_path.rs` | `ShortestPathNode` and `ShortestPathExec`, bidirectional breadth-first search |
-| `path_match.rs`, `path_inventory.rs`, `path_value.rs` | Named paths, the edge inventory, Arrow path values |
-| `apply.rs` | `ApplyNode` and `ApplyExec` for CALL subqueries |
-| `key_statistics.rs` | `KeyStatisticsProvider` and `KeyStatisticsExec` |
-| `pattern_order.rs`, `pattern_alternatives.rs` | Re-rooting, alternation and multi-label branching |
-| `logical_plan.rs` | Graph logical operators |
-| `datafusion_planner/` | Graph plan to DataFusion plan; `builder/expand_ops.rs` chooses CSR or join for each hop |
-| `engine.rs` | `CypherEngine`: snapshots, session setup, refresh, plan template cache |
-| `query/deadline.rs` | `DeadlineJoins` and `with_execution_deadline` |
+| File | What it holds | Origin |
+| --- | --- | --- |
+| `csr_expand.rs` | `Adjacency`, `NodeRows`, `EdgeRows`, `CsrExpandNode` and `CsrExpandExec`, `CsrExtensionPlanner`, `CsrQueryPlanner`, both optimizer rules, fragment diffing for refresh | lance-csr |
+| `csr_expand/node_lookup.rs` | `NodeLookupNode` and `NodeLookupExec` | lance-csr |
+| `csr_index.rs` | The compact CSR neighbour store | lance-graph; edge rows and the delta added in lance-csr, unused traversal helpers removed |
+| `csr_traversal.rs` | Resumable, typed variable-length walks | lance-csr |
+| `shortest_path.rs` | `ShortestPathNode` and `ShortestPathExec`, bidirectional breadth-first search | lance-csr |
+| `path_match.rs`, `path_inventory.rs`, `path_value.rs` | Named paths, the edge inventory, Arrow path values | lance-csr |
+| `apply.rs` | `ApplyNode` and `ApplyExec` for CALL subqueries | lance-csr |
+| `key_statistics.rs` | `KeyStatisticsProvider` and `KeyStatisticsExec` | lance-csr |
+| `pattern_order.rs`, `pattern_alternatives.rs` | Re-rooting, alternation and multi-label branching | lance-csr |
+| `logical_plan.rs` | Graph logical operators | lance-graph, extended in lance-csr |
+| `datafusion_planner/` | Graph plan to DataFusion plan; `builder/expand_ops.rs` chooses CSR or join for each hop | lance-graph, extended in lance-csr |
+| `engine.rs` | `CypherEngine`: snapshots, session setup, refresh, plan template cache | lance-csr |
+| `query/deadline.rs` | `DeadlineJoins` and `with_execution_deadline` | lance-csr |
