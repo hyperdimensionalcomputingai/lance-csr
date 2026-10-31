@@ -1150,6 +1150,7 @@ impl CypherQuery {
         // Phase 3: DataFusion Logical Plan
         let mut df_planner = DataFusionPlanner::with_catalog(config.clone(), catalog);
         df_planner.adjacency = self.adjacency.clone();
+        df_planner.fan_out = self.fan_out.clone();
         if parameterized {
             df_planner.parameter_types = self
                 .scalar_parameters()

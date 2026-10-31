@@ -213,6 +213,9 @@ impl DataFusionPlanner {
             let input_plan = self.build_operator(ctx, input)?;
             return self.build_simple_project(input_plan, projections);
         }
+        if let Some(plan) = self.try_build_two_hop_count(ctx, input, projections)? {
+            return Ok(plan);
+        }
         // An ORDER BY right before an aggregation only orders what collect() gathers, as in
         // Neo4j (LDBC IC7 takes `head(collect(...))` of sorted rows): it becomes the
         // aggregate's own ORDER BY instead of a sort of its input.
