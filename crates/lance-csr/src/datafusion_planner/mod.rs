@@ -51,6 +51,8 @@ pub struct DataFusionPlanner {
     pub(crate) config: GraphConfig,
     pub(crate) catalog: Option<Arc<dyn GraphSourceCatalog>>,
     pub(crate) adjacency: Option<crate::csr_expand::AdjacencyCatalog>,
+    /// Mean fan-out per relationship type and direction, for cost-based rewrites.
+    pub(crate) fan_out: Option<crate::logical_plan::FanOut>,
     pub(crate) parameter_types: std::collections::HashMap<String, arrow_schema::DataType>,
 }
 
@@ -60,6 +62,7 @@ impl DataFusionPlanner {
             config,
             catalog: None,
             adjacency: None,
+            fan_out: None,
             parameter_types: Default::default(),
         }
     }
@@ -69,6 +72,7 @@ impl DataFusionPlanner {
             config,
             catalog: Some(catalog),
             adjacency: None,
+            fan_out: None,
             parameter_types: Default::default(),
         }
     }

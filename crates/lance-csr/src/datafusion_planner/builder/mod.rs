@@ -9,6 +9,7 @@
 //! - `basic_ops`: Basic operations (filter, project, sort, limit, offset, distinct)
 //! - `expand_ops`: Graph traversal operations (expand, variable-length expand)
 //! - `aggregate_ops`: Aggregation and grouping operations
+//! - `count_ops`: `count(*)` of two-hop paths from per-node degrees
 //! - `join_builder`: Join inference and building
 //! - `helpers`: Utility functions
 
@@ -16,6 +17,7 @@ mod aggregate_ops;
 mod basic_ops;
 mod call_ops;
 mod comprehension_ops;
+mod count_ops;
 mod expand_ops;
 mod helpers;
 mod join_builder;
