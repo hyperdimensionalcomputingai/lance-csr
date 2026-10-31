@@ -176,8 +176,9 @@ def test_csr_operator_used_only_for_supported_shapes(datasets):
 
 @pytest.mark.parametrize("lazy", [False, True])
 def test_relationship_filter_over_many_batches(tmp_path, lazy):
-    # Many small input batches, so the expansion passes the point where it switches
-    # from per-batch filter fetches to one read of the filter column.
+    # Many small input batches. From Lance, the expansion passes the point where it
+    # switches from per-batch filter fetches to one read of the filter column; in
+    # memory it fetches per batch throughout.
     n = 300
     people = pa.table({"id": list(range(n)), "age": [i % 90 for i in range(n)]})
     knows = pa.table(

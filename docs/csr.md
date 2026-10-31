@@ -179,9 +179,10 @@ nodes are separate rows, each with its own properties, as on the join path.
 
 A `WHERE` condition that reads only `k`'s own columns, such as `k.since > 2020`, moves into the expansion
 (`edge_filter=` in `explain()`), so failing edges are dropped before anything else is fetched. A small hop
-fetches just the filter's columns for each batch of expanded edges. Once a hop has expanded more than 1/256
-of the relationship's edges, it reads the filter's columns once, in order, and skips failing edges from then
-on. Conditions that mix `k` with other variables stay after the expansion.
+fetches just the filter's columns for each batch of expanded edges. On a Lance dataset, once a hop has
+expanded more than 1/256 of the relationship's edges, it reads the filter's columns once, in order, and skips
+failing edges from then on. In-memory PyArrow tables always filter each batch, since fetching their columns
+is an in-memory gather. Conditions that mix `k` with other variables stay after the expansion.
 
 !!! note "Large hops on lazily read tables"
 
