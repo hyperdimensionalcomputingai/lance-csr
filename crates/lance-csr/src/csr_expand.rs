@@ -903,6 +903,10 @@ impl EdgeRows {
 }
 
 impl EdgeRows {
+    fn in_memory(&self) -> bool {
+        matches!(self.data, TableData::Memory(_))
+    }
+
     async fn take(&self, rows: &[u64], columns: &[usize]) -> Result<Vec<ArrayRef>> {
         self.data.take(&self.schema, rows, columns, true).await
     }
@@ -1012,10 +1016,11 @@ impl fmt::Debug for EdgeFilterState {
     }
 }
 
-/// Switch from fetching filter columns per expanded edge to one read of the whole
-/// column once the expanded edges pass 1/`EDGE_MASK_FRACTION` of the relationship's
-/// edges. A batch of scattered rows from a large Lance table touches most of the
-/// column's pages, so each batch fetched before the switch costs about one full read.
+/// For a Lance relationship table, switch from fetching filter columns per expanded
+/// edge to one read of the whole column once the expanded edges pass
+/// 1/`EDGE_MASK_FRACTION` of the relationship's edges. A batch of scattered rows from
+/// a large Lance table touches most of the column's pages, so each batch fetched before
+/// the switch costs about one full read. In-memory tables never switch.
 // shortcut: fixed share, measured on IC5 (half of a 1.6M-edge table) and IC11; tune if hops in between regress.
 const EDGE_MASK_FRACTION: u64 = 256;
 
@@ -2197,7 +2202,12 @@ impl ExecutionPlan for CsrExpandExec {
         let target_filter = self.target_filter.clone().map(Arc::new);
         let edge_filter = self.edge_filter.clone().map(Arc::new);
         let edge_state = self.edge_state.clone();
-        let mask_after = (self.adjacency.num_edges() / EDGE_MASK_FRACTION).max(1);
+        // In memory, each partition gathers its chunk's filter columns from loaded arrays,
+        // in parallel; the shared mask only beats scattered Lance reads.
+        let mask_after = match &self.edge {
+            Some(edge) if edge.rows.in_memory() => u64::MAX,
+            _ => (self.adjacency.num_edges() / EDGE_MASK_FRACTION).max(1),
+        };
         let target_state = self.target_state.clone();
         // Every non-id column the target fetches: its output and its filter's columns.
         let scan_columns: Arc<Vec<usize>> = Arc::new(
