@@ -1,6 +1,6 @@
 # Indexes and refresh
 
-The [custom operators](operators.md) read two in-memory indexes. Both are built from Lance data and point back into
+The [custom operators](operators.md) read two in-memory indexes. Both are built from the same underlying Lance dataset and point back into
 it, so neither holds a copy of node or relationship properties. [The CSR index](../csr.md) covers what users see:
 how to turn it on, `csr_stats()`, and when to call `refresh()` and `optimize_csr()`. This page covers how the indexes
 are laid out and maintained.
