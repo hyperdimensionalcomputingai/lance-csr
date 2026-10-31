@@ -1,7 +1,8 @@
 # Execution plumbing
 
 This section is about the smaller pieces that make the [custom operators](operators.md) run well inside DataFusion.
-All of them were added in lance-csr, except where a section says they came from [lance-graph](https://github.com/lance-format/lance-graph), which is the upstream this project forked from.
+All of them were added in lance-csr, apart from the vector functions and the GIL release, which came from
+[lance-graph](https://github.com/lance-format/lance-graph), the upstream project we forked from.
 
 ## Partitioning in-memory tables
 
