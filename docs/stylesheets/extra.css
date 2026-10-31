@@ -32,6 +32,11 @@
   display: block;
 }
 
+/* Centre diagrams. The theme draws them in a closed shadow root, which inherits text-align. */
+.md-typeset .mermaid {
+  text-align: center;
+}
+
 /* Home page wordmark. */
 .lc-hero img {
   width: min(100%, 300px);

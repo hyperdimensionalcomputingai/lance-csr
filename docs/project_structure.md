@@ -30,3 +30,6 @@ A query goes through four stages, all in `crates/lance-csr/src/`:
    comprehensions and shortest paths.
 4. **Build** (`datafusion_planner/`) a DataFusion plan from them, with CSR expansions (`csr_expand.rs`) and the
    shortest-path search (`shortest_path.rs`) as DataFusion extension operators.
+
+[DataFusion internals](internals/index.md) describes each extension operator, optimizer rule and graph rewrite, with
+a map of the source files.

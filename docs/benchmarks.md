@@ -86,7 +86,7 @@ Over the 14 queries, lance-csr's speed relative to each engine:
 queries over the GDC Social Network Benchmark SF1 dataset (3.18M nodes, 17.3M relationships), with every result
 checked against an expected answer. lance-csr's
 [runner](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc/tree/main/lance_csr) runs the same
-query text and Lance datasets as the lance-graph runner.
+query text and Lance datasets as the [lance-graph](https://github.com/lance-format/lance-graph) runner.
 
 !!! warning "Independent, unaudited measurements"
 

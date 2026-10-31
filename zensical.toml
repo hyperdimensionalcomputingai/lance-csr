@@ -35,7 +35,17 @@ nav = [
     { "SQL queries" = "sql.md" },
   ] },
   { "Using from Rust" = "rust.md" },
-  { "How it works" = "execution.md" },
+  { "How it works" = [
+    { "Overview" = "execution.md" },
+    # A nested section, so the navigation shows it collapsed until a reader opens it.
+    { "DataFusion internals" = [
+      "internals/index.md",
+      { "Custom operators" = "internals/operators.md" },
+      { "Optimizer rules and rewrites" = "internals/optimizer.md" },
+      { "Indexes and refresh" = "internals/indexes.md" },
+      { "Execution plumbing" = "internals/execution-plumbing.md" },
+    ] },
+  ] },
   { "API reference" = [
     { "Python" = "api-reference.md" },
     { "Rust (docs.rs)" = "https://docs.rs/lance-csr" },

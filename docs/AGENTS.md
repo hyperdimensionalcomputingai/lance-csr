@@ -9,6 +9,13 @@ A reader should be able to find out what lance-csr is, install it, run a query, 
 option without reading the source. Write for a Python developer who knows a little Cypher and nothing about
 the internals; `rust.md` covers the same engine for Rust developers. The CSR index is the project's distinguishing feature, so it gets the most care.
 
+The one exception is `internals/`, the collapsed "DataFusion internals" section under "How it works". It is for
+contributors and the few readers who want the technical detail: how lance-csr extends DataFusion (extension nodes,
+optimizer rules, graph rewrites, statistics) and how the indexes are maintained. Keep user-facing behaviour on the
+guide pages and link to it from there rather than repeating it. Its plans are `explain()` output pasted as `text`
+blocks; when an operator's display or the planner changes, re-run those queries against a local build and update
+them.
+
 ## How the site is built
 
 - [Zensical](https://zensical.org/) renders the Markdown in `docs/`. `zensical.toml` at the repository root
