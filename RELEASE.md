@@ -2,9 +2,9 @@
 
 A release publishes the Python package to [PyPI](https://pypi.org/project/lance-csr/) and the
 `lance-csr-catalog` and `lance-csr` crates to [crates.io](https://crates.io/crates/lance-csr). PyPI publishing is
-automated from a GitHub release. crates.io publishing is done by hand, afterwards.
+automated from a GitHub release, and the crates follow once PyPI has the new version.
 
-The whole release takes about 40 minutes, almost all of it the macOS wheel build. Don't add steps that build the
+The whole release takes about 50 minutes: the macOS wheel build, then the crates. Don't add steps that build the
 release wheels a second time.
 
 ## Before you start
@@ -68,10 +68,13 @@ Publishing it starts `.github/workflows/python-publish.yml`:
 | `build-macos` | about 35 min | macOS arm64 wheel, built natively on `macos-15` |
 | `test` | under 1 min each | each wheel on Python 3.12, 3.13 and 3.14 |
 | `publish` | seconds | checks the tag matches `python/pyproject.toml`, then uploads through PyPI trusted publishing |
+| `publish-crates` | about 10 to 15 min | after `publish`: packages and verifies `lance-csr-catalog` and `lance-csr`, then uploads them through crates.io trusted publishing |
 
-The build jobs run in parallel. Nothing reaches PyPI unless every build and test job passes. The `pypi`
-environment only accepts `v*` tags, and the PyPI trusted publisher is registered for workflow
-`python-publish.yml` and environment `pypi`, so don't rename either.
+The build jobs run in parallel. Nothing reaches PyPI unless every build and test job passes, and nothing
+reaches crates.io unless PyPI publishing succeeds. The `pypi` and `crates-io` environments only accept `v*`
+tags. The PyPI trusted publisher is registered for workflow `python-publish.yml` and environment `pypi`, and
+the crates.io trusted publishers for both crates for the same workflow and environment `crates-io`, so don't
+rename any of them.
 
 **Don't run a separate `mode=dry_run` before a release.** The release run builds and tests the same wheels
 before it publishes, so a dry run only doubles the wait. Changes to how wheels are built (this workflow,
@@ -79,26 +82,25 @@ before it publishes, so a dry run only doubles the wait. Changes to how wheels a
 
 ### If the release run fails
 
-Nothing has been published, so nothing needs undoing on PyPI.
+If a build or test job failed, nothing has been published, so nothing needs undoing on PyPI.
 
 - **A flaky test or a runner problem** (for example a GitHub runner image outage): rerun the failed jobs with
   `gh run rerun <run id> --failed`.
 - **A real bug:** fix it on `main` through a normal PR, then release the next patch version. Don't move or reuse
   a tag that has already been released.
 
-## 4. Publish the crates
+### If only `publish-crates` fails
 
-Only after PyPI shows the new version (`https://pypi.org/pypi/lance-csr/json`), so the two registries never
-disagree. A maintainer with a crates.io token runs this from the merged `main`:
+PyPI already has the release, so don't release again. Rerun just that job with `gh run rerun <run id> --failed`;
+the wheels aren't rebuilt.
 
-```bash
-cargo publish -p lance-csr-catalog -p lance-csr
-```
+Cargo publishes `lance-csr-catalog` first, since `lance-csr` depends on it. If it published the catalog and
+then failed on `lance-csr`, a rerun fails because the catalog version already exists. Publish the rest by hand
+from the release tag: a crate owner runs `cargo publish -p lance-csr`. If **Require trusted publishing** is on
+for the crate, crates.io rejects API tokens, so turn it off for the manual publish and back on afterwards.
+`lance-csr-python` and `lance-csr-benches` are `publish = false`.
 
-Cargo publishes `lance-csr-catalog` first, since `lance-csr` depends on it. `lance-csr-python` and
-`lance-csr-benches` are `publish = false`.
-
-## 5. Check the release
+## 4. Check the release
 
 ```bash
 uv run --no-project --with lance-csr==A.B.C python -c "import lance_csr, importlib.metadata as m; print(m.version('lance-csr'))"
