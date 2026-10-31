@@ -235,10 +235,10 @@ impl DataFusionPlanner {
                     })
                 })
                 .collect::<Result<Vec<_>>>()?;
-            return self.build_project_with_aggregates(input_plan, projections, &ordering);
+            return self.build_project_with_aggregates(ctx, input_plan, projections, &ordering);
         }
         let input_plan = self.build_operator(ctx, input)?;
-        self.build_project_with_aggregates(input_plan, projections, &[])
+        self.build_project_with_aggregates(ctx, input_plan, projections, &[])
     }
 
     /// The columns of a node or relationship variable (`b` -> `b__id`, `b__name`, ...),
