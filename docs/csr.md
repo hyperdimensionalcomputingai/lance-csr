@@ -212,6 +212,25 @@ projection, its filtered values are reused within that output batch. Target keys
 neighbour IDs, including when a filter reads them. This reuse ends with the batch and keeps no property
 cache across queries or dataset versions.
 
+### Grouping by a node
+
+`WITH b, count(*) AS n` groups by the node `b`. When `b`'s label has a node index and its table is in
+memory, the grouping uses `b`'s id alone and looks up `b`'s other properties afterwards, once per node, by the
+same row positions. Rows before a grouping can outnumber nodes many times over (an expansion), and carrying a
+node's properties through the aggregate for each of them costs more than one lookup per node. With unique
+ids, the groups are the same. `explain()` shows the lookup as `NodeLookupExec`, with only the properties the
+query uses:
+
+```python
+plan = engine.explain(
+    "MATCH (a:Person)-[:KNOWS]->(b:Person) WITH b, count(*) AS n RETURN b.name, n"
+)
+print([line.strip(" |") for line in plan.splitlines() if "NodeLookupExec" in line])
+# ['NodeLookupExec: key=b__id, take=b[b__name]']
+```
+
+Lance datasets read lazily keep the plain grouping: there, each lookup is a read the grouping does without.
+
 ### Patterns start at the most selective node
 
 The planner rewrites each `MATCH` so traversal starts at its most selective node, walking edges backwards

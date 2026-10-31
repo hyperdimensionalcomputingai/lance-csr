@@ -135,7 +135,7 @@ fn conjuncts<'a>(expr: &'a BooleanExpression, out: &mut Vec<&'a BooleanExpressio
 
 impl DataFusionPlanner {
     /// The node id column of `variable` (`b` -> `b__id`).
-    fn id_column(&self, ctx: &PlanningContext, variable: &str) -> Option<String> {
+    pub(crate) fn id_column(&self, ctx: &PlanningContext, variable: &str) -> Option<String> {
         let label = ctx.analysis.var_to_label.get(variable)?;
         let mapping = self.config.get_node_mapping(label)?;
         Some(qualify_column(variable, &mapping.id_field))

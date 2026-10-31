@@ -59,7 +59,10 @@ use datafusion::physical_plan::{
 use datafusion::physical_planner::{DefaultPhysicalPlanner, ExtensionPlanner, PhysicalPlanner};
 use futures::StreamExt;
 use lance::dataset::{Dataset, ProjectionRequest};
+
+mod node_lookup;
 use lance_table::format::Fragment;
+pub use node_lookup::NodeLookupNode;
 
 /// Yield after bounded CPU work without requiring a particular async runtime.
 pub(crate) async fn cooperative_yield() {
@@ -689,6 +692,14 @@ impl NodeRows {
 
     pub fn num_rows(&self) -> usize {
         self.positions.len()
+    }
+
+    pub(crate) fn schema(&self) -> &SchemaRef {
+        &self.schema
+    }
+
+    pub(crate) fn in_memory(&self) -> bool {
+        matches!(self.data, TableData::Memory(_))
     }
 
     pub(crate) fn position(&self, id: i64) -> Option<u64> {
@@ -2386,6 +2397,9 @@ impl ExtensionPlanner for CsrExtensionPlanner {
                 physical_inputs,
             )));
         }
+        if let Some(node) = node.as_any().downcast_ref::<NodeLookupNode>() {
+            return Ok(Some(node_lookup::plan_node_lookup(node, physical_inputs)));
+        }
         let Some(node) = node.as_any().downcast_ref::<CsrExpandNode>() else {
             return Ok(None);
         };
@@ -2520,7 +2534,8 @@ impl OptimizerRule for PushCsrTargetFilters {
     }
 }
 
-/// Optimizer rule: drop fused target columns that nothing in the plan uses.
+/// Optimizer rule: drop fused target columns, and node lookup columns, that nothing
+/// in the plan uses.
 ///
 /// DataFusion's projection pushdown prunes an extension node's inputs but not its
 /// own outputs, so without this every target column would be fetched per row.
@@ -2550,6 +2565,16 @@ impl OptimizerRule for PruneCsrTargetColumns {
                         })));
                     }
                 }
+                if let Some(lookup) = ext.node.as_any().downcast_ref::<NodeLookupNode>() {
+                    return Ok(match lookup.pruned(&used) {
+                        Some(Ok(pruned)) => Transformed::yes(LogicalPlan::Extension(Extension {
+                            node: Arc::new(pruned),
+                        })),
+                        // Nothing it fetches is used: drop the lookup.
+                        Some(Err(input)) => Transformed::yes(input),
+                        None => Transformed::no(node),
+                    });
+                }
             }
             Ok(Transformed::no(node))
         })
@@ -2569,14 +2594,16 @@ fn used_columns(plan: &LogicalPlan) -> datafusion::common::Result<HashSet<String
         }
         let explicit = match node {
             LogicalPlan::Extension(ext) => {
-                match ext.node.as_any().downcast_ref::<CsrExpandNode>() {
-                    Some(csr) => {
-                        // Read by the node itself, not through an expression.
-                        used.insert(csr.key_column.clone());
-                        used.extend(csr.closing_column.clone());
-                        true
-                    }
-                    None => false,
+                if let Some(csr) = ext.node.as_any().downcast_ref::<CsrExpandNode>() {
+                    // Read by the node itself, not through an expression.
+                    used.insert(csr.key_column.clone());
+                    used.extend(csr.closing_column.clone());
+                    true
+                } else if let Some(lookup) = ext.node.as_any().downcast_ref::<NodeLookupNode>() {
+                    used.insert(lookup.key_column().to_string());
+                    true
+                } else {
+                    false
                 }
             }
             LogicalPlan::Projection(_)
