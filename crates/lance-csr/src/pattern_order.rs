@@ -282,6 +282,30 @@ fn value_variables<'a>(expr: &'a ValueExpression, out: &mut HashSet<&'a str>) {
     }
 }
 
+/// The variables written in `expr`'s pattern predicates, which `boolean_variables` skips.
+// shortcut: a pattern predicate inside a value (`CASE WHEN (a)-->(b) ...`) is not
+// visited; extend this if OPTIONAL MATCH ... WHERE needs it.
+pub(crate) fn exists_variables<'a>(expr: &'a BooleanExpression, out: &mut HashSet<&'a str>) {
+    match expr {
+        BooleanExpression::PatternExists {
+            patterns,
+            where_clause,
+        } => {
+            out.extend(pattern_variables(patterns));
+            if let Some(w) = where_clause {
+                boolean_variables(w, out);
+                exists_variables(w, out);
+            }
+        }
+        BooleanExpression::And(a, b) | BooleanExpression::Or(a, b) => {
+            exists_variables(a, out);
+            exists_variables(b, out);
+        }
+        BooleanExpression::Not(inner) => exists_variables(inner, out),
+        _ => {}
+    }
+}
+
 /// The node and relationship variables written in `patterns`.
 pub(crate) fn pattern_variables(patterns: &[GraphPattern]) -> HashSet<&str> {
     let mut out = HashSet::new();

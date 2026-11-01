@@ -1612,6 +1612,14 @@ impl<'a> LogicalPlanner<'a> {
         if let Some(w) = &clause.where_clause {
             let mut names = std::collections::HashSet::new();
             crate::pattern_order::boolean_variables(&w.expression, &mut names);
+            // A pattern predicate can read earlier variables too (`(post)-->()<--(person)`).
+            let mut in_patterns = std::collections::HashSet::new();
+            crate::pattern_order::exists_variables(&w.expression, &mut in_patterns);
+            names.extend(
+                in_patterns
+                    .into_iter()
+                    .filter(|n| self.variables.contains_key(*n)),
+            );
             let local = crate::pattern_order::pattern_variables(&clause.patterns);
             let mut scalars: Vec<String> = names
                 .into_iter()
