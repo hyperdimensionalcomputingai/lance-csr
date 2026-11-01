@@ -12,7 +12,7 @@ use super::*;
 
 /// `input` plus the columns of the node whose id is in `key_column`. A null or unknown
 /// id (an unmatched OPTIONAL MATCH) gets nulls.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct NodeLookupNode {
     input: LogicalPlan,
     key_column: String,
@@ -147,6 +147,14 @@ impl Hash for NodeLookupNode {
 impl PartialOrd for NodeLookupNode {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         (&self.key_column, &self.variable).partial_cmp(&(&other.key_column, &other.variable))
+    }
+}
+
+// DataFusion formats every extension node while planning it; printing the input plan
+// here would make that quadratic in the plan's depth.
+impl std::fmt::Debug for NodeLookupNode {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        UserDefinedLogicalNodeCore::fmt_for_explain(self, f)
     }
 }
 

@@ -72,7 +72,7 @@ pub struct ShortestPathSpec {
 }
 
 /// Logical node; see the module docs.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ShortestPathNode {
     input: LogicalPlan,
     /// Scan of the relationship's endpoints; `None` when `adjacency` is given.
@@ -151,6 +151,14 @@ impl Hash for ShortestPathNode {
 impl PartialOrd for ShortestPathNode {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         self.spec.partial_cmp(&other.spec)
+    }
+}
+
+// DataFusion formats every extension node while planning it; printing the input plan
+// here would make that quadratic in the plan's depth.
+impl std::fmt::Debug for ShortestPathNode {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        UserDefinedLogicalNodeCore::fmt_for_explain(self, f)
     }
 }
 

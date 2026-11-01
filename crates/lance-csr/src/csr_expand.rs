@@ -1398,7 +1398,7 @@ impl Neighbors {
 }
 
 /// Logical node: append `(key_output, neighbor_output)` for every neighbour of `key_column`.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct CsrExpandNode {
     input: LogicalPlan,
     /// Input column holding the source node id.
@@ -1613,6 +1613,14 @@ impl PartialOrd for CsrExpandNode {
                 other.key_output.name(),
                 other.neighbor_output.name(),
             ))
+    }
+}
+
+// DataFusion formats every extension node while planning it; printing the input plan
+// here would make that quadratic in the plan's depth.
+impl std::fmt::Debug for CsrExpandNode {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        UserDefinedLogicalNodeCore::fmt_for_explain(self, f)
     }
 }
 

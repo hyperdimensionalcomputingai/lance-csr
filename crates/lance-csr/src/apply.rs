@@ -26,7 +26,7 @@ use futures::StreamExt;
 /// The child is deliberately unoptimized until its imports have concrete values.
 /// It is not an ordinary input: planning it before binding would give global top-k
 /// and aggregate semantics instead of evaluating them once per outer row.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) struct ApplyNode {
     input: LogicalPlan,
     inner: LogicalPlan,
@@ -60,6 +60,14 @@ impl PartialOrd for ApplyNode {
                 order => Some(order),
             })
             .filter(|order| *order != Ordering::Equal || self == other)
+    }
+}
+
+// DataFusion formats every extension node while planning it; printing the input plan
+// here would make that quadratic in the plan's depth.
+impl std::fmt::Debug for ApplyNode {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        UserDefinedLogicalNodeCore::fmt_for_explain(self, f)
     }
 }
 
