@@ -204,6 +204,20 @@ pub enum LogicalOperator {
 
     /// The element rows of the enclosing [`LogicalOperator::ListComprehension`].
     ComprehensionElement,
+
+    /// A pattern predicate that walks anonymous single-type hops from the bound node
+    /// `start`, ending anywhere or at the bound node `end`. Marks each row of `input` with
+    /// `mark` (`true`, or null when no path exists) by walking the CSR from that row when
+    /// every hop has one; otherwise `fallback`, the relational marking, is planned instead.
+    PathExists {
+        input: Box<LogicalOperator>,
+        start: String,
+        /// Relationship type, direction and target label of each hop, in order from `start`.
+        hops: Vec<(String, RelationshipDirection, String)>,
+        end: Option<String>,
+        mark: String,
+        fallback: Box<LogicalOperator>,
+    },
 }
 
 /// Projection item for SELECT/RETURN clauses
@@ -1162,6 +1176,8 @@ impl<'a> LogicalPlanner<'a> {
             } => {
                 self.exists_marks += 1;
                 let mark = format!("__exists_{}", self.exists_marks);
+                let walk = self.exists_walk(patterns, where_clause.as_deref());
+                let original = walk.is_some().then(|| input.clone());
                 let inner = MatchClause {
                     patterns: patterns.clone(),
                     optional: true,
@@ -1203,15 +1219,104 @@ impl<'a> LogicalPlanner<'a> {
                         projections,
                     }),
                 };
-                *expr = BooleanExpression::IsNotNull(ValueExpression::Variable(mark));
-                Ok(LogicalOperator::OptionalMatch {
+                *expr = BooleanExpression::IsNotNull(ValueExpression::Variable(mark.clone()));
+                let fallback = LogicalOperator::OptionalMatch {
                     input,
                     optional: Box::new(marked),
                     keys,
+                };
+                Ok(match (walk, original) {
+                    (Some((start, hops, end)), Some(original)) => LogicalOperator::PathExists {
+                        input: Box::new(original),
+                        start,
+                        hops,
+                        end,
+                        mark,
+                        fallback: Box::new(fallback),
+                    },
+                    _ => fallback,
                 })
             }
             _ => Ok(input),
         }
+    }
+
+    /// `(start, hops, end)` when a pattern predicate is one path from a bound node through
+    /// anonymous nodes, over anonymous relationships of one type each, ending at an
+    /// anonymous or bound node, with endpoint labels that chain. Hops have distinct types,
+    /// so no two can bind the same relationship.
+    #[allow(clippy::type_complexity)]
+    fn exists_walk(
+        &self,
+        patterns: &[GraphPattern],
+        where_clause: Option<&BooleanExpression>,
+    ) -> Option<(
+        String,
+        Vec<(String, RelationshipDirection, String)>,
+        Option<String>,
+    )> {
+        let ([GraphPattern::Path(path)], None) = (patterns, where_clause) else {
+            return None;
+        };
+        let bound_label = |variable: &str| {
+            self.variables
+                .get(variable)
+                .filter(|label| !label.contains('|'))
+        };
+        let fits = |node: &NodePattern, label: &str| {
+            node.properties.is_empty()
+                && node.labels.len() <= 1
+                && node.labels.iter().all(|l| l.eq_ignore_ascii_case(label))
+        };
+        let start = path.start_node.variable.clone()?;
+        let mut label = bound_label(&start)?.clone();
+        if path.variable.is_some() || !fits(&path.start_node, &label) {
+            return None;
+        }
+        let mut hops: Vec<(String, RelationshipDirection, String)> = Vec::new();
+        let mut end = None;
+        for (i, segment) in path.segments.iter().enumerate() {
+            let rel = &segment.relationship;
+            let [rel_type] = rel.types.as_slice() else {
+                return None;
+            };
+            if rel.variable.is_some()
+                || !rel.properties.is_empty()
+                || rel.length.is_some()
+                || hops
+                    .iter()
+                    .any(|(t, _, _)| t.eq_ignore_ascii_case(rel_type))
+            {
+                return None;
+            }
+            let mapping = self.config.get_relationship_mapping(rel_type)?;
+            let (source, target) = (
+                mapping.source_label.as_deref()?,
+                mapping.target_label.as_deref()?,
+            );
+            let (from, to) = match rel.direction {
+                RelationshipDirection::Outgoing => (source, target),
+                RelationshipDirection::Incoming => (target, source),
+                RelationshipDirection::Undirected if source.eq_ignore_ascii_case(target) => {
+                    (source, target)
+                }
+                RelationshipDirection::Undirected => return None,
+            };
+            if !from.eq_ignore_ascii_case(&label) || !fits(&segment.end_node, to) {
+                return None;
+            }
+            label = to.to_string();
+            hops.push((rel_type.clone(), rel.direction.clone(), to.to_string()));
+            if let Some(variable) = &segment.end_node.variable {
+                // Only the last node may be bound, and an unbound one would be new.
+                let last = i + 1 == path.segments.len();
+                if !last || !bound_label(variable)?.eq_ignore_ascii_case(to) {
+                    return None;
+                }
+                end = Some(variable.clone());
+            }
+        }
+        (!hops.is_empty()).then_some((start, hops, end))
     }
 
     /// [`Self::rewrite_exists`] for the conditions of a CASE inside a value.
@@ -1958,9 +2063,8 @@ impl<'a> LogicalPlanner<'a> {
             LogicalOperator::OptionalMatch { optional, .. } => {
                 self.extract_variable_from_plan(optional)
             }
-            LogicalOperator::ListComprehension { input, .. } => {
-                self.extract_variable_from_plan(input)
-            }
+            LogicalOperator::ListComprehension { input, .. }
+            | LogicalOperator::PathExists { input, .. } => self.extract_variable_from_plan(input),
             LogicalOperator::ComprehensionElement => Err(GraphError::PlanError {
                 message: "a comprehension's element rows bind no pattern variable".to_string(),
                 location: snafu::Location::new(file!(), line!(), column!()),

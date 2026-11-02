@@ -423,6 +423,75 @@ impl DataFusionPlanner {
         })))
     }
 
+    /// A pattern predicate walked on the CSR from each row of `input` (see
+    /// [`LogicalOperator::PathExists`]), or its relational `fallback` when a hop has no
+    /// CSR or an endpoint is not an integer id column of `input`.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn build_path_exists(
+        &self,
+        ctx: &mut PlanningContext,
+        input: &LogicalOperator,
+        start: &str,
+        hops: &[(String, RelationshipDirection, String)],
+        end: Option<&str>,
+        mark: &str,
+        fallback: &LogicalOperator,
+    ) -> Result<LogicalPlan> {
+        use crate::csr_expand::{is_supported_id_type, Hop, Neighbors, PathExistsNode};
+
+        let neighbors: Option<Vec<Hop>> = self.adjacency.as_ref().and_then(|catalog| {
+            hops.iter()
+                .map(|(rel_type, direction, label)| {
+                    let neighbors = match direction {
+                        RelationshipDirection::Outgoing => catalog
+                            .get(rel_type, true)
+                            .cloned()
+                            .map(Neighbors::directed),
+                        RelationshipDirection::Incoming => catalog
+                            .get(rel_type, false)
+                            .cloned()
+                            .map(Neighbors::directed),
+                        RelationshipDirection::Undirected => catalog
+                            .get(rel_type, true)
+                            .zip(catalog.get(rel_type, false))
+                            .map(|(out, inc)| Neighbors::undirected(out.clone(), inc.clone())),
+                    };
+                    let nodes = catalog.nodes(label).cloned();
+                    neighbors
+                        .zip(nodes)
+                        .map(|(neighbors, nodes)| Hop { neighbors, nodes })
+                })
+                .collect()
+        });
+        let start_id = self.id_column(ctx, start);
+        let end_id = end.map(|end| self.id_column(ctx, end));
+        let (Some(neighbors), Some(start_id), None | Some(Some(_))) =
+            (neighbors, start_id, &end_id)
+        else {
+            return self.build_operator(ctx, fallback);
+        };
+        let end_id = end_id.flatten();
+        let instances = ctx.relationship_instance_idx.clone();
+        let plan = self.build_operator(ctx, input)?;
+        let is_id = |column: &String| {
+            plan.schema()
+                .field_with_unqualified_name(column)
+                .is_ok_and(|f| is_supported_id_type(f.data_type()))
+        };
+        if !is_id(&start_id) || !end_id.as_ref().is_none_or(is_id) {
+            // The fallback plans the input again, taking the same instances.
+            ctx.relationship_instance_idx = instances;
+            return self.build_operator(ctx, fallback);
+        }
+        ctx.skip_relationship_instances(fallback, input)?;
+        let node = PathExistsNode::try_new(plan, start_id, end_id, neighbors, mark.to_string())?;
+        Ok(LogicalPlan::Extension(
+            datafusion::logical_expr::Extension {
+                node: Arc::new(node),
+            },
+        ))
+    }
+
     /// Mark a freshly built CSR expansion as a closing edge on `bound_target`.
     fn with_closing_column(plan: LogicalPlan, bound_target: String) -> Result<LogicalPlan> {
         use crate::csr_expand::CsrExpandNode;

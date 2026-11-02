@@ -146,6 +146,14 @@ impl DataFusionPlanner {
                 output,
                 *count_only,
             ),
+            LogicalOperator::PathExists {
+                input,
+                start,
+                hops,
+                end,
+                mark,
+                fallback,
+            } => self.build_path_exists(ctx, input, start, hops, end.as_deref(), mark, fallback),
             LogicalOperator::ComprehensionElement => Ok(ctx
                 .comprehension_elements
                 .last()
