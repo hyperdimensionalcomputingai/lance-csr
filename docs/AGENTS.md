@@ -31,7 +31,7 @@ them.
   Build from the repository root with the locked build command above and publish `site/`.
 - Files that aren't pages (this file, `check_snippets.py`, `sync_benchmarks.py`, the uv project, `overrides/`, the
   brand README and previews) are listed under `exclude_docs` in `zensical.toml`. Add new non-page files there.
-- Benchmark tables between `<!-- bench:... -->` markers in `benchmarks.md` and the root `README.md` are
+- Benchmark tables between `<!-- bench:... -->` markers in `benchmarks.md` are
   generated; never edit them by hand. The runners and results live in graph-benchmark-ldbc-complex and
   graph-benchmark-ldbc. To publish a new run, merge it there, pin its commit in `sync_benchmarks.py`, and run
   `uv run --project docs --locked python docs/sync_benchmarks.py`.
