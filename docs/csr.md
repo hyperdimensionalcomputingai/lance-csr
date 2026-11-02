@@ -290,47 +290,26 @@ print(sorted(engine.node_index_stats()))  # ['Person']
 
 ## Keeping the CSR current
 
-In-memory PyArrow tables never change, so their CSR never needs updating. For Lance datasets, the engine
-is pinned to a version until you call [`refresh()`](lance.md#refresh), which updates the CSR incrementally:
+An engine over Lance datasets is pinned to one version of each, so its CSR doesn't see later writes until you ask.
+Two calls keep it current:
 
-```mermaid
-flowchart TD
-    R["engine.refresh()"] --> V{"Relationship dataset<br/>changed?"}
-    V -- no --> U["reused"]
-    V -- yes --> D{"Same endpoint<br/>columns?"}
-    D -- no --> RB["rebuild"]
-    D -- yes --> S{"Pending changes > 25%<br/>of the base CSR?"}
-    S -- yes --> RB
-    S -- no --> DL["delta: appended edges +<br/>tombstones for deleted ones"]
-```
+1. **[`refresh()`](#refresh)** moves the engine to the latest data and applies new edges as a delta on top of the
+   CSR. Call it whenever your queries should see new writes.
+2. **[`optimize_csr()`](#rebuilding-the-csr)** rebuilds a CSR that carries a delta, so lookups stop reading it.
+   Call it now and then, once a delta has built up.
 
-- **Appends** become delta edges and **deletes** become tombstones, both applied on top of the base CSR.
-  Deleted and rewritten rows are matched by the row each CSR entry records, so only added fragments are
-  read. Compaction and `cleanup_old_versions()` don't force a rebuild: nothing is read from the old version.
-- Once the accumulated delta would exceed **25%** of the base, or the dataset was overwritten, the CSR is
-  **rebuilt** from scratch, which clears the delta.
-- **Node-table writes never touch the CSR**: it stores raw target keys, not row positions. A changed node
-  table rebuilds only its node index.
-- The replacement is validated in full before it's swapped in. If anything fails, nothing changes and the
-  previous snapshot stays usable. Queries already running finish on the snapshot they started with.
+In-memory PyArrow tables never change, so their CSR needs neither. To query new in-memory data, build a new engine.
 
-The 25% threshold is fixed: lookups pay a little for every pending delta edge, and a rebuild clears them.
-`python/benchmarks/csr_delta_accumulated.py` measures that trade-off. To rebuild sooner, call
-[`optimize_csr()`](#rebuilding-the-csr).
+### `refresh()`: pick up new writes { #refresh }
 
-### How to keep the CSR fresh
+The engine doesn't watch your Lance datasets. After writes your queries should see, from `pylance`, LanceDB or another
+process, call `refresh()`; when a writer updates several tables, call it once all of them have committed (see
+[snapshots are per Lance dataset](lance.md#lazy-version-pinned-reads)). A refresh with nothing new reuses everything, so
+running it on a timer or before each batch of queries is fine.
 
-The engine doesn't watch your datasets for changes. Keeping the CSR in step with the data is up to you:
-
-1. **Write with any Lance writer**: `pylance`, LanceDB or another process.
-2. **Call `refresh()` after the writes your queries should see.** When a writer updates several tables, call it
-   after all of them commit (see [snapshots are per dataset](lance.md#lazy-version-pinned-reads)). A refresh
-   with nothing new reuses the existing CSR, so calling it on a timer or before each batch of queries is fine.
-3. **Check what it did with [`csr_stats()`](#csr_stats)**: `update` says whether the CSR was `reused`, updated
-   with a `delta` or fully rebuilt (`rebuild`). `base_version` and `unindexed_edges` say how far the base
-   CSR trails the data. Answers are exact either way: delta edges are part of every lookup.
-4. **Optionally, rebuild with [`optimize_csr()`](#rebuilding-the-csr)** at a quiet moment, so
-   lookups stop carrying it.
+It exists so that new writes don't cost a full rebuild. Appended and deleted edges become a delta on top of the
+existing CSR, and only the new fragments are read. [`csr_stats()`](#csr_stats) shows what it did: `update` is
+`reused`, `delta` or `rebuild`.
 
 === "Python"
 
@@ -361,31 +340,30 @@ The engine doesn't watch your datasets for changes. Keeping the CSR in step with
     --8<-- "crates/lance-csr/examples/embedded_query.rs:refresh"
     ```
 
-A refresh can only apply a delta when it can compare the version the engine is pinned to with the latest one.
-If you overwrite a relationship dataset, or remove the pinned version's files (for example with
-`cleanup_old_versions()`) before refreshing, the next refresh rebuilds that CSR in full. Refresh more often
-than you clean up old versions to keep updates incremental.
+??? info "How `refresh()` decides"
 
-In-memory PyArrow tables never change. To query new in-memory data, build a new engine.
+    ```mermaid
+    flowchart LR
+        R["refresh()"] -- "no edge changes" --> U["reused"]
+        R -- "changes under 25% of the base" --> DL["delta"]
+        R -- "25% or more, or new endpoint columns" --> RB["rebuild"]
+    ```
 
-### Rebuilding the CSR with `optimize_csr()` { #rebuilding-the-csr }
+    - Deleted and rewritten rows are matched by the edge row each CSR entry records, so compaction and
+      `cleanup_old_versions()` don't force a rebuild: nothing is read from the old version.
+    - Past 25% of the base, or after the Lance dataset is overwritten, the CSR is rebuilt from scratch. The threshold is
+      fixed: every lookup reads the delta, and a rebuild clears it. `python/benchmarks/csr_delta_accumulated.py`
+      measures that trade-off.
+    - Node-table writes never touch the CSR, which stores raw target keys. Only that label's node index is rebuilt.
+    - The replacement is built in full before it's swapped in. If anything fails, nothing changes, and queries
+      already running finish on the snapshot they started with.
 
-The CSR follows Lance's own index design. A Lance index covers the fragments it was built from, and data
-written after that stays unindexed: searches combine indexed results with a scan of the unindexed rows, so
-answers stay correct while latency grows, until you call `optimize_indices()` (see Lance's
-[index maintenance guide](https://lance.org/guide/indexing/#maintain-indexes-after-appends) and the
-[index format](https://lance.org/format/index/#basic-concepts)). The CSR maps onto that one to one:
+### `optimize_csr()`: rebuild to clear the delta { #rebuilding-the-csr }
 
-| Lance index | CSR |
-| --- | --- |
-| The fragments an index was built from | The base CSR, at `base_version` |
-| Unindexed rows, scanned alongside the index | The delta (appended edges and tombstones), read by every lookup |
-| `num_unindexed_rows` in index statistics | `unindexed_edges` in `csr_stats()` |
-| `optimize_indices()` | [`optimize_csr()`][lance_csr.CypherEngine.optimize_csr] |
-
-`optimize_csr()` rebuilds every CSR that carries a delta, at the version the engine is pinned to, so the base
-covers all the data again: `unindexed_edges`, `delta_edges` and `tombstones` drop to 0, `base_version` catches
-up with `version` and `update` says `rebuild`. A CSR without a delta is kept as it is, and answers never change.
+Every lookup reads the delta next to the base CSR, so a delta that stays below the 25% threshold slows lookups a
+little for as long as it's there. `optimize_csr()` clears it when you choose: it rebuilds every CSR that carries a
+delta, at the version the engine is pinned to, from a scan of all its edges. Use it after a bulk load, before a
+latency-sensitive run of queries, or at a quiet time, not after every refresh. Answers never change.
 
 ```python
 engine.refresh()  # applies the new edges as a delta
@@ -394,24 +372,38 @@ stats = engine.csr_stats()["KNOWS"]
 print(stats["update"], stats["unindexed_edges"])  # rebuild 0
 ```
 
-!!! tip "`refresh()` or `optimize_csr()`?"
+Afterwards `delta_edges`, `tombstones` and `unindexed_edges` are 0 and `base_version` equals `version`. A CSR
+without a delta is kept as it is. It doesn't move to newer data, so call `refresh()` first.
 
-    They differ in which data they read and in when they rebuild:
+??? info "How this maps onto Lance's indexes"
+
+    A Lance index covers the fragments it was built from. Data written after that stays unindexed: searches combine
+    indexed results with a scan of the unindexed rows, so answers stay correct while latency grows, until you call
+    `optimize_indices()` (see Lance's
+    [index maintenance guide](https://lance.org/guide/indexing/#maintain-indexes-after-appends) and the
+    [index format](https://lance.org/format/index/#basic-concepts)). The CSR maps onto that one to one:
+
+    | Lance index | CSR |
+    | --- | --- |
+    | The fragments an index was built from | The base CSR, at `base_version` |
+    | Unindexed rows, scanned alongside the index | The delta (appended edges and tombstones), read by every lookup |
+    | `num_unindexed_rows` in index statistics | `unindexed_edges` in `csr_stats()` |
+    | `optimize_indices()` | [`optimize_csr()`][lance_csr.CypherEngine.optimize_csr] |
+
+### Which one to call
+
+!!! tip "`refresh()` or `optimize_csr()`?"
 
     | | `refresh()` | `optimize_csr()` |
     | --- | --- | --- |
-    | Data | Moves to the latest version of each dataset | Stays at the version the engine is pinned to |
+    | Data | Moves to the latest version of each Lance dataset | Stays at the version the engine is pinned to |
     | Usual effect on a CSR | Applies the new writes as a delta, reading only new fragments | Rebuilds it from a scan of all its edges |
     | Rebuilds a CSR when | Its delta would pass 25% of the base | It carries any delta at all |
     | Cost | In proportion to the new writes | Like the first build |
+    | When to call it | Whenever queries should see new writes | Now and then, after `refresh()`, once a delta has built up |
 
-    So call `refresh()` whenever your queries should see new writes; it's cheap enough to run on a timer. Call
-    `optimize_csr()` after it when `csr_stats()` shows a delta below the threshold that you'd rather lookups
-    didn't carry: after a bulk load, before a latency-sensitive run of queries, or at a quiet time. When either
-    one rebuilds, it runs the same full build and gives the same CSR.
-
-Like `refresh()`, `optimize_csr()` builds the replacement in full before swapping it in, and the two run one at a
-time.
+    When either one rebuilds, it runs the same full build and gives the same CSR. Both build the replacement in
+    full before swapping it in, and they run one at a time.
 
 ## Storing the CSR
 
