@@ -58,7 +58,7 @@ def test_partition_targets_preserve_queries_and_refresh(
         lance.write_dataset(
             pa.table({"id": [5]}), tmp_path / "Person.lance", mode="append"
         )
-    engine.refresh()
+    engine.checkout_latest()
     assert reader.read_all().to_pylist() == [{"id": value} for value in range(1, 5)]
     count = 5 if storage == "lance" else 4
     assert engine.execute(scan).to_pylist() == [

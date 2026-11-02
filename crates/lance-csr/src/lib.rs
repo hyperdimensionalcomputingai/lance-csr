@@ -52,6 +52,7 @@ pub mod case_insensitive;
 pub mod config;
 pub mod csr_expand;
 pub mod csr_index;
+mod csr_store;
 mod csr_traversal;
 pub mod datafusion_planner;
 pub mod engine;

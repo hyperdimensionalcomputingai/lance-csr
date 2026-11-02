@@ -163,10 +163,10 @@ uv run --no-sync python benchmarks/csr_expand.py --data /tmp/csr-bench --edges 1
 
 | Script | Measures |
 | --- | --- |
-| `csr_expand.py` | CSR build cost, single-hop latency against the join path, refresh cost and peak RSS, per edge count |
-| `csr_delta.py` | `refresh()` with a delta against a full rebuild, after one append or delete commit (uses `csr_expand.py`'s data) |
+| `csr_expand.py` | CSR build cost, single-hop latency against the join path, `checkout_latest()` cost and peak RSS, per edge count |
+| `csr_delta.py` | `checkout_latest()` with a delta against a full rebuild, after one append or delete commit (uses `csr_expand.py`'s data) |
 | `csr_delta_accumulated.py` | Refresh cost as deltas accumulate over many small commits (the basis of the 25% rebuild threshold) |
-| `engine_cache.py` | Engine construction, first-query, warm-query and refresh timings; can compare against upstream `lance_graph` |
+| `engine_cache.py` | Engine construction, first-query, warm-query and `checkout_latest()` timings; can compare against upstream `lance_graph` |
 | `bounded_memory.py` | Peak memory of streamed scans over Lance data larger than a memory cap (`generate`, then `run`) |
 
 Each script's docstring lists its options. When you change performance-sensitive code, include before and

@@ -114,4 +114,4 @@ graph join chain, that turns a multi-million-row intermediate into an estimate o
 
 `KeyStatisticsProvider` wraps each table and reports distinct counts for its node-id and edge-endpoint columns, taken
 from the CSR when there is one and otherwise from one scan of the endpoint columns. Every other statistic comes from
-the inner table. The counts are cached per dataset version, so a `refresh()` with no changes costs nothing.
+the inner table. The counts are cached per dataset version, so a `checkout_latest()` with no changes costs nothing.

@@ -5,7 +5,7 @@
 //!
 //! [`CypherEngine`] holds a snapshot of every input: the DataFusion context, the
 //! catalog, join-key statistics and, with `use_csr`, the CSR adjacencies and node
-//! indexes. Queries share the snapshot read-only; [`CypherEngine::refresh`] builds a
+//! indexes. Queries share the snapshot read-only; [`CypherEngine::checkout_latest`] builds a
 //! complete replacement and swaps it in.
 //!
 //! ```no_run
@@ -47,9 +47,10 @@ use serde_json::Value as JsonValue;
 
 use crate::config::GraphConfig;
 use crate::csr_expand::{
-    edge_changes, is_supported_id_type, Adjacency, AdjacencyCatalog, CsrQueryPlanner, EdgeRows,
-    NodeRows, PruneCsrTargetColumns, PushCsrTargetFilters,
+    edge_changes, edge_changes_since, is_supported_id_type, Adjacency, AdjacencyCatalog,
+    CsrQueryPlanner, EdgeChanges, EdgeRows, NodeRows, PruneCsrTargetColumns, PushCsrTargetFilters,
 };
+use crate::csr_store;
 use crate::error::{GraphError, Result};
 use crate::key_statistics::KeyStatisticsProvider;
 use crate::lance_vector_search::VectorSearch;
@@ -62,8 +63,8 @@ use crate::{GraphSourceCatalog, InMemoryCatalog};
 pub enum EngineSource {
     /// On-disk Lance dataset, read lazily through `LanceTableProvider`.
     ///
-    /// `dataset` is pinned to one version; only `refresh()` replaces it. `uri` and
-    /// `storage_options` are kept so refresh can reopen the same location with the
+    /// `dataset` is pinned to one version; only `checkout_latest()` replaces it. `uri` and
+    /// `storage_options` are kept so `checkout_latest()` can reopen the same location with the
     /// same credentials.
     Lance {
         uri: String,
@@ -78,7 +79,7 @@ pub enum EngineSource {
 impl EngineSource {
     /// Open a Lance dataset at `uri`, pinned to `version` (`None` means the latest).
     ///
-    /// `storage_options` are kept so [`CypherEngine::refresh`] can reopen the same
+    /// `storage_options` are kept so [`CypherEngine::checkout_latest`] can reopen the same
     /// location with the same credentials.
     pub async fn open_lance(
         uri: impl Into<String>,
@@ -171,8 +172,9 @@ pub struct CsrStats {
     /// Live edges outside the base CSR: appended since its last full build and not
     /// since removed. Lance's `num_unindexed_rows`, counted in edges.
     pub unindexed_edges: u64,
-    /// How the last refresh or `optimize_csr()` produced it: `build` (first), `rebuild`
-    /// (full), `delta` (changes applied) or `reused` (no edge change).
+    /// How the last build, `checkout_latest()` or `optimize_csr()` produced it: `build` (first), `rebuild`
+    /// (full), `loaded` (from a stored file, with any changes since applied as a
+    /// delta), `delta` (changes applied) or `reused` (no edge change).
     pub update: &'static str,
     /// Relationship dataset version it reflects (`None` for Arrow input).
     pub version: Option<u64>,
@@ -195,11 +197,11 @@ pub struct NodeIndexStats {
 
 /// Everything a query needs, built once and shared read-only by concurrent queries.
 ///
-/// `refresh()` builds a complete replacement and swaps it in; queries already running
+/// `checkout_latest()` builds a complete replacement and swaps it in; queries already running
 /// keep the `Arc` they started with, so they finish on their original snapshot.
 struct EngineState {
     sources: HashMap<String, EngineSource>,
-    /// Unoptimized plan templates for this snapshot; a refresh starts an empty cache.
+    /// Unoptimized plan templates for this snapshot; `checkout_latest()` starts an empty cache.
     plans: Mutex<VecDeque<CachedQuery>>,
     catalog: Arc<dyn GraphSourceCatalog>,
     context: SessionContext,
@@ -273,13 +275,13 @@ struct CsrEntry {
     base_version: Option<u64>,
     /// Wall time of the last build or delta application.
     build_ms: f64,
-    /// How the last refresh or optimize produced this entry: build, rebuild, delta or reused.
+    /// How the last refresh or optimize produced this entry: build, rebuild, loaded, delta or reused.
     update: &'static str,
 }
 
 /// Rebuild instead of applying a delta once pending changes (appended edges +
 /// tombstones, accumulated since the last full build) would exceed this fraction
-/// of the base. Lookups pay for the delta on every query, and a rebuild folds it in.
+/// of the base. Lookups read the delta on every query, and a rebuild clears it.
 ///
 /// This threshold also bounds refresh cost: each delta refresh copies the whole
 /// accumulated delta (see the design note on `crate::csr_expand::Adjacency`).
@@ -326,24 +328,7 @@ async fn try_apply_csr_delta(
             ..old.clone()
         });
     }
-    let too_large =
-        |pending: u64| pending as f64 > CSR_REBUILD_FRACTION * old.outgoing.base_edges() as f64;
-    if too_large(
-        old.outgoing.delta_edges() + old.outgoing.tombstones() + changes.added.len() as u64,
-    ) {
-        return None;
-    }
-    // Removed rows are only counted by applying them; one direction is enough to decide.
-    let outgoing = old.outgoing.with_changes(&changes.added, &changes.removed);
-    if too_large(outgoing.delta_edges() + outgoing.tombstones()) {
-        return None;
-    }
-    let flipped: Vec<_> = changes
-        .added
-        .iter()
-        .map(|&(a, b, row)| (b, a, row))
-        .collect();
-    let incoming = old.incoming.with_changes(&flipped, &changes.removed);
+    let (outgoing, incoming) = apply_csr_changes(&old.outgoing, &old.incoming, &changes)?;
     Some(CsrEntry {
         source: source.clone(),
         outgoing: Arc::new(outgoing),
@@ -352,6 +337,61 @@ async fn try_apply_csr_delta(
         base_version: old.base_version,
         build_ms: elapsed(),
         update: "delta",
+    })
+}
+
+/// `changes` applied to both directions, or `None` when the accumulated delta would
+/// pass `CSR_REBUILD_FRACTION` of the base.
+fn apply_csr_changes(
+    outgoing: &Adjacency,
+    incoming: &Adjacency,
+    changes: &EdgeChanges,
+) -> Option<(Adjacency, Adjacency)> {
+    let too_large =
+        |pending: u64| pending as f64 > CSR_REBUILD_FRACTION * outgoing.base_edges() as f64;
+    if too_large(outgoing.delta_edges() + outgoing.tombstones() + changes.added.len() as u64) {
+        return None;
+    }
+    // Removed rows are only counted by applying them; one direction is enough to decide.
+    let new_outgoing = outgoing.with_changes(&changes.added, &changes.removed);
+    if too_large(new_outgoing.delta_edges() + new_outgoing.tombstones()) {
+        return None;
+    }
+    let flipped: Vec<_> = changes
+        .added
+        .iter()
+        .map(|&(a, b, row)| (b, a, row))
+        .collect();
+    let new_incoming = incoming.with_changes(&flipped, &changes.removed);
+    Some((new_outgoing, new_incoming))
+}
+
+/// The CSR stored for `source`, brought up to date with the changes since.
+///
+/// `None` when nothing usable is stored, the changes can't be computed, or they would
+/// pass the rebuild threshold.
+async fn load_stored_csr(source: &EngineSource, src: &str, dst: &str) -> Option<CsrEntry> {
+    let EngineSource::Lance { dataset, .. } = source else {
+        return None;
+    };
+    let started = std::time::Instant::now();
+    let stored = csr_store::load(dataset, src, dst).await?;
+    let changes = edge_changes_since(&stored.fragments, &stored.fields, dataset, src, dst)
+        .await
+        .ok()??;
+    let (outgoing, incoming) = if changes.is_empty() {
+        (stored.outgoing, stored.incoming)
+    } else {
+        apply_csr_changes(&stored.outgoing, &stored.incoming, &changes)?
+    };
+    Some(CsrEntry {
+        source: source.clone(),
+        outgoing: Arc::new(outgoing),
+        incoming: Arc::new(incoming),
+        edges: source.edge_rows(),
+        base_version: Some(stored.version),
+        build_ms: started.elapsed().as_secs_f64() * 1e3,
+        update: "loaded",
     })
 }
 
@@ -460,17 +500,16 @@ fn validate_sources(config: &GraphConfig, schemas: &HashMap<String, SchemaRef>) 
 }
 
 /// Validate sources and register them in a fresh catalog and session context.
-/// `fold_csr_deltas` rebuilds every CSR of `previous` that carries a delta.
+/// `rebuild_deltas` rebuilds every CSR of `previous` that carries a delta.
 async fn build_engine_state(
     config: &GraphConfig,
     sources: HashMap<String, EngineSource>,
-    use_csr: bool,
-    target_partitions: Option<usize>,
+    options: &EngineOptions,
     previous: Option<&EngineState>,
-    fold_csr_deltas: bool,
+    rebuild_deltas: bool,
 ) -> Result<EngineState> {
     let mut session_config = SessionConfig::new();
-    if let Some(partitions) = target_partitions {
+    if let Some(partitions) = options.target_partitions {
         session_config = session_config.with_target_partitions(partitions);
     }
     // The CSR planner only changes plans that contain CSR nodes, so install it always.
@@ -508,9 +547,17 @@ async fn build_engine_state(
     }
 
     validate_sources(config, &schemas)?;
-    let (csr, node_index) = if use_csr {
+    let (csr, node_index) = if options.use_csr {
         (
-            build_csr_entries(config, &sources, &schemas, previous, fold_csr_deltas).await?,
+            build_csr_entries(
+                config,
+                &sources,
+                &schemas,
+                previous,
+                rebuild_deltas,
+                options.persist_csr,
+            )
+            .await?,
             build_node_index(config, &sources, previous).await?,
         )
     } else {
@@ -627,7 +674,7 @@ fn memtable_partitions(batch: &RecordBatch) -> Vec<Vec<RecordBatch>> {
 /// Node ids count as unique (the row count). Edge endpoints use the CSR's distinct
 /// source and target counts when the CSR is built, and otherwise one scan of the two
 /// endpoint columns; only integer endpoints are counted. Reused while a dataset is
-/// the same snapshot, so an unchanged `refresh()` costs nothing.
+/// the same snapshot, so an unchanged `checkout_latest()` costs nothing.
 // shortcut: the fallback scan reads every edge endpoint at construction and on each changed refresh (about one CSR build's scan); switch to an approximate counter (HyperLogLog) or Lance column statistics if that shows up in startup time.
 async fn build_key_statistics(
     config: &GraphConfig,
@@ -749,12 +796,18 @@ async fn build_key_statistics(
 /// snapshot; node-table changes never invalidate it, since the CSR stores raw
 /// target ids. Relationship types with non-integer endpoints get no entry and
 /// queries over them use the join path.
+///
+/// With `persist`, a Lance relationship dataset's stored CSR is loaded instead of the
+/// first build when it can be brought up to date, and every full build is stored.
+/// Later rebuilds don't look for a file: the stored base is the one the engine already
+/// had, whose delta just grew too large.
 async fn build_csr_entries(
     config: &GraphConfig,
     sources: &HashMap<String, EngineSource>,
     schemas: &HashMap<String, SchemaRef>,
     previous: Option<&EngineState>,
-    fold_deltas: bool,
+    rebuild_deltas: bool,
+    persist: bool,
 ) -> Result<HashMap<String, CsrEntry>> {
     let mut entries = HashMap::new();
     for (_, mapping) in config.iter_relationship_mappings() {
@@ -767,7 +820,7 @@ async fn build_csr_entries(
         };
         if let Some(old) = previous.and_then(|p| p.csr.get(rel_type)) {
             let delta = old.outgoing.delta_edges() + old.outgoing.tombstones() > 0;
-            if old.source.same_data(source) && !(fold_deltas && delta) {
+            if old.source.same_data(source) && !(rebuild_deltas && delta) {
                 entries.insert(rel_type.clone(), old.clone());
                 continue;
             }
@@ -790,18 +843,36 @@ async fn build_csr_entries(
         }
 
         let previous_entry = previous.and_then(|p| p.csr.get(rel_type));
-        if let Some(old) = previous_entry.filter(|_| !fold_deltas) {
+        if let Some(old) = previous_entry.filter(|_| !rebuild_deltas) {
             if let Some(entry) = try_apply_csr_delta(old, source, src.name(), dst.name()).await {
                 entries.insert(rel_type.clone(), entry);
                 continue;
             }
         }
 
+        if persist && previous_entry.is_none() {
+            if let Some(entry) = load_stored_csr(source, src.name(), dst.name()).await {
+                entries.insert(rel_type.clone(), entry);
+                continue;
+            }
+        }
+
+        // The one full build: the first, a refresh whose delta would pass the threshold,
+        // and optimize_csr() (`rebuild_deltas`) all end here.
         let started = std::time::Instant::now();
         // Two projected scans of the endpoint columns, one per direction.
         let scan = || source.edge_stream(src.name(), dst.name());
         let outgoing = Adjacency::build(scan().await?, src.name(), dst.name()).await?;
         let incoming = Adjacency::build(scan().await?, dst.name(), src.name()).await?;
+        let build_ms = started.elapsed().as_secs_f64() * 1e3;
+        if let (true, EngineSource::Lance { dataset, .. }) = (persist, source) {
+            // A failed write (read-only dataset or credentials) only costs the next start a build.
+            if let Err(e) =
+                csr_store::save(dataset, src.name(), dst.name(), &outgoing, &incoming).await
+            {
+                log::warn!("Could not store the CSR of {rel_type}: {e}");
+            }
+        }
         entries.insert(
             rel_type.clone(),
             CsrEntry {
@@ -810,7 +881,7 @@ async fn build_csr_entries(
                 incoming: Arc::new(incoming),
                 edges: source.edge_rows(),
                 base_version: source.lance_version(),
-                build_ms: started.elapsed().as_secs_f64() * 1e3,
+                build_ms,
                 update: if previous_entry.is_some() {
                     "rebuild"
                 } else {
@@ -829,20 +900,35 @@ async fn build_csr_entries(
 ///
 /// Lance datasets are read lazily from storage, pinned to the version they were
 /// opened at: writes made later (by this or another process) are not visible until
-/// [`refresh`](Self::refresh). Each dataset is pinned separately; versions across
+/// [`checkout_latest`](Self::checkout_latest). Each dataset is pinned separately; versions across
 /// tables are not a transactional multi-table snapshot. Arrow batches are held in
 /// memory and never change; build a new engine to replace them.
 ///
 /// Building the CSR (`use_csr`) is CPU-bound work inside an async function: in an
-/// application with its own async runtime, construct and refresh the engine on a
+/// application with its own async runtime, construct the engine and call `checkout_latest()` on a
 /// blocking thread (for example `tokio::task::spawn_blocking` plus `block_on`).
+/// Options for [`CypherEngine::with_options`].
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct EngineOptions {
+    /// Build CSR adjacencies and node indexes; see [`CypherEngine::new`].
+    pub use_csr: bool,
+    /// DataFusion `target_partitions`; see [`CypherEngine::with_target_partitions`].
+    pub target_partitions: Option<usize>,
+    /// Store each fully built CSR inside its Lance relationship dataset, at
+    /// `_lance_csr/<version>.arrow`, and load it instead of building when an engine
+    /// starts. Changes since the stored version apply as a delta, under
+    /// the same 25% threshold as `checkout_latest()`. Ignored without `use_csr` and for Arrow
+    /// input. A failed write is logged and doesn't fail the engine.
+    pub persist_csr: bool,
+}
+
 pub struct CypherEngine {
     config: GraphConfig,
     state: RwLock<Arc<EngineState>>,
-    use_csr: bool,
-    target_partitions: Option<usize>,
-    /// Held for a whole refresh, so a slower refresh can't swap in older data over a newer one.
-    refresh_lock: futures::lock::Mutex<()>,
+    options: EngineOptions,
+    /// Held for a whole update of the snapshot, so a slower `checkout_latest()` can't swap in older
+    /// data over a newer one.
+    update_lock: futures::lock::Mutex<()>,
 }
 
 impl CypherEngine {
@@ -868,7 +954,7 @@ impl CypherEngine {
     /// Like [`new`](Self::new), with a target for DataFusion query partitioning.
     ///
     /// `Some(n)` sets DataFusion's `target_partitions` for every query, kept across
-    /// [`refresh`](Self::refresh); `None` keeps DataFusion's default (the number of
+    /// [`checkout_latest`](Self::checkout_latest); `None` keeps DataFusion's default (the number of
     /// cores). It is not a thread or memory limit. In-memory Arrow inputs are still
     /// sliced into one partition per core.
     ///
@@ -881,28 +967,43 @@ impl CypherEngine {
         use_csr: bool,
         target_partitions: Option<usize>,
     ) -> Result<Self> {
+        let options = EngineOptions {
+            use_csr,
+            target_partitions,
+            ..Default::default()
+        };
+        Self::with_options(config, sources, options).await
+    }
+
+    /// Like [`new`](Self::new), with every [`EngineOptions`] setting.
+    ///
+    /// # Errors
+    /// As [`with_target_partitions`](Self::with_target_partitions).
+    pub async fn with_options(
+        config: GraphConfig,
+        sources: HashMap<String, EngineSource>,
+        options: EngineOptions,
+    ) -> Result<Self> {
         if sources.is_empty() {
             return Err(config_error("No input datasets provided".to_string()));
         }
-        if let Some(partitions) = target_partitions {
+        if let Some(partitions) = options.target_partitions {
             if !(1..=MAX_TARGET_PARTITIONS).contains(&partitions) {
                 return Err(config_error(format!(
                     "target_partitions must be between 1 and {MAX_TARGET_PARTITIONS}"
                 )));
             }
         }
-        let state =
-            build_engine_state(&config, sources, use_csr, target_partitions, None, false).await?;
+        let state = build_engine_state(&config, sources, &options, None, false).await?;
         Ok(Self {
             config,
             state: RwLock::new(Arc::new(state)),
-            use_csr,
-            target_partitions,
-            refresh_lock: Default::default(),
+            options,
+            update_lock: Default::default(),
         })
     }
 
-    /// The current snapshot. Cloning the `Arc` lets a query outlive a concurrent refresh.
+    /// The current snapshot. Cloning the `Arc` lets a query outlive a concurrent `checkout_latest()`.
     fn snapshot(&self) -> Arc<EngineState> {
         self.state
             .read()
@@ -940,7 +1041,7 @@ impl CypherEngine {
             .with_parameters(parameters)
             .with_config(self.config.clone())
             .with_fan_out(state.fan_out());
-        let mut query = if self.use_csr {
+        let mut query = if self.options.use_csr {
             query.with_adjacency(state.adjacency_catalog())
         } else {
             query
@@ -987,7 +1088,7 @@ impl CypherEngine {
     ///
     /// Batches are computed as the stream is polled. Scans, filters and projections
     /// stream with bounded memory; joins, sorts and aggregations may still buffer.
-    /// The stream keeps what it reads alive, so a concurrent `refresh()` does not
+    /// The stream keeps what it reads alive, so a concurrent `checkout_latest()` does not
     /// affect it. Planning errors return here; execution errors arrive in the stream.
     /// Dropping the stream cancels the remaining work.
     pub async fn execute_stream(
@@ -1023,15 +1124,16 @@ impl CypherEngine {
         vector_search.search(&candidates).await
     }
 
-    /// Move every Lance dataset to its latest version.
+    /// Move every Lance dataset to its latest version: the engine's counterpart of
+    /// Lance's `Dataset::checkout_latest()`.
     ///
     /// Datasets whose version and commit time are unchanged keep their open handle.
     /// The replacement is validated in full before it is swapped in; on error nothing
     /// changes and the previous snapshot stays usable. Queries already running finish
     /// on the snapshot they started with. Arrow inputs are unchanged. Concurrent calls
     /// run one at a time.
-    pub async fn refresh(&self) -> Result<()> {
-        let _refreshing = self.refresh_lock.lock().await;
+    pub async fn checkout_latest(&self) -> Result<()> {
+        let _updating = self.update_lock.lock().await;
         let current = self.snapshot();
         let mut sources = current.sources.clone();
         for source in sources.values_mut() {
@@ -1047,35 +1149,33 @@ impl CypherEngine {
                 }
             }
         }
-        let state = build_engine_state(
-            &self.config,
-            sources,
-            self.use_csr,
-            self.target_partitions,
-            Some(&current),
-            false,
-        )
-        .await?;
+        let state =
+            build_engine_state(&self.config, sources, &self.options, Some(&current), false).await?;
         *self.state.write().expect("engine state lock poisoned") = Arc::new(state);
         Ok(())
     }
 
-    /// Fold each CSR's delta into a new base, at the snapshot the engine is pinned to: the
+    /// Former name of [`checkout_latest`](Self::checkout_latest).
+    #[deprecated(note = "renamed to `checkout_latest`, after Lance's `Dataset::checkout_latest`")]
+    pub async fn refresh(&self) -> Result<()> {
+        self.checkout_latest().await
+    }
+
+    /// Rebuild each CSR that carries a delta, at the snapshot the engine is pinned to: the
     /// CSR's counterpart of Lance's `optimize_indices()`.
     ///
-    /// `refresh()` applies changes as a delta over the base CSR and rebuilds on its own
+    /// `checkout_latest()` applies changes as a delta over the base CSR and rebuilds on its own
     /// only once they pass 25% of the base. This rebuilds every CSR that carries a delta
     /// now, so lookups stop carrying it; one without a delta, and everything else, is
     /// reused. Results never change. The replacement is validated in full before it is
-    /// swapped in, as for `refresh()`, and the two run one at a time.
+    /// swapped in, as for `checkout_latest()`, and the two run one at a time.
     pub async fn optimize_csr(&self) -> Result<()> {
-        let _refreshing = self.refresh_lock.lock().await;
+        let _updating = self.update_lock.lock().await;
         let current = self.snapshot();
         let state = build_engine_state(
             &self.config,
             current.sources.clone(),
-            self.use_csr,
-            self.target_partitions,
+            &self.options,
             Some(&current),
             true,
         )
@@ -1084,9 +1184,32 @@ impl CypherEngine {
         Ok(())
     }
 
+    /// Delete the CSR files stored for this engine's Lance relationship datasets
+    /// (see [`EngineOptions::persist_csr`]), returning how many files were deleted.
+    ///
+    /// The engine keeps the CSR it has in memory, so queries are unaffected. An
+    /// engine with `persist_csr` stores a new file at its next full build; create
+    /// engines without it to stay in memory only. Runs one at a time with `checkout_latest()`
+    /// and `optimize_csr()`.
+    pub async fn delete_stored_csr(&self) -> Result<usize> {
+        let _updating = self.update_lock.lock().await;
+        let current = self.snapshot();
+        let mut deleted = 0;
+        for (_, mapping) in self.config.iter_relationship_mappings() {
+            let source = current
+                .sources
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case(&mapping.relationship_type));
+            if let Some((_, EngineSource::Lance { dataset, .. })) = source {
+                deleted += csr_store::delete_all(dataset).await?;
+            }
+        }
+        Ok(deleted)
+    }
+
     /// CSR adjacency statistics per relationship type (experimental, `use_csr`).
     ///
-    /// An identical map after `refresh()` means the snapshot itself was unchanged.
+    /// An identical map after `checkout_latest()` means the snapshot itself was unchanged.
     pub fn csr_stats(&self) -> HashMap<String, CsrStats> {
         self.snapshot()
             .csr
@@ -1165,7 +1288,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn target_partitions_survive_refresh_without_changing_other_defaults() {
+    async fn target_partitions_survive_checkout_latest_without_changing_other_defaults() {
         let defaults = SessionConfig::new();
         for target_partitions in [None, Some(1), Some(2)] {
             let engine = CypherEngine::with_target_partitions(
@@ -1177,7 +1300,7 @@ mod tests {
             .await
             .unwrap();
             let before = engine.snapshot();
-            engine.refresh().await.unwrap();
+            engine.checkout_latest().await.unwrap();
             for snapshot in [before, engine.snapshot()] {
                 let state = snapshot.context.state();
                 assert_eq!(
@@ -1203,7 +1326,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn plan_cache_reuses_bounds_and_resets_on_refresh() {
+    async fn plan_cache_reuses_bounds_and_resets_on_checkout_latest() {
         let engine = CypherEngine::new(person_config(), people_engine_sources(), false)
             .await
             .unwrap();
@@ -1270,7 +1393,7 @@ mod tests {
         assert_eq!(first.num_rows(), 1);
 
         // A refresh publishes a new snapshot with an empty cache; the old one is untouched.
-        engine.refresh().await.unwrap();
+        engine.checkout_latest().await.unwrap();
         assert!(engine.snapshot().plans.lock().unwrap().is_empty());
         assert_eq!(cached(), PLAN_CACHE_ENTRIES);
     }
@@ -1319,10 +1442,10 @@ mod tests {
         .unwrap();
     }
 
-    /// A refresh that starts while another is in flight waits for it, then publishes
+    /// A `checkout_latest()` that starts while another is in flight waits for it, then publishes
     /// the newest version: an older snapshot can never land after a newer one.
     #[tokio::test]
-    async fn refresh_waits_for_an_in_flight_refresh() {
+    async fn checkout_latest_waits_for_an_in_flight_checkout() {
         let dir = tempfile::tempdir().unwrap();
         let uri = dir.path().join("person.lance").display().to_string();
         write_people(&uri, vec![1], WriteMode::Create).await;
@@ -1337,13 +1460,13 @@ mod tests {
         let engine = Arc::new(CypherEngine::new(config, sources, true).await.unwrap());
 
         // Stand in for refresh A, still building its replacement.
-        let in_flight = engine.refresh_lock.lock().await;
+        let in_flight = engine.update_lock.lock().await;
         let b = tokio::spawn({
             let engine = engine.clone();
-            async move { engine.refresh().await }
+            async move { engine.checkout_latest().await }
         });
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        assert!(!b.is_finished(), "refresh B ran while A was in flight");
+        assert!(!b.is_finished(), "checkout B ran while A was in flight");
 
         // A newer version lands before A finishes; B must publish it, not anything older.
         write_people(&uri, vec![2], WriteMode::Append).await;
@@ -1351,5 +1474,198 @@ mod tests {
         b.await.unwrap().unwrap();
         assert_eq!(engine.dataset_versions()["Person"], 2);
         assert_eq!(engine.node_index_stats()["Person"].rows, 2);
+    }
+
+    async fn write_knows(uri: &str, edges: &[(i64, i64)], mode: WriteMode) {
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("src", DataType::Int64, false),
+            Field::new("dst", DataType::Int64, false),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(Int64Array::from_iter_values(edges.iter().map(|e| e.0))),
+                Arc::new(Int64Array::from_iter_values(edges.iter().map(|e| e.1))),
+            ],
+        )
+        .unwrap();
+        let params = WriteParams {
+            mode,
+            max_rows_per_file: 40,
+            ..Default::default()
+        };
+        Dataset::write(
+            RecordBatchIterator::new([Ok(batch)], schema),
+            uri,
+            Some(params),
+        )
+        .await
+        .unwrap();
+    }
+
+    /// Every `(a, b)` reachable in two hops, sorted, from an engine over `uri`.
+    async fn two_hops(uri: &str, persist_csr: bool) -> (Vec<(i64, i64)>, CsrStats) {
+        let config = GraphConfig::builder()
+            .node_table("Person", "id")
+            .rel_table("KNOWS", "Person", "Person", "src", "dst")
+            .build()
+            .unwrap();
+        let people = RecordBatch::try_from_iter([(
+            "id",
+            Arc::new(Int64Array::from_iter_values(0..60)) as arrow_array::ArrayRef,
+        )])
+        .unwrap();
+        let knows = EngineSource::open_lance(uri, None, HashMap::new())
+            .await
+            .unwrap();
+        let sources = HashMap::from([
+            ("Person".to_string(), EngineSource::Arrow(people)),
+            ("KNOWS".to_string(), knows),
+        ]);
+        let options = EngineOptions {
+            use_csr: true,
+            persist_csr,
+            ..Default::default()
+        };
+        let engine = CypherEngine::with_options(config, sources, options)
+            .await
+            .unwrap();
+        let batch = engine
+            .execute(
+                "MATCH (a:Person)-[:KNOWS]->(:Person)<-[:KNOWS]-(b:Person) \
+                 RETURN a.id AS a, b.id AS b",
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+        let column = |i: usize| {
+            batch
+                .column(i)
+                .as_any()
+                .downcast_ref::<Int64Array>()
+                .unwrap()
+                .clone()
+        };
+        let (a, b) = (column(0), column(1));
+        let mut rows: Vec<_> = a
+            .values()
+            .iter()
+            .copied()
+            .zip(b.values().iter().copied())
+            .collect();
+        rows.sort_unstable();
+        (rows, engine.csr_stats()["KNOWS"].clone())
+    }
+
+    fn stored_files(uri: &str) -> Vec<String> {
+        let mut names: Vec<String> =
+            std::fs::read_dir(std::path::Path::new(uri).join("_lance_csr"))
+                .map(|entries| {
+                    entries
+                        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+                        .collect()
+                })
+                .unwrap_or_default();
+        names.sort();
+        names
+    }
+
+    /// A stored CSR is loaded in place of a build, brought up to date with later
+    /// appends and deletes, ignored when corrupt, and replaced by `optimize_csr()`;
+    /// every answer matches an engine that builds from scratch.
+    #[tokio::test]
+    async fn persisted_csr_loads_and_catches_up() {
+        let dir = tempfile::tempdir().unwrap();
+        let uri = dir.path().join("knows.lance").display().to_string();
+        // Duplicate edges and a self-loop, over three fragments.
+        let mut edges: Vec<(i64, i64)> = (0..100).map(|i| (i % 50, (i * 7) % 60)).collect();
+        edges.extend([(3, 3), (3, 21), (3, 21)]);
+        write_knows(&uri, &edges, WriteMode::Create).await;
+
+        let (expected, stats) = two_hops(&uri, false).await;
+        assert_eq!(stats.update, "build");
+        assert!(
+            stored_files(&uri).is_empty(),
+            "nothing is stored without persist_csr"
+        );
+
+        let (rows, stats) = two_hops(&uri, true).await;
+        assert_eq!((rows == expected, stats.update), (true, "build"));
+        assert_eq!(stored_files(&uri), ["1.arrow"]);
+
+        let (rows, stats) = two_hops(&uri, true).await;
+        assert_eq!((rows == expected, stats.update), (true, "loaded"));
+        assert_eq!((stats.edges, stats.base_version), (103, Some(1)));
+
+        // An append and a delete since the stored version become a delta.
+        write_knows(&uri, &[(1, 2), (2, 1), (40, 3)], WriteMode::Append).await;
+        let mut ds = Dataset::open(&uri).await.unwrap();
+        ds.delete("src = 3 AND dst = 21").await.unwrap();
+        let (expected, _) = two_hops(&uri, false).await;
+        let (rows, stats) = two_hops(&uri, true).await;
+        assert_eq!((rows == expected, stats.update), (true, "loaded"));
+        assert_eq!(
+            (
+                stats.delta_edges,
+                stats.tombstones,
+                stats.version,
+                stats.base_version
+            ),
+            (3, 3, Some(3), Some(1))
+        );
+        assert_eq!(
+            stored_files(&uri),
+            ["1.arrow"],
+            "a delta doesn't store a new base"
+        );
+
+        // A corrupt file is ignored: the engine builds and stores the current version.
+        std::fs::write(
+            dir.path().join("knows.lance/_lance_csr/1.arrow"),
+            b"not arrow",
+        )
+        .unwrap();
+        let (rows, stats) = two_hops(&uri, true).await;
+        assert_eq!((rows == expected, stats.update), (true, "build"));
+        assert_eq!(stored_files(&uri), ["3.arrow"], "older files are pruned");
+
+        // optimize_csr() stores the rebuilt base of a CSR loaded with a delta.
+        write_knows(&uri, &[(5, 6)], WriteMode::Append).await;
+        let config = GraphConfig::builder()
+            .node_table("Person", "id")
+            .rel_table("KNOWS", "Person", "Person", "src", "dst")
+            .build()
+            .unwrap();
+        let knows = EngineSource::open_lance(&uri, None, HashMap::new())
+            .await
+            .unwrap();
+        let options = EngineOptions {
+            use_csr: true,
+            persist_csr: true,
+            ..Default::default()
+        };
+        let engine = CypherEngine::with_options(
+            config,
+            HashMap::from([("KNOWS".to_string(), knows)]),
+            options,
+        )
+        .await
+        .unwrap();
+        assert_eq!(engine.csr_stats()["KNOWS"].delta_edges, 1);
+        engine.optimize_csr().await.unwrap();
+        let stats = &engine.csr_stats()["KNOWS"];
+        assert_eq!((stats.update, stats.base_version), ("rebuild", Some(4)));
+        assert_eq!(stored_files(&uri), ["4.arrow"]);
+        let (rows, stats) = two_hops(&uri, true).await;
+        assert_eq!(stats.update, "loaded");
+        assert_eq!(rows, two_hops(&uri, false).await.0);
+
+        // Deleting the stored files leaves the engine's CSR in place.
+        assert_eq!(engine.delete_stored_csr().await.unwrap(), 1);
+        assert!(stored_files(&uri).is_empty());
+        assert!(!dir.path().join("knows.lance/_lance_csr").exists());
+        assert_eq!(engine.csr_stats()["KNOWS"].edges, 104);
+        assert_eq!(engine.delete_stored_csr().await.unwrap(), 0);
+        assert_eq!(two_hops(&uri, true).await.1.update, "build");
     }
 }

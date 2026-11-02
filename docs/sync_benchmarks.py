@@ -1,4 +1,4 @@
-"""Rewrite the benchmark tables in README.md and docs/benchmarks.md from the benchmark repositories.
+"""Rewrite the benchmark tables in docs/benchmarks.md from the benchmark repositories.
 
 Each benchmark repository commits pytest-benchmark's output for every engine to `results/`, with
 the machine and date in `results/environment.yml`. This script downloads those files at the
@@ -25,7 +25,7 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-TARGETS = [ROOT / "README.md", ROOT / "docs" / "benchmarks.md"]
+TARGETS = [ROOT / "docs" / "benchmarks.md"]
 
 # Columns: (results file stem, column title). The first two are lance-csr's modes; the rest are
 # the systems it is compared with.

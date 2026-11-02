@@ -116,7 +116,7 @@ async fn parameters_and_streaming() {
 }
 
 #[tokio::test]
-async fn lance_input_is_pinned_until_refresh() {
+async fn lance_input_is_pinned_until_checkout_latest() {
     let dir = tempfile::tempdir().unwrap();
     let person_uri = dir.path().join("person.lance");
     let knows_uri = dir.path().join("knows.lance");
@@ -144,14 +144,14 @@ async fn lance_input_is_pinned_until_refresh() {
         ["Carol"]
     );
 
-    // A write after construction stays invisible until refresh().
+    // A write after construction stays invisible until checkout_latest().
     write(knows(&[(2, 4)]), knows_uri, WriteMode::Append).await;
     assert_eq!(
         names(&engine.execute(TWO_HOPS, HashMap::new()).await.unwrap()),
         ["Carol"]
     );
 
-    engine.refresh().await.unwrap();
+    engine.checkout_latest().await.unwrap();
     assert_eq!(
         names(&engine.execute(TWO_HOPS, HashMap::new()).await.unwrap()),
         ["Carol", "David"]
@@ -179,7 +179,7 @@ async fn optimize_csr_folds_the_delta_into_the_base() {
     let engine = CypherEngine::new(config(), sources, true).await.unwrap();
 
     write(knows(&[(2, 4)]), knows_uri, WriteMode::Append).await;
-    engine.refresh().await.unwrap();
+    engine.checkout_latest().await.unwrap();
     let csr = engine.csr_stats()["KNOWS"].clone();
     assert_eq!(
         (csr.update, csr.delta_edges, csr.unindexed_edges),

@@ -1,11 +1,11 @@
 """
-Disk-backed CypherEngine: pinned snapshots, refresh, and streamed results.
+Disk-backed CypherEngine: pinned snapshots, checkout_latest(), and streamed results.
 
 Requirements: an installed lance-csr wheel (or `maturin develop` in python/), which
 pulls in a compatible pylance 13.x.
 
 Run:
-  python examples/lance_snapshot_refresh.py
+  python examples/lance_snapshots.py
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ def main() -> None:
             "Person": lance.dataset(person_uri),
             "KNOWS": lance.dataset(root / "knows.lance"),
         },
-        # Optional: choose this target after measuring your own queries; refresh keeps it.
+        # Optional: choose this target after measuring your own queries; checkout_latest() keeps it.
         target_partitions=2,
     )
     count = "MATCH (p:Person) RETURN count(*) AS n"
@@ -59,13 +59,13 @@ def main() -> None:
         ).to_pylist(),
     )
 
-    # Writes are not visible until refresh(): the engine is pinned to version 1.
+    # Writes are not visible until checkout_latest(): the engine is pinned to version 1.
     lance.write_dataset(people(ROWS, ROWS + 10), person_uri, mode="append")
     lance.dataset(person_uri).add_columns({"age": "id % 100"})  # schema change
-    print("after writes, before refresh:", engine.execute(count).column(0)[0].as_py())
-    engine.refresh()
+    print("after writes, before checkout_latest():", engine.execute(count).column(0)[0].as_py())
+    engine.checkout_latest()
     print(
-        "after refresh:",
+        "after checkout_latest():",
         engine.execute(count).column(0)[0].as_py(),
         engine.dataset_versions(),
     )

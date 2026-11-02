@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright The Lance Authors
 
-"""Engine construction, first-query, warm-query and refresh timings.
+"""Engine construction, first-query, warm-query and checkout_latest() timings.
 
 Runs against either the upstream build (``--module lance_graph``) or this fork
 (``--module lance_csr``) on the same on-disk Lance data, so the two can be compared
@@ -112,11 +112,13 @@ def main() -> None:
         warm.append(t)
     emit("warm_query", **summary(warm))
 
-    # Upstream has no refresh(); its equivalent is building a new engine.
+    # Upstream has no checkout_latest() (refresh() in older lance-csr); its equivalent
+    # is building a new engine.
     refresh = []
+    checkout = getattr(engine, "checkout_latest", None) or getattr(engine, "refresh", None)
     for _ in range(min(args.repeats, 10)):
-        if hasattr(engine, "refresh"):
-            t, _ = timed(engine.refresh)
+        if checkout is not None:
+            t, _ = timed(checkout)
         else:
             t, engine = timed(lambda: mod.CypherEngine(config, open_datasets()))
         refresh.append(t)

@@ -110,11 +110,11 @@ lets relationship-type alternation (`[:likes_post|likes_comment]`) pick the righ
 `with_node_label` and `with_relationship`, the names in lance-csr 0.1, were removed in
 0.5.0; use `node_table` and `rel_table` instead.
 
-### 3. Lance datasets: snapshots, refresh and streaming
+### 3. Lance datasets: snapshots, checking out new versions and streaming
 
 `CypherEngine` reads Lance datasets lazily from storage (projections and filters are pushed into the
 scan). Each dataset is pinned to the version you pass in; later writes are visible only after
-`refresh()`. Use `execute_batches()` to stream large results instead of materializing a table.
+`checkout_latest()`. Use `execute_batches()` to stream large results instead of materializing a table.
 
 ```python
 import lance
@@ -124,15 +124,15 @@ config = GraphConfig.builder().node_table("Person", "id").build()
 engine = CypherEngine(config, {"Person": lance.dataset("people.lance")})
 
 engine.execute("MATCH (p:Person) RETURN count(*)")   # sees the pinned version
-engine.refresh()                                       # move to the latest version
+engine.checkout_latest()                                       # move to the latest version
 for batch in engine.execute_batches("MATCH (p:Person) RETURN p.id"):
     ...                                                # pyarrow.RecordBatch, one at a time
 ```
 
 Experimental: `CypherEngine(config, datasets, use_csr=True)` answers single-hop patterns over integer ids
 with an in-memory CSR adjacency, and fetches target rows by position instead of joining. The CSR is
-rebuilt on `refresh()` when the relationship table changes, and the per-label id index when its node
-table changes. Results are identical; peak memory grows by about 70 bytes per edge (both directions).
+rebuilt on `checkout_latest()` when the relationship table changes, and the per-label id index when its node
+table changes. Results are identical; peak memory grows by about 95 bytes per edge while the CSR is built (both directions).
 
 Write Lance data with `pylance` 13.x: the engine is built against Lance 13 and older or newer
 majors may write files it cannot read.
@@ -158,11 +158,11 @@ config = (
 engine = CypherEngine(config, {"Person": people.to_lance(), "KNOWS": knows.to_lance()})
 
 knows.add(new_edges)   # keep writing with the LanceDB API
-engine.refresh()       # the engine sees the new version
+engine.checkout_latest()       # the engine sees the new version
 ```
 
 - Reads are lazy and pinned to the version you pass in, exactly as with `lance.dataset(...)`.
-- `table.to_arrow()` also works, but loads the whole table into memory and never refreshes.
+- `table.to_arrow()` also works, but loads the whole table into memory and never sees later versions.
 - Tested with LanceDB 0.40.0 on local tables, which write Lance file format 2.2. A LanceDB release that
   bundles a newer Lance major may write files this engine cannot read.
 - Not supported: LanceDB Cloud (remote tables have no `to_lance()`), and tables opened through a

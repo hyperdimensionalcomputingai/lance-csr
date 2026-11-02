@@ -31,7 +31,7 @@ them.
   Build from the repository root with the locked build command above and publish `site/`.
 - Files that aren't pages (this file, `check_snippets.py`, `sync_benchmarks.py`, the uv project, `overrides/`, the
   brand README and previews) are listed under `exclude_docs` in `zensical.toml`. Add new non-page files there.
-- Benchmark tables between `<!-- bench:... -->` markers in `benchmarks.md` and the root `README.md` are
+- Benchmark tables between `<!-- bench:... -->` markers in `benchmarks.md` are
   generated; never edit them by hand. The runners and results live in graph-benchmark-ldbc-complex and
   graph-benchmark-ldbc. To publish a new run, merge it there, pin its commit in `sync_benchmarks.py`, and run
   `uv run --project docs --locked python docs/sync_benchmarks.py`.
@@ -76,14 +76,20 @@ them.
 
 ## Style
 
-- Lead with what the reader wants to do, then show it. Mix short prose with code; a concept that takes more
-  than two paragraphs probably needs an example or a diagram.
+- Explain what something is and why it exists before how to use it. Don't open a page or section with an
+  instruction ("Call it after…", "Use this when…"): the reader needs the what and the why to judge the how. Mix
+  short prose with code; a concept that takes more than two paragraphs probably needs an example or a diagram.
+- Don't assume the reader knows the background. Give the context a newcomer needs (for example, that Lance
+  datasets gain new versions as they're written, so the engine has to be told about them), and define a term,
+  such as the CSR's delta, before relying on it.
+- Say each thing once. A section shouldn't restate what the page already said above it; keep sentences short and
+  cut words that add no information.
 - Use Zensical components where they help the reader, not for decoration:
     - admonitions (`!!! tip`, `note`, `warning`, `danger`, `info`, `example`, `failure`, `bug`) for advice,
       caveats and known issues; `???` makes a collapsible one for long detail;
     - content tabs (`=== "Tab"`) for alternatives, such as install methods or input types;
     - code annotations (`# (1)!` plus a numbered list after the block) to explain specific lines;
-    - Mermaid diagrams (```` ```mermaid ````) for flows: query pipelines, refresh decisions, snapshots;
+    - Mermaid diagrams (```` ```mermaid ````) for flows: query pipelines, `checkout_latest()` decisions, snapshots;
     - tables for options and comparisons, definition lists for method references;
     - grid cards on the home page only.
 - Plain, direct sentences. Use "you". Avoid filler and marketing adjectives. Spell out a term the first time

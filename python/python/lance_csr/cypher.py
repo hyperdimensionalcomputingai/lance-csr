@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from enum import IntEnum
 from typing import TYPE_CHECKING, Any, Self, final
 
@@ -47,9 +48,9 @@ class CypherEngine:
 
     Lance datasets are read lazily, pinned to the version passed in: later writes, by
     this or another process, aren't visible until
-    [`refresh`][lance_csr.CypherEngine.refresh]. Each dataset is pinned separately, so
-    versions across tables are not a transactional snapshot. PyArrow inputs are held in
-    memory and never change; create a new engine to replace them.
+    [`checkout_latest`][lance_csr.CypherEngine.checkout_latest]. Each dataset is pinned
+    separately, so versions across tables are not a transactional snapshot. PyArrow
+    inputs are held in memory and never change; create a new engine to replace them.
 
     [`execute`][lance_csr.CypherEngine.execute] and
     [`execute_batches`][lance_csr.CypherEngine.execute_batches] reuse up to 128
@@ -58,7 +59,8 @@ class CypherEngine:
     call. Container parameters, rich path values, `CALL` subqueries, parameterized
     `SKIP`/`LIMIT` and unsupported template shapes use ordinary planning.
     [`explain`][lance_csr.CypherEngine.explain] always plans directly, and a successful
-    `refresh` clears the cache. See [Repeated queries](lance.md#repeated-queries).
+    `checkout_latest` clears the cache. See [Repeated
+    queries](lance.md#repeated-queries).
 
     Parameters
     ----------
@@ -73,15 +75,25 @@ class CypherEngine:
         endpoints, and node indexes for labels with unique integer keys.
     target_partitions : int or None
         Keyword-only. A target from 1 to 1024 for DataFusion query partitioning; `None`
-        keeps DataFusion's default. `refresh` preserves it. It is not a thread or memory
-        limit. See [Query parallelism](lance.md#query-parallelism).
+        keeps DataFusion's default. `checkout_latest` preserves it. It is not a thread
+        or memory limit. See [Query parallelism](lance.md#query-parallelism).
+    persist_csr : bool
+        Keyword-only, experimental, needs `use_csr=True`. Store each relationship
+        dataset's CSR inside the dataset's own directory, at
+        `_lance_csr/<version>.arrow`, and load it instead of building when an engine
+        starts. Changes since the stored version apply as a delta under the same 25%
+        threshold as `checkout_latest`; past it, the CSR is rebuilt and stored again.
+        Lance's `cleanup_old_versions` leaves the folder alone. PyArrow inputs aren't
+        stored, and a dataset that can't be written (read-only storage or credentials)
+        is built as without it. See [Storing the CSR](csr.md#storing-the-csr).
 
     Raises
     ------
     ValueError
         If `datasets` is empty, a configured key or endpoint column is missing, a Lance
-        dataset was opened through a namespace client and can't be reopened by URI, or
-        `target_partitions` is outside 1 to 1024.
+        dataset was opened through a namespace client and can't be reopened by URI,
+        `target_partitions` is outside 1 to 1024, or `persist_csr` is set without
+        `use_csr`.
     TypeError
         If `config` isn't a `GraphConfig`, a dataset has an unsupported type, or
         `target_partitions` is a boolean or another non-integer other than `None`.
@@ -118,12 +130,14 @@ class CypherEngine:
         use_csr: bool = False,
         *,
         target_partitions: int | None = None,
+        persist_csr: bool = False,
     ) -> None:
         self._inner = _graph.CypherEngine(
             inner(config, GraphConfig, "config"),
             datasets,
             use_csr,
             target_partitions=target_partitions,
+            persist_csr=persist_csr,
         )
 
     def __repr__(self) -> str:
@@ -188,8 +202,8 @@ class CypherEngine:
         Batches are computed as the reader is consumed. Scans, filters and projections
         stream with bounded memory; joins, sorts and aggregations may still buffer. The
         reader keeps its snapshot alive, so a concurrent
-        [`refresh`][lance_csr.CypherEngine.refresh] doesn't affect it. Planning errors
-        raise immediately; execution errors raise while reading.
+        [`checkout_latest`][lance_csr.CypherEngine.checkout_latest] doesn't affect it.
+        Planning errors raise immediately; execution errors raise while reading.
 
         Parameters
         ----------
@@ -245,38 +259,72 @@ class CypherEngine:
         """
         return self._inner.explain(query, params)
 
-    def refresh(self) -> None:
+    def checkout_latest(self) -> None:
         """Move every Lance dataset to its latest version.
 
-        Updates the CSR, node indexes and statistics to match. Datasets whose version
-        and commit time are unchanged keep their open handle. The replacement is
-        validated in full before it's swapped in: on error nothing changes and the
-        previous snapshot stays usable. Queries already running finish on the snapshot
-        they started with. PyArrow inputs are unchanged. Concurrent calls run one at a
-        time, and `target_partitions` is preserved. See
-        [Lance datasets](lance.md#refresh).
+        The engine's counterpart of Lance's `LanceDataset.checkout_latest()`, for every
+        dataset at once. Updates the CSR, node indexes and statistics to match. Datasets
+        whose version and commit time are unchanged keep their open handle. The
+        replacement is validated in full before it's swapped in: on error nothing
+        changes and the previous snapshot stays usable. Queries already running finish
+        on the snapshot they started with. PyArrow inputs are unchanged. Concurrent
+        calls run one at a time, and `target_partitions` is preserved. See [Lance
+        datasets](lance.md#checkout-latest).
         """
-        self._inner.refresh()
+        self._inner.checkout_latest()
+
+    def refresh(self) -> None:
+        """Deprecated alias of `checkout_latest`.
+
+        Behaves exactly like
+        [`checkout_latest`][lance_csr.CypherEngine.checkout_latest], and warns with
+        `DeprecationWarning`.
+        """
+        warnings.warn(
+            "CypherEngine.refresh() is deprecated; use checkout_latest(), named after "
+            "Lance's LanceDataset.checkout_latest()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.checkout_latest()
 
     def optimize_csr(self) -> None:
-        """Fold each CSR's delta into a new base (experimental; needs `use_csr=True`).
+        """Rebuild each CSR that carries a delta (experimental; needs `use_csr=True`).
 
         The CSR's counterpart of Lance's `optimize_indices()`.
-        [`refresh`][lance_csr.CypherEngine.refresh] applies Lance writes as a delta
-        over the base CSR, and rebuilds on its own only once pending changes pass 25%
-        of the base. This rebuilds every CSR that carries a delta now, at the version
-        the engine is pinned to, so lookups stop carrying it. It scans every edge
-        again, so call it after a bulk load or at a quiet time, not after every
-        refresh. It doesn't move to
-        newer versions: call `refresh` first for that. CSRs without a delta, and
-        PyArrow inputs, are left as they are, and query results never change.
-        Afterwards [`csr_stats`][lance_csr.CypherEngine.csr_stats] reports `update`
-        `"rebuild"`, `unindexed_edges` 0 and `base_version` equal to `version`. As for
-        `refresh`, the replacement is validated in full before it's swapped in, and the
-        two run one at a time. See
-        [Folding the delta in](csr.md#folding-the-delta-in).
+        [`checkout_latest`][lance_csr.CypherEngine.checkout_latest] applies Lance writes
+        as a delta over the base CSR, and rebuilds on its own only once pending changes
+        pass 25% of the base. This rebuilds every CSR that carries a delta now, at the
+        version the engine is pinned to, so lookups stop carrying it. It scans every
+        edge again, so call it after a bulk load or at a quiet time, not after every
+        `checkout_latest`. It doesn't move to newer versions: call `checkout_latest`
+        first for that. CSRs without a delta, and PyArrow inputs, are left as they are,
+        and query results never change. Afterwards
+        [`csr_stats`][lance_csr.CypherEngine.csr_stats] reports `update` `"rebuild"`,
+        `unindexed_edges` 0 and `base_version` equal to `version`. As for
+        `checkout_latest`, the replacement is validated in full before it's swapped in,
+        and the two run one at a time. See [Rebuilding the
+        CSR](csr.md#rebuilding-the-csr).
         """
         self._inner.optimize_csr()
+
+    def delete_stored_csr(self) -> int:
+        """Delete the CSR files stored with `persist_csr=True` (experimental).
+
+        Removes the `_lance_csr` folder of every Lance relationship dataset this
+        engine reads, whether or not the engine itself was created with
+        `persist_csr`. The engine keeps the CSR it already holds in memory, so queries
+        aren't affected. To go back to in-memory builds only, create later engines
+        without `persist_csr`: an engine with it stores a new file at its next full
+        build. Runs one at a time with `checkout_latest` and `optimize_csr`. See
+        [Storing the CSR](csr.md#storing-the-csr).
+
+        Returns
+        -------
+        int
+            The number of files deleted; 0 when nothing was stored.
+        """
+        return self._inner.delete_stored_csr()
 
     def node_index_stats(self) -> dict[str, NodeIndexStats]:
         """Statistics for each node index (experimental; needs `use_csr=True`).
@@ -295,9 +343,9 @@ class CypherEngine:
     def csr_stats(self) -> dict[str, CsrStats]:
         """Statistics for each CSR adjacency index (experimental; needs `use_csr=True`).
 
-        An identical result after [`refresh`][lance_csr.CypherEngine.refresh] means the
-        snapshot itself didn't change. See
-        [Inspecting the CSR](csr.md#inspecting-the-csr).
+        An identical result after
+        [`checkout_latest`][lance_csr.CypherEngine.checkout_latest] means the snapshot
+        itself didn't change. See [Inspecting the CSR](csr.md#inspecting-the-csr).
 
         Returns
         -------
@@ -309,10 +357,11 @@ class CypherEngine:
               full build, held outside the base CSR.
             - `unindexed_edges`: live edges outside the base CSR, appended since its
               last full build and not since removed.
-            - `update`: how the last refresh or
+            - `update`: how the last build, `checkout_latest` or
               [`optimize_csr`][lance_csr.CypherEngine.optimize_csr] produced it:
-              `"build"` (first), `"rebuild"` (full), `"delta"` (changes applied) or
-              `"reused"` (no edge change).
+              `"build"` (first), `"rebuild"` (full), `"loaded"` (from a file stored with
+              `persist_csr=True`, with any changes since applied as a delta), `"delta"`
+              (changes applied) or `"reused"` (no edge change).
             - `version`: the relationship dataset version it reflects (`None` for
               PyArrow).
             - `base_version`: the relationship dataset version of the last full

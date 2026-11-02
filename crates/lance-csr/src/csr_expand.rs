@@ -100,9 +100,10 @@ use crate::error::{GraphError, Result};
 /// sorted offsets into each source's base-plus-appended neighbours. Offsets let
 /// readers skip deleted occurrences without copying per-source deletion state.
 /// Identical edges remain distinct occurrences. Each neighbour carries the row its
-/// edge came from (a Lance row address, or a row index for in-memory input), so the
-/// base holds 16 bytes per edge: relationship columns can be fetched by row, and
-/// deleted edges are found by row without reading the old dataset version.
+/// edge came from (a Lance row address, or a row index for in-memory input), so
+/// relationship columns can be fetched by row, and deleted edges are found by row
+/// without reading the old dataset version. Edge rows are packed (see
+/// [`crate::csr_index::PackedU64`]), so the base holds about 10 bytes per edge, not 16.
 ///
 /// # Design note for future changes (read before "optimizing" the delta)
 ///
@@ -220,14 +221,16 @@ impl Adjacency {
                 .map(|(k, v)| (k, Some(v)))
                 .chain(added_only.map(|&k| (k, None)))
             {
-                let base_rows = vertex.map_or(&[][..], |v| self.base.csr.edge_rows(v));
+                let base_range = vertex.map_or(0..0, |v| self.base.csr.range(v));
+                let base_len = base_range.len();
                 let added_rows = self.added.get(&key).map_or(&[][..], Vec::as_slice);
                 let prior = self.removed.get(&key).map_or(&[][..], Vec::as_slice);
                 let mut prior = prior.iter().copied().peekable();
                 let mut positions = Vec::new();
-                let rows = base_rows
-                    .iter()
-                    .copied()
+                let rows = self
+                    .base
+                    .csr
+                    .edge_rows_at(base_range)
                     .chain(added_rows.iter().map(|&(_, r)| r));
                 for (position, row) in rows.enumerate() {
                     if prior.peek() == Some(&position) {
@@ -239,7 +242,7 @@ impl Adjacency {
                 if !positions.is_empty() {
                     next.removed_count += positions.len() as u64;
                     next.removed_added_count +=
-                        positions.iter().filter(|&&p| p >= base_rows.len()).count() as u64;
+                        positions.iter().filter(|&&p| p >= base_len).count() as u64;
                     let tombstones = next.removed.entry(key).or_default();
                     tombstones.extend(positions);
                     tombstones.sort_unstable();
@@ -252,17 +255,47 @@ impl Adjacency {
         next
     }
 
+    /// An adjacency with no delta over a stored base: `keys` are the source keys in
+    /// CSR position order, as [`Self::base_parts`] returns them. `None` if a key
+    /// repeats.
+    pub(crate) fn from_base(keys: &[i64], csr: CsrIndex) -> Option<Self> {
+        let mut dense = FastMap::with_capacity_and_hasher(keys.len(), Default::default());
+        dense.extend(keys.iter().enumerate().map(|(i, &k)| (k, i as u64)));
+        if dense.len() != keys.len() {
+            return None;
+        }
+        Some(Self {
+            base: Arc::new(CsrBase { dense, csr }),
+            added: FastMap::default(),
+            removed: FastMap::default(),
+            added_count: 0,
+            removed_count: 0,
+            removed_added_count: 0,
+        })
+    }
+
+    /// The base CSR: its source keys in CSR position order, and the index over them.
+    /// The delta is not included.
+    pub(crate) fn base_parts(&self) -> (Vec<i64>, &CsrIndex) {
+        let mut keys = vec![0; self.base.dense.len()];
+        for (&key, &position) in &self.base.dense {
+            keys[position as usize] = key;
+        }
+        (keys, &self.base.csr)
+    }
+
     /// Call `f` for each target endpoint value reachable from `key`, duplicates included.
     pub fn for_each_neighbor(&self, key: i64, f: impl FnMut(u64)) {
         self.neighbors_from(key, &mut 0).for_each(f);
     }
 
-    /// Neighbours and their edge rows in the base.
+    /// Positions of `key`'s neighbours in the base.
     #[inline(always)]
-    fn base_slots(&self, key: i64) -> (&[u64], &[u64]) {
-        self.base.dense.get(&key).map_or((&[], &[]), |&v| {
-            (self.base.csr.neighbors(v), self.base.csr.edge_rows(v))
-        })
+    fn base_range(&self, key: i64) -> std::ops::Range<usize> {
+        self.base
+            .dense
+            .get(&key)
+            .map_or(0..0, |&v| self.base.csr.range(v))
     }
 
     /// Resume at an occurrence offset, borrowing all neighbour and deletion storage.
@@ -286,17 +319,27 @@ impl Adjacency {
         key: i64,
         offset: &'a mut usize,
     ) -> impl Iterator<Item = Option<(u64, u64)>> + 'a {
-        let (base, base_rows) = self.base_slots(key);
+        let base = self.base_range(key);
         let added = self.added.get(&key).map_or(&[][..], Vec::as_slice);
         let removed = self.removed.get(&key).map_or(&[][..], Vec::as_slice);
         let mut removed = &removed[removed.partition_point(|&position| position < *offset)..];
         let added_offset = offset.saturating_sub(base.len());
-        let base_start = (*offset).min(base.len());
-        let base_rows = &base_rows[base_start..];
-        base[base_start..]
+        let rest = base.start + (*offset).min(base.len())..base.end;
+        let csr = &self.base.csr;
+        // Never advanced without `ROWS`, so plain hops don't unpack edge rows.
+        let mut base_rows = csr.edge_rows_at(if ROWS { rest.clone() } else { 0..0 });
+        csr.neighbors_at(rest)
             .iter()
-            .enumerate()
-            .map(move |(i, &n)| (n, if ROWS { base_rows[i] } else { 0 }))
+            .map(move |&n| {
+                (
+                    n,
+                    if ROWS {
+                        base_rows.next().unwrap_or(0)
+                    } else {
+                        0
+                    },
+                )
+            })
             .chain(
                 added
                     .get(added_offset..)
@@ -461,15 +504,42 @@ pub async fn edge_changes(
     src: &str,
     dst: &str,
 ) -> Result<Option<EdgeChanges>> {
-    let endpoint_ids = |ds: &Dataset| -> Option<[(i32, DataType); 2]> {
-        let field = |name: &str| ds.schema().field(name).map(|f| (f.id, f.data_type()));
-        Some([field(src)?, field(dst)?])
+    let Some(old_fields) = endpoint_fields(old, src, dst) else {
+        return Ok(None);
     };
-    let old_ids = endpoint_ids(old);
-    if old_ids.is_none() || old_ids != endpoint_ids(new) {
+    let old_frags: Vec<Fragment> = old
+        .get_fragments()
+        .into_iter()
+        .map(|f| f.metadata().clone())
+        .collect();
+    edge_changes_since(&old_frags, &old_fields, new, src, dst).await
+}
+
+/// Lance field id and type of a relationship table's two endpoint columns.
+pub(crate) type EndpointFields = [(i32, String); 2];
+
+pub(crate) fn endpoint_fields(ds: &Dataset, src: &str, dst: &str) -> Option<EndpointFields> {
+    let field = |name: &str| {
+        ds.schema()
+            .field(name)
+            .map(|f| (f.id, f.data_type().to_string()))
+    };
+    Some([field(src)?, field(dst)?])
+}
+
+/// [`edge_changes`] from a version known only by its fragments and endpoint fields,
+/// as a stored CSR records them.
+pub(crate) async fn edge_changes_since(
+    old_fragments: &[Fragment],
+    old_fields: &EndpointFields,
+    new: &Dataset,
+    src: &str,
+    dst: &str,
+) -> Result<Option<EdgeChanges>> {
+    if endpoint_fields(new, src, dst).as_ref() != Some(old_fields) {
         return Ok(None);
     }
-    let fields: Vec<i32> = old_ids.unwrap().iter().map(|(id, _)| *id).collect();
+    let fields: Vec<i32> = old_fields.iter().map(|(id, _)| *id).collect();
     let touches = |f: &[i32]| f.iter().any(|id| fields.contains(id));
     // The parts of a fragment that determine its endpoint values.
     let endpoint_data = |frag: &Fragment| {
@@ -482,11 +552,8 @@ pub async fn edge_changes(
         format!("{:?}{:?}", files, overlays)
     };
 
-    let old_frags: HashMap<u64, Fragment> = old
-        .get_fragments()
-        .into_iter()
-        .map(|f| (f.id() as u64, f.metadata().clone()))
-        .collect();
+    let old_frags: HashMap<u64, Fragment> =
+        old_fragments.iter().map(|f| (f.id, f.clone())).collect();
     let new_frags: HashMap<u64, Fragment> = new
         .get_fragments()
         .into_iter()

@@ -8,7 +8,7 @@ dependencies):
 ```bash
 uv run --with lance-csr python examples/basic_cypher.py
 uv run --with lance-csr python examples/kg_traversal.py
-uv run --with lance-csr python examples/lance_snapshot_refresh.py
+uv run --with lance-csr python examples/lance_snapshots.py
 ```
 
 With a local build, so the examples use your changes, set up `python/.venv` as in
@@ -35,8 +35,8 @@ uv run --with lance-csr python examples/basic_cypher.py
 uv run --with lance-csr python examples/kg_traversal.py
 ```
 
-- `lance_snapshot_refresh.py`: lazy Lance datasets, snapshots and `refresh()`.
+- `lance_snapshots.py`: lazy Lance datasets, snapshots and `checkout_latest()`.
 
 ```bash
-uv run --with lance-csr python examples/lance_snapshot_refresh.py
+uv run --with lance-csr python examples/lance_snapshots.py
 ```

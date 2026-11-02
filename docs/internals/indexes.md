@@ -2,7 +2,7 @@
 
 The [custom operators](operators.md) read two in-memory indexes. Both are built from the same underlying Lance dataset and point back into
 it, so neither holds a copy of node or relationship properties. [The CSR index](../csr.md) covers what users see:
-how to turn it on, `csr_stats()`, and when to call `refresh()` and `optimize_csr()`. This page covers how the indexes
+how to turn it on, `csr_stats()`, and when to call `checkout_latest()` and `optimize_csr()`. This page covers how the indexes
 are laid out and maintained.
 
 The compact store of offsets and neighbours came from [lance-graph](https://github.com/lance-format/lance-graph),
@@ -39,9 +39,24 @@ each type has an outgoing and an incoming one. It is built from the relationship
 - each neighbour also records the row its edge came from: its Lance row address (fragment id in the high 32 bits,
   offset in the low 32), or its row number for in-memory input.
 
-That makes 16 bytes per edge in each direction. The edge row is what lets a hop fetch relationship properties with
-`take`, and what lets a refresh find deleted edges without reading the old dataset version. Edges with a null
-endpoint are skipped: they could never satisfy the equality join the CSR replaces.
+The edge row is what lets a hop fetch relationship properties with `take`, and what lets a refresh find deleted edges
+without reading the old dataset version. Edges with a null endpoint are skipped: they could never satisfy the equality
+join the CSR replaces.
+
+### Packed edge rows
+
+Unpacked, the neighbour and the edge row take 16 bytes per edge in each direction. Edge rows are stored packed, by
+`PackedU64`: in blocks of 128 values, a block keeps its minimum and a bit width, and its values as bit-packed offsets
+from that minimum. Neighbouring slots mostly come from nearby rows of the same fragment, so a block needs few bits; on
+GDC SF1 edge rows take about 2 bytes per edge in each direction instead of 8, which cut the CSR's arrays from 613 to
+419 MiB. Any position stays directly readable,
+which traversal needs to resume part-way through a list, and reading a range loads each block's header once. Plain
+hops never unpack edge rows; only hops that name their relationship, and refresh deletes, do.
+
+Neighbours stay a plain `u64` array. Packing them the same way roughly halved them on SF1 (their keys are sparse:
+Comment keys span 2.2 trillion for 2 million rows, so a single width for the whole array, as a `u32` offset, wouldn't
+fit at all), but every hop reads neighbours, and lookup-heavy queries got slower: custom Q30, which makes one lookup per comment
+into lists of one neighbour, by about 22%. Each lookup read a block base, a header and a word instead of one value.
 
 ## The node index
 
@@ -52,7 +67,7 @@ table, so edge commits update only the adjacency and node commits rebuild only t
 
 ## How a refresh diffs Lance versions
 
-`refresh()` compares the pinned and latest versions of each relationship dataset fragment by fragment, from their
+`checkout_latest()` compares the pinned and latest versions of each relationship dataset fragment by fragment, from their
 manifests:
 
 | Fragment | Result |
@@ -93,5 +108,34 @@ for a full rebuild.
     is raised.
 
 The base and delta map onto Lance's own index design: the delta plays the part of Lance's unindexed rows, and
-`optimize_csr()` the part of `optimize_indices()`. [Folding the delta in](../csr.md#folding-the-delta-in) has the
+`optimize_csr()` the part of `optimize_indices()`. [Rebuilding the CSR with `optimize_csr()`](../csr.md#rebuilding-the-csr) has the
 full comparison.
+
+## Stored CSR files
+
+With `persist_csr=True` (see [Storing the CSR](../csr.md#storing-the-csr)), `csr_store.rs` writes the base of both
+adjacencies after every full build of a Lance relationship dataset, to `_lance_csr/<version>.arrow` at the dataset's
+root. The file holds the CSR exactly as it sits in memory, so a load neither builds nor packs anything. It's an
+Arrow IPC file with one `UInt64` column, `values`, and twelve record batches of different lengths, one array each,
+six per direction (outgoing first):
+
+| Batch | Holds |
+| --- | --- |
+| 1 | Source keys (`i64` bit-cast) in CSR position order |
+| 2 | Offsets |
+| 3 | Neighbours |
+| 4 to 6 | Packed edge rows: block bases, block headers (start bit and width), bit-packed words |
+
+The arrays only make sense to `csr_store.rs`, which validates every one before use; reading the file with pyarrow gives
+the raw parts, not neighbour lists. The schema metadata records the format, the dataset version, the endpoint column
+names, their Lance field ids and types, and the fragments the base was built from. The delta is never stored.
+
+When an engine starts, it reads the newest file at or before the pinned version. It then diffs that file's fragments against the pinned version, as a refresh diffs two versions (see
+[How a refresh diffs Lance versions](#how-a-refresh-diffs-lance-versions)), so the file's own version doesn't need to
+exist any more. An empty diff uses the file as it is; otherwise the changes become the delta, under the same 25%
+threshold. Rebuilds after start-up (from `checkout_latest()` or `optimize_csr()`) don't look for a file, since the stored base
+is the one the engine already holds, but they do store the new one.
+
+Every batch is compressed with zstd, Arrow IPC's own buffer compression, on top of the packing. A load decompresses
+the arrays, checks them, and rebuilds only the source-key map, one insert per source. Writes go through the dataset's object store with `put_if_absent`, which
+publishes the whole file at once on local disk and object storage; the compressed file is encoded in memory first.

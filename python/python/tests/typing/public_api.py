@@ -54,7 +54,7 @@ def public_api(
     assert_type(engine.execute(query, params), Table)
     assert_type(engine.execute_batches(query, params), RecordBatchReader)
     assert_type(engine.explain(query, params), str)
-    assert_type(engine.refresh(), None)
+    assert_type(engine.checkout_latest(), None)
     assert_type(engine.config(), GraphConfig)
     assert_type(engine.dataset_versions(), dict[str, int])
     assert_type(engine.node_index_stats()["person"]["rows"], int)

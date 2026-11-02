@@ -78,7 +78,7 @@ each relationship hop from a hash join into an array lookup, which is what makes
 
     ---
 
-    Lazy, version-pinned reads, `refresh()`, streaming results and LanceDB tables.
+    Lazy, version-pinned reads, `checkout_latest()`, streaming results and LanceDB tables.
 
     [:octicons-arrow-right-24: Lance datasets](lance.md)
 
