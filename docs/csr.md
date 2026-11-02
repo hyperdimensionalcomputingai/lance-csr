@@ -304,6 +304,13 @@ Two calls bring it back up to date, and they do different jobs:
 2. **[`optimize_csr()`](#rebuilding-the-csr)** rebuilds a CSR from scratch, so it no longer needs its delta. Call
    it occasionally, once enough changes have built up that you'd rather lookups stopped working through them.
 
+The two calls aren't a matched pair, though. `checkout_latest()` isn't really a CSR operation: it's named after, and
+works like, Lance's own `LanceDataset.checkout_latest()`, and it moves the whole engine to the newest version of every
+Lance dataset it reads. Node tables, node indexes and the statistics used to plan joins all move with it, and keeping
+the CSR in step is just one part of that, done as cheaply as possible with a delta. `optimize_csr()` is the call that's
+about the CSR itself: it rebuilds a CSR in a running engine when you decide, rather than waiting for the delta to get
+too large. It plays the part Lance's `optimize_indices()` plays for Lance's own indexes.
+
 If you gave the engine in-memory PyArrow tables instead of Lance datasets, neither call applies: those tables can't
 change underneath the engine, so their CSR is never out of date. To query new in-memory data, create a new engine.
 
