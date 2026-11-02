@@ -271,7 +271,7 @@ print(engine.csr_stats()["KNOWS"])
 | `delta_edges` | Appended edges held outside the base CSR since its last full build. |
 | `tombstones` | Removed edges masked out since the last full build. |
 | `unindexed_edges` | Live edges outside the base CSR: appended since its last full build and not since removed. Lance index statistics call this `num_unindexed_rows`. |
-| `update` | How the last build, `refresh()` or [`optimize_csr()`](#folding-the-delta-in) produced it: `build` (first), `rebuild` (full), `delta` (changes applied) or `reused` (no edge change). |
+| `update` | How the last build, `refresh()` or [`optimize_csr()`](#folding-the-delta-in) produced it: `build` (first), `rebuild` (full), `loaded` (from a [stored file](#storing-the-csr), with any changes since applied as a delta), `delta` (changes applied) or `reused` (no edge change). |
 | `version` | The relationship dataset's Lance version, or `None` for PyArrow input. |
 | `base_version` | The version of the last full build, or `None` for PyArrow input. It trails `version` while deltas apply. |
 | `build_ms` | Wall time of that build or delta, both directions. |
@@ -402,6 +402,72 @@ print(stats["update"], stats["unindexed_edges"])  # rebuild 0
 
 `optimize_csr()` doesn't move to newer data, so call `refresh()` first. Like `refresh()`, it builds the
 replacement in full before swapping it in, and the two run one at a time.
+
+## Storing the CSR
+
+Every engine builds its CSR from a full scan of the relationship tables, even when the data hasn't changed since
+the last run. With `persist_csr=True`, an engine over Lance datasets stores each CSR it builds and loads it on the
+next start instead:
+
+```python
+def open_engine():
+    lance_datasets = {"Person": lance.dataset("person.lance"), "KNOWS": lance.dataset("knows.lance")}
+    return CypherEngine(config, lance_datasets, use_csr=True, persist_csr=True)
+
+print(open_engine().csr_stats()["KNOWS"]["update"])  # build: built, then stored
+print(open_engine().csr_stats()["KNOWS"]["update"])  # loaded: read from the file
+```
+
+Each relationship dataset keeps its CSR in its own directory, one file per dataset version:
+
+```text
+knows.lance/
+├── _versions/  data/  _deletions/  _indices/  _transactions/
+└── _lance_csr/
+    └── 42.arrow
+```
+
+The file belongs to the table: dropping or copying the dataset drops or copies it, and Lance's
+`cleanup_old_versions()` leaves the folder alone, since it only deletes the data, index, deletion and transaction
+files it recognises.
+
+- **Changes since the stored version** apply as a delta, read from the new fragments only, exactly as
+  [`refresh()`](#keeping-the-csr-current) applies them. `update` says `loaded` and `base_version` names the
+  stored version. That holds after compaction and `cleanup_old_versions()` too.
+- **Past the 25% threshold**, the engine rebuilds the CSR and stores the new version. Every full build is stored,
+  including those from `refresh()` and [`optimize_csr()`](#folding-the-delta-in), and older files are deleted
+  once a newer one is written.
+- **A file that can't be used** (corrupt, written for other endpoint columns or by another format) is ignored and
+  rebuilt, so a bad file costs a build, never a wrong answer.
+- **A dataset that can't be written**, because of read-only storage or credentials, is built as without the option,
+  and nothing is stored. Rust applications see the failed write as a `log` warning.
+- **PyArrow inputs** are never stored. That includes Lance data loaded into memory with `to_table()` first.
+
+To go back to building in memory only, create engines without `persist_csr` and delete the stored files once with
+[`delete_stored_csr()`][lance_csr.CypherEngine.delete_stored_csr]. It removes the `_lance_csr` folder of every
+relationship dataset the engine reads and returns how many files it deleted; the engine keeps the CSR it already
+holds, so queries carry on as before:
+
+```python
+print(open_engine().delete_stored_csr())  # 1
+```
+
+!!! note "Cost"
+
+    The file holds the base CSR's arrays, compressed with zstd: on SF1 about 9 bytes per edge, against the
+    32 bytes per edge (plus 16 per source key in each direction) the CSR takes in memory. Node indexes are still
+    built at start-up. On the GDC SF1 graph read lazily (17.3 million edges over 23 relationship types), measured
+    on an Apple M5:
+
+    | | Engine start | Peak memory |
+    | --- | ---: | ---: |
+    | Without `persist_csr` | 1.55 s | 1.5 to 1.7 GiB |
+    | First start, building and storing 150 MiB | 2.9 s | 1.5 to 1.7 GiB |
+    | Later starts, loading | 0.58 s | 1.25 to 1.3 GiB |
+
+    Compressing adds about a second to the first start, and decompressing costs a load about 0.4 s. Query times
+    don't change. `python/benchmarks/csr_persist.py` measures the same cases on a synthetic graph, including a load
+    with a delta.
 
 ## Should I turn it on?
 

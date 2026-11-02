@@ -26,7 +26,7 @@ use datafusion::execution::context::SessionContext;
 use futures::StreamExt;
 use lance_csr::{
     ast::{DistanceMetric as RustDistanceMetric, GraphPattern, ReadingClause},
-    engine::{CypherEngine as RustCypherEngine, EngineSource, MAX_TARGET_PARTITIONS},
+    engine::{CypherEngine as RustCypherEngine, EngineOptions, EngineSource, MAX_TARGET_PARTITIONS},
     CypherQuery as RustCypherQuery, ExecutionStrategy as RustExecutionStrategy,
     GraphConfig as RustGraphConfig, GraphError as RustGraphError, SqlDialect as RustSqlDialect,
     SqlQuery as RustSqlQuery, VectorSearch as RustVectorSearch,
@@ -1015,14 +1015,18 @@ pub struct CypherEngine {
 #[pymethods]
 impl CypherEngine {
     #[new]
-    #[pyo3(signature = (config, datasets, use_csr = false, *, target_partitions = None))]
+    #[pyo3(signature = (config, datasets, use_csr = false, *, target_partitions = None, persist_csr = false))]
     fn new(
         py: Python,
         config: &GraphConfig,
         datasets: &Bound<'_, PyDict>,
         use_csr: bool,
         target_partitions: Option<&Bound<'_, PyAny>>,
+        persist_csr: bool,
     ) -> PyResult<Self> {
+        if persist_csr && !use_csr {
+            return Err(PyValueError::new_err("persist_csr requires use_csr=True"));
+        }
         let target_partitions = target_partitions
             .map(|value| {
                 if value.is_instance_of::<PyBool>() || !value.is_instance_of::<PyInt>() {
@@ -1051,11 +1055,14 @@ impl CypherEngine {
         let inner = RT
             .block_on(
                 Some(py),
-                RustCypherEngine::with_target_partitions(
+                RustCypherEngine::with_options(
                     config.inner.clone(),
                     sources,
-                    use_csr,
-                    target_partitions,
+                    EngineOptions {
+                        use_csr,
+                        target_partitions,
+                        persist_csr,
+                    },
                 ),
             )?
             .map_err(graph_error_to_pyerr)?;
@@ -1119,6 +1126,11 @@ impl CypherEngine {
 
     fn optimize_csr(&self, py: Python) -> PyResult<()> {
         RT.block_on(Some(py), self.inner.optimize_csr())?
+            .map_err(graph_error_to_pyerr)
+    }
+
+    fn delete_stored_csr(&self, py: Python) -> PyResult<usize> {
+        RT.block_on(Some(py), self.inner.delete_stored_csr())?
             .map_err(graph_error_to_pyerr)
     }
 

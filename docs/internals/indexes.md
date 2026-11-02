@@ -95,3 +95,30 @@ for a full rebuild.
 The base and delta map onto Lance's own index design: the delta plays the part of Lance's unindexed rows, and
 `optimize_csr()` the part of `optimize_indices()`. [Folding the delta in](../csr.md#folding-the-delta-in) has the
 full comparison.
+
+## Stored CSR files
+
+With `persist_csr=True` (see [Storing the CSR](../csr.md#storing-the-csr)), `csr_store.rs` writes the base of both
+adjacencies after every full build of a Lance relationship dataset, to `_lance_csr/<version>.arrow` at the dataset's
+root. It's one Arrow IPC file holding one record batch, one row per edge in CSR position order:
+
+| Column | Type | Holds |
+| --- | --- | --- |
+| `out_source`, `in_source` | run-end encoded `Int64` | Source keys; the run ends are the CSR offsets |
+| `out_neighbor`, `in_neighbor` | `UInt64` | Raw target keys |
+| `out_edge_row`, `in_edge_row` | `UInt64` | Edge row addresses |
+
+The schema metadata records the format, the dataset version, the endpoint column names, their Lance field ids and
+types, and the fragments the base was built from. The delta is never stored.
+
+When an engine starts, it reads the newest file at or before the pinned version. It then diffs that file's fragments against the pinned version, as a refresh diffs two versions (see
+[How a refresh diffs Lance versions](#how-a-refresh-diffs-lance-versions)), so the file's own version doesn't need to
+exist any more. An empty diff uses the file as it is; otherwise the changes become the delta, under the same 25%
+threshold. Rebuilds after start-up (from `refresh()` or `optimize_csr()`) don't look for a file, since the stored base
+is the one the engine already holds, but they do store the new one.
+
+The arrays are compressed with zstd, Arrow IPC's own buffer compression, which made the SF1 files 4.7 times smaller
+(711 to 150 MiB). `CsrIndex` keeps its arrays as Arrow `ScalarBuffer`s, so a loaded file's arrays are decompressed
+straight into the buffers the CSR uses; only the source-key map is rebuilt, one insert per source. Decompression is
+single-threaded, about 0.4 s of a load at SF1. Writes go through the dataset's object store with `put_if_absent`, which
+publishes the whole file at once on local disk and object storage; the compressed file is encoded in memory first.

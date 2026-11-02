@@ -20,6 +20,8 @@
 
 use std::collections::HashMap;
 
+use arrow::buffer::ScalarBuffer;
+
 /// In-memory CSR adjacency index for fast neighbor lookup.
 ///
 /// Stores graph topology in three arrays:
@@ -27,14 +29,41 @@ use std::collections::HashMap;
 /// - `neighbors[offsets[v]..offsets[v+1]]` = destination vertex IDs
 /// - `edge_rows`, aligned with `neighbors` = the row (a Lance row address, or a
 ///   row index for in-memory input) each edge came from
+///
+/// The arrays are Arrow buffers, so an index read from a stored file shares the
+/// file's memory instead of copying it.
 #[derive(Debug, Clone)]
 pub struct CsrIndex {
-    offsets: Vec<u64>,
-    neighbors: Vec<u64>,
-    edge_rows: Vec<u64>,
+    offsets: ScalarBuffer<u64>,
+    neighbors: ScalarBuffer<u64>,
+    edge_rows: ScalarBuffer<u64>,
 }
 
 impl CsrIndex {
+    /// An index from its three arrays, as [`Self::parts`] returns them, or `None`
+    /// if `offsets` is empty, descends or doesn't end at `neighbors.len()`, or
+    /// `edge_rows` and `neighbors` differ in length.
+    pub fn from_parts(
+        offsets: ScalarBuffer<u64>,
+        neighbors: ScalarBuffer<u64>,
+        edge_rows: ScalarBuffer<u64>,
+    ) -> Option<Self> {
+        let well_formed = offsets.first() == Some(&0)
+            && offsets.last() == Some(&(neighbors.len() as u64))
+            && offsets.windows(2).all(|w| w[0] <= w[1])
+            && edge_rows.len() == neighbors.len();
+        well_formed.then_some(Self {
+            offsets,
+            neighbors,
+            edge_rows,
+        })
+    }
+
+    /// The offsets, neighbours and edge rows.
+    pub fn parts(&self) -> (&ScalarBuffer<u64>, &ScalarBuffer<u64>, &ScalarBuffer<u64>) {
+        (&self.offsets, &self.neighbors, &self.edge_rows)
+    }
+
     fn range(&self, vertex_id: u64) -> std::ops::Range<usize> {
         let v = vertex_id as usize;
         if v >= self.offsets.len() - 1 {
@@ -125,13 +154,13 @@ impl CsrIndexBuilder {
         }
         offsets[num_vertices as usize] = running;
 
-        let edge_rows = self.edges.iter().map(|&(_, _, row)| row).collect();
+        let edge_rows: Vec<u64> = self.edges.iter().map(|&(_, _, row)| row).collect();
         neighbors.extend(self.edges.iter().map(|&(_, dst, _)| dst));
 
         CsrIndex {
-            offsets,
-            neighbors,
-            edge_rows,
+            offsets: offsets.into(),
+            neighbors: neighbors.into(),
+            edge_rows: edge_rows.into(),
         }
     }
 }

@@ -75,13 +75,23 @@ class CypherEngine:
         Keyword-only. A target from 1 to 1024 for DataFusion query partitioning; `None`
         keeps DataFusion's default. `refresh` preserves it. It is not a thread or memory
         limit. See [Query parallelism](lance.md#query-parallelism).
+    persist_csr : bool
+        Keyword-only, experimental, needs `use_csr=True`. Store each relationship
+        dataset's CSR inside the dataset's own directory, at
+        `_lance_csr/<version>.arrow`, and load it instead of building when an engine
+        starts. Changes since the stored version apply as a delta under the same 25%
+        threshold as `refresh`; past it, the CSR is rebuilt and stored again. Lance's
+        `cleanup_old_versions` leaves the folder alone. PyArrow inputs aren't stored,
+        and a dataset that can't be written (read-only storage or credentials) is
+        built as without it. See [Storing the CSR](csr.md#storing-the-csr).
 
     Raises
     ------
     ValueError
         If `datasets` is empty, a configured key or endpoint column is missing, a Lance
-        dataset was opened through a namespace client and can't be reopened by URI, or
-        `target_partitions` is outside 1 to 1024.
+        dataset was opened through a namespace client and can't be reopened by URI,
+        `target_partitions` is outside 1 to 1024, or `persist_csr` is set without
+        `use_csr`.
     TypeError
         If `config` isn't a `GraphConfig`, a dataset has an unsupported type, or
         `target_partitions` is a boolean or another non-integer other than `None`.
@@ -118,12 +128,14 @@ class CypherEngine:
         use_csr: bool = False,
         *,
         target_partitions: int | None = None,
+        persist_csr: bool = False,
     ) -> None:
         self._inner = _graph.CypherEngine(
             inner(config, GraphConfig, "config"),
             datasets,
             use_csr,
             target_partitions=target_partitions,
+            persist_csr=persist_csr,
         )
 
     def __repr__(self) -> str:
@@ -278,6 +290,24 @@ class CypherEngine:
         """
         self._inner.optimize_csr()
 
+    def delete_stored_csr(self) -> int:
+        """Delete the CSR files stored with `persist_csr=True` (experimental).
+
+        Removes the `_lance_csr` folder of every Lance relationship dataset this
+        engine reads, whether or not the engine itself was created with
+        `persist_csr`. The engine keeps the CSR it already holds in memory, so queries
+        aren't affected. To go back to in-memory builds only, create later engines
+        without `persist_csr`: an engine with it stores a new file at its next full
+        build. Runs one at a time with `refresh` and `optimize_csr`. See
+        [Storing the CSR](csr.md#storing-the-csr).
+
+        Returns
+        -------
+        int
+            The number of files deleted; 0 when nothing was stored.
+        """
+        return self._inner.delete_stored_csr()
+
     def node_index_stats(self) -> dict[str, NodeIndexStats]:
         """Statistics for each node index (experimental; needs `use_csr=True`).
 
@@ -311,8 +341,9 @@ class CypherEngine:
               last full build and not since removed.
             - `update`: how the last refresh or
               [`optimize_csr`][lance_csr.CypherEngine.optimize_csr] produced it:
-              `"build"` (first), `"rebuild"` (full), `"delta"` (changes applied) or
-              `"reused"` (no edge change).
+              `"build"` (first), `"rebuild"` (full), `"loaded"` (from a file stored with
+              `persist_csr=True`, with any changes since applied as a delta), `"delta"`
+              (changes applied) or `"reused"` (no edge change).
             - `version`: the relationship dataset version it reflects (`None` for
               PyArrow).
             - `base_version`: the relationship dataset version of the last full

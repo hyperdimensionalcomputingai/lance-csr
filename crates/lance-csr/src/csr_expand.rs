@@ -252,6 +252,35 @@ impl Adjacency {
         next
     }
 
+    /// An adjacency with no delta over a stored base: `keys` are the source keys in
+    /// CSR position order, as [`Self::base_parts`] returns them. `None` if a key
+    /// repeats.
+    pub(crate) fn from_base(keys: &[i64], csr: CsrIndex) -> Option<Self> {
+        let mut dense = FastMap::with_capacity_and_hasher(keys.len(), Default::default());
+        dense.extend(keys.iter().enumerate().map(|(i, &k)| (k, i as u64)));
+        if dense.len() != keys.len() {
+            return None;
+        }
+        Some(Self {
+            base: Arc::new(CsrBase { dense, csr }),
+            added: FastMap::default(),
+            removed: FastMap::default(),
+            added_count: 0,
+            removed_count: 0,
+            removed_added_count: 0,
+        })
+    }
+
+    /// The base CSR: its source keys in CSR position order, and the index over them.
+    /// The delta is not included.
+    pub(crate) fn base_parts(&self) -> (Vec<i64>, &CsrIndex) {
+        let mut keys = vec![0; self.base.dense.len()];
+        for (&key, &position) in &self.base.dense {
+            keys[position as usize] = key;
+        }
+        (keys, &self.base.csr)
+    }
+
     /// Call `f` for each target endpoint value reachable from `key`, duplicates included.
     pub fn for_each_neighbor(&self, key: i64, f: impl FnMut(u64)) {
         self.neighbors_from(key, &mut 0).for_each(f);
@@ -461,15 +490,42 @@ pub async fn edge_changes(
     src: &str,
     dst: &str,
 ) -> Result<Option<EdgeChanges>> {
-    let endpoint_ids = |ds: &Dataset| -> Option<[(i32, DataType); 2]> {
-        let field = |name: &str| ds.schema().field(name).map(|f| (f.id, f.data_type()));
-        Some([field(src)?, field(dst)?])
+    let Some(old_fields) = endpoint_fields(old, src, dst) else {
+        return Ok(None);
     };
-    let old_ids = endpoint_ids(old);
-    if old_ids.is_none() || old_ids != endpoint_ids(new) {
+    let old_frags: Vec<Fragment> = old
+        .get_fragments()
+        .into_iter()
+        .map(|f| f.metadata().clone())
+        .collect();
+    edge_changes_since(&old_frags, &old_fields, new, src, dst).await
+}
+
+/// Lance field id and type of a relationship table's two endpoint columns.
+pub(crate) type EndpointFields = [(i32, String); 2];
+
+pub(crate) fn endpoint_fields(ds: &Dataset, src: &str, dst: &str) -> Option<EndpointFields> {
+    let field = |name: &str| {
+        ds.schema()
+            .field(name)
+            .map(|f| (f.id, f.data_type().to_string()))
+    };
+    Some([field(src)?, field(dst)?])
+}
+
+/// [`edge_changes`] from a version known only by its fragments and endpoint fields,
+/// as a stored CSR records them.
+pub(crate) async fn edge_changes_since(
+    old_fragments: &[Fragment],
+    old_fields: &EndpointFields,
+    new: &Dataset,
+    src: &str,
+    dst: &str,
+) -> Result<Option<EdgeChanges>> {
+    if endpoint_fields(new, src, dst).as_ref() != Some(old_fields) {
         return Ok(None);
     }
-    let fields: Vec<i32> = old_ids.unwrap().iter().map(|(id, _)| *id).collect();
+    let fields: Vec<i32> = old_fields.iter().map(|(id, _)| *id).collect();
     let touches = |f: &[i32]| f.iter().any(|id| fields.contains(id));
     // The parts of a fragment that determine its endpoint values.
     let endpoint_data = |frag: &Fragment| {
@@ -482,11 +538,8 @@ pub async fn edge_changes(
         format!("{:?}{:?}", files, overlays)
     };
 
-    let old_frags: HashMap<u64, Fragment> = old
-        .get_fragments()
-        .into_iter()
-        .map(|f| (f.id() as u64, f.metadata().clone()))
-        .collect();
+    let old_frags: HashMap<u64, Fragment> =
+        old_fragments.iter().map(|f| (f.id, f.clone())).collect();
     let new_frags: HashMap<u64, Fragment> = new
         .get_fragments()
         .into_iter()
