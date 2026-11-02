@@ -217,3 +217,73 @@ async fn construction_errors_are_config_errors() {
         other => panic!("expected a ConfigError, got {:?}", other.err()),
     }
 }
+
+/// A pattern predicate in an OPTIONAL MATCH's WHERE may read a variable bound earlier
+/// (`person`) that its own pattern doesn't mention; each row counts its own person's tags.
+#[tokio::test]
+async fn optional_match_where_pattern_reads_an_earlier_variable() {
+    let config = GraphConfig::builder()
+        .node_table("Person", "id")
+        .node_table("Post", "id")
+        .node_table("Tag", "id")
+        .rel_table("KNOWS", "Person", "Person", "src", "dst")
+        .rel_table("CREATED", "Post", "Person", "src", "dst")
+        .rel_table("HAS_TAG", "Post", "Tag", "src", "dst")
+        .rel_table("INTEREST", "Person", "Tag", "src", "dst")
+        .build()
+        .unwrap();
+    let ids = |ids: Vec<i64>| {
+        let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)]));
+        RecordBatch::try_new(schema, vec![Arc::new(Int64Array::from(ids))]).unwrap()
+    };
+    let edges = |pairs: &[(i64, i64)]| {
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("src", DataType::Int64, false),
+            Field::new("dst", DataType::Int64, false),
+        ]));
+        RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(Int64Array::from_iter_values(pairs.iter().map(|p| p.0))),
+                Arc::new(Int64Array::from_iter_values(pairs.iter().map(|p| p.1))),
+            ],
+        )
+        .unwrap()
+    };
+    // Person 1 is interested in tags 100 and 101, person 5 in 102. Post 12 matches
+    // person 1 through two tags but counts once; friend 4 has no posts.
+    let sources = [
+        ("Person", ids(vec![1, 2, 3, 4, 5])),
+        ("Post", ids(vec![10, 11, 12, 13])),
+        ("Tag", ids(vec![100, 101, 102])),
+        ("KNOWS", edges(&[(1, 2), (1, 3), (1, 4), (5, 2)])),
+        ("CREATED", edges(&[(10, 2), (11, 2), (12, 3), (13, 3)])),
+        (
+            "HAS_TAG",
+            edges(&[(10, 100), (10, 102), (11, 102), (12, 100), (12, 101)]),
+        ),
+        ("INTEREST", edges(&[(1, 100), (1, 101), (5, 102)])),
+    ];
+    let query = "MATCH (person:Person)-[:KNOWS]->(friend:Person) \
+                 WITH DISTINCT friend, person \
+                 OPTIONAL MATCH (friend)<-[:CREATED]-(post:Post) \
+                 WHERE (post)-[:HAS_TAG]->(:Tag)<-[:INTEREST]-(person) \
+                 RETURN person.id AS p, friend.id AS f, count(post) AS n ORDER BY p, f";
+    for use_csr in [false, true] {
+        let sources = sources
+            .iter()
+            .map(|(name, batch)| (name.to_string(), EngineSource::Arrow(batch.clone())))
+            .collect();
+        let engine = CypherEngine::new(config.clone(), sources, use_csr)
+            .await
+            .unwrap();
+        let result = engine.execute(query, HashMap::new()).await.unwrap();
+        let column = |i: usize| {
+            let c = result.column(i).as_any().downcast_ref::<Int64Array>();
+            c.unwrap().values().to_vec()
+        };
+        assert_eq!(column(0), [1, 1, 1, 5], "use_csr={use_csr}");
+        assert_eq!(column(1), [2, 3, 4, 2], "use_csr={use_csr}");
+        assert_eq!(column(2), [1, 1, 0, 2], "use_csr={use_csr}");
+    }
+}
