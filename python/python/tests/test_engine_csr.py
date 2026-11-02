@@ -285,7 +285,7 @@ def test_csr_tracks_edge_changes_but_not_node_changes(tmp_path):
         tmp_path / "person.lance",
         mode="append",
     )
-    engine.refresh()
+    engine.checkout_latest()
     assert engine.csr_stats() == before
 
     new_edge = pa.table(
@@ -297,7 +297,7 @@ def test_csr_tracks_edge_changes_but_not_node_changes(tmp_path):
     )
     lance.write_dataset(new_edge, tmp_path / "knows.lance", mode="append")
     assert engine.execute(query).num_rows == 0  # pinned snapshot
-    engine.refresh()
+    engine.checkout_latest()
     after = engine.csr_stats()
     assert after["KNOWS"]["version"] == 2 and after["KNOWS"]["edges"] == 8
     assert engine.execute(query).column(0).to_pylist() == [1]
@@ -337,7 +337,7 @@ def test_high_degree_stream_keeps_its_snapshot_across_deletions(tmp_path):
     assert 0 < first.num_rows < n
     # A live reader retains the old adjacency, including both copies of 0->1.
     knows.delete("dst = 1")
-    engine.refresh()
+    engine.checkout_latest()
     assert engine.csr_stats()["KNOWS"]["tombstones"] == 2
     counts = {}
     for batch in chain([first], reader):
@@ -429,7 +429,7 @@ def test_node_index_rebuilt_only_when_node_version_changes(tmp_path):
         }
     )
     lance.write_dataset(edge, tmp_path / "knows.lance", mode="append")
-    engine.refresh()
+    engine.checkout_latest()
     assert engine.node_index_stats() == before
     query = "MATCH (a:Person)-[:KNOWS]->(b:Person) WHERE a.id = 6 RETURN b.name"
     assert engine.execute(query).num_rows == 0  # node 7 does not exist yet
@@ -439,7 +439,7 @@ def test_node_index_rebuilt_only_when_node_version_changes(tmp_path):
         tmp_path / "person.lance",
         mode="append",
     )
-    engine.refresh()
+    engine.checkout_latest()
     after = engine.node_index_stats()
     assert after["Person"]["version"] == 2 and after["Person"]["rows"] == 7
     assert engine.execute(query).column(0).to_pylist() == ["g"]

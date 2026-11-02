@@ -2,7 +2,7 @@
 //!
 //! Writes a small social graph as two Lance datasets in a temporary directory, opens
 //! them in a CSR-backed engine, runs a two-hop query, appends an edge and picks it up
-//! with `refresh()`, runs a query under a deadline, and repeats the in-memory Arrow
+//! with `checkout_latest()`, runs a query under a deadline, and repeats the in-memory Arrow
 //! examples of the home page and the getting started guide. The documentation includes
 //! this file section by section (the `--8<--` markers), so keep it compiling and its printed
 //! output in step.
@@ -80,7 +80,7 @@ async fn main() -> lance_csr::Result<()> {
         .node_table("Person", "id")
         .rel_table("KNOWS", "Person", "Person", "src_id", "dst_id")
         .build()?;
-    // Each dataset is pinned to the version opened here until `engine.refresh()`.
+    // Each dataset is pinned to the version opened here until `engine.checkout_latest()`.
     let sources = HashMap::from([
         (
             "Person".to_string(),
@@ -108,10 +108,10 @@ async fn main() -> lance_csr::Result<()> {
     // +------------------+
     // --8<-- [end:query]
 
-    // --8<-- [start:refresh]
-    // Bob now knows Alice too. The engine doesn't see the write until refresh().
+    // --8<-- [start:checkout_latest]
+    // Bob now knows Alice too. The engine doesn't see the write until checkout_latest().
     write_lance(knows(vec![2], vec![1])?, &knows_uri, WriteMode::Append).await?;
-    engine.refresh().await?;
+    engine.checkout_latest().await?;
     let result = engine.execute(query, params()).await?;
     print_batches(&[result])?; // Alice, Carol, David
 
@@ -121,7 +121,7 @@ async fn main() -> lance_csr::Result<()> {
         stats.edges, stats.update, stats.version
     );
     // 5 edges, update=delta, version=Some(2)
-    // --8<-- [end:refresh]
+    // --8<-- [end:checkout_latest]
 
     // --8<-- [start:timeout]
     // One deadline for both: checks inside nested-loop joins, and a timer that stops

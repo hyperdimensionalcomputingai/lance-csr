@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright The Lance Authors
 
-"""CypherEngine over on-disk Lance datasets: snapshots, refresh and streaming.
+"""CypherEngine over on-disk Lance datasets: snapshots, checkout_latest() and streaming.
 
 The engine pins the dataset version it was given; writes become visible only
-after ``refresh()``. Expected values are computed independently of the engine.
+after ``checkout_latest()``. Expected values are computed independently of the engine.
 """
 
 import re
@@ -109,16 +109,25 @@ def test_snapshot_until_refresh_after_append(graph):
     lance.write_dataset(people(N, N + 5), path / "person.lance", mode="append")
     assert count_people(engine) == N
 
-    engine.refresh()
+    engine.checkout_latest()
     assert count_people(engine) == N + 5
     assert engine.dataset_versions()["Person"] == 2
+
+
+def test_refresh_is_a_deprecated_alias_of_checkout_latest(graph):
+    path, person, knows = graph
+    engine = CypherEngine(CONFIG, {"Person": person, "KNOWS": knows})
+    lance.write_dataset(people(N, N + 5), path / "person.lance", mode="append")
+    with pytest.warns(DeprecationWarning, match="checkout_latest"):
+        engine.refresh()
+    assert count_people(engine) == N + 5
 
 
 def test_refresh_without_changes_keeps_results(graph):
     _, person, knows = graph
     engine = CypherEngine(CONFIG, {"Person": person, "KNOWS": knows})
     before = engine.execute("MATCH (p:Person) WHERE p.id < 3 RETURN p.name")
-    engine.refresh()
+    engine.checkout_latest()
     after = engine.execute("MATCH (p:Person) WHERE p.id < 3 RETURN p.name")
     assert before.equals(after)
     assert engine.dataset_versions() == {"Person": 1, "KNOWS": 1}
@@ -136,7 +145,7 @@ def test_refresh_sees_overwrite_with_added_and_retyped_columns(graph):
     lance.write_dataset(replacement, path / "person.lance", mode="overwrite")
     assert count_people(engine) == N  # still pinned
 
-    engine.refresh()
+    engine.checkout_latest()
     out = engine.execute("MATCH (p:Person) RETURN p.name, p.age")
     assert out.column(0).type == pa.int64()
     assert sorted(out.column(1).to_pylist()) == [30, 40]
@@ -149,7 +158,7 @@ def test_refresh_sees_table_replaced_at_same_location(graph):
     # Delete and recreate: the new dataset is version 1 again, like the old one.
     shutil.rmtree(path / "person.lance")
     lance.write_dataset(people(0, 3), path / "person.lance")
-    engine.refresh()
+    engine.checkout_latest()
     assert count_people(engine) == 3
 
 
@@ -163,7 +172,7 @@ def test_failed_refresh_keeps_previous_snapshot(graph, use_csr):
         pa.table({"name": ["x"]}), path / "person.lance", mode="overwrite"
     )
     with pytest.raises(ValueError, match="id"):
-        engine.refresh()
+        engine.checkout_latest()
     assert count_people(engine) == N
     assert engine.dataset_versions()["Person"] == 1
 
@@ -185,8 +194,8 @@ def test_historical_version_is_pinned_and_engines_independent(graph):
     assert count_people(old) == N
     assert count_people(new) == N + 5
 
-    # refresh() moves a historical snapshot to the latest version.
-    old.refresh()
+    # checkout_latest() moves a historical snapshot to the latest version.
+    old.checkout_latest()
     assert count_people(old) == N + 5
 
 
@@ -201,7 +210,7 @@ def test_lance_dataset_subclass_is_read_lazily(graph):
     # Treated as Lance (pinned, refreshable), not materialized as Arrow.
     assert engine.dataset_versions()["Person"] == 1
     lance.write_dataset(people(N, N + 1), path / "person.lance", mode="append")
-    engine.refresh()
+    engine.checkout_latest()
     assert count_people(engine) == N + 1
 
 
@@ -224,7 +233,7 @@ def test_concurrent_execute_and_refresh(graph):
         lance.write_dataset(
             people(N + 5 * (i - 1), N + 5 * i), path / "person.lance", mode="append"
         )
-        engine.refresh()
+        engine.checkout_latest()
     for t in threads:
         t.join()
 
@@ -264,7 +273,7 @@ def test_execute_batches_keeps_snapshot_across_refresh(graph, use_csr):
     first = reader.read_next_batch()
 
     lance.write_dataset(people(N, N + 5), path / "person.lance", mode="append")
-    engine.refresh()
+    engine.checkout_latest()
 
     remaining = reader.read_all()
     assert first.num_rows + remaining.num_rows == N

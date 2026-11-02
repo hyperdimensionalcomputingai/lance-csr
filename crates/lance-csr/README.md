@@ -15,7 +15,7 @@ crate.
 - Semantic validation with typed `GraphError` diagnostics
 - Pluggable execution strategies (DataFusion planner by default, Lance Native placeholder)
 - `CypherEngine`: register datasets once, optionally build the CSR, and serve many queries
-- Lance datasets read lazily and pinned to a version until `refresh()`
+- Lance datasets read lazily and pinned to a version until `checkout_latest()`
 - Async query execution that returns Arrow `RecordBatch` results or a stream
 - JSON-serializable parameter binding for reusable query templates
 - Logical plan debugging via `CypherQuery::explain`
@@ -41,7 +41,7 @@ let batch = engine
 ```
 
 `examples/embedded_query.rs` is a complete program that writes two Lance datasets, queries them, and picks up a
-new write with `refresh()`:
+new write with `checkout_latest()`:
 
 ```bash
 cargo run -p lance-csr --example embedded_query
@@ -154,7 +154,7 @@ clauses, patterns, expressions and functions the engine runs.
 - `logical_plan` – Builders for graph logical plans.
 - `datafusion_planner` – DataFusion-based execution planning.
 - `config` – Graph configuration types and builders.
-- `engine` – `CypherEngine`: cached snapshot, CSR adjacencies, `refresh()`.
+- `engine` – `CypherEngine`: cached snapshot, CSR adjacencies, `checkout_latest()`.
 - `query` – High level `CypherQuery` API and runtime.
 - `csr_index`, `csr_expand` – The CSR adjacency index and the traversal operators that use it.
 - `error` – `GraphError` and result helpers.

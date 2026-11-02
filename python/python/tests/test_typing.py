@@ -190,7 +190,7 @@ def test_stub_check_detects_missing_method():
     node.body = [
         item
         for item in node.body
-        if not isinstance(item, ast.FunctionDef) or item.name != "refresh"
+        if not isinstance(item, ast.FunctionDef) or item.name != "checkout_latest"
     ]
     with pytest.raises(AssertionError, match="public members differ"):
         check_class(node, _internal.graph.CypherEngine)

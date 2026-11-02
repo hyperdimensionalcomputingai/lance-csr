@@ -274,7 +274,7 @@ def test_path_inventory_keeps_lance_snapshot(tmp_path):
     lance.write_dataset(
         pa.table({"src": [1], "dst": [2], "weight": [7]}), edges_path, mode="overwrite"
     )
-    engine.refresh()
+    engine.checkout_latest()
     assert reader.read_all().to_pylist() == [
         {"names": ["old", "target"], "weights": [5]}
     ]
@@ -599,7 +599,7 @@ def test_cross_label_shortest_inventory_isolates_refresh(cross_label_graph, tmp_
     lance.write_dataset(
         pa.table({"src": [1], "dst": [2]}), paths["LIVES"], mode="overwrite"
     )
-    engine.refresh()
+    engine.checkout_latest()
     assert reader.read_all().to_pylist() == [{"ids": [1, 1]}]
     for start in [1, 2, 1]:
         assert engine.execute(query, {"start": start}).to_pylist() == (

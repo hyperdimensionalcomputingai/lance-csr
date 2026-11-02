@@ -1,14 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright The Lance Authors
 
-"""Incremental CSR maintenance: refresh-with-delta cost against a full rebuild.
+"""Incremental CSR maintenance: ``checkout_latest()``-with-delta cost against a full rebuild.
 
 Uses the graphs written by ``csr_expand.py`` (``--data`` must point at the same
 directory). For each scenario, on a fresh copy of the edge table (1M-row
 fragments, plus a ``seq`` row-number column for targeted deletes):
 
 - apply one commit (append or delete);
-- time ``refresh()`` on a CSR engine built before the commit (delta path);
+- time ``checkout_latest()`` on a CSR engine built before the commit (delta path);
 - time a full CSR build on the new version (what a rebuild costs);
 - compare warm query latency with the delta in place against the clean build,
   checking both return identical results.
@@ -116,7 +116,7 @@ def main() -> None:
             engine = CypherEngine(CONFIG, datasets, use_csr=True)
 
             change(uri, nodes)
-            refresh_ms, _ = timed(engine.refresh)
+            refresh_ms, _ = timed(engine.checkout_latest)
             stats = engine.csr_stats()["KNOWS"]
 
             latest = {"Person": person, "KNOWS": lance.dataset(uri)}

@@ -2,7 +2,7 @@
 
 The [custom operators](operators.md) read two in-memory indexes. Both are built from the same underlying Lance dataset and point back into
 it, so neither holds a copy of node or relationship properties. [The CSR index](../csr.md) covers what users see:
-how to turn it on, `csr_stats()`, and when to call `refresh()` and `optimize_csr()`. This page covers how the indexes
+how to turn it on, `csr_stats()`, and when to call `checkout_latest()` and `optimize_csr()`. This page covers how the indexes
 are laid out and maintained.
 
 The compact store of offsets and neighbours came from [lance-graph](https://github.com/lance-format/lance-graph),
@@ -67,7 +67,7 @@ table, so edge commits update only the adjacency and node commits rebuild only t
 
 ## How a refresh diffs Lance versions
 
-`refresh()` compares the pinned and latest versions of each relationship dataset fragment by fragment, from their
+`checkout_latest()` compares the pinned and latest versions of each relationship dataset fragment by fragment, from their
 manifests:
 
 | Fragment | Result |
@@ -133,7 +133,7 @@ names, their Lance field ids and types, and the fragments the base was built fro
 When an engine starts, it reads the newest file at or before the pinned version. It then diffs that file's fragments against the pinned version, as a refresh diffs two versions (see
 [How a refresh diffs Lance versions](#how-a-refresh-diffs-lance-versions)), so the file's own version doesn't need to
 exist any more. An empty diff uses the file as it is; otherwise the changes become the delta, under the same 25%
-threshold. Rebuilds after start-up (from `refresh()` or `optimize_csr()`) don't look for a file, since the stored base
+threshold. Rebuilds after start-up (from `checkout_latest()` or `optimize_csr()`) don't look for a file, since the stored base
 is the one the engine already holds, but they do store the new one.
 
 Every batch is compressed with zstd, Arrow IPC's own buffer compression, on top of the packing. A load decompresses

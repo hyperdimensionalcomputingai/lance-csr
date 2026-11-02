@@ -124,7 +124,7 @@ def child(root: Path, mode: str, repeats: int) -> dict:
         out[name] = {**check, **summary(samples)}
 
     t = time.perf_counter()
-    engine.refresh()
+    engine.checkout_latest()
     out["refresh_unchanged_ms"] = (time.perf_counter() - t) * 1e3
     # Recorded before the copy below, which materializes the edge table.
     out["peak_rss_mib"] = peak_rss_mib()
@@ -149,7 +149,7 @@ def child(root: Path, mode: str, repeats: int) -> dict:
     )
     lance.write_dataset(new_edges, knows, mode="append")
     t = time.perf_counter()
-    engine.refresh()
+    engine.checkout_latest()
     out["refresh_after_append_ms"] = (time.perf_counter() - t) * 1e3
     if mode == "csr":
         out["csr_rebuild_ms"] = engine.csr_stats()["KNOWS"]["build_ms"]

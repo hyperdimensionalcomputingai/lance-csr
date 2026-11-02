@@ -413,7 +413,7 @@ def test_rich_path_reader_retains_snapshot_after_refresh(graph, tmp_path):
     lance.write_dataset(
         pa.table({"src": [20], "dst": [30]}), paths["KNOWS"], mode="append"
     )
-    engine.refresh()
+    engine.checkout_latest()
     assert engine.execute(query, {"start": 20}).column(0).to_pylist() == [
         [20, 30],
         [20, 40],
