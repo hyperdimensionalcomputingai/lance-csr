@@ -271,7 +271,7 @@ class CypherEngine:
         self._inner.refresh()
 
     def optimize_csr(self) -> None:
-        """Fold each CSR's delta into a new base (experimental; needs `use_csr=True`).
+        """Rebuild each CSR that carries a delta (experimental; needs `use_csr=True`).
 
         The CSR's counterpart of Lance's `optimize_indices()`.
         [`refresh`][lance_csr.CypherEngine.refresh] applies Lance writes as a delta
@@ -286,7 +286,7 @@ class CypherEngine:
         `"rebuild"`, `unindexed_edges` 0 and `base_version` equal to `version`. As for
         `refresh`, the replacement is validated in full before it's swapped in, and the
         two run one at a time. See
-        [Folding the delta in](csr.md#folding-the-delta-in).
+        [Rebuilding the CSR](csr.md#rebuilding-the-csr).
         """
         self._inner.optimize_csr()
 

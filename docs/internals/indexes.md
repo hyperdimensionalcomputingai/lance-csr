@@ -108,7 +108,7 @@ for a full rebuild.
     is raised.
 
 The base and delta map onto Lance's own index design: the delta plays the part of Lance's unindexed rows, and
-`optimize_csr()` the part of `optimize_indices()`. [Folding the delta in](../csr.md#folding-the-delta-in) has the
+`optimize_csr()` the part of `optimize_indices()`. [Rebuilding the CSR with `optimize_csr()`](../csr.md#rebuilding-the-csr) has the
 full comparison.
 
 ## Stored CSR files

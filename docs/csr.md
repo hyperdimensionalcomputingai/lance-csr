@@ -273,7 +273,7 @@ print(engine.csr_stats()["KNOWS"])
 | `delta_edges` | Appended edges held outside the base CSR since its last full build. |
 | `tombstones` | Removed edges masked out since the last full build. |
 | `unindexed_edges` | Live edges outside the base CSR: appended since its last full build and not since removed. Lance index statistics call this `num_unindexed_rows`. |
-| `update` | How the last build, `refresh()` or [`optimize_csr()`](#folding-the-delta-in) produced it: `build` (first), `rebuild` (full), `loaded` (from a [stored file](#storing-the-csr), with any changes since applied as a delta), `delta` (changes applied) or `reused` (no edge change). |
+| `update` | How the last build, `refresh()` or [`optimize_csr()`](#rebuilding-the-csr) produced it: `build` (first), `rebuild` (full), `loaded` (from a [stored file](#storing-the-csr), with any changes since applied as a delta), `delta` (changes applied) or `reused` (no edge change). |
 | `version` | The relationship dataset's Lance version, or `None` for PyArrow input. |
 | `base_version` | The version of the last full build, or `None` for PyArrow input. It trails `version` while deltas apply. |
 | `build_ms` | Wall time of that build or delta, both directions. |
@@ -308,15 +308,15 @@ flowchart TD
   Deleted and rewritten rows are matched by the row each CSR entry records, so only added fragments are
   read. Compaction and `cleanup_old_versions()` don't force a rebuild: nothing is read from the old version.
 - Once the accumulated delta would exceed **25%** of the base, or the dataset was overwritten, the CSR is
-  **rebuilt** and the delta folded in.
+  **rebuilt** from scratch, which clears the delta.
 - **Node-table writes never touch the CSR**: it stores raw target keys, not row positions. A changed node
   table rebuilds only its node index.
 - The replacement is validated in full before it's swapped in. If anything fails, nothing changes and the
   previous snapshot stays usable. Queries already running finish on the snapshot they started with.
 
 The 25% threshold is fixed: lookups pay a little for every pending delta edge, and a rebuild clears them.
-`python/benchmarks/csr_delta_accumulated.py` measures that trade-off. To fold the delta in sooner, call
-[`optimize_csr()`](#folding-the-delta-in).
+`python/benchmarks/csr_delta_accumulated.py` measures that trade-off. To rebuild sooner, call
+[`optimize_csr()`](#rebuilding-the-csr).
 
 ### How to keep the CSR fresh
 
@@ -329,7 +329,7 @@ The engine doesn't watch your datasets for changes. Keeping the CSR in step with
 3. **Check what it did with [`csr_stats()`](#csr_stats)**: `update` says whether the CSR was `reused`, updated
    with a `delta` or fully rebuilt (`rebuild`). `base_version` and `unindexed_edges` say how far the base
    CSR trails the data. Answers are exact either way: delta edges are part of every lookup.
-4. **Optionally, fold the delta in with [`optimize_csr()`](#folding-the-delta-in)** at a quiet moment, so
+4. **Optionally, rebuild with [`optimize_csr()`](#rebuilding-the-csr)** at a quiet moment, so
    lookups stop carrying it.
 
 === "Python"
@@ -368,7 +368,7 @@ than you clean up old versions to keep updates incremental.
 
 In-memory PyArrow tables never change. To query new in-memory data, build a new engine.
 
-### Folding the delta in
+### Rebuilding the CSR with `optimize_csr()` { #rebuilding-the-csr }
 
 The CSR follows Lance's own index design. A Lance index covers the fragments it was built from, and data
 written after that stays unindexed: searches combine indexed results with a scan of the unindexed rows, so
@@ -389,7 +389,7 @@ up with `version` and `update` says `rebuild`. A CSR without a delta is kept as 
 
 ```python
 engine.refresh()  # applies the new edges as a delta
-engine.optimize_csr()  # folds it into a new base
+engine.optimize_csr()  # rebuilds the CSR, now including those edges
 stats = engine.csr_stats()["KNOWS"]
 print(stats["update"], stats["unindexed_edges"])  # rebuild 0
 ```
@@ -445,7 +445,7 @@ files it recognises.
   [`refresh()`](#keeping-the-csr-current) applies them. `update` says `loaded` and `base_version` names the
   stored version. That holds after compaction and `cleanup_old_versions()` too.
 - **Past the 25% threshold**, the engine rebuilds the CSR and stores the new version. Every full build is stored,
-  including those from `refresh()` and [`optimize_csr()`](#folding-the-delta-in), and older files are deleted
+  including those from `refresh()` and [`optimize_csr()`](#rebuilding-the-csr), and older files are deleted
   once a newer one is written.
 - **A file that can't be used** (corrupt, written for other endpoint columns or by another format) is ignored and
   rebuilt, so a bad file costs a build, never a wrong answer.

@@ -281,7 +281,7 @@ struct CsrEntry {
 
 /// Rebuild instead of applying a delta once pending changes (appended edges +
 /// tombstones, accumulated since the last full build) would exceed this fraction
-/// of the base. Lookups pay for the delta on every query, and a rebuild folds it in.
+/// of the base. Lookups read the delta on every query, and a rebuild clears it.
 ///
 /// This threshold also bounds refresh cost: each delta refresh copies the whole
 /// accumulated delta (see the design note on `crate::csr_expand::Adjacency`).
@@ -500,13 +500,13 @@ fn validate_sources(config: &GraphConfig, schemas: &HashMap<String, SchemaRef>) 
 }
 
 /// Validate sources and register them in a fresh catalog and session context.
-/// `fold_csr_deltas` rebuilds every CSR of `previous` that carries a delta.
+/// `rebuild_deltas` rebuilds every CSR of `previous` that carries a delta.
 async fn build_engine_state(
     config: &GraphConfig,
     sources: HashMap<String, EngineSource>,
     options: &EngineOptions,
     previous: Option<&EngineState>,
-    fold_csr_deltas: bool,
+    rebuild_deltas: bool,
 ) -> Result<EngineState> {
     let mut session_config = SessionConfig::new();
     if let Some(partitions) = options.target_partitions {
@@ -554,7 +554,7 @@ async fn build_engine_state(
                 &sources,
                 &schemas,
                 previous,
-                fold_csr_deltas,
+                rebuild_deltas,
                 options.persist_csr,
             )
             .await?,
@@ -806,7 +806,7 @@ async fn build_csr_entries(
     sources: &HashMap<String, EngineSource>,
     schemas: &HashMap<String, SchemaRef>,
     previous: Option<&EngineState>,
-    fold_deltas: bool,
+    rebuild_deltas: bool,
     persist: bool,
 ) -> Result<HashMap<String, CsrEntry>> {
     let mut entries = HashMap::new();
@@ -820,7 +820,7 @@ async fn build_csr_entries(
         };
         if let Some(old) = previous.and_then(|p| p.csr.get(rel_type)) {
             let delta = old.outgoing.delta_edges() + old.outgoing.tombstones() > 0;
-            if old.source.same_data(source) && !(fold_deltas && delta) {
+            if old.source.same_data(source) && !(rebuild_deltas && delta) {
                 entries.insert(rel_type.clone(), old.clone());
                 continue;
             }
@@ -843,7 +843,7 @@ async fn build_csr_entries(
         }
 
         let previous_entry = previous.and_then(|p| p.csr.get(rel_type));
-        if let Some(old) = previous_entry.filter(|_| !fold_deltas) {
+        if let Some(old) = previous_entry.filter(|_| !rebuild_deltas) {
             if let Some(entry) = try_apply_csr_delta(old, source, src.name(), dst.name()).await {
                 entries.insert(rel_type.clone(), entry);
                 continue;
@@ -858,7 +858,7 @@ async fn build_csr_entries(
         }
 
         // The one full build: the first, a refresh whose delta would pass the threshold,
-        // and optimize_csr() (`fold_deltas`) all end here.
+        // and optimize_csr() (`rebuild_deltas`) all end here.
         let started = std::time::Instant::now();
         // Two projected scans of the endpoint columns, one per direction.
         let scan = || source.edge_stream(src.name(), dst.name());
@@ -1153,7 +1153,7 @@ impl CypherEngine {
         Ok(())
     }
 
-    /// Fold each CSR's delta into a new base, at the snapshot the engine is pinned to: the
+    /// Rebuild each CSR that carries a delta, at the snapshot the engine is pinned to: the
     /// CSR's counterpart of Lance's `optimize_indices()`.
     ///
     /// `refresh()` applies changes as a delta over the base CSR and rebuilds on its own
@@ -1621,7 +1621,7 @@ mod tests {
         assert_eq!((rows == expected, stats.update), (true, "build"));
         assert_eq!(stored_files(&uri), ["3.arrow"], "older files are pruned");
 
-        // optimize_csr() stores the folded base of a loaded delta.
+        // optimize_csr() stores the rebuilt base of a CSR loaded with a delta.
         write_knows(&uri, &[(5, 6)], WriteMode::Append).await;
         let config = GraphConfig::builder()
             .node_table("Person", "id")
