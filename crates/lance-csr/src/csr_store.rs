@@ -9,23 +9,26 @@
 //! index, deletion and transaction files, temporary manifests), so it leaves this
 //! folder alone.
 //!
-//! One record batch holds both directions, one row per edge in CSR position order:
-//! `out_source`/`in_source` are run-end encoded source keys (the run ends are the
-//! CSR offsets), next to `*_neighbor` and `*_edge_row`. The schema metadata records
-//! the dataset version, the endpoint columns and fields, and the fragments the base
-//! was built from, so [`edge_changes_since`] can bring an older file up to date.
+//! The file holds the CSR as it sits in memory, so a load neither builds nor packs
+//! anything. The schema has one `UInt64` column, `values`, and the file is a
+//! sequence of [`ARRAYS`]-many record batches of different lengths, one array each,
+//! for the outgoing then the incoming direction: the source keys (`i64` bit-cast)
+//! in CSR position order, the offsets, the neighbours, then the bases, block headers
+//! and words of the packed edge rows (see [`crate::csr_index::PackedU64`]). Every batch is zstd-compressed. The arrays are
+//! not meant to be read on their own; this module is their only reader.
 //!
-//! A file is used only if it parses, its arrays are well formed and its endpoint
-//! fields match; anything else is ignored and the CSR is rebuilt. The arrays are
-//! zstd-compressed (4.7 times smaller on SF1), so loading decompresses them straight
-//! into the CSR's buffers.
+//! The schema metadata records the dataset version, the endpoint columns and fields,
+//! and the fragments the base was built from, so [`edge_changes_since`] can bring an
+//! older file up to date. A file is used only if it parses, every array is well
+//! formed and its endpoint fields match; anything else is ignored and the CSR is
+//! rebuilt.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use arrow::array::{Array, ArrayRef, AsArray, Int64Array, RecordBatch, RunArray, UInt64Array};
+use arrow::array::{Array, AsArray, RecordBatch, UInt64Array};
 use arrow::buffer::{Buffer, ScalarBuffer};
-use arrow::datatypes::{DataType, Field, Int64Type, Schema, UInt64Type};
+use arrow::datatypes::{DataType, Field, Schema, UInt64Type};
 use arrow::ipc::convert::fb_to_schema;
 use arrow::ipc::reader::{read_footer_length, FileDecoder};
 use arrow::ipc::root_as_footer;
@@ -36,13 +39,16 @@ use lance_table::format::Fragment;
 use object_store::path::Path;
 
 use crate::csr_expand::{endpoint_fields, Adjacency, EndpointFields};
-use crate::csr_index::CsrIndex;
+use crate::csr_index::{CsrIndex, PackedU64};
 use crate::error::{GraphError, Result};
 
 /// Folder at the dataset root that holds the files.
 const DIR: &str = "_lance_csr";
 /// Bumped whenever the layout changes; files of another format are ignored.
-const FORMAT: &str = "1";
+const FORMAT: &str = "2";
+/// Arrays per direction: keys, offsets, neighbours, then the bases, headers and words
+/// of the packed edge rows.
+const ARRAYS: usize = 6;
 
 const KEY_FORMAT: &str = "lance_csr.format";
 const KEY_VERSION: &str = "lance_csr.version";
@@ -187,17 +193,6 @@ pub(crate) async fn delete_all(ds: &Dataset) -> Result<usize> {
     Ok(deleted)
 }
 
-fn source_field(name: &str) -> Field {
-    Field::new(
-        name,
-        DataType::RunEndEncoded(
-            Arc::new(Field::new("run_ends", DataType::Int64, false)),
-            Arc::new(Field::new("values", DataType::Int64, true)),
-        ),
-        false,
-    )
-}
-
 fn encode(
     version: u64,
     src: &str,
@@ -207,6 +202,7 @@ fn encode(
     outgoing: &Adjacency,
     incoming: &Adjacency,
 ) -> Result<Vec<u8>> {
+    let failed = |e: arrow::error::ArrowError| store_error(format!("Failed to encode CSR: {e}"));
     let metadata = HashMap::from([
         (KEY_FORMAT.to_string(), FORMAT.to_string()),
         (KEY_VERSION.to_string(), version.to_string()),
@@ -214,48 +210,36 @@ fn encode(
         (KEY_FIELDS.to_string(), to_json(fields)?),
         (KEY_FRAGMENTS.to_string(), to_json(fragments)?),
     ]);
-    let mut schema_fields = Vec::new();
-    let mut columns = Vec::new();
-    for (prefix, adjacency) in [("out", outgoing), ("in", incoming)] {
-        schema_fields.extend([
-            source_field(&format!("{prefix}_source")),
-            Field::new(format!("{prefix}_neighbor"), DataType::UInt64, false),
-            Field::new(format!("{prefix}_edge_row"), DataType::UInt64, false),
-        ]);
-        columns.extend(encode_direction(adjacency)?);
-    }
-    let schema = Arc::new(Schema::new_with_metadata(schema_fields, metadata));
-    let batch = RecordBatch::try_new(schema.clone(), columns)
-        .map_err(|e| store_error(format!("Failed to encode CSR: {e}")))?;
+    let schema = Arc::new(Schema::new_with_metadata(
+        vec![Field::new("values", DataType::UInt64, false)],
+        metadata,
+    ));
     let options = IpcWriteOptions::default()
         .try_with_compression(Some(CompressionType::ZSTD))
-        .map_err(|e| store_error(format!("Failed to encode CSR: {e}")))?;
+        .map_err(failed)?;
     let mut bytes = Vec::new();
-    let mut writer = FileWriter::try_new_with_options(&mut bytes, &schema, options)
-        .and_then(|mut w| w.write(&batch).map(|_| w))
-        .map_err(|e| store_error(format!("Failed to encode CSR: {e}")))?;
-    writer
-        .finish()
-        .map_err(|e| store_error(format!("Failed to encode CSR: {e}")))?;
+    let mut writer =
+        FileWriter::try_new_with_options(&mut bytes, &schema, options).map_err(failed)?;
+    for adjacency in [outgoing, incoming] {
+        for array in direction_arrays(adjacency) {
+            let column = Arc::new(UInt64Array::new(array, None));
+            let batch = RecordBatch::try_new(schema.clone(), vec![column]).map_err(failed)?;
+            writer.write(&batch).map_err(failed)?;
+        }
+    }
+    writer.finish().map_err(failed)?;
     drop(writer);
     Ok(bytes)
 }
 
-/// Source keys, neighbours and edge rows of one direction, one row per edge.
-fn encode_direction(adjacency: &Adjacency) -> Result<[ArrayRef; 3]> {
+/// The [`ARRAYS`] arrays of one direction, shared with the CSR rather than copied
+/// (except the keys, collected from the source-key map).
+fn direction_arrays(adjacency: &Adjacency) -> [ScalarBuffer<u64>; ARRAYS] {
     let (keys, csr) = adjacency.base_parts();
-    let (offsets, neighbors, edge_rows) = csr.parts();
-    // Every base source has at least one edge, so `offsets[1..]` are strictly
-    // ascending: valid run ends, shared with the offsets rather than copied.
-    let ends = ScalarBuffer::<i64>::new(offsets.inner().clone(), 1, keys.len());
-    let sources =
-        RunArray::<Int64Type>::try_new(&Int64Array::new(ends, None), &Int64Array::from(keys))
-            .map_err(|e| store_error(format!("Failed to encode CSR sources: {e}")))?;
-    Ok([
-        Arc::new(sources),
-        Arc::new(UInt64Array::new(neighbors.clone(), None)),
-        Arc::new(UInt64Array::new(edge_rows.clone(), None)),
-    ])
+    let (offsets, neighbors, edge_rows) = csr.packed();
+    let keys: Vec<u64> = keys.into_iter().map(|k| k as u64).collect();
+    let [rb, rm, rw] = edge_rows.parts();
+    [keys.into(), offsets.clone(), neighbors.clone(), rb, rm, rw]
 }
 
 fn decode(bytes: Buffer, src: &str, dst: &str) -> Result<StoredCsr> {
@@ -289,45 +273,47 @@ fn decode(bytes: Buffer, src: &str, dst: &str) -> Result<StoredCsr> {
     let fragments = from_json(meta(KEY_FRAGMENTS)?)?;
 
     let blocks = footer.recordBatches().ok_or_else(|| bad("no batches"))?;
-    if blocks.len() != 1 {
-        return Err(bad("expected one batch"));
+    if blocks.len() != 2 * ARRAYS {
+        return Err(bad("wrong number of arrays"));
     }
-    let block = blocks.get(0);
-    let length = block.bodyLength() as usize + block.metaDataLength() as usize;
-    if block.offset() as usize + length > bytes.len() {
-        return Err(bad("batch out of range"));
+    let decoder = FileDecoder::new(schema, footer.version());
+    let mut arrays = Vec::with_capacity(blocks.len());
+    for block in blocks.iter() {
+        let length = block.bodyLength() as usize + block.metaDataLength() as usize;
+        if block.offset() < 0 || block.offset() as usize + length > bytes.len() {
+            return Err(bad("array out of range"));
+        }
+        let data = bytes.slice_with_length(block.offset() as usize, length);
+        let batch = decoder
+            .read_record_batch(block, &data)
+            .map_err(ipc)?
+            .ok_or_else(|| bad("empty batch"))?;
+        let column = batch.column(0).as_primitive_opt::<UInt64Type>();
+        let column = column
+            .filter(|c| c.null_count() == 0)
+            .ok_or_else(|| bad("array type"))?;
+        arrays.push(column.values().clone());
     }
-    let data = bytes.slice_with_length(block.offset() as usize, length);
-    let batch = FileDecoder::new(schema, footer.version())
-        .read_record_batch(block, &data)
-        .map_err(ipc)?
-        .ok_or_else(|| bad("empty batch"))?;
+    let incoming = arrays.split_off(ARRAYS);
     Ok(StoredCsr {
         version,
         fragments,
         fields,
-        outgoing: decode_direction(&batch, "out").ok_or_else(|| bad("outgoing arrays"))?,
-        incoming: decode_direction(&batch, "in").ok_or_else(|| bad("incoming arrays"))?,
+        outgoing: decode_direction(arrays).ok_or_else(|| bad("outgoing arrays"))?,
+        incoming: decode_direction(incoming).ok_or_else(|| bad("incoming arrays"))?,
     })
 }
 
-fn decode_direction(batch: &RecordBatch, prefix: &str) -> Option<Adjacency> {
-    let column = |name: &str| batch.column_by_name(&format!("{prefix}_{name}"));
-    let sources = column("source")?.as_run_opt::<Int64Type>()?;
-    let ends = sources.run_ends();
-    let keys = sources.values().as_primitive_opt::<Int64Type>()?;
-    if sources.offset() != 0 || keys.null_count() != 0 || keys.len() != ends.values().len() {
+fn decode_direction(arrays: Vec<ScalarBuffer<u64>>) -> Option<Adjacency> {
+    let [keys, offsets, neighbors, rb, rm, rw]: [ScalarBuffer<u64>; ARRAYS] =
+        arrays.try_into().ok()?;
+    let edge_rows = PackedU64::from_parts(neighbors.len(), [rb, rm, rw])?;
+    if keys.len() + 1 != offsets.len() {
         return None;
     }
-    let mut offsets = Vec::with_capacity(keys.len() + 1);
-    offsets.push(0);
-    offsets.extend(ends.values().iter().map(|&end| end as u64));
-    let u64s = |name: &str| {
-        let array = column(name)?.as_primitive_opt::<UInt64Type>()?;
-        (array.null_count() == 0).then(|| array.values().clone())
-    };
-    let csr = CsrIndex::from_parts(offsets.into(), u64s("neighbor")?, u64s("edge_row")?)?;
-    Adjacency::from_base(keys.values(), csr)
+    let csr = CsrIndex::from_packed(offsets, neighbors, edge_rows)?;
+    let keys: Vec<i64> = keys.iter().map(|&k| k as i64).collect();
+    Adjacency::from_base(&keys, csr)
 }
 
 fn from_json<T: serde::de::DeserializeOwned>(text: &str) -> Result<T> {

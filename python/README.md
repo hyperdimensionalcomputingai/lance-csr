@@ -132,7 +132,7 @@ for batch in engine.execute_batches("MATCH (p:Person) RETURN p.id"):
 Experimental: `CypherEngine(config, datasets, use_csr=True)` answers single-hop patterns over integer ids
 with an in-memory CSR adjacency, and fetches target rows by position instead of joining. The CSR is
 rebuilt on `refresh()` when the relationship table changes, and the per-label id index when its node
-table changes. Results are identical; peak memory grows by about 70 bytes per edge (both directions).
+table changes. Results are identical; peak memory grows by about 95 bytes per edge while the CSR is built (both directions).
 
 Write Lance data with `pylance` 13.x: the engine is built against Lance 13 and older or newer
 majors may write files it cannot read.

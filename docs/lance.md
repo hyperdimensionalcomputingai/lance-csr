@@ -137,7 +137,7 @@ memory. Joins, sorts and aggregations may still buffer their inputs.
 | --- | --- |
 | Lance dataset rows | On disk; read per query, only the needed columns and rows |
 | PyArrow inputs | In memory for the engine's lifetime, sliced across cores without copying |
-| CSR adjacency (`use_csr=True`) | In memory, about 70 bytes per edge for both directions |
+| CSR adjacency (`use_csr=True`) | In memory, about 20 bytes per edge for both directions plus about 37 per source node; see [the CSR's memory cost](csr.md#turning-it-on) |
 | Node index (`use_csr=True`) | In memory, one entry per node row |
 | Join-key statistics | In memory, a few numbers per key column |
 | Query results | In memory with `execute()`; streamed with `execute_batches()` |

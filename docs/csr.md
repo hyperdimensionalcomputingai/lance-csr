@@ -90,9 +90,11 @@ Node index
 !!! info "Memory cost"
 
     Expect about **95 bytes per edge** of extra peak memory while the CSR is built, for both directions
-    together (measured at 10M edges with `python/benchmarks/csr_expand.py`). About 32 bytes per edge stay
-    resident afterwards: each direction holds the neighbour key and the edge's row for every edge. The index
-    lives in memory even when the tables are read lazily from Lance.
+    together (measured at 10M edges with `python/benchmarks/csr_expand.py`). Afterwards, each direction keeps
+    8 bytes per edge for the neighbour key and about 2 for the edge's row, which is stored
+    [packed](internals/indexes.md#packed-edge-rows), plus about 37 bytes per source node for its offset and its
+    entry in the map from key to position. On the GDC SF1 graph that's 732 MiB for 17.3 million edges, both
+    directions. The index lives in memory even when the tables are read lazily from Lance.
 
     During query execution, each CSR expansion partition keeps one input batch and collects at most one
     output chunk of neighbour positions before fetching properties. It yields that chunk before visiting
@@ -394,14 +396,22 @@ print(stats["update"], stats["unindexed_edges"])  # rebuild 0
 
 !!! tip "`refresh()` or `optimize_csr()`?"
 
-    Call `refresh()` whenever your queries should see new writes. It's cheap and incremental, and it already
-    rebuilds a CSR on its own once the delta passes 25% of the base. Call `optimize_csr()` only when
-    `csr_stats()` shows a delta built up below that threshold and you want lookups to stop carrying it: after a
-    bulk load, before a latency-sensitive run of queries, or on a schedule at a quiet time. It scans every edge
-    of the relationship dataset again, like the first build, so don't call it after every refresh.
+    They differ in which data they read and in when they rebuild:
 
-`optimize_csr()` doesn't move to newer data, so call `refresh()` first. Like `refresh()`, it builds the
-replacement in full before swapping it in, and the two run one at a time.
+    | | `refresh()` | `optimize_csr()` |
+    | --- | --- | --- |
+    | Data | Moves to the latest version of each dataset | Stays at the version the engine is pinned to |
+    | Usual effect on a CSR | Applies the new writes as a delta, reading only new fragments | Rebuilds it from a scan of all its edges |
+    | Rebuilds a CSR when | Its delta would pass 25% of the base | It carries any delta at all |
+    | Cost | In proportion to the new writes | Like the first build |
+
+    So call `refresh()` whenever your queries should see new writes; it's cheap enough to run on a timer. Call
+    `optimize_csr()` after it when `csr_stats()` shows a delta below the threshold that you'd rather lookups
+    didn't carry: after a bulk load, before a latency-sensitive run of queries, or at a quiet time. When either
+    one rebuilds, it runs the same full build and gives the same CSR.
+
+Like `refresh()`, `optimize_csr()` builds the replacement in full before swapping it in, and the two run one at a
+time.
 
 ## Storing the CSR
 
@@ -454,19 +464,19 @@ print(open_engine().delete_stored_csr())  # 1
 
 !!! note "Cost"
 
-    The file holds the base CSR's arrays, compressed with zstd: on SF1 about 9 bytes per edge, against the
-    32 bytes per edge (plus 16 per source key in each direction) the CSR takes in memory. Node indexes are still
-    built at start-up. On the GDC SF1 graph read lazily (17.3 million edges over 23 relationship types), measured
-    on an Apple M5:
+    The file holds the CSR's arrays as they sit in memory, compressed with zstd: on SF1 about 8 bytes per edge,
+    134 MiB in all. A load decompresses them and rebuilds only the map from key to position; node indexes are
+    still built at start-up. On the GDC SF1 graph read lazily (17.3 million edges over 23 relationship types),
+    measured on an Apple M5:
 
     | | Engine start | Peak memory |
     | --- | ---: | ---: |
-    | Without `persist_csr` | 1.55 s | 1.5 to 1.7 GiB |
-    | First start, building and storing 150 MiB | 2.9 s | 1.5 to 1.7 GiB |
-    | Later starts, loading | 0.58 s | 1.25 to 1.3 GiB |
+    | Without `persist_csr` | 1.7 s | 1.4 to 1.45 GiB |
+    | First start, building and storing 134 MiB | 2.6 s | 1.3 to 1.5 GiB |
+    | Later starts, loading | 0.46 s | 1.1 GiB |
 
-    Compressing adds about a second to the first start, and decompressing costs a load about 0.4 s. Query times
-    don't change. `python/benchmarks/csr_persist.py` measures the same cases on a synthetic graph, including a load
+    Compressing adds about 0.9 s to the first start; decompression takes most of a load. Query times don't
+    change. `python/benchmarks/csr_persist.py` measures the same cases on a synthetic graph, including a load
     with a delta.
 
 ## Should I turn it on?

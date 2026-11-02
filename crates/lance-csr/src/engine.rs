@@ -857,6 +857,8 @@ async fn build_csr_entries(
             }
         }
 
+        // The one full build: the first, a refresh whose delta would pass the threshold,
+        // and optimize_csr() (`fold_deltas`) all end here.
         let started = std::time::Instant::now();
         // Two projected scans of the endpoint columns, one per direction.
         let scan = || source.edge_stream(src.name(), dst.name());

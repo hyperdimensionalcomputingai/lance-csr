@@ -100,9 +100,10 @@ use crate::error::{GraphError, Result};
 /// sorted offsets into each source's base-plus-appended neighbours. Offsets let
 /// readers skip deleted occurrences without copying per-source deletion state.
 /// Identical edges remain distinct occurrences. Each neighbour carries the row its
-/// edge came from (a Lance row address, or a row index for in-memory input), so the
-/// base holds 16 bytes per edge: relationship columns can be fetched by row, and
-/// deleted edges are found by row without reading the old dataset version.
+/// edge came from (a Lance row address, or a row index for in-memory input), so
+/// relationship columns can be fetched by row, and deleted edges are found by row
+/// without reading the old dataset version. Edge rows are packed (see
+/// [`crate::csr_index::PackedU64`]), so the base holds about 10 bytes per edge, not 16.
 ///
 /// # Design note for future changes (read before "optimizing" the delta)
 ///
@@ -220,14 +221,16 @@ impl Adjacency {
                 .map(|(k, v)| (k, Some(v)))
                 .chain(added_only.map(|&k| (k, None)))
             {
-                let base_rows = vertex.map_or(&[][..], |v| self.base.csr.edge_rows(v));
+                let base_range = vertex.map_or(0..0, |v| self.base.csr.range(v));
+                let base_len = base_range.len();
                 let added_rows = self.added.get(&key).map_or(&[][..], Vec::as_slice);
                 let prior = self.removed.get(&key).map_or(&[][..], Vec::as_slice);
                 let mut prior = prior.iter().copied().peekable();
                 let mut positions = Vec::new();
-                let rows = base_rows
-                    .iter()
-                    .copied()
+                let rows = self
+                    .base
+                    .csr
+                    .edge_rows_at(base_range)
                     .chain(added_rows.iter().map(|&(_, r)| r));
                 for (position, row) in rows.enumerate() {
                     if prior.peek() == Some(&position) {
@@ -239,7 +242,7 @@ impl Adjacency {
                 if !positions.is_empty() {
                     next.removed_count += positions.len() as u64;
                     next.removed_added_count +=
-                        positions.iter().filter(|&&p| p >= base_rows.len()).count() as u64;
+                        positions.iter().filter(|&&p| p >= base_len).count() as u64;
                     let tombstones = next.removed.entry(key).or_default();
                     tombstones.extend(positions);
                     tombstones.sort_unstable();
@@ -286,12 +289,13 @@ impl Adjacency {
         self.neighbors_from(key, &mut 0).for_each(f);
     }
 
-    /// Neighbours and their edge rows in the base.
+    /// Positions of `key`'s neighbours in the base.
     #[inline(always)]
-    fn base_slots(&self, key: i64) -> (&[u64], &[u64]) {
-        self.base.dense.get(&key).map_or((&[], &[]), |&v| {
-            (self.base.csr.neighbors(v), self.base.csr.edge_rows(v))
-        })
+    fn base_range(&self, key: i64) -> std::ops::Range<usize> {
+        self.base
+            .dense
+            .get(&key)
+            .map_or(0..0, |&v| self.base.csr.range(v))
     }
 
     /// Resume at an occurrence offset, borrowing all neighbour and deletion storage.
@@ -315,17 +319,27 @@ impl Adjacency {
         key: i64,
         offset: &'a mut usize,
     ) -> impl Iterator<Item = Option<(u64, u64)>> + 'a {
-        let (base, base_rows) = self.base_slots(key);
+        let base = self.base_range(key);
         let added = self.added.get(&key).map_or(&[][..], Vec::as_slice);
         let removed = self.removed.get(&key).map_or(&[][..], Vec::as_slice);
         let mut removed = &removed[removed.partition_point(|&position| position < *offset)..];
         let added_offset = offset.saturating_sub(base.len());
-        let base_start = (*offset).min(base.len());
-        let base_rows = &base_rows[base_start..];
-        base[base_start..]
+        let rest = base.start + (*offset).min(base.len())..base.end;
+        let csr = &self.base.csr;
+        // Never advanced without `ROWS`, so plain hops don't unpack edge rows.
+        let mut base_rows = csr.edge_rows_at(if ROWS { rest.clone() } else { 0..0 });
+        csr.neighbors_at(rest)
             .iter()
-            .enumerate()
-            .map(move |(i, &n)| (n, if ROWS { base_rows[i] } else { 0 }))
+            .map(move |&n| {
+                (
+                    n,
+                    if ROWS {
+                        base_rows.next().unwrap_or(0)
+                    } else {
+                        0
+                    },
+                )
+            })
             .chain(
                 added
                     .get(added_offset..)
