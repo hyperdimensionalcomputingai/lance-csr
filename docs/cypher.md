@@ -6,7 +6,7 @@ There are two ways to run Cypher, and most code wants the first:
 | --- | --- | --- |
 | Use it for | Many queries over the same data | One query, once |
 | Setup cost | Paid once, in the constructor | Paid on every `execute()` |
-| Lance datasets | Read lazily, pinned to a version, `refresh()` | Read into memory |
+| Lance datasets | Read lazily, pinned to a version, `checkout_latest()` | Read into memory |
 | CSR index | `use_csr=True` | Not available |
 | Streaming results | `execute_batches()` | No |
 
@@ -126,7 +126,7 @@ print(rows)  # 4
 - CSR expansion visits neighbours and fetches their properties a chunk at a time, including when one node
   has many neighbours. See [CSR memory cost](csr.md#turning-it-on) for what it keeps in memory.
 - Planning errors (a syntax error, an unknown label) raise immediately. Execution errors raise while reading.
-- The reader keeps its snapshot alive, so a concurrent [`refresh()`](lance.md#refresh) doesn't affect it.
+- The reader keeps its snapshot alive, so a concurrent [`checkout_latest()`](lance.md#checkout-latest) doesn't affect it.
 - Dropping the reader cancels the remaining work.
 
 ### Query deadlines
@@ -163,7 +163,7 @@ print("CsrExpandExec" in plan)  # True
 | Method | Returns |
 | --- | --- |
 | `config()` | The engine's `GraphConfig`. |
-| `refresh()` | `None`. Moves every Lance dataset to its latest version. See [Lance datasets](lance.md#refresh). |
+| `checkout_latest()` | `None`. Moves every Lance dataset to its latest version. See [Lance datasets](lance.md#checkout-latest). |
 | `dataset_versions()` | `dict[str, int]`: the pinned version of each Lance dataset. |
 | `csr_stats()`, `node_index_stats()` | CSR statistics. See [The CSR index](csr.md#inspecting-the-csr). |
 | `execute_with_vector_rerank(query, vector_search)` | A table reranked by vector similarity. See [Vector search](vector-search.md). |
@@ -372,7 +372,7 @@ in `__lance_csr_identity`. Relationship records also carry the node records `__l
 `__lance_csr_end`. These metadata fields are distinct from user properties, even if a property has the
 same name. `keys(entity)` lists only non-null user properties; `keys(map)` includes null-valued keys.
 Prefer the Cypher property and endpoint functions when writing queries. Relationship identities identify actual occurrences within this query's inventory, not persistent
-IDs that can be compared across queries or refreshes. Rich paths support the same signed integer and
+IDs that can be compared across queries or snapshots. Rich paths support the same signed integer and
 `uint8`/`uint16`/`uint32` keys as the CSR. Mixed labels may share compatible properties; conflicting Arrow
 property types fail explicitly. Non-null node IDs must be unique within each participating label so
 relationship endpoints identify one node; duplicate IDs raise an error. Expanding a graph pattern from
@@ -382,7 +382,7 @@ A path value needs a query-local inventory of the participating node and relatio
 properties. It therefore materializes those tables, even with `use_csr=True`. Traversal output is emitted
 in batches and named ordinary paths keep a cursor per hop, but inventory memory grows with the graph.
 Rich path queries bypass the query-template cache: each execution binds its current parameters and
-creates an inventory from its own snapshot. A reader opened before `refresh()` retains the old snapshot.
+creates an inventory from its own snapshot. A reader opened before `checkout_latest()` retains the old snapshot.
 Queries asking only for shortest-path length, node keys or path null checks, including homogeneous node-property
 comprehensions and paths carried through `WITH` aliases, retain the usual CSR execution route when
 the relationship joins the same node label. Cross-label shortest paths use typed identities even for

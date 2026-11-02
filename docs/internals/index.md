@@ -53,7 +53,7 @@ matters.
 - **Bounded, streaming operators.** The extension operators yield bounded output batches and resume where they left
   off, even inside a single high-degree node's neighbour list, and they check for cancellation as they go.
 - **Immutable snapshots.** An engine holds a snapshot of pinned dataset versions plus the indexes built for them.
-  `refresh()` builds a replacement next to it, reusing whatever didn't change, and swaps it in atomically, so running
+  `checkout_latest()` builds a replacement next to it, reusing whatever didn't change, and swaps it in atomically, so running
   queries never see a half-updated index.
 
 ## Where the extensions plug in

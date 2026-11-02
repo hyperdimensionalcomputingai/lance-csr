@@ -5,7 +5,7 @@
 //!
 //! [`CypherEngine`] holds a snapshot of every input: the DataFusion context, the
 //! catalog, join-key statistics and, with `use_csr`, the CSR adjacencies and node
-//! indexes. Queries share the snapshot read-only; [`CypherEngine::refresh`] builds a
+//! indexes. Queries share the snapshot read-only; [`CypherEngine::checkout_latest`] builds a
 //! complete replacement and swaps it in.
 //!
 //! ```no_run
@@ -63,8 +63,8 @@ use crate::{GraphSourceCatalog, InMemoryCatalog};
 pub enum EngineSource {
     /// On-disk Lance dataset, read lazily through `LanceTableProvider`.
     ///
-    /// `dataset` is pinned to one version; only `refresh()` replaces it. `uri` and
-    /// `storage_options` are kept so refresh can reopen the same location with the
+    /// `dataset` is pinned to one version; only `checkout_latest()` replaces it. `uri` and
+    /// `storage_options` are kept so `checkout_latest()` can reopen the same location with the
     /// same credentials.
     Lance {
         uri: String,
@@ -79,7 +79,7 @@ pub enum EngineSource {
 impl EngineSource {
     /// Open a Lance dataset at `uri`, pinned to `version` (`None` means the latest).
     ///
-    /// `storage_options` are kept so [`CypherEngine::refresh`] can reopen the same
+    /// `storage_options` are kept so [`CypherEngine::checkout_latest`] can reopen the same
     /// location with the same credentials.
     pub async fn open_lance(
         uri: impl Into<String>,
@@ -172,7 +172,7 @@ pub struct CsrStats {
     /// Live edges outside the base CSR: appended since its last full build and not
     /// since removed. Lance's `num_unindexed_rows`, counted in edges.
     pub unindexed_edges: u64,
-    /// How the last refresh or `optimize_csr()` produced it: `build` (first), `rebuild`
+    /// How the last build, `checkout_latest()` or `optimize_csr()` produced it: `build` (first), `rebuild`
     /// (full), `loaded` (from a stored file, with any changes since applied as a
     /// delta), `delta` (changes applied) or `reused` (no edge change).
     pub update: &'static str,
@@ -197,11 +197,11 @@ pub struct NodeIndexStats {
 
 /// Everything a query needs, built once and shared read-only by concurrent queries.
 ///
-/// `refresh()` builds a complete replacement and swaps it in; queries already running
+/// `checkout_latest()` builds a complete replacement and swaps it in; queries already running
 /// keep the `Arc` they started with, so they finish on their original snapshot.
 struct EngineState {
     sources: HashMap<String, EngineSource>,
-    /// Unoptimized plan templates for this snapshot; a refresh starts an empty cache.
+    /// Unoptimized plan templates for this snapshot; `checkout_latest()` starts an empty cache.
     plans: Mutex<VecDeque<CachedQuery>>,
     catalog: Arc<dyn GraphSourceCatalog>,
     context: SessionContext,
@@ -674,7 +674,7 @@ fn memtable_partitions(batch: &RecordBatch) -> Vec<Vec<RecordBatch>> {
 /// Node ids count as unique (the row count). Edge endpoints use the CSR's distinct
 /// source and target counts when the CSR is built, and otherwise one scan of the two
 /// endpoint columns; only integer endpoints are counted. Reused while a dataset is
-/// the same snapshot, so an unchanged `refresh()` costs nothing.
+/// the same snapshot, so an unchanged `checkout_latest()` costs nothing.
 // shortcut: the fallback scan reads every edge endpoint at construction and on each changed refresh (about one CSR build's scan); switch to an approximate counter (HyperLogLog) or Lance column statistics if that shows up in startup time.
 async fn build_key_statistics(
     config: &GraphConfig,
@@ -900,12 +900,12 @@ async fn build_csr_entries(
 ///
 /// Lance datasets are read lazily from storage, pinned to the version they were
 /// opened at: writes made later (by this or another process) are not visible until
-/// [`refresh`](Self::refresh). Each dataset is pinned separately; versions across
+/// [`checkout_latest`](Self::checkout_latest). Each dataset is pinned separately; versions across
 /// tables are not a transactional multi-table snapshot. Arrow batches are held in
 /// memory and never change; build a new engine to replace them.
 ///
 /// Building the CSR (`use_csr`) is CPU-bound work inside an async function: in an
-/// application with its own async runtime, construct and refresh the engine on a
+/// application with its own async runtime, construct the engine and call `checkout_latest()` on a
 /// blocking thread (for example `tokio::task::spawn_blocking` plus `block_on`).
 /// Options for [`CypherEngine::with_options`].
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -917,7 +917,7 @@ pub struct EngineOptions {
     /// Store each fully built CSR inside its Lance relationship dataset, at
     /// `_lance_csr/<version>.arrow`, and load it instead of building when an engine
     /// starts. Changes since the stored version apply as a delta, under
-    /// the same 25% threshold as `refresh()`. Ignored without `use_csr` and for Arrow
+    /// the same 25% threshold as `checkout_latest()`. Ignored without `use_csr` and for Arrow
     /// input. A failed write is logged and doesn't fail the engine.
     pub persist_csr: bool,
 }
@@ -926,8 +926,9 @@ pub struct CypherEngine {
     config: GraphConfig,
     state: RwLock<Arc<EngineState>>,
     options: EngineOptions,
-    /// Held for a whole refresh, so a slower refresh can't swap in older data over a newer one.
-    refresh_lock: futures::lock::Mutex<()>,
+    /// Held for a whole update of the snapshot, so a slower `checkout_latest()` can't swap in older
+    /// data over a newer one.
+    update_lock: futures::lock::Mutex<()>,
 }
 
 impl CypherEngine {
@@ -953,7 +954,7 @@ impl CypherEngine {
     /// Like [`new`](Self::new), with a target for DataFusion query partitioning.
     ///
     /// `Some(n)` sets DataFusion's `target_partitions` for every query, kept across
-    /// [`refresh`](Self::refresh); `None` keeps DataFusion's default (the number of
+    /// [`checkout_latest`](Self::checkout_latest); `None` keeps DataFusion's default (the number of
     /// cores). It is not a thread or memory limit. In-memory Arrow inputs are still
     /// sliced into one partition per core.
     ///
@@ -998,11 +999,11 @@ impl CypherEngine {
             config,
             state: RwLock::new(Arc::new(state)),
             options,
-            refresh_lock: Default::default(),
+            update_lock: Default::default(),
         })
     }
 
-    /// The current snapshot. Cloning the `Arc` lets a query outlive a concurrent refresh.
+    /// The current snapshot. Cloning the `Arc` lets a query outlive a concurrent `checkout_latest()`.
     fn snapshot(&self) -> Arc<EngineState> {
         self.state
             .read()
@@ -1087,7 +1088,7 @@ impl CypherEngine {
     ///
     /// Batches are computed as the stream is polled. Scans, filters and projections
     /// stream with bounded memory; joins, sorts and aggregations may still buffer.
-    /// The stream keeps what it reads alive, so a concurrent `refresh()` does not
+    /// The stream keeps what it reads alive, so a concurrent `checkout_latest()` does not
     /// affect it. Planning errors return here; execution errors arrive in the stream.
     /// Dropping the stream cancels the remaining work.
     pub async fn execute_stream(
@@ -1123,15 +1124,16 @@ impl CypherEngine {
         vector_search.search(&candidates).await
     }
 
-    /// Move every Lance dataset to its latest version.
+    /// Move every Lance dataset to its latest version: the engine's counterpart of
+    /// Lance's `Dataset::checkout_latest()`.
     ///
     /// Datasets whose version and commit time are unchanged keep their open handle.
     /// The replacement is validated in full before it is swapped in; on error nothing
     /// changes and the previous snapshot stays usable. Queries already running finish
     /// on the snapshot they started with. Arrow inputs are unchanged. Concurrent calls
     /// run one at a time.
-    pub async fn refresh(&self) -> Result<()> {
-        let _refreshing = self.refresh_lock.lock().await;
+    pub async fn checkout_latest(&self) -> Result<()> {
+        let _updating = self.update_lock.lock().await;
         let current = self.snapshot();
         let mut sources = current.sources.clone();
         for source in sources.values_mut() {
@@ -1153,16 +1155,22 @@ impl CypherEngine {
         Ok(())
     }
 
+    /// Former name of [`checkout_latest`](Self::checkout_latest).
+    #[deprecated(note = "renamed to `checkout_latest`, after Lance's `Dataset::checkout_latest`")]
+    pub async fn refresh(&self) -> Result<()> {
+        self.checkout_latest().await
+    }
+
     /// Rebuild each CSR that carries a delta, at the snapshot the engine is pinned to: the
     /// CSR's counterpart of Lance's `optimize_indices()`.
     ///
-    /// `refresh()` applies changes as a delta over the base CSR and rebuilds on its own
+    /// `checkout_latest()` applies changes as a delta over the base CSR and rebuilds on its own
     /// only once they pass 25% of the base. This rebuilds every CSR that carries a delta
     /// now, so lookups stop carrying it; one without a delta, and everything else, is
     /// reused. Results never change. The replacement is validated in full before it is
-    /// swapped in, as for `refresh()`, and the two run one at a time.
+    /// swapped in, as for `checkout_latest()`, and the two run one at a time.
     pub async fn optimize_csr(&self) -> Result<()> {
-        let _refreshing = self.refresh_lock.lock().await;
+        let _updating = self.update_lock.lock().await;
         let current = self.snapshot();
         let state = build_engine_state(
             &self.config,
@@ -1181,10 +1189,10 @@ impl CypherEngine {
     ///
     /// The engine keeps the CSR it has in memory, so queries are unaffected. An
     /// engine with `persist_csr` stores a new file at its next full build; create
-    /// engines without it to stay in memory only. Runs one at a time with `refresh()`
+    /// engines without it to stay in memory only. Runs one at a time with `checkout_latest()`
     /// and `optimize_csr()`.
     pub async fn delete_stored_csr(&self) -> Result<usize> {
-        let _refreshing = self.refresh_lock.lock().await;
+        let _updating = self.update_lock.lock().await;
         let current = self.snapshot();
         let mut deleted = 0;
         for (_, mapping) in self.config.iter_relationship_mappings() {
@@ -1201,7 +1209,7 @@ impl CypherEngine {
 
     /// CSR adjacency statistics per relationship type (experimental, `use_csr`).
     ///
-    /// An identical map after `refresh()` means the snapshot itself was unchanged.
+    /// An identical map after `checkout_latest()` means the snapshot itself was unchanged.
     pub fn csr_stats(&self) -> HashMap<String, CsrStats> {
         self.snapshot()
             .csr
@@ -1280,7 +1288,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn target_partitions_survive_refresh_without_changing_other_defaults() {
+    async fn target_partitions_survive_checkout_latest_without_changing_other_defaults() {
         let defaults = SessionConfig::new();
         for target_partitions in [None, Some(1), Some(2)] {
             let engine = CypherEngine::with_target_partitions(
@@ -1292,7 +1300,7 @@ mod tests {
             .await
             .unwrap();
             let before = engine.snapshot();
-            engine.refresh().await.unwrap();
+            engine.checkout_latest().await.unwrap();
             for snapshot in [before, engine.snapshot()] {
                 let state = snapshot.context.state();
                 assert_eq!(
@@ -1318,7 +1326,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn plan_cache_reuses_bounds_and_resets_on_refresh() {
+    async fn plan_cache_reuses_bounds_and_resets_on_checkout_latest() {
         let engine = CypherEngine::new(person_config(), people_engine_sources(), false)
             .await
             .unwrap();
@@ -1385,7 +1393,7 @@ mod tests {
         assert_eq!(first.num_rows(), 1);
 
         // A refresh publishes a new snapshot with an empty cache; the old one is untouched.
-        engine.refresh().await.unwrap();
+        engine.checkout_latest().await.unwrap();
         assert!(engine.snapshot().plans.lock().unwrap().is_empty());
         assert_eq!(cached(), PLAN_CACHE_ENTRIES);
     }
@@ -1434,10 +1442,10 @@ mod tests {
         .unwrap();
     }
 
-    /// A refresh that starts while another is in flight waits for it, then publishes
+    /// A `checkout_latest()` that starts while another is in flight waits for it, then publishes
     /// the newest version: an older snapshot can never land after a newer one.
     #[tokio::test]
-    async fn refresh_waits_for_an_in_flight_refresh() {
+    async fn checkout_latest_waits_for_an_in_flight_checkout() {
         let dir = tempfile::tempdir().unwrap();
         let uri = dir.path().join("person.lance").display().to_string();
         write_people(&uri, vec![1], WriteMode::Create).await;
@@ -1452,13 +1460,13 @@ mod tests {
         let engine = Arc::new(CypherEngine::new(config, sources, true).await.unwrap());
 
         // Stand in for refresh A, still building its replacement.
-        let in_flight = engine.refresh_lock.lock().await;
+        let in_flight = engine.update_lock.lock().await;
         let b = tokio::spawn({
             let engine = engine.clone();
-            async move { engine.refresh().await }
+            async move { engine.checkout_latest().await }
         });
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        assert!(!b.is_finished(), "refresh B ran while A was in flight");
+        assert!(!b.is_finished(), "checkout B ran while A was in flight");
 
         // A newer version lands before A finishes; B must publish it, not anything older.
         write_people(&uri, vec![2], WriteMode::Append).await;

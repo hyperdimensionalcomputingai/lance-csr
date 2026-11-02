@@ -83,7 +83,7 @@ them.
       caveats and known issues; `???` makes a collapsible one for long detail;
     - content tabs (`=== "Tab"`) for alternatives, such as install methods or input types;
     - code annotations (`# (1)!` plus a numbered list after the block) to explain specific lines;
-    - Mermaid diagrams (```` ```mermaid ````) for flows: query pipelines, refresh decisions, snapshots;
+    - Mermaid diagrams (```` ```mermaid ````) for flows: query pipelines, `checkout_latest()` decisions, snapshots;
     - tables for options and comparisons, definition lists for method references;
     - grid cards on the home page only.
 - Plain, direct sentences. Use "you". Avoid filler and marketing adjectives. Spell out a term the first time

@@ -36,21 +36,25 @@ print(engine.dataset_versions())  # {'Person': 1, 'KNOWS': 1}
 ```
 
 Each dataset is **pinned to the version you passed in**. Writes made later, by your process or another one,
-stay invisible until you call `refresh()`. That gives every query a stable snapshot.
+stay invisible until you call `checkout_latest()`. That gives every query a stable snapshot.
 
 !!! note "Snapshots are per dataset"
 
     Each dataset is pinned separately. The versions across tables are not a transactional multi-table
-    snapshot; if a writer updates `Person` and `KNOWS` one after the other, refresh after both commits.
+    snapshot; if a writer updates `Person` and `KNOWS` one after the other, call `checkout_latest()` after both commits.
 
 !!! warning "Use pylance 13.x to write"
 
     The engine is built against Lance 13. Datasets written by an older or newer major version of `pylance`
     may use a file format it can't read. Installing `lance-csr` pins a compatible `pylance` for you.
 
-## `refresh()` { #refresh }
+## `checkout_latest()` { #checkout-latest }
 
-`refresh()` moves every Lance dataset to its latest version:
+`checkout_latest()` moves every Lance dataset to its latest version. It's named after Lance's own
+`LanceDataset.checkout_latest()`, which does the same for a single dataset, and it updates everything the engine
+built from that data along with it: node indexes, join statistics and, with `use_csr=True`, the CSR. It isn't a
+CSR-specific call; to rebuild a CSR, use [`optimize_csr()`](csr.md#rebuilding-the-csr) (see
+[Keeping the CSR current](csr.md#keeping-the-csr-current)):
 
 ```python
 lance.write_dataset(
@@ -59,27 +63,32 @@ lance.write_dataset(
 lance.write_dataset(pa.table({"src": [3], "dst": [4]}), "knows.lance", mode="append")
 
 print(engine.execute("MATCH (p:Person) RETURN count(*) AS n").to_pylist())  # [{'n': 3}]
-engine.refresh()
+engine.checkout_latest()
 print(engine.execute("MATCH (p:Person) RETURN count(*) AS n").to_pylist())  # [{'n': 4}]
 print(engine.dataset_versions())  # {'Person': 2, 'KNOWS': 2}
 ```
 
-What `refresh()` guarantees:
+!!! note "Formerly `refresh()`"
+
+    This method was called `refresh()` before. `refresh()` still works, and does exactly the same, but it
+    warns with `DeprecationWarning` and will be removed in a later release.
+
+What `checkout_latest()` guarantees:
 
 - **Unchanged datasets keep their handle.** A dataset whose version and commit time are unchanged is reused,
-  along with its CSR, node index and statistics, so a no-op refresh is cheap.
-- **Schema changes are picked up.** New columns are queryable after the refresh.
+  along with its CSR, node index and statistics, so calling it when nothing changed is cheap.
+- **Schema changes are picked up.** New columns are queryable afterwards.
 - **All or nothing.** The replacement is validated in full before it's swapped in. On error, nothing changes
   and the previous snapshot keeps working.
-- **Concurrent refreshes cannot overwrite a newer published snapshot with an older candidate.** If another
-  refresh publishes first, the overlapping refresh retries from that snapshot and reopens the latest datasets.
-  The retry can add work when refreshes overlap; it does not block queries while the replacement is built.
-- **Running queries are unaffected.** Queries and `execute_batches()` readers that started before the refresh
+- **Concurrent calls cannot overwrite a newer published snapshot with an older candidate.** If another call
+  publishes first, the overlapping one retries from that snapshot and reopens the latest datasets. The retry
+  can add work when calls overlap; it does not block queries while the replacement is built.
+- **Running queries are unaffected.** Queries and `execute_batches()` readers that started before the call
   finish on their original snapshot.
 - **The CSR updates incrementally**, as described in [Keeping the CSR current](csr.md#keeping-the-csr-current).
 - **PyArrow inputs don't change.** To replace in-memory data, build a new engine.
 
-A refresh reopens each dataset by its URI with the same `storage_options` it was opened with, so object-store
+`checkout_latest()` reopens each dataset by its URI with the same `storage_options` it was opened with, so object-store
 credentials carry over.
 
 ## Repeated queries
@@ -91,8 +100,8 @@ rows and results are never cached. Query text and parameter names/types identify
 separate from non-null values. Least recently used templates are evicted at the limit.
 
 Lists, maps and parameterized `SKIP`/`LIMIT` counts use ordinary planning because their shape or value can
-change the plan. Queries whose operators cannot produce a reusable template fall back to ordinary planning. `explain()` plans the current values directly. A successful `refresh()` starts an empty cache for the
-new snapshot, including a refresh whose datasets did not change; active readers retain their existing plans.
+change the plan. Queries whose operators cannot produce a reusable template fall back to ordinary planning. `explain()` plans the current values directly. A successful `checkout_latest()` starts an empty cache for the
+new snapshot, even when no dataset changed; active readers retain their existing plans.
 These rules apply with and without CSR. They do not promise a speedup for a particular workload.
 
 ## Query parallelism
@@ -108,13 +117,13 @@ serial_engine = CypherEngine(
     target_partitions=1,
 )
 print(serial_engine.execute("MATCH (p:Person) RETURN count(*) AS n").to_pylist())  # [{'n': 4}]
-serial_engine.refresh()  # retains target_partitions=1
+serial_engine.checkout_latest()  # retains target_partitions=1
 ```
 
 The target is a planning preference, not a thread or memory limit; operators may use a different number
 of partitions. A lower target can help short queries while making larger joins and scans slower. Compare
 your full workload in the storage mode you use before choosing a value. The default remains unchanged,
-and `refresh()` preserves your choice. Booleans and non-integers other than `None` raise `TypeError`;
+and `checkout_latest()` preserves your choice. Booleans and non-integers other than `None` raise `TypeError`;
 zero, negative and out-of-range integers raise `ValueError`.
 
 ## Streaming large results
@@ -142,7 +151,7 @@ memory. Joins, sorts and aggregations may still buffer their inputs.
 | Join-key statistics | In memory, a few numbers per key column |
 | Query results | In memory with `execute()`; streamed with `execute_batches()` |
 
-The CSR and node index are built from the Lance data once and updated on `refresh()`; queries don't rescan
+The CSR and node index are built from the Lance data once and updated on `checkout_latest()`; queries don't rescan
 the edge table to traverse it.
 
 ## Tables created with LanceDB
@@ -166,12 +175,12 @@ config = (
 engine = CypherEngine(config, {"Person": people.to_lance(), "KNOWS": knows.to_lance()})
 
 knows.add(new_edges)  # keep writing with the LanceDB API
-engine.refresh()      # the engine sees the new version
+engine.checkout_latest()      # the engine sees the new version
 ```
 
 - Reads are lazy and version-pinned exactly as with `lance.dataset(...)`.
 - Passing the LanceDB `Table` object itself raises a `TypeError`. `table.to_arrow()` works, but loads the
-  whole table into memory and never refreshes.
+  whole table into memory and never sees later versions.
 - Tested with LanceDB 0.40.0 on local tables (Lance file format 2.2). A LanceDB release bundling a newer Lance
   major may write files this engine can't read.
 
@@ -205,4 +214,4 @@ print(namespace.base_uri)  # graph
 ```
 
 `CypherQuery` (with a namespace or a dict) reads the data for each `execute()`; use `CypherEngine` for lazy
-reads, refresh and the CSR.
+reads, `checkout_latest()` and the CSR.

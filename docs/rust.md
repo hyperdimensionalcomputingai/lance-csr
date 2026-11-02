@@ -58,7 +58,7 @@ Each input is an `EngineSource`:
 
 `EngineSource::open_lance(uri, version, storage_options)`
 :   Opens a Lance dataset, pinned to `version` (`None` means the latest). The dataset is read lazily as
-    queries need it, and `storage_options` are kept so `refresh()` can reopen it with the same credentials.
+    queries need it, and `storage_options` are kept so `checkout_latest()` can reopen it with the same credentials.
     See [Lance datasets](lance.md).
 
 `EngineSource::Arrow(batch)`
@@ -92,11 +92,11 @@ Each query runs on the snapshot that was current when it started.
 
 ## Pick up new writes
 
-`refresh()` moves every Lance dataset to its latest version and updates the CSR, applying the new edges as a
+`checkout_latest()` moves every Lance dataset to its latest version and updates the CSR, applying the new edges as a
 delta when it can (see [Keeping the CSR current](csr.md#keeping-the-csr-current)):
 
 ```rust
---8<-- "crates/lance-csr/examples/embedded_query.rs:refresh"
+--8<-- "crates/lance-csr/examples/embedded_query.rs:checkout_latest"
 ```
 
 `csr_stats()` and `node_index_stats()` return the same fields as in Python, as `CsrStats` and `NodeIndexStats`
@@ -118,7 +118,7 @@ different exception depending on the variant:
 
 ## Async runtimes and cancellation
 
-- Building the CSR in `new()` and `refresh()` is CPU-heavy work inside an async function, so it holds a
+- Building the CSR in `new()` and `checkout_latest()` is CPU-heavy work inside an async function, so it holds a
   runtime worker thread until it finishes. In an application with its own runtime (a desktop or web backend),
   run those two calls with `tokio::task::spawn_blocking` so other tasks keep running.
 - Dropping a query's future, or the stream from `execute_stream`, cancels the rest of that query.
@@ -147,7 +147,7 @@ The deadline applies only to work inside the call; it isn't stored in the engine
 | a PyArrow table in `datasets` | `EngineSource::Arrow(batch)` |
 | `engine.execute(query, params)` → `pyarrow.Table` | `engine.execute(query, params).await` → `RecordBatch` |
 | `engine.execute_batches(...)` → `RecordBatchReader` | `engine.execute_stream(...).await` → stream |
-| `engine.refresh()` | `engine.refresh().await` |
+| `engine.checkout_latest()` | `engine.checkout_latest().await` |
 | `engine.optimize_csr()` | `engine.optimize_csr().await` |
 | `engine.execute(query, timeout=2.0)` | `timeout_at(deadline, with_execution_deadline(Some(deadline), engine.execute(...)))` |
 | `CypherEngine(..., target_partitions=4)` | `CypherEngine::with_target_partitions(config, sources, use_csr, Some(4)).await` |

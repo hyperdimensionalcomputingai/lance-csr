@@ -45,7 +45,7 @@ case needs distributed graph queries or graph algorithms, that's the kind of eng
 - **CSR traversal** (`use_csr=True`): relationship hops and variable-length paths become array lookups instead of
   joins, updated incrementally as the Lance datasets change. See [the CSR index](https://lance-csr.hdclabs.ai/csr/).
 - **A Lance-native engine** that reads each table lazily from a pinned Lance snapshot or holds it in memory, and
-  `refresh()`es to new versions.
+  `checkout_latest()`es to new versions.
 - **Much wider Cypher**, enough to run the Graph Data Council's Interactive complex queries: `OPTIONAL MATCH`,
   pattern predicates, chained `WITH`, `UNWIND`, list and pattern comprehensions, `shortestPath`, `$parameters`
   and more.

@@ -55,7 +55,7 @@ print(friends.to_pylist())
 
 The SQL dialect is DataFusion's; see the
 [DataFusion SQL reference](https://datafusion.apache.org/user-guide/sql/index.html) for what it supports.
-`SqlEngine` has no `refresh()` or CSR: those are `CypherEngine` features.
+`SqlEngine` has no `checkout_latest()` or CSR: those are `CypherEngine` features.
 
 ## From Cypher to SQL
 

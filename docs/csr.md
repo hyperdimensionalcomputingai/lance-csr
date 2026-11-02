@@ -99,7 +99,7 @@ Node index
     During query execution, each CSR expansion partition keeps one input batch and collects at most one
     output chunk of neighbour positions before fetching properties. It yields that chunk before visiting
     the remaining neighbours, even for a single high-degree node. Deleted edge positions are read from the
-    shared snapshot rather than copied for each query; refresh resolves those positions by scanning the
+    shared snapshot rather than copied for each query; `checkout_latest()` resolves those positions by scanning the
     affected sources' neighbour lists.
     
     Cancellation checkpoints count source rows and frontiers with no surviving edges,
@@ -273,7 +273,7 @@ print(engine.csr_stats()["KNOWS"])
 | `delta_edges` | Appended edges held outside the base CSR since its last full build. |
 | `tombstones` | Removed edges masked out since the last full build. |
 | `unindexed_edges` | Live edges outside the base CSR: appended since its last full build and not since removed. Lance index statistics call this `num_unindexed_rows`. |
-| `update` | How the last build, `refresh()` or [`optimize_csr()`](#rebuilding-the-csr) produced it: `build` (first), `rebuild` (full), `loaded` (from a [stored file](#storing-the-csr), with any changes since applied as a delta), `delta` (changes applied) or `reused` (no edge change). |
+| `update` | How the last build, `checkout_latest()` or [`optimize_csr()`](#rebuilding-the-csr) produced it: `build` (first), `rebuild` (full), `loaded` (from a [stored file](#storing-the-csr), with any changes since applied as a delta), `delta` (changes applied) or `reused` (no edge change). |
 | `version` | The relationship dataset's Lance version, or `None` for PyArrow input. |
 | `base_version` | The version of the last full build, or `None` for PyArrow input. It trails `version` while deltas apply. |
 | `build_ms` | Wall time of that build or delta, both directions. |
@@ -298,30 +298,37 @@ each other, but it also means the CSR falls behind as soon as anyone writes to t
 
 Two calls bring it back up to date, and they do different jobs:
 
-1. **[`refresh()`](#refresh)** moves the engine to the newest version of each Lance dataset. Instead of rebuilding
+1. **[`checkout_latest()`](#checkout-latest)** moves the engine to the newest version of each Lance dataset. Instead of rebuilding
    the CSR, it records the edges added or removed since the last build as a *delta*, a small set of changes kept
    next to the CSR. Call it whenever your queries should see new writes.
 2. **[`optimize_csr()`](#rebuilding-the-csr)** rebuilds a CSR from scratch, so it no longer needs its delta. Call
    it occasionally, once enough changes have built up that you'd rather lookups stopped working through them.
 
+The two calls aren't a matched pair, though. `checkout_latest()` isn't really a CSR operation: it's named after, and
+works like, Lance's own `LanceDataset.checkout_latest()`, and it moves the whole engine to the newest version of every
+Lance dataset it reads. Node tables, node indexes and the statistics used to plan joins all move with it, and keeping
+the CSR in step is just one part of that, done as cheaply as possible with a delta. `optimize_csr()` is the call that's
+about the CSR itself: it rebuilds a CSR in a running engine when you decide, rather than waiting for the delta to get
+too large. It plays the part Lance's `optimize_indices()` plays for Lance's own indexes.
+
 If you gave the engine in-memory PyArrow tables instead of Lance datasets, neither call applies: those tables can't
 change underneath the engine, so their CSR is never out of date. To query new in-memory data, create a new engine.
 
-### `refresh()`: pick up new writes { #refresh }
+### `checkout_latest()`: pick up new writes { #checkout-latest }
 
 Because each Lance dataset can evolve independently as you write to it, the engine has to be told that a newer
-version is available. `refresh()` does that: it checks every Lance dataset for a newer version and moves the engine to
+version is available. `checkout_latest()` does that: it checks every Lance dataset for a newer version and moves the engine to
 it. Call it after the writes your queries should see, whether they came from `pylance`, LanceDB or another process.
-If one writer updates several tables, wait until all of them have committed before you refresh, since each Lance
+If one writer updates several tables, wait until all of them have committed before you call it, since each Lance
 dataset is pinned on its own (see [snapshots are per Lance dataset](lance.md#lazy-version-pinned-reads)). When nothing
-has changed, a refresh keeps what the engine already has and returns quickly, so calling it on a timer or before
+has changed, `checkout_latest()` keeps what the engine already has and returns quickly, so calling it on a timer or before
 each batch of queries is fine.
 
-Rebuilding the whole CSR on every refresh would mean scanning every edge again, even when only a handful changed.
-So `refresh()` reads only the new parts of each relationship dataset and applies the changes on top of the CSR from
+Rebuilding the whole CSR on every call would mean scanning every edge again, even when only a handful changed.
+So `checkout_latest()` reads only the new parts of each relationship dataset and applies the changes on top of the CSR from
 the last full build, which the rest of this page calls the *base*. Appended edges go into the delta, and deleted
 edges are marked so that lookups skip them; `csr_stats()` counts those marks as `tombstones`. Answers are exactly
-what a full rebuild would give. To see what a refresh did, check `update` in [`csr_stats()`](#csr_stats): `reused`
+what a full rebuild would give. To see what a call did, check `update` in [`csr_stats()`](#csr_stats): `reused`
 means nothing changed, `delta` means the changes were applied, and `rebuild` means the CSR was built again from
 scratch, which happens in the cases below.
 
@@ -338,9 +345,9 @@ scratch, which happens in the cases below.
         use_csr=True,
     )
 
-    # David now knows Alice. The engine doesn't see the write until refresh().
+    # David now knows Alice. The engine doesn't see the write until checkout_latest().
     lance.write_dataset(pa.table({"src": [4], "dst": [1]}), "knows.lance", mode="append")
-    engine.refresh()
+    engine.checkout_latest()
 
     stats = engine.csr_stats()["KNOWS"]
     print(stats["edges"], stats["delta_edges"], stats["update"])  # 5 1 delta
@@ -351,19 +358,19 @@ scratch, which happens in the cases below.
     This continues the on-disk example from [Using from Rust](rust.md), where Bob gains an edge to Alice.
 
     ```rust
-    --8<-- "crates/lance-csr/examples/embedded_query.rs:refresh"
+    --8<-- "crates/lance-csr/examples/embedded_query.rs:checkout_latest"
     ```
 
-??? info "How `refresh()` decides"
+??? info "How `checkout_latest()` decides"
 
     ```mermaid
     flowchart LR
-        R["refresh()"] -- "no edge changes" --> U["reused"]
+        R["checkout_latest()"] -- "no edge changes" --> U["reused"]
         R -- "changes under 25% of the base" --> DL["delta"]
         R -- "25% or more, or new endpoint columns" --> RB["rebuild"]
     ```
 
-    - A refresh rebuilds a CSR instead of adding to its delta once the changes since the last full build would reach
+    - `checkout_latest()` rebuilds a CSR instead of adding to its delta once the changes since the last full build would reach
       25% of the base, or when the relationship dataset was overwritten or its endpoint columns changed. The
       threshold is fixed: every lookup reads the delta as well as the base, so a large delta slows lookups down, and
       a rebuild clears it. `python/benchmarks/csr_delta_accumulated.py` measures that trade-off.
@@ -376,23 +383,23 @@ scratch, which happens in the cases below.
 
 ### `optimize_csr()`: rebuild to clear the delta { #rebuilding-the-csr }
 
-The delta keeps refreshes cheap, but every lookup has to check it as well as the base. A refresh only rebuilds once
+The delta keeps `checkout_latest()` cheap, but every lookup has to check it as well as the base. It only rebuilds once
 the delta reaches 25% of the base, so a smaller delta can stay around indefinitely and slow lookups a little the
 whole time. `optimize_csr()` lets you clear it at a moment you choose. It rebuilds every CSR that has a delta, from a
 scan of all its edges, at the version the engine is already pinned to, and leaves CSRs without a delta alone. That
 costs about as much as building the CSR the first time, so it's best kept for after a bulk load, before a run of
-latency-sensitive queries, or a quiet period, rather than called after every refresh. Query results are the same
+latency-sensitive queries, or a quiet period, rather than called after every `checkout_latest()`. Query results are the same
 before and after.
 
 ```python
-engine.refresh()  # applies the new edges as a delta
+engine.checkout_latest()  # applies the new edges as a delta
 engine.optimize_csr()  # rebuilds the CSR, now including those edges
 stats = engine.csr_stats()["KNOWS"]
 print(stats["update"], stats["unindexed_edges"])  # rebuild 0
 ```
 
 Afterwards, `csr_stats()` shows `delta_edges`, `tombstones` and `unindexed_edges` at 0, and `base_version` matches
-`version`. `optimize_csr()` doesn't look for newer data, so call `refresh()` first if the rebuild should include the
+`version`. `optimize_csr()` doesn't look for newer data, so call `checkout_latest()` first if the rebuild should include the
 latest writes.
 
 ??? info "How this maps onto Lance's indexes"
@@ -413,18 +420,18 @@ latest writes.
 
 ### Which one to call
 
-!!! tip "`refresh()` or `optimize_csr()`?"
+!!! tip "`checkout_latest()` or `optimize_csr()`?"
 
-    In short, `refresh()` keeps the engine up to date at little cost, and `optimize_csr()` now and then clears the
-    delta that refreshes leave behind.
+    In short, `checkout_latest()` keeps the engine up to date at little cost, and `optimize_csr()` now and then clears the
+    delta that `checkout_latest()` leaves behind.
 
-    | | `refresh()` | `optimize_csr()` |
+    | | `checkout_latest()` | `optimize_csr()` |
     | --- | --- | --- |
     | Data | Moves to the latest version of each Lance dataset | Stays at the version the engine is pinned to |
     | Usual effect on a CSR | Applies the new writes as a delta, reading only new fragments | Rebuilds it from a scan of all its edges |
     | Rebuilds a CSR when | Its delta would pass 25% of the base | It carries any delta at all |
     | Cost | In proportion to the new writes | Like the first build |
-    | When to call it | Whenever queries should see new writes | Now and then, after `refresh()`, once a delta has built up |
+    | When to call it | Whenever queries should see new writes | Now and then, after `checkout_latest()`, once a delta has built up |
 
     Whenever either call rebuilds a CSR, it runs the same full build and ends up with the same CSR. Both build the
     replacement completely before the engine switches to it, and they never run at the same time.
@@ -458,10 +465,10 @@ The file belongs to the table: dropping or copying the dataset drops or copies i
 files it recognises.
 
 - **Changes since the stored version** apply as a delta, read from the new fragments only, exactly as
-  [`refresh()`](#keeping-the-csr-current) applies them. `update` says `loaded` and `base_version` names the
+  [`checkout_latest()`](#keeping-the-csr-current) applies them. `update` says `loaded` and `base_version` names the
   stored version. That holds after compaction and `cleanup_old_versions()` too.
 - **Past the 25% threshold**, the engine rebuilds the CSR and stores the new version. Every full build is stored,
-  including those from `refresh()` and [`optimize_csr()`](#rebuilding-the-csr), and older files are deleted
+  including those from `checkout_latest()` and [`optimize_csr()`](#rebuilding-the-csr), and older files are deleted
   once a newer one is written.
 - **A file that can't be used** (corrupt, written for other endpoint columns or by another format) is ignored and
   rebuilt, so a bad file costs a build, never a wrong answer.

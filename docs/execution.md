@@ -71,7 +71,7 @@ make it build a multi-million-row intermediate as one single-threaded hash table
 
 lance-csr computes distinct counts for every node key and edge endpoint column (from the CSR when there is
 one, otherwise with one scan of the endpoint columns) and reports them to DataFusion's join planner. The
-counts are cached per dataset version, so an unchanged `refresh()` costs nothing.
+counts are cached per dataset version, so an unchanged `checkout_latest()` costs nothing.
 
 ## Parallelism
 
@@ -93,14 +93,14 @@ sequenceDiagram
     participant E as CypherEngine
     participant Q2 as Query 2
     Q1->>E: execute() takes snapshot v1
-    Note over E: refresh() builds snapshot v2<br/>(reusing unchanged parts), then swaps it in
+    Note over E: checkout_latest() builds snapshot v2<br/>(reusing unchanged parts), then swaps it in
     Q2->>E: execute() takes snapshot v2
     E-->>Q1: finishes on v1
     E-->>Q2: finishes on v2
 ```
 
-`refresh()` builds a complete replacement next to the current snapshot, reusing everything whose source
-dataset hasn't changed, and swaps it in atomically. A failed refresh leaves the old snapshot in place.
+`checkout_latest()` builds a complete replacement next to the current snapshot, reusing everything whose source
+dataset hasn't changed, and swaps it in atomically. A failed call leaves the old snapshot in place.
 
 ## Single-machine scope
 
