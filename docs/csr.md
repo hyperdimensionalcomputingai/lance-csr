@@ -471,9 +471,9 @@ print(open_engine().delete_stored_csr())  # 1
 
     | | Engine start | Peak memory |
     | --- | ---: | ---: |
-    | Without `persist_csr` | 1.7 s | 1.4 to 1.45 GiB |
-    | First start, building and storing 134 MiB | 2.6 s | 1.3 to 1.5 GiB |
-    | Later starts, loading | 0.46 s | 1.1 GiB |
+    | Without `persist_csr` | 1.7 s | 1.37 to 1.42 GiB |
+    | First start, building and storing 134 MiB | 2.6 s | 1.25 to 1.46 GiB |
+    | Later starts, loading | 0.46 s | 1.06 to 1.12 GiB |
 
     Compressing adds about 0.9 s to the first start; decompression takes most of a load. Query times don't
     change. `python/benchmarks/csr_persist.py` measures the same cases on a synthetic graph, including a load
