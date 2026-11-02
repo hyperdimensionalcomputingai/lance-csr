@@ -55,6 +55,36 @@ impl<'a> PlanningContext<'a> {
         }
     }
 
+    /// Skip the relationship instances that `planned` would take beyond `built`, as when
+    /// `built` is planned in place of `planned`, which contains it.
+    pub(crate) fn skip_relationship_instances(
+        &mut self,
+        planned: &crate::logical_plan::LogicalOperator,
+        built: &crate::logical_plan::LogicalOperator,
+    ) -> Result<()> {
+        let count = |op| -> Result<HashMap<String, usize>> {
+            let mut counts = HashMap::new();
+            for instance in analyze(op)?.relationship_instances {
+                *counts.entry(instance.rel_type).or_default() += 1;
+            }
+            Ok(counts)
+        };
+        let built = count(built)?;
+        for (rel_type, n) in count(planned)? {
+            let skip = n - built.get(&rel_type).copied().unwrap_or(0);
+            if skip > 0 {
+                let idx = self.relationship_instance_idx.entry(rel_type);
+                match idx {
+                    std::collections::hash_map::Entry::Occupied(mut e) => *e.get_mut() += skip,
+                    std::collections::hash_map::Entry::Vacant(e) => {
+                        e.insert(skip - 1);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Get the next relationship instance for a given type (returns a clone)
     pub fn next_relationship_instance(&mut self, rel_type: &str) -> Result<RelationshipInstance> {
         let idx = self
@@ -300,6 +330,11 @@ fn analyze_operator(
         }
         LogicalOperator::CallInput { labels } => {
             analysis.var_to_label.extend(labels.clone());
+        }
+        // The fallback holds the input; the builder keeps its relationship instances
+        // in step whichever of the two it plans.
+        LogicalOperator::PathExists { fallback, .. } => {
+            analyze_operator(fallback, analysis, rel_counter)?;
         }
         LogicalOperator::ComprehensionElement | LogicalOperator::SingleRow => {}
     }

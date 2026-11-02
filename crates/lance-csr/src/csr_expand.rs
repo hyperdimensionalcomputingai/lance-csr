@@ -61,8 +61,10 @@ use futures::StreamExt;
 use lance::dataset::{Dataset, ProjectionRequest};
 
 mod node_lookup;
+mod path_exists;
 use lance_table::format::Fragment;
 pub use node_lookup::NodeLookupNode;
+pub use path_exists::{Hop, PathExistsNode};
 
 /// Yield after bounded CPU work without requiring a particular async runtime.
 pub(crate) async fn cooperative_yield() {
@@ -2408,6 +2410,9 @@ impl ExtensionPlanner for CsrExtensionPlanner {
         if let Some(node) = node.as_any().downcast_ref::<NodeLookupNode>() {
             return Ok(Some(node_lookup::plan_node_lookup(node, physical_inputs)));
         }
+        if let Some(node) = node.as_any().downcast_ref::<PathExistsNode>() {
+            return Ok(Some(path_exists::plan_path_exists(node, physical_inputs)));
+        }
         let Some(node) = node.as_any().downcast_ref::<CsrExpandNode>() else {
             return Ok(None);
         };
@@ -2609,6 +2614,9 @@ fn used_columns(plan: &LogicalPlan) -> datafusion::common::Result<HashSet<String
                     true
                 } else if let Some(lookup) = ext.node.as_any().downcast_ref::<NodeLookupNode>() {
                     used.insert(lookup.key_column().to_string());
+                    true
+                } else if let Some(exists) = ext.node.as_any().downcast_ref::<PathExistsNode>() {
+                    used.extend(exists.endpoints().map(str::to_string));
                     true
                 } else {
                     false

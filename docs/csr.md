@@ -133,6 +133,7 @@ When those hold, it covers:
 | <code>(a)-[:LIKES_POST&#124;LIKES_COMMENT]->(m)</code> | :material-check: one expansion per branch |
 | `OPTIONAL MATCH (a)-[:KNOWS]->(b)` | :material-check: |
 | `shortestPath((a)-[:KNOWS*]-(b))` | :material-check: the search walks the CSR adjacency |
+| `WHERE NOT (b)-[:KNOWS]->(a)`, `(p)-[:HAS_TAG]->()<-[:INTEREST]-(person)` | :material-check: walked per row from a bound node, through anonymous nodes and relationships of distinct types ([`PathExists`](internals/operators.md#pathexists-pattern-predicates-walked-in-place)) |
 | `(a)-[k:KNOWS]->(b)` | :material-check: `k`'s other columns are fetched by edge row (single hops only) |
 | `(a)-[k:KNOWS {since: 2020}]->(b)` | :material-close: hash join |
 | endpoints of type `string`, `float` or `uint64` | :material-close: hash join |

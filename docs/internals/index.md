@@ -13,7 +13,7 @@ the data structure those pieces read.
 
 | Page | What it covers |
 | --- | --- |
-| [Custom operators](operators.md) | `CsrExpand`, `NodeLookup`, `ShortestPath`, `PathMatch`, `Apply` and `KeyStatistics`, with their plans |
+| [Custom operators](operators.md) | `CsrExpand`, `NodeLookup`, `PathExists`, `ShortestPath`, `PathMatch`, `Apply` and `KeyStatistics`, with their plans |
 | [Optimizer rules and rewrites](optimizer.md) | The two logical optimizer rules, graph rewrites before DataFusion sees the plan, and join statistics |
 | [Indexes and refresh](indexes.md) | How the CSR adjacency and node indexes are laid out, and how a refresh diffs Lance versions |
 | [Execution plumbing](execution-plumbing.md) | Partitioning, the plan template cache, deadlines and Cypher functions |

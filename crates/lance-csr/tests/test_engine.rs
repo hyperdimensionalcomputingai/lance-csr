@@ -287,3 +287,167 @@ async fn optional_match_where_pattern_reads_an_earlier_variable() {
         assert_eq!(column(2), [1, 1, 0, 2], "use_csr={use_csr}");
     }
 }
+
+/// Pattern predicates walked on the CSR (`PathExists`) give the same rows as the
+/// relational marking the engine plans without a CSR.
+#[tokio::test]
+async fn path_exists_matches_the_join_plan() {
+    let config = GraphConfig::builder()
+        .node_table("Person", "id")
+        .node_table("Post", "id")
+        .node_table("Tag", "id")
+        .rel_table("KNOWS", "Person", "Person", "src", "dst")
+        .rel_table("CREATED", "Post", "Person", "src", "dst")
+        .rel_table("HAS_TAG", "Post", "Tag", "src", "dst")
+        .rel_table("INTEREST", "Person", "Tag", "src", "dst")
+        .build()
+        .unwrap();
+    let ids = |ids: Vec<i64>| {
+        let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)]));
+        RecordBatch::try_new(schema, vec![Arc::new(Int64Array::from(ids))]).unwrap()
+    };
+    let edges = |pairs: Vec<(i64, i64)>| {
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("src", DataType::Int64, false),
+            Field::new("dst", DataType::Int64, false),
+        ]));
+        RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(Int64Array::from_iter_values(pairs.iter().map(|p| p.0))),
+                Arc::new(Int64Array::from_iter_values(pairs.iter().map(|p| p.1))),
+            ],
+        )
+        .unwrap()
+    };
+    // Persons 1-8 with a self-loop, a duplicate and mutual edges; person 8 knows nobody.
+    // Edges to missing nodes (99, 299, 98) match nothing, as nodes join to their tables.
+    let knows = vec![
+        (1, 2),
+        (2, 1),
+        (1, 3),
+        (3, 3),
+        (3, 4),
+        (3, 4),
+        (4, 5),
+        (5, 6),
+        (6, 1),
+        (7, 2),
+        (8, 99),
+    ];
+    let created: Vec<_> = (100..116).map(|p| (p, 1 + p % 7)).collect();
+    // Posts 112-115 have no tags.
+    let has_tag: Vec<_> = (100..112)
+        .flat_map(|p| [(p, 200 + p % 5), (p, 200 + p % 3)])
+        .chain([(113, 299)])
+        .collect();
+    let interest = vec![
+        (1, 200),
+        (2, 201),
+        (2, 204),
+        (3, 202),
+        (5, 203),
+        (6, 200),
+        (6, 204),
+        (98, 203),
+    ];
+    let sources = [
+        ("Person", ids((1..=8).collect())),
+        ("Post", ids((100..116).collect())),
+        ("Tag", ids((200..205).collect())),
+        ("KNOWS", edges(knows)),
+        ("CREATED", edges(created)),
+        ("HAS_TAG", edges(has_tag)),
+        ("INTEREST", edges(interest)),
+    ];
+    let queries = [
+        // (query, walked on the CSR)
+        (
+            "MATCH (a:Person) WHERE (a)-[:KNOWS]->(:Person) RETURN a.id AS a",
+            true,
+        ),
+        (
+            "MATCH (a:Person) WHERE NOT (a)<-[:KNOWS]-() RETURN a.id AS a",
+            true,
+        ),
+        (
+            "MATCH (a:Person), (b:Person) WHERE a.id < b.id AND NOT (a)-[:KNOWS]-(b) \
+             RETURN a.id AS a, b.id AS b",
+            true,
+        ),
+        (
+            "MATCH (a:Person)-[:KNOWS]->(b:Person) WHERE (a)<-[:KNOWS]-(b) \
+             RETURN a.id AS a, b.id AS b",
+            true,
+        ),
+        (
+            "MATCH (p:Post), (person:Person) \
+             WHERE (p)-[:HAS_TAG]->(:Tag)<-[:INTEREST]-(person) RETURN p.id AS p, person.id AS q",
+            true,
+        ),
+        (
+            "MATCH (person:Person)-[:KNOWS]->(friend:Person) WITH DISTINCT friend, person \
+             OPTIONAL MATCH (friend)<-[:CREATED]-(post:Post) \
+             WITH friend, person, collect(post) AS posts \
+             RETURN person.id AS p, friend.id AS f, size(posts) AS n, \
+             size([x IN posts WHERE (x)-[:HAS_TAG]->()<-[:INTEREST]-(person)]) AS c",
+            true,
+        ),
+        (
+            "MATCH (person:Person)-[:KNOWS]->(friend:Person) WITH DISTINCT friend, person \
+             OPTIONAL MATCH (friend)<-[:CREATED]-(post:Post) \
+             WITH friend, person, post, \
+             CASE WHEN (post)-[:HAS_TAG]->()<-[:INTEREST]-(person) THEN 1 END AS common \
+             RETURN person.id AS p, friend.id AS f, count(post) AS n, count(common) AS c",
+            true,
+        ),
+        (
+            "MATCH (person:Person)-[:KNOWS]->(friend:Person) WITH DISTINCT friend, person \
+             OPTIONAL MATCH (friend)<-[:CREATED]-(post:Post) \
+             WHERE (post)-[:HAS_TAG]->(:Tag)<-[:INTEREST]-(person) \
+             RETURN person.id AS p, friend.id AS f, count(post) AS n",
+            true,
+        ),
+        // Not walked: one type twice, a named middle node, a WHERE inside the pattern.
+        (
+            "MATCH (a:Person) WHERE (a)-[:KNOWS]->()-[:KNOWS]->(:Person) RETURN a.id AS a",
+            false,
+        ),
+        (
+            "MATCH (a:Person) WHERE (a)<-[:CREATED]-(m:Post)-[:HAS_TAG]->(:Tag) RETURN a.id AS a",
+            false,
+        ),
+    ];
+    let mut engines = Vec::new();
+    for use_csr in [false, true] {
+        let sources = sources
+            .iter()
+            .map(|(name, batch)| (name.to_string(), EngineSource::Arrow(batch.clone())))
+            .collect();
+        engines.push(
+            CypherEngine::new(config.clone(), sources, use_csr)
+                .await
+                .unwrap(),
+        );
+    }
+    for (query, walked) in queries {
+        let mut rows = Vec::new();
+        for engine in &engines {
+            let batch = engine.execute(query, HashMap::new()).await.unwrap();
+            let mut lines: Vec<String> = arrow::util::pretty::pretty_format_batches(&[batch])
+                .unwrap()
+                .to_string()
+                .lines()
+                .map(str::to_string)
+                .collect();
+            lines.sort();
+            rows.push(lines);
+        }
+        assert_eq!(rows[0], rows[1], "{query}");
+        assert!(rows[0].len() > 4, "no rows from {query}");
+        let plan = engines[1].explain(query, HashMap::new()).await.unwrap();
+        assert_eq!(plan.contains("PathExistsExec"), walked, "{query}\n{plan}");
+        let plan = engines[0].explain(query, HashMap::new()).await.unwrap();
+        assert!(!plan.contains("PathExistsExec"), "{query}\n{plan}");
+    }
+}
