@@ -150,7 +150,67 @@ ProjectionExec: expr=[b__name@2 as b.name, __agg_0@1 as n]
 
 Unlike a join back to the node table, its cost follows the number of groups, not the size of the table. It applies to
 in-memory node tables only; see [grouping by a node](../csr.md#grouping-by-a-node) for why lazily read Lance tables
-keep the old plan.
+keep the old plan. A [list comprehension](optimizer.md#list-comprehensions-keep-each-row-once) over a list of nodes uses
+it too, to bind each element to its node.
+
+## `PathExists`: pattern predicates walked in place
+
+A pattern predicate such as `WHERE NOT (b)-[:KNOWS]->(a)` asks, for each row, whether a path exists. Relationally,
+the planner answers it by planning everything before the predicate a second time, matching the pattern from that
+copy, and left-joining a mark back onto the rows. That doubles the plan beneath every predicate, and DataFusion plans
+and runs both copies. When the pattern qualifies, `PathExistsExec` instead walks the CSR from each row's start node,
+stops at the first path it finds, and appends the same mark (`true`, or null for no path), so the filter or `CASE`
+above it is unchanged:
+
+```cypher
+MATCH (a:Person)-[:KNOWS]->(b:Person) WHERE NOT (b)-[:KNOWS]->(a) RETURN a.name, b.name
+```
+
+=== "use_csr=True"
+
+    ```text
+    ProjectionExec: expr=[a__name@0 as a.name, b__name@1 as b.name]
+      FilterExec: __exists_1@2 IS NULL, projection=[a__name@0, b__name@1]
+        ProjectionExec: expr=[a__name@1 as a__name, b__name@5 as b__name, __exists_1@6 as __exists_1]
+          PathExistsExec: start=b__id, hops=1, match=a__id
+            RepartitionExec: partitioning=RoundRobinBatch(10), input_partitions=1
+              CsrExpandExec: key=a__id, edges=4, take=b[b__id*, b__name]
+                ProjectionExec: expr=[id@0 as a__id, name@1 as a__name]
+                  KeyStatisticsExec: distinct=[id=4]
+                    DataSourceExec: partitions=1, partition_sizes=[1]
+    ```
+
+=== "use_csr=False"
+
+    ```text
+    ProjectionExec: expr=[a__name@0 as a.name, b__name@1 as b.name]
+      FilterExec: __exists_1@2 IS NULL, projection=[a__name@0, b__name@1]
+        HashJoinExec: mode=CollectLeft, join_type=Left, on=[(b__id@2, __optional__b__id@0), (a__id@0, __optional__a__id@1)], ...
+          HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(knows_1__dst@2, b__id@0)], ...
+            ...                         (the MATCH, planned once for the rows)
+          ProjectionExec: expr=[b__id@0 as __optional__b__id, a__id@3 as __optional__a__id, __exists_1@6 as __exists_1]
+            AggregateExec: mode=FinalPartitioned, gby=[b__id@0 as b__id, ..., __exists_1@6 as __exists_1], aggr=[]
+              ...
+                HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(b__id@0, knows_3__src@0), (a__id@3, knows_3__dst@1)], ...
+                  ...
+                    HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(knows_2__dst@3, b__id@0)], ...
+                      ...               (the MATCH again, as the seed of the predicate)
+    ```
+
+A predicate qualifies when it is one path that:
+
+- starts at a node bound earlier in the query;
+- passes through anonymous nodes, with no properties and only the label the relationship implies;
+- uses anonymous relationships of one type each, all different, so no two hops can bind the same relationship, and
+  none variable-length;
+- ends at an anonymous node or at another bound node (`match=` in the plan);
+- has no `WHERE` of its own.
+
+Every node the walk reaches must be in its label's node index, as the relational plan joins each node to its table, so
+an edge to a missing node matches nothing. A predicate that doesn't qualify, a hop or label without a CSR, or an
+endpoint that isn't an integer id keeps the relational plan, which the logical operator carries as its fallback. Both
+give the same rows. The walk keeps no set of visited nodes, so a long chain of high-degree hops ending at a bound node
+costs the product of their degrees per row.
 
 ## `ShortestPath`: breadth-first search over the adjacency
 

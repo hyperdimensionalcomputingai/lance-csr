@@ -88,6 +88,22 @@ unrolled into the sequences of types whose endpoint labels chain, and each seque
 Combinations that the configuration can't pin down are an error rather than a guess: joining an edge type to the
 wrong node table silently matches wrong rows whenever two labels share ids.
 
+### List comprehensions keep each row once
+
+`[p IN posts WHERE ...]` is evaluated relationally: the rows are numbered, each row's list becomes one row per element,
+the filter (and any pattern predicate, through [`PathExists`](operators.md#pathexists-pattern-predicates-walked-in-place)
+or its fallback) runs on those element rows, and the kept elements are counted or collected back per row number.
+Two details keep this from repeating each row's data once per element:
+
+- The list is unnested beside its element positions, so an element row holds its own item rather than a copy of the
+  whole list.
+- A list read from a column, such as `posts` from an earlier `collect(post)`, is not a grouping key on the way back.
+  It is rebuilt once per row from its elements, in order (null for a null list, empty for an empty one), so when the
+  comprehension doesn't read the list itself, projection pushdown drops it before the unnest.
+
+A list of nodes binds each element to its node through a [`NodeLookup`](operators.md#nodelookup-group-by-id-then-look-up)
+when the node table is in memory, rather than a hash join against the whole table.
+
 ## Join statistics for graph workloads
 
 Not every hop runs on the CSR, and the joins that remain need good cardinality estimates. DataFusion estimates an
