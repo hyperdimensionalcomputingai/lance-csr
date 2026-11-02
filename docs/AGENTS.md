@@ -76,8 +76,14 @@ them.
 
 ## Style
 
-- Lead with what the reader wants to do, then show it. Mix short prose with code; a concept that takes more
-  than two paragraphs probably needs an example or a diagram.
+- Explain what something is and why it exists before how to use it. Don't open a page or section with an
+  instruction ("Call it after…", "Use this when…"): the reader needs the what and the why to judge the how. Mix
+  short prose with code; a concept that takes more than two paragraphs probably needs an example or a diagram.
+- Don't assume the reader knows the background. Give the context a newcomer needs (for example, that Lance
+  datasets gain new versions as they're written, so the engine has to be told about them), and define a term,
+  such as the CSR's delta, before relying on it.
+- Say each thing once. A section shouldn't restate what the page already said above it; keep sentences short and
+  cut words that add no information.
 - Use Zensical components where they help the reader, not for decoration:
     - admonitions (`!!! tip`, `note`, `warning`, `danger`, `info`, `example`, `failure`, `bug`) for advice,
       caveats and known issues; `???` makes a collapsible one for long detail;

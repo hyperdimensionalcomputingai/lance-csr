@@ -52,9 +52,8 @@ stay invisible until you call `checkout_latest()`. That gives every query a stab
 
 `checkout_latest()` moves every Lance dataset to its latest version. It's named after Lance's own
 `LanceDataset.checkout_latest()`, which does the same for a single dataset, and it updates everything the engine
-built from that data along with it: node indexes, join statistics and, with `use_csr=True`, the CSR. It isn't a
-CSR-specific call; to rebuild a CSR, use [`optimize_csr()`](csr.md#rebuilding-the-csr) (see
-[Keeping the CSR current](csr.md#keeping-the-csr-current)):
+built from that data along with it: node indexes, join statistics and, with `use_csr=True`, the CSR (see
+[Keeping the CSR current](csr.md#keeping-the-csr-current) for how the CSR keeps up):
 
 ```python
 lance.write_dataset(
