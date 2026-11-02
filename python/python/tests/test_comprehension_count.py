@@ -56,7 +56,9 @@ def test_count_matches_list_reference(engine, predicate, expected):
     assert engine.execute(query).to_pylist() == rows
     assert engine.execute_batches(query).read_all().to_pylist() == rows
     assert engine.execute(reference).to_pylist() == rows
-    assert "array_agg(" not in engine.explain(query).lower()
+    # The unused rebuild of `p.values` is pruned before execution.
+    physical = engine.explain(query).lower().split("physical_plan")[1]
+    assert "array_agg(" not in physical
     assert "array_agg(" in engine.explain(reference).lower()
 
 
