@@ -97,6 +97,21 @@ engine.execute(
 ).to_pylist()  # [{'name': 'Alice'}, {'name': 'Carol'}]
 ```
 
+`CONTAINS`, `STARTS WITH` and `ENDS WITH` accept bound strings and expressions:
+
+```python
+engine.execute(
+    "MATCH (p:Person) WHERE p.name STARTS WITH $prefix RETURN p.name AS name",
+    {"prefix": "Ali"},
+).to_pylist()  # [{'name': 'Alice'}]
+```
+
+Text matching is case-sensitive. Use `toLower()` on both operands for case-insensitive matching.
+Percent signs, underscores and backslashes are literal characters. An empty search string matches
+all non-null strings; a null or non-string operand produces null and does not pass a `WHERE` filter.
+Use `($name IS NULL OR p.name CONTAINS $name)` for an optional text filter. Parameters bind values,
+not raw property names or labels: `p.name = $name` is valid; `p.$property` is not.
+
 Pagination also accepts parameters, for example `RETURN 1 AS n LIMIT $take` with `{"take": 1}`.
 `WITH ... LIMIT $take` uses the same rules. Missing, null, boolean, fractional, negative and overflowing
 counts raise `ValueError`; arbitrary expressions and `WITH SKIP` remain unsupported.
