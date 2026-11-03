@@ -110,6 +110,14 @@ impl NodeLookupNode {
         .map(Ok)
     }
 
+    pub(super) fn input(&self) -> &LogicalPlan {
+        &self.input
+    }
+
+    pub(super) fn fields(&self) -> &[Field] {
+        &self.fields
+    }
+
     pub(super) fn key_column(&self) -> &str {
         &self.key_column
     }

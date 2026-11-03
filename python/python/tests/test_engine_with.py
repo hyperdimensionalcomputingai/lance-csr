@@ -107,7 +107,10 @@ def test_grouped_node_columns_fetched_after_grouping():
     datasets = {"Person": PEOPLE, "KNOWS": KNOWS}
     csr = CypherEngine(CONFIG, datasets, use_csr=True)
     join = CypherEngine(CONFIG, datasets)
-    assert "NodeLookupExec: key=b__id" in csr.explain(query)
+    plan = csr.explain(query)
+    assert "NodeLookupExec: key=b__id" in plan
+    # The hop under the aggregate takes only b's id; the lookup fetches the rest.
+    assert "take=b[b__id*]" in plan, plan
     assert "NodeLookup" not in join.explain(query)
     by_id = lambda t: sorted(t.to_pylist(), key=lambda r: r["id"])  # noqa: E731
     assert by_id(csr.execute(query)) == by_id(join.execute(query))

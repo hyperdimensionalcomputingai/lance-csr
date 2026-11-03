@@ -2635,30 +2635,76 @@ impl OptimizerRule for PruneCsrTargetColumns {
         plan: LogicalPlan,
         _config: &dyn OptimizerConfig,
     ) -> datafusion::common::Result<Transformed<LogicalPlan>> {
-        let used = used_columns(&plan)?;
-        plan.transform_up(|node| {
+        prune_unused_columns(plan)
+    }
+}
+
+fn prune_unused_columns(plan: LogicalPlan) -> datafusion::common::Result<Transformed<LogicalPlan>> {
+    let used = used_columns(&plan)?;
+    prune_within(plan, &used)
+}
+
+/// `plan` with the CSR and lookup columns not in `used` dropped, visiting each node once.
+fn prune_within(
+    plan: LogicalPlan,
+    used: &HashSet<String>,
+) -> datafusion::common::Result<Transformed<LogicalPlan>> {
+    if let LogicalPlan::Extension(ext) = &plan {
+        if let Some(lookup) = ext.node.as_any().downcast_ref::<NodeLookupNode>() {
+            // The columns a lookup fetches shadow any of the same name below it (a CSR
+            // hop's `take` of `b__name` under `NodeLookup: take=b[b__name]`), so its input
+            // needs only what the input itself outputs. Find that set only when some hop
+            // below fetches one of them, as it takes a walk of the input.
+            let shadows = lookup.input().exists(|node| {
+                Ok(matches!(node, LogicalPlan::Extension(ext)
+                if ext.node.as_any().downcast_ref::<CsrExpandNode>().is_some_and(|csr| {
+                    csr.added_columns()
+                        .any(|c| lookup.fields().iter().any(|f| f.name() == c))
+                })))
+            })?;
+            let input = if shadows {
+                prune_unused_columns(lookup.input().clone())?
+            } else {
+                prune_within(lookup.input().clone(), used)?
+            };
+            let rebuilt;
+            let lookup = if input.transformed {
+                rebuilt = UserDefinedLogicalNodeCore::with_exprs_and_inputs(
+                    lookup,
+                    vec![],
+                    vec![input.data],
+                )?;
+                &rebuilt
+            } else {
+                lookup
+            };
+            let extension = |node: NodeLookupNode| {
+                LogicalPlan::Extension(Extension {
+                    node: Arc::new(node),
+                })
+            };
+            return Ok(match lookup.pruned(used) {
+                Some(Ok(pruned)) => Transformed::yes(extension(pruned)),
+                // Nothing it fetches is used: drop the lookup.
+                Some(Err(input)) => Transformed::yes(input),
+                None if input.transformed => Transformed::yes(extension(lookup.clone())),
+                None => Transformed::no(plan),
+            });
+        }
+    }
+    plan.map_children(|child| prune_within(child, used))?
+        .transform_data(|node| {
             if let LogicalPlan::Extension(ext) = &node {
                 if let Some(csr) = ext.node.as_any().downcast_ref::<CsrExpandNode>() {
-                    if let Some(pruned) = csr.with_target_columns(&used) {
+                    if let Some(pruned) = csr.with_target_columns(used) {
                         return Ok(Transformed::yes(LogicalPlan::Extension(Extension {
                             node: Arc::new(pruned),
                         })));
                     }
                 }
-                if let Some(lookup) = ext.node.as_any().downcast_ref::<NodeLookupNode>() {
-                    return Ok(match lookup.pruned(&used) {
-                        Some(Ok(pruned)) => Transformed::yes(LogicalPlan::Extension(Extension {
-                            node: Arc::new(pruned),
-                        })),
-                        // Nothing it fetches is used: drop the lookup.
-                        Some(Err(input)) => Transformed::yes(input),
-                        None => Transformed::no(node),
-                    });
-                }
             }
             Ok(Transformed::no(node))
         })
-    }
 }
 
 fn used_columns(plan: &LogicalPlan) -> datafusion::common::Result<HashSet<String>> {

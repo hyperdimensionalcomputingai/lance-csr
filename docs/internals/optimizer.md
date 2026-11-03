@@ -31,7 +31,9 @@ expansion was already small, which re-rooting usually ensures.
 DataFusion's projection pushdown prunes an extension node's inputs but not its outputs, so without this rule a fused
 lookup would fetch every target column for every row. The rule collects the columns used anywhere in the plan and
 narrows each `CsrExpand`'s target and relationship columns, and each `NodeLookup`, to that set. A `NodeLookup` whose
-columns are all unused is removed.
+columns are all unused is removed. The columns a `NodeLookup` fetches shadow any of the same name below it, so the rule
+prunes the plan under each lookup again, against only what that plan outputs: a hop under
+`NodeLookup: take=b[b__name]` doesn't fetch `b__name` for every edge just because the lookup's `b__name` is used above.
 
 "Used" is conservative: expression references, the plan's output columns, each CSR node's key and closing column, and
 all inputs of nodes whose column use is implicit, such as `DISTINCT` and `UNION`.
