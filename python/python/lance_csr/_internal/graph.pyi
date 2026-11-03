@@ -154,8 +154,25 @@ class SqlQuery:
 
 @final
 class SqlEngine:
-    def __init__(self, datasets: dict[str, _DatasetT]) -> None: ...
-    def execute(self, sql: str) -> Table: ...
+    def __init__(
+        self,
+        datasets: dict[str, _DatasetT],
+        config: GraphConfig | None = None,
+        use_csr: bool = False,
+    ) -> None: ...
+    @staticmethod
+    def from_engine(engine: CypherEngine) -> SqlEngine: ...
+    def execute(
+        self,
+        sql: str,
+        params: dict[str, _ParameterT] | None = None,
+        *,
+        timeout: float | None = None,
+    ) -> Table: ...
+    def explain(
+        self, sql: str, params: dict[str, _ParameterT] | None = None
+    ) -> str: ...
+    def checkout_latest(self) -> None: ...
 
 @final
 class VectorSearch:

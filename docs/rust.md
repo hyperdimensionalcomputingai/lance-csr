@@ -5,12 +5,6 @@ on the other pages (the [graph schema](graph-schema.md), the [supported Cypher](
 the [CSR index](csr.md) and [version pinning](lance.md)) applies to Rust too. This page covers what's
 different: installing the crate, the async API, and the Rust types.
 
-!!! warning "Experimental"
-
-    The Rust API is not stable yet: breaking changes are possible over the next few weeks while the CSR
-    work lands. Pin an exact version (`lance-csr = "=x.y.z"`) if you depend on it. The Python API is
-    not affected.
-
 !!! info "Rust API reference"
 
     Every public Rust type and function is documented on docs.rs:
@@ -154,7 +148,8 @@ The deadline applies only to work inside the call; it isn't stored in the engine
 | `engine.csr_stats()` → `dict` | `engine.csr_stats()` → `HashMap<String, CsrStats>` |
 | `ValueError`, `RuntimeError`, ... | `GraphError` variants |
 
-`CypherQuery` (one query over in-memory batches), `SqlQuery` and `DirNamespace` also exist in Rust. The
+`CypherQuery` (one query over in-memory batches), `SqlEngine` (with `SqlEngine::from_engine(Arc<CypherEngine>)`), `SqlQuery`
+and `DirNamespace` also exist in Rust. The
 [API documentation on docs.rs](https://docs.rs/lance-csr) lists every type and method.
 
 ## Performance

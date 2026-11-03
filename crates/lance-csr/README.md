@@ -5,9 +5,6 @@ with a CSR (compressed sparse row) adjacency index for fast multi-hop traversal.
 Arrow tables as property graphs. The [lance-csr Python package](https://pypi.org/project/lance-csr/) wraps this
 crate.
 
-> **Experimental.** The Rust API is not stable yet: breaking changes are possible over the next few
-> weeks while the CSR work lands. Pin an exact version (`lance-csr = "=x.y.z"`) if you depend on it.
-
 ## Features
 
 - Cypher query parsing and AST construction
@@ -15,6 +12,7 @@ crate.
 - Semantic validation with typed `GraphError` diagnostics
 - Pluggable execution strategies (DataFusion planner by default, Lance Native placeholder)
 - `CypherEngine`: register datasets once, optionally build the CSR, and serve many queries
+- `SqlEngine`: SQL over the same datasets, with Cypher patterns inside a `GRAPH_TABLE` clause
 - Lance datasets read lazily and pinned to a version until `checkout_latest()`
 - Async query execution that returns Arrow `RecordBatch` results or a stream
 - JSON-serializable parameter binding for reusable query templates
@@ -154,7 +152,8 @@ clauses, patterns, expressions and functions the engine runs.
 - `logical_plan` – Builders for graph logical plans.
 - `datafusion_planner` – DataFusion-based execution planning.
 - `config` – Graph configuration types and builders.
-- `engine` – `CypherEngine`: cached snapshot, CSR adjacencies, `checkout_latest()`.
+- `engine` – `CypherEngine` and `SqlEngine`: cached snapshot, CSR adjacencies, `checkout_latest()`.
+- `graph_table` – The `GRAPH_TABLE` clause and the `graph_table` table function.
 - `query` – High level `CypherQuery` API and runtime.
 - `csr_index`, `csr_expand` – The CSR adjacency index and the traversal operators that use it.
 - `error` – `GraphError` and result helpers.

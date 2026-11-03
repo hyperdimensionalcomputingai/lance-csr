@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING, Any, Self, final
 from ._internal import graph as _graph
 from ._types import inner
 from .config import GraphConfig
+from .dialect import SqlDialect
 from .namespace import DirNamespace
-from .sql import SqlDialect
 from .vector import VectorSearch
 
 if TYPE_CHECKING:

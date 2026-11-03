@@ -86,6 +86,7 @@ DataFusion logical plan and the physical plan, and every custom operator shows u
 | `QueryPlanner` | `CsrQueryPlanner` | Installs the extension planner on the session |
 | `OptimizerRule` | `PushCsrTargetFilters`, `CountCsrDegrees`, `PruneCsrTargetColumns` | Filter pushdown into extension nodes, per-node counts on the CSR, and column pruning |
 | `PhysicalOptimizerRule` | `DeadlineJoins` (`query_deadline_joins`) | Cooperative deadlines in nested-loop and cross joins |
+| `TableFunctionImpl` | `GraphTableFunction` (`graph_table`) | A Cypher pattern inside SQL: its plan, returned as a view that DataFusion inlines into the SQL plan |
 | `TableProvider` | `KeyStatisticsProvider` | Reports distinct counts of join keys so DataFusion sizes graph joins correctly |
 | `ScalarUDFImpl` | `cypher_list`, `cypher_field`, Cypher math and scalar functions; vector distance and similarity functions (from [lance-graph](https://github.com/lance-format/lance-graph)) | Cypher semantics that DataFusion's built-ins don't match |
 
@@ -93,7 +94,11 @@ Apart from the vector functions, every implementation in this table was added in
 [lance-graph](https://github.com/lance-format/lance-graph) used no DataFusion extension points. `CypherEngine` builds
 one DataFusion session per snapshot (in `engine.rs`). It installs `CsrQueryPlanner` and adds `PushCsrTargetFilters`,
 then `CountCsrDegrees`, then `PruneCsrTargetColumns`: counting in place needs the hop's filter moved in first, and
-pruning can then drop the columns a moved filter reads. Rust callers that bring
+pruning can then drop the columns a moved filter reads. `SqlEngine` runs on a
+`CypherEngine`'s snapshot and plans in a copy of its session with `graph_table` registered, so SQL and Cypher share
+the planner, rules and statistics. Its plan cache holds whole SQL plans whose `GRAPH_TABLE` patterns were planned
+as Cypher templates, so binding the SQL plan binds both.
+Rust callers that bring
 their own `SessionContext` must install `CsrQueryPlanner` themselves; contexts created by `CypherQuery` and
 `CypherEngine` already have it.
 
@@ -115,5 +120,6 @@ All paths are under
 | `pattern_order.rs`, `pattern_alternatives.rs` | Re-rooting, alternation and multi-label branching | lance-csr |
 | `logical_plan.rs` | Graph logical operators | [lance-graph](https://github.com/lance-format/lance-graph), extended in lance-csr |
 | `datafusion_planner/` | Graph plan to DataFusion plan; `builder/expand_ops.rs` chooses CSR or join for each hop | [lance-graph](https://github.com/lance-format/lance-graph), extended in lance-csr |
-| `engine.rs` | `CypherEngine`: snapshots, session setup, refresh, plan template cache | lance-csr |
+| `engine.rs` | `CypherEngine`: snapshots, session setup, refresh, plan template cache, SQL entry points | lance-csr |
+| `graph_table.rs` | The `GRAPH_TABLE` rewrite and `GraphTableFunction` | lance-csr |
 | `query/deadline.rs` | `DeadlineJoins` and `with_execution_deadline` | lance-csr |

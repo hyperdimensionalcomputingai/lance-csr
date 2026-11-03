@@ -131,8 +131,8 @@ print(rows)  # 4
 
 ### Query deadlines
 
-Pass `timeout=5.0` to `execute`, `execute_batches` or `CypherQuery.execute` to allow five seconds from the
-call's start. Streams keep that same deadline while you pause between reads. The default is `None`.
+Pass `timeout=5.0` to `execute`, `execute_batches`, `CypherQuery.execute` or `SqlEngine.execute` to allow
+five seconds from the call's start. Streams keep that same deadline while you pause between reads. The default is `None`.
 
 ```python
 try:

@@ -7,7 +7,7 @@ authors = ["The lance-csr Authors"]
 repository = "https://github.com/hyperdimensionalcomputingai/lance-csr"
 homepage = "https://lance-csr.hdclabs.ai/"
 readme = "README.md"
-description = "Catalog and namespace utilities for Lance graph"
+description = "Table catalog and directory namespace for the lance-csr graph query engine"
 keywords = ["lance", "graph", "catalog", "namespace"]
 categories = ["database", "data-structures", "science"]
 
