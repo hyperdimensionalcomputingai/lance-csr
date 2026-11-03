@@ -219,9 +219,9 @@ cache across queries or dataset versions.
 
 ### Grouping by a node
 
-`WITH b, count(*) AS n` groups by the node `b`. When `b`'s label has a node index and its table is in
-memory, the grouping uses `b`'s id alone and looks up `b`'s other properties afterwards, once per node, by the
-same row positions. Rows before a grouping can outnumber nodes many times over (an expansion), and carrying a
+`WITH b, count(*) AS n` groups by the node `b`, and `RETURN b.id, b.name, count(*) AS n` by its id and name.
+When `b`'s label has a node index and its table is in memory, either grouping uses `b`'s id alone and looks up
+`b`'s other properties afterwards, once per node, by the same row positions. Rows before a grouping can outnumber nodes many times over (an expansion), and carrying a
 node's properties through the aggregate for each of them costs more than one lookup per node. With unique
 ids, the groups are the same. `explain()` shows the lookup as `NodeLookupExec`, with only the properties the
 query uses:
@@ -234,7 +234,8 @@ print([line.strip(" |") for line in plan.splitlines() if "NodeLookupExec" in lin
 # ['NodeLookupExec: key=b__id, take=b[b__name]']
 ```
 
-This applies only when the node table is held in memory. For a Lance dataset read lazily, grouping by a node
+The grouping needs the id: `RETURN b.name, count(*)` groups by the name, because two people can share one.
+It applies only when the node table is held in memory. For a Lance dataset read lazily, grouping by a node
 still groups by all of its properties, as before. By the time the query groups by `b`, its rows already hold
 `b`'s properties, read from the dataset by an earlier step, so grouping by them reads nothing more. Looking
 them up after the grouping would read them from disk a second time, which costs more than keeping them.

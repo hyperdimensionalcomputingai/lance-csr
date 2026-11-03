@@ -116,6 +116,45 @@ def test_grouped_node_columns_fetched_after_grouping():
     assert by_id(csr.execute(query)) == by_id(join.execute(query))
 
 
+@pytest.mark.parametrize(
+    ("query", "lookup"),
+    [
+        # Grouping by b's id and other properties groups by the id alone.
+        (
+            "MATCH (a:Person)-[:KNOWS]->(b:Person) "
+            "RETURN b.id AS id, b.name AS name, count(a.id) AS n",
+            True,
+        ),
+        (
+            "MATCH (a:Person)-[:KNOWS]->(b:Person) "
+            "RETURN b.name AS x, a.age AS age, b.id AS id, b.name AS y, count(*) AS n",
+            True,
+        ),
+        (
+            "MATCH (a:Person) OPTIONAL MATCH (a)-[:KNOWS]->(b:Person) "
+            "RETURN b.id AS id, b.age AS age, count(*) AS n",
+            True,
+        ),
+        # Without the id, two nodes may share the other properties: plain grouping.
+        (
+            "MATCH (a:Person)-[:KNOWS]->(b:Person) "
+            "RETURN b.name AS name, count(*) AS n",
+            False,
+        ),
+        ("MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN b.id AS id, count(*) AS n", False),
+    ],
+)
+def test_grouped_node_properties_fetched_after_grouping(query, lookup):
+    datasets = {"Person": PEOPLE, "KNOWS": KNOWS}
+    csr = CypherEngine(CONFIG, datasets, use_csr=True)
+    plan = csr.explain(query)
+    assert ("NodeLookupExec: key=b__id" in plan) is lookup, plan
+    if lookup:
+        assert "take=b[b__id*]" in plan, plan
+    rows = lambda t: sorted(map(str, t.to_pylist()))  # noqa: E731
+    assert rows(csr.execute(query)) == rows(CypherEngine(CONFIG, datasets).execute(query))
+
+
 @pytest.mark.parametrize("use_csr", [False, True])
 def test_unmatched_optional_node_groups_with_null_columns(use_csr):
     engine = CypherEngine(CONFIG, {"Person": PEOPLE, "KNOWS": KNOWS}, use_csr=use_csr)
