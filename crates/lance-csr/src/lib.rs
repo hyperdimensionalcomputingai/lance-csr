@@ -1,14 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The Lance Authors
 
-//! Lance Graph Query Engine
+//! A Cypher graph query engine for Lance datasets, built on Apache DataFusion.
 //!
-//! This crate provides graph query capabilities for Lance datasets using Cypher syntax.
-//! It interprets Lance datasets as property graphs and translates Cypher queries into
-//! DataFusion SQL queries for execution.
-//!
-//! **Experimental.** The Rust API is not stable yet: breaking changes are possible over the
-//! next few weeks while the CSR work lands. Pin an exact version if you depend on it.
+//! This crate interprets Lance datasets or Arrow tables as property graphs and plans Cypher
+//! queries as DataFusion logical plans, with graph operators of its own where joins fall short.
 //!
 //! # Features
 //!
@@ -18,6 +14,7 @@
 //! - Translation to optimized SQL via DataFusion
 //! - Support for nodes, relationships, and properties
 //! - A CSR (compressed sparse row) adjacency index for multi-hop traversal
+//! - SQL over the same datasets, with graph patterns in a `GRAPH_TABLE` clause ([`SqlEngine`])
 //!
 //! # Example
 //!
@@ -57,6 +54,7 @@ mod csr_traversal;
 pub mod datafusion_planner;
 pub mod engine;
 pub mod error;
+pub mod graph_table;
 pub mod key_statistics;
 pub mod lance_vector_search;
 pub mod logical_plan;
@@ -78,7 +76,7 @@ pub const MAX_VARIABLE_LENGTH_HOPS: u32 = 20;
 
 pub use config::{GraphConfig, NodeMapping, RelationshipMapping};
 pub use csr_index::{CsrIndex, CsrIndexBuilder};
-pub use engine::{CypherEngine, EngineSource};
+pub use engine::{CypherEngine, EngineSource, SqlEngine};
 pub use error::{GraphError, Result};
 pub use lance_csr_catalog::{DirNamespace, GraphSourceCatalog, InMemoryCatalog, SimpleTableSource};
 pub use lance_vector_search::VectorSearch;

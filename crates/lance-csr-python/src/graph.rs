@@ -21,15 +21,13 @@ use arrow::compute::concat_batches;
 use arrow::ffi_stream::ArrowArrayStreamReader;
 use arrow_array::{RecordBatch, RecordBatchReader};
 use arrow_schema::Schema;
-use datafusion::datasource::MemTable;
-use datafusion::execution::context::SessionContext;
 use futures::StreamExt;
 use lance_csr::{
     ast::{DistanceMetric as RustDistanceMetric, GraphPattern, ReadingClause},
     engine::{CypherEngine as RustCypherEngine, EngineOptions, EngineSource, MAX_TARGET_PARTITIONS},
     CypherQuery as RustCypherQuery, ExecutionStrategy as RustExecutionStrategy,
     GraphConfig as RustGraphConfig, GraphError as RustGraphError, SqlDialect as RustSqlDialect,
-    SqlQuery as RustSqlQuery, VectorSearch as RustVectorSearch,
+    SqlEngine as RustSqlEngine, SqlQuery as RustSqlQuery, VectorSearch as RustVectorSearch,
 };
 use pyo3::{
     exceptions::{PyNotImplementedError, PyRuntimeError, PyTypeError, PyValueError},
@@ -1009,7 +1007,7 @@ fn reader_with_deadline(
 
 #[pyclass(name = "CypherEngine", module = "lance_csr.graph")]
 pub struct CypherEngine {
-    inner: RustCypherEngine,
+    inner: Arc<RustCypherEngine>,
 }
 
 #[pymethods]
@@ -1066,7 +1064,9 @@ impl CypherEngine {
                 ),
             )?
             .map_err(graph_error_to_pyerr)?;
-        Ok(Self { inner })
+        Ok(Self {
+            inner: Arc::new(inner),
+        })
     }
 
     #[pyo3(signature = (query, params = None, *, timeout = None))]
@@ -1251,52 +1251,85 @@ impl SqlQuery {
 
 #[pyclass(name = "SqlEngine", module = "lance_csr.graph")]
 pub struct SqlEngine {
-    context: Arc<SessionContext>,
+    inner: RustSqlEngine,
 }
 
 #[pymethods]
 impl SqlEngine {
     #[new]
-    fn new(datasets: &Bound<'_, PyDict>) -> PyResult<Self> {
-        let arrow_datasets = python_datasets_to_batches(datasets)?;
-
-        if arrow_datasets.is_empty() {
-            return Err(PyValueError::new_err("No input datasets provided"));
+    #[pyo3(signature = (datasets, config = None, use_csr = false))]
+    fn new(
+        py: Python,
+        datasets: &Bound<'_, PyDict>,
+        config: Option<&GraphConfig>,
+        use_csr: bool,
+    ) -> PyResult<Self> {
+        if use_csr && config.is_none() {
+            return Err(PyValueError::new_err("use_csr requires a config"));
         }
-
-        let ctx = SessionContext::new();
-
-        for (name, batch) in &arrow_datasets {
-            let mem_table = Arc::new(
-                MemTable::try_new(batch.schema(), vec![vec![batch.clone()]]).map_err(|e| {
-                    PyRuntimeError::new_err(format!(
-                        "Failed to create MemTable for {}: {}",
-                        name, e
-                    ))
-                })?,
-            );
-
-            let normalized_name = name.to_lowercase();
-            ctx.register_table(&normalized_name, mem_table)
-                .map_err(|e| {
-                    PyRuntimeError::new_err(format!("Failed to register table {}: {}", name, e))
-                })?;
+        let mut sources = HashMap::new();
+        for (key, value) in datasets.iter() {
+            let name: String = key.extract()?;
+            // A Lance dataset opened through a namespace can't be reopened by URI, so
+            // without a graph it is read into memory, as SqlEngine always did.
+            let source = match python_value_to_source(py, &name, &value) {
+                Err(_) if config.is_none() && is_lance_dataset(&value)? => {
+                    EngineSource::Arrow(python_dataset_to_batch(&value)?)
+                }
+                source => source?,
+            };
+            sources.insert(name, source);
         }
-
-        Ok(Self {
-            context: Arc::new(ctx),
-        })
+        let config = config.map(|c| c.inner.clone()).unwrap_or_default();
+        let options = EngineOptions {
+            use_csr,
+            ..Default::default()
+        };
+        let inner = RT
+            .block_on(Some(py), RustSqlEngine::with_graph(config, sources, options))?
+            .map_err(graph_error_to_pyerr)?;
+        Ok(Self { inner })
     }
 
-    fn execute(&self, py: Python, sql: &str) -> PyResult<Py<PyAny>> {
-        let query = RustSqlQuery::new(sql);
-        let context = self.context.as_ref().clone();
+    #[staticmethod]
+    fn from_engine(engine: &CypherEngine) -> Self {
+        Self {
+            inner: RustSqlEngine::from_engine(engine.inner.clone()),
+        }
+    }
 
+    #[pyo3(signature = (sql, params = None, *, timeout = None))]
+    fn execute(
+        &self,
+        py: Python,
+        sql: &str,
+        params: Option<&Bound<'_, PyDict>>,
+        timeout: Option<f64>,
+    ) -> PyResult<Py<PyAny>> {
+        let deadline = QueryDeadline::new(timeout)?;
+        deadline.check()?;
+        let params = python_params(params)?;
         let result_batch = RT
-            .block_on(Some(py), query.execute_with_context(context))?
+            .block_on_until(Some(py), deadline, self.inner.execute(sql, params))?
             .map_err(graph_error_to_pyerr)?;
-
         record_batch_to_python_table(py, &result_batch)
+    }
+
+    #[pyo3(signature = (sql, params = None))]
+    fn explain(
+        &self,
+        py: Python,
+        sql: &str,
+        params: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<String> {
+        let params = python_params(params)?;
+        RT.block_on(Some(py), self.inner.explain(sql, params))?
+            .map_err(graph_error_to_pyerr)
+    }
+
+    fn checkout_latest(&self, py: Python) -> PyResult<()> {
+        RT.block_on(Some(py), self.inner.checkout_latest())?
+            .map_err(graph_error_to_pyerr)
     }
 
     fn __repr__(&self) -> String {

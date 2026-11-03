@@ -96,6 +96,22 @@ impl EngineSource {
         })
     }
 
+    /// A DataFusion table over this source. Lance is scanned lazily, with projection and
+    /// filter pushdown; Arrow is sliced into one partition per core.
+    pub fn table_provider(&self, name: &str) -> Result<Arc<dyn TableProvider>> {
+        Ok(match self {
+            // No _rowid/_rowaddr columns, so Lance and Arrow inputs expose the same schema.
+            Self::Lance { dataset, .. } => {
+                Arc::new(LanceTableProvider::new(dataset.clone(), false, false))
+            }
+            Self::Arrow(batch) => Arc::new(
+                MemTable::try_new(batch.schema(), memtable_partitions(batch)).map_err(|e| {
+                    exec_error(format!("Failed to create MemTable for {}: {}", name, e))
+                })?,
+            ),
+        })
+    }
+
     /// Pinned Lance version, or `None` for Arrow input.
     pub fn lance_version(&self) -> Option<u64> {
         match self {
@@ -204,6 +220,8 @@ struct EngineState {
     sources: HashMap<String, EngineSource>,
     /// Unoptimized plan templates for this snapshot; `checkout_latest()` starts an empty cache.
     plans: Mutex<VecDeque<CachedQuery>>,
+    /// SQL plan templates for this snapshot, under the same rules.
+    sql_plans: Mutex<VecDeque<CachedSql>>,
     catalog: Arc<dyn GraphSourceCatalog>,
     context: SessionContext,
     /// CSR adjacencies by relationship type; empty unless the engine uses CSR.
@@ -224,6 +242,13 @@ struct CachedQuery {
     query: CypherQuery,
 }
 
+/// An unoptimized SQL plan whose `$name` parameters are still placeholders.
+struct CachedSql {
+    text: String,
+    parameter_types: Vec<(String, u8)>,
+    plan: datafusion::logical_expr::LogicalPlan,
+}
+
 // Containers change expression shape; keep them on the uncached path.
 fn parameter_types(parameters: &HashMap<String, JsonValue>) -> Option<Vec<(String, u8)>> {
     let mut types = parameters
@@ -242,6 +267,23 @@ fn parameter_types(parameters: &HashMap<String, JsonValue>) -> Option<Vec<(Strin
         .collect::<Option<Vec<_>>>()?;
     types.sort_unstable();
     Some(types)
+}
+
+/// `text` configured for `state`: its graph, fan-out and, with `use_csr`, its CSR.
+fn configured_query(
+    config: &GraphConfig,
+    use_csr: bool,
+    state: &EngineState,
+    text: &str,
+) -> Result<CypherQuery> {
+    let query = CypherQuery::new(text)?
+        .with_config(config.clone())
+        .with_fan_out(state.fan_out());
+    Ok(if use_csr {
+        query.with_adjacency(state.adjacency_catalog())
+    } else {
+        query
+    })
 }
 
 /// Distinct counts for one dataset's node-id and edge-endpoint columns.
@@ -432,6 +474,36 @@ fn exec_error(message: String) -> GraphError {
     }
 }
 
+/// Plan `sql` in `ctx` after rewriting its `GRAPH_TABLE` clauses; DDL, DML and statements
+/// such as `SET` are rejected.
+async fn plan_read_only_sql(
+    ctx: &SessionContext,
+    sql: &str,
+) -> Result<datafusion::logical_expr::LogicalPlan> {
+    use datafusion::execution::context::SQLOptions;
+
+    let sql = crate::graph_table::rewrite_graph_table(sql)?;
+    let plan = ctx
+        .state()
+        .create_logical_plan(&sql)
+        .await
+        .map_err(|e| plan_error(format!("SQL planning error: {e}")))?;
+    SQLOptions::new()
+        .with_allow_ddl(false)
+        .with_allow_dml(false)
+        .with_allow_statements(false)
+        .verify_plan(&plan)
+        .map_err(|e| plan_error(e.to_string()))?;
+    Ok(plan)
+}
+
+fn plan_error(message: String) -> GraphError {
+    GraphError::PlanError {
+        message,
+        location: snafu::Location::new(file!(), line!(), column!()),
+    }
+}
+
 fn config_error(message: String) -> GraphError {
     GraphError::ConfigError {
         message,
@@ -530,17 +602,7 @@ async fn build_engine_state(
     let mut providers: HashMap<String, Arc<dyn TableProvider>> = HashMap::new();
 
     for (name, source) in &sources {
-        let provider: Arc<dyn TableProvider> = match source {
-            // No _rowid/_rowaddr columns, so Lance and Arrow inputs expose the same schema.
-            EngineSource::Lance { dataset, .. } => {
-                Arc::new(LanceTableProvider::new(dataset.clone(), false, false))
-            }
-            EngineSource::Arrow(batch) => Arc::new(
-                MemTable::try_new(batch.schema(), memtable_partitions(batch)).map_err(|e| {
-                    exec_error(format!("Failed to create MemTable for {}: {}", name, e))
-                })?,
-            ),
-        };
+        let provider = source.table_provider(name)?;
         schemas.insert(name.clone(), provider.schema());
         // Registered unwrapped first: the CSR and key-statistics builds below scan it.
         ctx.register_table(name.to_lowercase(), provider.clone())
@@ -589,6 +651,7 @@ async fn build_engine_state(
     Ok(EngineState {
         sources,
         plans: Mutex::default(),
+        sql_plans: Mutex::default(),
         catalog: Arc::new(catalog),
         context: ctx,
         csr,
@@ -1039,15 +1102,8 @@ impl CypherEngine {
                 return Ok(query);
             }
         }
-        let query = CypherQuery::new(text)?
-            .with_parameters(parameters)
-            .with_config(self.config.clone())
-            .with_fan_out(state.fan_out());
-        let mut query = if self.options.use_csr {
-            query.with_adjacency(state.adjacency_catalog())
-        } else {
-            query
-        };
+        let mut query = configured_query(&self.config, self.options.use_csr, state, text)?
+            .with_parameters(parameters);
         if let Some(parameter_types) = key {
             // Some operators require literal values during planning. If a template
             // cannot be built, ordinary planning preserves their existing behavior.
@@ -1110,6 +1166,131 @@ impl CypherEngine {
         self.parse(query, params, &state, false)?
             .explain_with_catalog_and_context(state.catalog.clone(), state.context.clone())
             .await
+    }
+
+    /// Run `sql` on this snapshot; see [`SqlEngine::execute`].
+    async fn sql(&self, sql: &str, params: HashMap<String, JsonValue>) -> Result<RecordBatch> {
+        crate::query::collect_batch(self.sql_dataframe(sql, params, true).await?).await
+    }
+
+    /// See [`SqlEngine::explain`].
+    async fn explain_sql(&self, sql: &str, params: HashMap<String, JsonValue>) -> Result<String> {
+        let df = self.sql_dataframe(sql, params, false).await?;
+        let logical = df
+            .clone()
+            .into_optimized_plan()
+            .map_err(|e| plan_error(format!("Failed to optimize SQL plan: {e}")))?;
+        let physical = df
+            .create_physical_plan()
+            .await
+            .map_err(|e| plan_error(format!("Failed to create physical plan: {e}")))?;
+        Ok(format!(
+            "== Logical Plan ==\n{}\n\n== Physical Plan ==\n{}",
+            logical.display_indent(),
+            datafusion::physical_plan::displayable(physical.as_ref()).indent(true),
+        ))
+    }
+
+    /// Plan `sql`, or reuse this snapshot's template for it, then bind `params`.
+    ///
+    /// A template is the unoptimized plan with every `$name` still a placeholder: SQL's own,
+    /// and those of `GRAPH_TABLE` patterns, which are planned as Cypher templates. It is
+    /// keyed like the Cypher cache, and skipped when any pattern can't be a template.
+    async fn sql_dataframe(
+        &self,
+        sql: &str,
+        params: HashMap<String, JsonValue>,
+        use_cache: bool,
+    ) -> Result<datafusion::dataframe::DataFrame> {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let state = self.snapshot();
+        let params: HashMap<String, JsonValue> = params
+            .into_iter()
+            .map(|(name, value)| (name.to_lowercase(), value))
+            .collect();
+        let key = use_cache.then(|| parameter_types(&params)).flatten();
+        // A copy, so the function (which holds the snapshot) isn't registered in it.
+        let ctx = SessionContext::new_with_state(state.context.state());
+        let cached = key.as_ref().and_then(|key| {
+            let mut plans = state.sql_plans.lock().expect("plan cache lock poisoned");
+            let index = plans
+                .iter()
+                .position(|entry| entry.text == sql && entry.parameter_types == *key)?;
+            let entry = plans.remove(index).expect("index from position");
+            let plan = entry.plan.clone();
+            plans.push_back(entry);
+            Some(plan)
+        });
+        let plan = match cached {
+            Some(plan) => plan,
+            None => {
+                let templated = Arc::new(AtomicBool::new(key.is_some()));
+                self.register_graph_table(&ctx, &state, &params, templated.clone());
+                let plan = plan_read_only_sql(&ctx, sql).await?;
+                if let Some(parameter_types) = key.filter(|_| templated.load(Ordering::Relaxed)) {
+                    let mut plans = state.sql_plans.lock().expect("plan cache lock poisoned");
+                    if plans.len() == PLAN_CACHE_ENTRIES {
+                        plans.pop_front();
+                    }
+                    plans.push_back(CachedSql {
+                        text: sql.to_string(),
+                        parameter_types,
+                        plan: plan.clone(),
+                    });
+                }
+                plan
+            }
+        };
+        let plan = match crate::query::scalar_values(&params) {
+            Some(values) => plan
+                .with_param_values(values)
+                .map_err(|e| plan_error(format!("Failed to bind query parameters: {e}")))?,
+            _ => plan,
+        };
+        Ok(crate::query::planned_dataframe(ctx, plan))
+    }
+
+    /// Register `graph_table` in `ctx`. While `templated` is set, patterns are planned as
+    /// templates; one that can't be clears it and is planned with `params` as values.
+    fn register_graph_table(
+        &self,
+        ctx: &SessionContext,
+        state: &Arc<EngineState>,
+        params: &HashMap<String, JsonValue>,
+        templated: Arc<std::sync::atomic::AtomicBool>,
+    ) {
+        use crate::graph_table::{GraphTableFunction, GRAPH_TABLE_FUNCTION};
+        use std::sync::atomic::Ordering;
+
+        let (config, use_csr) = (self.config.clone(), self.options.use_csr);
+        let (state, params) = (state.clone(), params.clone());
+        ctx.register_udtf(
+            GRAPH_TABLE_FUNCTION,
+            Arc::new(GraphTableFunction::new(move |text| {
+                if config.iter_node_mappings().len() == 0
+                    && config.iter_relationship_mappings().len() == 0
+                {
+                    return Err(config_error(
+                        "GRAPH_TABLE needs a graph: create the SqlEngine with a GraphConfig"
+                            .to_string(),
+                    ));
+                }
+                let mut query = configured_query(&config, use_csr, &state, text)?
+                    .with_parameters(params.clone());
+                if templated.load(Ordering::Relaxed)
+                    && query
+                        .prepare_cached_plan(state.catalog.clone())
+                        .unwrap_or(false)
+                {
+                    if let Some(plan) = query.template_plan() {
+                        return Ok(plan);
+                    }
+                }
+                templated.store(false, Ordering::Relaxed);
+                query.datafusion_plan(state.catalog.clone())
+            })),
+        );
     }
 
     /// Execute a Cypher query, then rerank its rows by vector similarity.
@@ -1263,6 +1444,80 @@ impl CypherEngine {
     /// The graph configuration the engine was built with.
     pub fn config(&self) -> &GraphConfig {
         &self.config
+    }
+}
+
+/// SQL over a set of datasets, with graph patterns when it has a graph.
+///
+/// Datasets are tables under their lower-cased names; Lance datasets are scanned in place
+/// at their pinned version, with column and filter pushdown. With a [`GraphConfig`], a
+/// `GRAPH_TABLE (MATCH ... COLUMNS (...))` clause (see [`crate::graph_table`]) embeds a
+/// Cypher pattern, whose hops use the CSR when the engine has one.
+///
+/// It runs on a [`CypherEngine`]'s snapshot. [`from_engine`](Self::from_engine) shares an
+/// existing engine's, so the datasets, CSR and statistics are built once for both, and
+/// [`checkout_latest`](Self::checkout_latest) on either moves both.
+#[derive(Clone)]
+pub struct SqlEngine {
+    engine: Arc<CypherEngine>,
+}
+
+impl SqlEngine {
+    /// An engine over `sources` with no graph: plain SQL only.
+    ///
+    /// # Errors
+    /// As [`CypherEngine::new`].
+    pub async fn new(sources: HashMap<String, EngineSource>) -> Result<Self> {
+        Self::with_graph(GraphConfig::default(), sources, EngineOptions::default()).await
+    }
+
+    /// An engine over `sources` with `config` as its graph, built as
+    /// [`CypherEngine::with_options`] builds one.
+    ///
+    /// # Errors
+    /// As [`CypherEngine::with_options`].
+    pub async fn with_graph(
+        config: GraphConfig,
+        sources: HashMap<String, EngineSource>,
+        options: EngineOptions,
+    ) -> Result<Self> {
+        let engine = CypherEngine::with_options(config, sources, options).await?;
+        Ok(Self::from_engine(Arc::new(engine)))
+    }
+
+    /// SQL over `engine`'s snapshot, sharing its datasets, CSR and statistics.
+    pub fn from_engine(engine: Arc<CypherEngine>) -> Self {
+        Self { engine }
+    }
+
+    /// Run a SQL query and return the whole result as one batch.
+    ///
+    /// `params` gives values for `$name` parameters, in the SQL and in `GRAPH_TABLE`
+    /// patterns alike. Plans are cached per snapshot like Cypher templates: keyed by the
+    /// query text and the parameters' names and scalar types, and bound on every call.
+    /// Container parameters, and patterns Cypher can't plan as templates, are planned
+    /// on every call.
+    ///
+    /// # Errors
+    /// [`GraphError::PlanError`] for invalid SQL, a missing parameter, or a query that
+    /// would write (DDL, DML, `SET`); [`GraphError::ConfigError`] for `GRAPH_TABLE`
+    /// without a graph; [`GraphError::ExecutionError`] if execution fails.
+    pub async fn execute(
+        &self,
+        sql: &str,
+        params: HashMap<String, JsonValue>,
+    ) -> Result<RecordBatch> {
+        self.engine.sql(sql, params).await
+    }
+
+    /// The optimized logical and physical plans of a query, always planned afresh.
+    pub async fn explain(&self, sql: &str, params: HashMap<String, JsonValue>) -> Result<String> {
+        self.engine.explain_sql(sql, params).await
+    }
+
+    /// Move to the latest version of every Lance dataset; see [`CypherEngine::checkout_latest`].
+    pub async fn checkout_latest(&self) -> Result<()> {
+        self.engine.checkout_latest().await
     }
 }
 
@@ -1669,5 +1924,178 @@ mod tests {
         assert_eq!(engine.csr_stats()["KNOWS"].edges, 104);
         assert_eq!(engine.delete_stored_csr().await.unwrap(), 0);
         assert_eq!(two_hops(&uri, true).await.1.update, "build");
+    }
+
+    /// An engine over Lance `Person(id)` and `KNOWS(src, dst)` datasets in `dir`.
+    async fn lance_graph_engine(dir: &std::path::Path, use_csr: bool) -> CypherEngine {
+        let (people, knows) = (
+            dir.join("person").display().to_string(),
+            dir.join("knows").display().to_string(),
+        );
+        write_people(&people, (0..10).collect(), WriteMode::Create).await;
+        let edges: Vec<(i64, i64)> = (0..10)
+            .flat_map(|i| [(i, (i + 1) % 10), (i, (i + 3) % 10)])
+            .collect();
+        write_knows(&knows, &edges, WriteMode::Create).await;
+        let config = GraphConfig::builder()
+            .node_table("Person", "id")
+            .rel_table("KNOWS", "Person", "Person", "src", "dst")
+            .build()
+            .unwrap();
+        let sources = HashMap::from([
+            (
+                "Person".to_string(),
+                EngineSource::open_lance(&people, None, HashMap::new())
+                    .await
+                    .unwrap(),
+            ),
+            (
+                "KNOWS".to_string(),
+                EngineSource::open_lance(&knows, None, HashMap::new())
+                    .await
+                    .unwrap(),
+            ),
+        ]);
+        CypherEngine::new(config, sources, use_csr).await.unwrap()
+    }
+
+    fn int_column(batch: &RecordBatch, name: &str) -> Vec<i64> {
+        let column = batch.column_by_name(name).unwrap();
+        let column = arrow::compute::cast(column, &DataType::Int64).unwrap();
+        column
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap()
+            .values()
+            .to_vec()
+    }
+
+    fn params(values: &[(&str, JsonValue)]) -> HashMap<String, JsonValue> {
+        values
+            .iter()
+            .map(|(name, value)| (name.to_string(), value.clone()))
+            .collect()
+    }
+
+    /// GRAPH_TABLE hops run on the CSR inside SQL, and match both Cypher and the join path.
+    #[tokio::test]
+    async fn sql_graph_table_uses_csr_and_matches_cypher() {
+        let dir = tempfile::tempdir().unwrap();
+        let csr = Arc::new(lance_graph_engine(dir.path(), true).await);
+        let joins = Arc::new(lance_graph_engine(&dir.path().join("joins"), false).await);
+        let sql = "SELECT g.b, count(*) AS n FROM GRAPH_TABLE (
+                       MATCH (a:Person)-[:KNOWS]->(b:Person)-[:KNOWS]->(c:Person) WHERE a.id < 5
+                       COLUMNS (b.id AS b)
+                   ) g JOIN person p ON p.id = g.b
+                   GROUP BY g.b ORDER BY g.b";
+        let cypher = "MATCH (a:Person)-[:KNOWS]->(b:Person)-[:KNOWS]->(c:Person) WHERE a.id < 5
+                      RETURN b.id AS b, count(*) AS n ORDER BY b";
+        let expected = csr.execute(cypher, HashMap::new()).await.unwrap();
+        for engine in [&csr, &joins] {
+            let result = SqlEngine::from_engine(engine.clone())
+                .execute(sql, HashMap::new())
+                .await
+                .unwrap();
+            assert_eq!(int_column(&result, "b"), int_column(&expected, "b"));
+            assert_eq!(int_column(&result, "n"), int_column(&expected, "n"));
+        }
+        let explain = |engine: &Arc<CypherEngine>| {
+            let engine = SqlEngine::from_engine(engine.clone());
+            async move { engine.explain(sql, HashMap::new()).await.unwrap() }
+        };
+        assert!(explain(&csr).await.contains("CsrExpandExec"));
+        assert!(!explain(&joins).await.contains("CsrExpand"));
+
+        // The direct function call is the same plan.
+        let direct =
+            "SELECT * FROM graph_table('MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN b.id AS b')";
+        let sql_engine = SqlEngine::from_engine(csr);
+        assert_eq!(
+            sql_engine
+                .execute(direct, HashMap::new())
+                .await
+                .unwrap()
+                .num_rows(),
+            20
+        );
+    }
+
+    /// Plain SQL scans Lance datasets with pushdown, only reads, and needs no graph.
+    #[tokio::test]
+    async fn sql_scans_lance_lazily_and_rejects_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("knows").display().to_string();
+        write_knows(&path, &[(3, 4), (3, 6), (1, 2)], WriteMode::Create).await;
+        let knows = EngineSource::open_lance(&path, None, HashMap::new())
+            .await
+            .unwrap();
+        let engine = SqlEngine::new(HashMap::from([("KNOWS".to_string(), knows)]))
+            .await
+            .unwrap();
+        let sql = "SELECT dst FROM knows WHERE src = 3 ORDER BY dst";
+        let result = engine.execute(sql, HashMap::new()).await.unwrap();
+        assert_eq!(int_column(&result, "dst"), vec![4, 6]);
+        let plan = engine.explain(sql, HashMap::new()).await.unwrap();
+        assert!(plan.contains("full_filter=src = Int64(3)"), "{plan}");
+        for query in [
+            "CREATE TABLE t AS SELECT 1",
+            "COPY knows TO '/tmp/knows.parquet'",
+            "INSERT INTO knows VALUES (9, 9)",
+            "SET datafusion.execution.batch_size = 1",
+            "SELECT * FROM GRAPH_TABLE (MATCH (a:Person) COLUMNS (a.id))",
+        ] {
+            assert!(
+                engine.execute(query, HashMap::new()).await.is_err(),
+                "{query}"
+            );
+        }
+    }
+
+    /// One template per query text and parameter types, bound on every call, in SQL
+    /// and in GRAPH_TABLE alike; container values and checkout_latest skip or reset it.
+    #[tokio::test]
+    async fn sql_parameters_bind_into_cached_templates() {
+        let dir = tempfile::tempdir().unwrap();
+        let engine = Arc::new(lance_graph_engine(dir.path(), true).await);
+        let sql_engine = SqlEngine::from_engine(engine.clone());
+        let cached = || engine.snapshot().sql_plans.lock().unwrap().len();
+        let sql = "SELECT g.b FROM GRAPH_TABLE (
+                       MATCH (a:Person)-[:KNOWS]->(b:Person) WHERE a.id = $start
+                       COLUMNS (b.id AS b)
+                   ) g WHERE g.b <> $skip ORDER BY g.b";
+        // Person i knows i + 1 and i + 3 (mod 10).
+        for (start, skip, expected) in [(1, 0, vec![2, 4]), (2, 3, vec![5]), (8, 9, vec![1])] {
+            let values = params(&[("start", start.into()), ("SKIP", skip.into())]);
+            let result = sql_engine.execute(sql, values).await.unwrap();
+            assert_eq!(int_column(&result, "b"), expected);
+            assert_eq!(cached(), 1);
+        }
+        let plan = sql_engine
+            .explain(sql, params(&[("start", 1.into()), ("skip", 0.into())]))
+            .await
+            .unwrap();
+        assert!(
+            plan.contains("CsrExpandExec") && plan.contains("id = Int64(1)"),
+            "{plan}"
+        );
+
+        // Other parameter types are another template; a container is planned each time.
+        let values = params(&[("start", 1.into()), ("skip", JsonValue::Null)]);
+        assert!(sql_engine.execute(sql, values).await.unwrap().num_rows() == 0);
+        assert_eq!(cached(), 2);
+        let listed =
+            "SELECT * FROM GRAPH_TABLE (MATCH (a:Person) WHERE a.id IN $ids COLUMNS (a.id AS id))
+                      ORDER BY id";
+        let values = params(&[("ids", serde_json::json!([3, 1]))]);
+        let result = sql_engine.execute(listed, values).await.unwrap();
+        assert_eq!(int_column(&result, "id"), vec![1, 3]);
+        assert_eq!(cached(), 2);
+
+        assert!(sql_engine
+            .execute(sql, params(&[("start", 1.into())]))
+            .await
+            .is_err());
+        sql_engine.checkout_latest().await.unwrap();
+        assert_eq!(cached(), 0);
     }
 }

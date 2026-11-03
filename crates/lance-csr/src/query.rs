@@ -145,6 +145,78 @@ fn query_dataframe(
     datafusion::dataframe::DataFrame::new(state, plan)
 }
 
+/// A frame for `plan` in `ctx`, under the caller's execution deadline, if any.
+pub(crate) fn planned_dataframe(
+    ctx: datafusion::execution::context::SessionContext,
+    plan: datafusion::logical_expr::LogicalPlan,
+) -> datafusion::dataframe::DataFrame {
+    query_dataframe(&deadline::context(ctx), plan)
+}
+
+/// Run `df` and return its rows as one batch, with the physical plan's schema.
+pub(crate) async fn collect_batch(
+    df: datafusion::dataframe::DataFrame,
+) -> Result<arrow::record_batch::RecordBatch> {
+    use arrow::compute::concat_batches;
+
+    // Capture the final schema after type coercion, exactly as DataFrame::collect
+    // creates its physical plan. UNION batches can differ in nullability, while
+    // the unoptimized logical schema can still have a narrower data type.
+    let task_context = Arc::new(df.task_ctx());
+    let physical = df
+        .create_physical_plan()
+        .await
+        .map_err(|e| GraphError::ExecutionError {
+            message: format!("Failed to plan query results: {e}"),
+            location: snafu::Location::new(file!(), line!(), column!()),
+        })?;
+    let result_schema = physical.schema();
+    let batches = datafusion::physical_plan::collect(physical, task_context)
+        .await
+        .map_err(|e| GraphError::ExecutionError {
+            message: format!("Failed to collect query results: {e}"),
+            location: snafu::Location::new(file!(), line!(), column!()),
+        })?;
+
+    if batches.is_empty() {
+        // Return empty batch with the schema from the DataFrame
+        // This preserves column structure even when there are no rows
+        return Ok(arrow::record_batch::RecordBatch::new_empty(result_schema));
+    }
+
+    // UNION branches may emit batches with narrower nullability. The complete
+    // result schema must govern concatenation regardless of which branch finishes first.
+    concat_batches(&result_schema, &batches).map_err(|e| GraphError::ExecutionError {
+        message: format!("Failed to concatenate result batches: {}", e),
+        location: snafu::Location::new(file!(), line!(), column!()),
+    })
+}
+
+/// Scalar parameter values, or `None` when any is a container.
+pub(crate) fn scalar_values(
+    parameters: &HashMap<String, serde_json::Value>,
+) -> Option<HashMap<String, datafusion::common::ScalarValue>> {
+    use datafusion::common::ScalarValue;
+    parameters
+        .iter()
+        .map(|(name, value)| {
+            let value = match value {
+                serde_json::Value::Null => ScalarValue::Null,
+                serde_json::Value::Bool(value) => ScalarValue::Boolean(Some(*value)),
+                serde_json::Value::String(value) => ScalarValue::Utf8(Some(value.clone())),
+                serde_json::Value::Number(value) if value.is_i64() => {
+                    ScalarValue::Int64(value.as_i64())
+                }
+                serde_json::Value::Number(value) if value.is_f64() => {
+                    ScalarValue::Float64(value.as_f64())
+                }
+                _ => return None,
+            };
+            Some((name.clone(), value))
+        })
+        .collect()
+}
+
 /// Execution strategy for Cypher queries
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ExecutionStrategy {
@@ -324,25 +396,15 @@ impl CypherQuery {
     }
 
     fn scalar_parameters(&self) -> Option<HashMap<String, datafusion::common::ScalarValue>> {
-        use datafusion::common::ScalarValue;
-        self.parameters
-            .iter()
-            .map(|(name, value)| {
-                let value = match value {
-                    serde_json::Value::Null => ScalarValue::Null,
-                    serde_json::Value::Bool(value) => ScalarValue::Boolean(Some(*value)),
-                    serde_json::Value::String(value) => ScalarValue::Utf8(Some(value.clone())),
-                    serde_json::Value::Number(value) if value.is_i64() => {
-                        ScalarValue::Int64(value.as_i64())
-                    }
-                    serde_json::Value::Number(value) if value.is_f64() => {
-                        ScalarValue::Float64(value.as_f64())
-                    }
-                    _ => return None,
-                };
-                Some((name.clone(), value))
-            })
-            .collect()
+        scalar_values(&self.parameters)
+    }
+
+    /// The unoptimized template [`prepare_cached_plan`](Self::prepare_cached_plan) built,
+    /// with its parameters still placeholders.
+    pub(crate) fn template_plan(&self) -> Option<datafusion::logical_expr::LogicalPlan> {
+        self.cached_plan
+            .as_ref()
+            .map(|plan| plan.datafusion.clone())
     }
 
     /// Get the required config, returning an error if not set
@@ -756,43 +818,10 @@ impl CypherQuery {
         catalog: std::sync::Arc<dyn lance_csr_catalog::GraphSourceCatalog>,
         ctx: datafusion::execution::context::SessionContext,
     ) -> Result<arrow::record_batch::RecordBatch> {
-        use arrow::compute::concat_batches;
-
         let df = self
             .dataframe_with_catalog_and_context(catalog, ctx)
             .await?;
-
-        // Capture the final schema after type coercion, exactly as DataFrame::collect
-        // creates its physical plan. UNION batches can differ in nullability, while
-        // the unoptimized logical schema can still have a narrower data type.
-        let task_context = Arc::new(df.task_ctx());
-        let physical = df
-            .create_physical_plan()
-            .await
-            .map_err(|e| GraphError::ExecutionError {
-                message: format!("Failed to plan query results: {e}"),
-                location: snafu::Location::new(file!(), line!(), column!()),
-            })?;
-        let result_schema = physical.schema();
-        let batches = datafusion::physical_plan::collect(physical, task_context)
-            .await
-            .map_err(|e| GraphError::ExecutionError {
-                message: format!("Failed to collect query results: {e}"),
-                location: snafu::Location::new(file!(), line!(), column!()),
-            })?;
-
-        if batches.is_empty() {
-            // Return empty batch with the schema from the DataFrame
-            // This preserves column structure even when there are no rows
-            return Ok(arrow::record_batch::RecordBatch::new_empty(result_schema));
-        }
-
-        // UNION branches may emit batches with narrower nullability. The complete
-        // result schema must govern concatenation regardless of which branch finishes first.
-        concat_batches(&result_schema, &batches).map_err(|e| GraphError::ExecutionError {
-            message: format!("Failed to concatenate result batches: {}", e),
-            location: snafu::Location::new(file!(), line!(), column!()),
-        })
+        collect_batch(df).await
     }
 
     /// Execute query with an explicit catalog and session context, returning a stream.
@@ -832,8 +861,15 @@ impl CypherQuery {
         ctx: datafusion::execution::context::SessionContext,
     ) -> Result<datafusion::dataframe::DataFrame> {
         let (_logical_plan, df_logical_plan) = self.create_logical_plans(catalog)?;
-        let ctx = deadline::context(ctx);
-        Ok(query_dataframe(&ctx, df_logical_plan))
+        Ok(planned_dataframe(ctx, df_logical_plan))
+    }
+
+    /// The unoptimized DataFusion plan (phases 1-3), for embedding in a larger plan.
+    pub(crate) fn datafusion_plan(
+        &self,
+        catalog: std::sync::Arc<dyn lance_csr_catalog::GraphSourceCatalog>,
+    ) -> Result<datafusion::logical_expr::LogicalPlan> {
+        Ok(self.create_logical_plans(catalog)?.1)
     }
 
     /// Execute using the DataFusion planner with in-memory datasets

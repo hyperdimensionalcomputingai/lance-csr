@@ -69,7 +69,7 @@ Keys match labels case-insensitively.
 
 ## Timeouts
 
-`CypherEngine.execute`, `CypherEngine.execute_batches` and `CypherQuery.execute` accept keyword-only
+`CypherEngine.execute`, `CypherEngine.execute_batches`, `CypherQuery.execute` and `SqlEngine.execute` accept keyword-only
 `timeout` in seconds (`None` means no deadline). Zero expires immediately; negative, nonfinite or
 unrepresentable durations raise `ValueError`. One deadline includes planning, every batch and pauses
 between reads. Before returning a reader, expiry raises `TimeoutError`. Reading an expired native Arrow
