@@ -1493,6 +1493,9 @@ pub struct CsrExpandNode {
     /// When set, one row per input row with its neighbours' count and the self-loops
     /// among them (see [`CsrExpandNode::degrees`]) instead of one row per neighbour.
     degrees: Option<[Field; 2]>,
+    /// OPTIONAL MATCH: an input row with no neighbour is kept once, with nulls for the
+    /// columns this node adds (see [`CsrExpandNode::into_outer`]).
+    outer: bool,
     schema: DFSchemaRef,
 }
 
@@ -1528,8 +1531,50 @@ impl CsrExpandNode {
             closing_column: None,
             traversal: None,
             degrees: None,
+            outer: false,
             schema: Arc::new(schema),
         })
+    }
+
+    /// `plan`, a single hop that fetches its target, as a left outer expansion; `None`
+    /// for any other plan (a closing edge, a walk, a moved filter, a degree count).
+    pub(crate) fn outer_plan(plan: &LogicalPlan) -> Option<LogicalPlan> {
+        let LogicalPlan::Extension(ext) = plan else {
+            return None;
+        };
+        let node = ext.node.as_any().downcast_ref::<CsrExpandNode>()?;
+        let simple = node.target.is_some()
+            && node.target_filter.is_none()
+            && node.edge_filter.is_none()
+            && node.closing_column.is_none()
+            && node.traversal.is_none()
+            && node.degrees.is_none();
+        let node = node.clone().into_outer().ok().filter(|_| simple)?;
+        Some(LogicalPlan::Extension(Extension {
+            node: Arc::new(node),
+        }))
+    }
+
+    /// This hop as a left outer expansion: input rows without a neighbour keep one row,
+    /// whose added columns are null. Replaces OPTIONAL MATCH's seed and left join for a
+    /// single hop. Filters must not move into an outer node: they would null a row out
+    /// instead of dropping it.
+    fn into_outer(mut self) -> Result<Self> {
+        let width = self.input.schema().fields().len();
+        let fields: Vec<Field> = self.schema.fields()[width..]
+            .iter()
+            .map(|f| f.as_ref().clone().with_nullable(true))
+            .collect();
+        let added = DFSchema::try_from(Schema::new(fields))
+            .map_err(|e| plan_error(format!("CsrExpand schema: {}", e)))?;
+        self.schema = Arc::new(
+            self.input
+                .schema()
+                .join(&added)
+                .map_err(|e| plan_error(format!("CsrExpand schema: {}", e)))?,
+        );
+        self.outer = true;
+        Ok(self)
     }
 
     /// `plan`, a hop over a fused target with at most a filter on the target above it
@@ -1556,6 +1601,7 @@ impl CsrExpandNode {
         };
         let node = ext.node.as_any().downcast_ref::<CsrExpandNode>()?;
         let simple = node.edge.is_none()
+            && !node.outer
             && node.closing_column.is_none()
             && node.traversal.is_none()
             && node.degrees.is_none();
@@ -1621,6 +1667,9 @@ impl CsrExpandNode {
         node.traversal = self.traversal.clone();
         if let Some(fields) = &self.degrees {
             node.count_degrees(fields.clone())?;
+        }
+        if self.outer {
+            node = node.into_outer()?;
         }
         Ok(node)
     }
@@ -1719,6 +1768,7 @@ impl PartialEq for CsrExpandNode {
                 _ => false,
             }
             && self.degrees == other.degrees
+            && self.outer == other.outer
     }
 }
 impl Eq for CsrExpandNode {}
@@ -1740,6 +1790,7 @@ impl Hash for CsrExpandNode {
             .as_ref()
             .map(|f| [f[0].name(), f[1].name()])
             .hash(state);
+        self.outer.hash(state);
     }
 }
 impl PartialOrd for CsrExpandNode {
@@ -1850,6 +1901,9 @@ impl UserDefinedLogicalNodeCore for CsrExpandNode {
         if let Some([count, loops]) = &self.degrees {
             write!(f, ", degrees=[{}, {}]", count.name(), loops.name())?;
         }
+        if self.outer {
+            write!(f, ", outer")?;
+        }
         Ok(())
     }
 
@@ -1883,6 +1937,8 @@ pub struct CsrExpandExec {
     traversal: Option<Arc<crate::csr_traversal::Traversal>>,
     /// Count each input row's neighbours instead of emitting them.
     degrees: bool,
+    /// Keep each input row without a neighbour once, with null added columns.
+    outer: bool,
     schema: SchemaRef,
     properties: Arc<PlanProperties>,
 }
@@ -1900,6 +1956,7 @@ impl CsrExpandExec {
         closing_column: Option<String>,
         traversal: Option<Arc<crate::csr_traversal::Traversal>>,
         degrees: bool,
+        outer: bool,
         schema: SchemaRef,
     ) -> Self {
         let properties = Arc::new(PlanProperties::new(
@@ -1921,6 +1978,7 @@ impl CsrExpandExec {
             closing_column,
             traversal,
             degrees,
+            outer,
             schema,
             properties,
         }
@@ -1941,6 +1999,8 @@ struct BatchExpansion {
     edge_mask: Option<Arc<EdgeMask>>,
     /// Per input row, in degree mode: neighbours kept, and those equal to the key.
     degrees: Option<(Vec<i64>, Vec<i64>)>,
+    /// Per input row, in outer mode: whether it has produced a row yet.
+    matched: Option<Vec<bool>>,
 }
 
 impl BatchExpansion {
@@ -1964,7 +2024,34 @@ impl BatchExpansion {
             edge_rows: false,
             edge_mask: None,
             degrees: None,
+            matched: None,
         })
+    }
+
+    /// In outer mode, the input rows that produced no row, each with null added
+    /// columns; `None` otherwise or when every row matched.
+    fn unmatched_batch(
+        &self,
+        schema: &SchemaRef,
+    ) -> datafusion::common::Result<Option<RecordBatch>> {
+        let Some(matched) = &self.matched else {
+            return Ok(None);
+        };
+        let keep = arrow::array::BooleanArray::from_iter(matched.iter().map(|&m| Some(!m)));
+        let rows = keep.true_count();
+        if rows == 0 {
+            return Ok(None);
+        }
+        let mut columns = self
+            .batch
+            .columns()
+            .iter()
+            .map(|c| filter_array(c.as_ref(), &keep))
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        for field in &schema.fields()[columns.len()..] {
+            columns.push(arrow::array::new_null_array(field.data_type(), rows));
+        }
+        Ok(Some(RecordBatch::try_new(schema.clone(), columns)?))
     }
 
     /// In degree mode, the input rows with at least one neighbour, each with its two
@@ -2327,6 +2414,9 @@ impl DisplayAs for CsrExpandExec {
             let names: Vec<_> = self.schema.fields().iter().rev().take(2).collect();
             write!(f, ", degrees=[{}, {}]", names[1].name(), names[0].name())?;
         }
+        if self.outer {
+            write!(f, ", outer")?;
+        }
         Ok(())
     }
 }
@@ -2390,6 +2480,7 @@ impl ExecutionPlan for CsrExpandExec {
             self.closing_column.clone(),
             self.traversal.clone(),
             self.degrees,
+            self.outer,
             self.schema.clone(),
         )))
     }
@@ -2448,6 +2539,7 @@ impl ExecutionPlan for CsrExpandExec {
         let out_schema = schema.clone();
         let traversal = self.traversal.clone();
         let degrees = self.degrees;
+        let outer = self.outer;
         // Keep one input and one materialization in flight per partition. A hub's
         // remaining neighbours stay in the immutable adjacency until the next poll.
         let stream = futures::stream::try_unfold((input, None), move |(mut input, mut pending)| {
@@ -2472,6 +2564,7 @@ impl ExecutionPlan for CsrExpandExec {
                         expansion.edge_rows = edge.is_some();
                         let rows = expansion.keys.len();
                         expansion.degrees = degrees.then(|| (vec![0; rows], vec![0; rows]));
+                        expansion.matched = outer.then(|| vec![false; rows]);
                         pending = Some(expansion);
                     }
                     let expansion = pending.as_mut().expect("input batch just set");
@@ -2497,6 +2590,9 @@ impl ExecutionPlan for CsrExpandExec {
                     };
                     if chunk.rows.is_empty() {
                         let done = pending.take().expect("input batch just set");
+                        if let Some(batch) = done.unmatched_batch(&schema)? {
+                            return Ok(Some((batch, (input, None))));
+                        }
                         if let Some(batch) = done.degree_batch(&schema)? {
                             return Ok(Some((batch, (input, None))));
                         }
@@ -2557,6 +2653,12 @@ impl ExecutionPlan for CsrExpandExec {
                             loops[row as usize] += i64::from(key == neighbor);
                         }
                         continue;
+                    }
+                    if let Some(matched) = expansion.matched.as_mut() {
+                        // An outer node has no moved filter, so every chunk row is output.
+                        for &row in &chunk.rows {
+                            matched[row as usize] = true;
+                        }
                     }
                     let batch = materialize(
                         &expansion.batch,
@@ -2649,6 +2751,7 @@ impl ExtensionPlanner for CsrExtensionPlanner {
             node.closing_column.clone(),
             node.traversal.clone(),
             node.degrees.is_some(),
+            node.outer,
             Arc::new(node.schema.as_arrow().clone()),
         ))))
     }
@@ -2716,7 +2819,12 @@ impl OptimizerRule for PushCsrTargetFilters {
             let LogicalPlan::Extension(ext) = below else {
                 return Ok(Transformed::no(node));
             };
-            let Some(csr) = ext.node.as_any().downcast_ref::<CsrExpandNode>() else {
+            let Some(csr) = ext
+                .node
+                .as_any()
+                .downcast_ref::<CsrExpandNode>()
+                .filter(|csr| !csr.outer)
+            else {
                 return Ok(Transformed::no(node));
             };
             let target_columns = csr.target.as_ref().map(TargetLookup::raw_columns);

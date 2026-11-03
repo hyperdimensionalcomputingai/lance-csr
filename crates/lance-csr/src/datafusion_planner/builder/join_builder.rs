@@ -25,6 +25,9 @@ impl DataFusionPlanner {
         use datafusion::logical_expr::Expr;
 
         let left = self.build_operator(ctx, input)?;
+        if let Some(plan) = self.try_outer_hop(ctx, &left, input, optional, keys)? {
+            return Ok(plan);
+        }
         let right = self.build_operator(ctx, optional)?;
         let renamed = |name: &str| format!("__optional__{name}");
         let left_names: std::collections::HashSet<String> = left
@@ -71,6 +74,70 @@ impl DataFusionPlanner {
             .project(keep)
             .and_then(|b| b.build())
             .map_err(|e| self.plan_error("Failed to project OPTIONAL MATCH", e))
+    }
+
+    /// OPTIONAL MATCH of one hop from its only shared variable, seeded from `input`
+    /// itself: one outer CSR expansion of `left` instead of planning `input` again as
+    /// the seed and joining back. `None` (with `ctx` untouched) when the hop does not
+    /// take the CSR with a fused target.
+    fn try_outer_hop(
+        &self,
+        ctx: &mut PlanningContext,
+        left: &LogicalPlan,
+        input: &LogicalOperator,
+        optional: &LogicalOperator,
+        keys: &[String],
+    ) -> Result<Option<LogicalPlan>> {
+        let LogicalOperator::Expand {
+            input: seed,
+            source_variable,
+            target_variable,
+            target_label,
+            relationship_types,
+            direction,
+            relationship_variable,
+            properties,
+            target_properties,
+        } = optional
+        else {
+            return Ok(None);
+        };
+        let LogicalOperator::Distinct { input: seed } = seed.as_ref() else {
+            return Ok(None);
+        };
+        let LogicalOperator::Project {
+            input: source,
+            projections,
+        } = seed.as_ref()
+        else {
+            return Ok(None);
+        };
+        let from_shared = matches!(
+            projections.as_slice(),
+            [ProjectionItem { expression: crate::ast::ValueExpression::Variable(v), alias: None }]
+                if v == source_variable
+        );
+        if keys.len() != 1 || !from_shared || source.as_ref() != input {
+            return Ok(None);
+        }
+        let saved = ctx.relationship_instance_idx.clone();
+        let hop = self.expand_plan(
+            ctx,
+            left.clone(),
+            source_variable,
+            target_variable,
+            target_label,
+            relationship_types,
+            direction,
+            relationship_variable.as_deref(),
+            properties,
+            target_properties,
+        )?;
+        let outer = crate::csr_expand::CsrExpandNode::outer_plan(&hop);
+        if outer.is_none() {
+            ctx.relationship_instance_idx = saved;
+        }
+        Ok(outer)
     }
 
     /// Build a join between two logical operators

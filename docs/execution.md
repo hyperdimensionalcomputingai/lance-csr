@@ -22,7 +22,7 @@ Source paths below are in `crates/lance-csr/src/`.
    Multi-label nodes and relationship alternation expand into `UNION ALL` branches. Semantics are unchanged;
    only the order of work is.
 4. **Plan the graph** (`logical_plan.rs`). Graph operators describe the query: `ScanByLabel`, `Expand` for a
-   hop, `VariableLengthExpand` (unrolled into one branch per length), `OptionalMatch` as a left join,
+   hop, `VariableLengthExpand` (unrolled into one branch per length), `OptionalMatch` as a left join (an outer CSR hop when it is a single hop),
    `ShortestPath`, and `Apply` for a read-only CALL subquery.
 5. **Plan for DataFusion** (`datafusion_planner/`). Each graph operator becomes DataFusion relational
    operators. A hop becomes either two hash joins or, when the engine has a [CSR](csr.md) for it, a

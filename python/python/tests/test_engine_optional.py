@@ -57,6 +57,18 @@ CASES = [
         "OPTIONAL MATCH (b)-[:KNOWS]->(c:Person {id: 1}) RETURN b.id, c.id",
         [(1, N), (2, N), (3, N)],
     ),
+    # Repeated input rows each keep their own matches.
+    (
+        "MATCH (a:Person)-[:KNOWS]->(b:Person) "
+        "OPTIONAL MATCH (b)-[:KNOWS]->(c:Person) RETURN b.id, c.id",
+        [(1, 2), (1, 2), (1, 3), (2, 3), (2, 3), (3, 3), (3, 3), (3, 3)],
+    ),
+    # A WHERE after the OPTIONAL MATCH drops the null rows instead of nulling more.
+    (
+        "MATCH (a:Person) OPTIONAL MATCH (a)-[:KNOWS]->(b:Person) "
+        "WITH a, b WHERE b.age > 30 RETURN a.id, b.id",
+        [(1, 3), (2, 3), (3, 3)],
+    ),
 ]
 
 
@@ -75,10 +87,18 @@ def test_optional_match(use_csr, query, expected):
     assert rows(got) == sorted(expected, key=lambda t: [(v is None, v) for v in t])
 
 
-def test_optional_side_expands_on_csr_and_left_joins():
+def test_optional_hop_is_one_outer_csr_expansion():
+    # One hop: an outer expansion of the input, with no second copy of it and no join.
     engine = CypherEngine(CONFIG, {"Person": PEOPLE, "KNOWS": KNOWS}, use_csr=True)
     plan = engine.explain(
         "MATCH (a:Person) OPTIONAL MATCH (a)-[:KNOWS]->(b:Person) RETURN a.id, b.id"
+    )
+    physical = plan[plan.index("physical_plan") :]
+    assert "outer" in physical and "Join" not in physical
+    # Its own WHERE keeps the CSR expansion on the optional side and the left join.
+    plan = engine.explain(
+        "MATCH (a:Person) OPTIONAL MATCH (a)-[:KNOWS]->(b:Person) WHERE b.age > 30 "
+        "RETURN a.id, b.id"
     )
     physical = plan[plan.index("physical_plan") :]
     assert "CsrExpandExec" in physical and "join_type=Left" in physical
