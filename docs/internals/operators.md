@@ -80,6 +80,7 @@ keeps the two hops from reusing one edge. Both plans start from `c` (Dan), not `
 | Relationship filter: drops failing edges before anything else is fetched | `edge_filter=since > 2020` | `FilterExec` after the join |
 | Closing edge: the target is already bound (a cycle), so only neighbours equal to it are kept | `match=b__id` | Expanding everything, then filtering |
 | [Iterative variable-length traversal](../csr.md#variable-length-traversal): one cursor per hop over typed (label, key) frontiers, with bounded output batches | `iterative hops=1..3` | One join branch per path length, combined with `UNION ALL` |
+| Outer expansion for a one-hop `OPTIONAL MATCH` with no `WHERE` of its own: an input row with no neighbour keeps one row, with nulls in the columns the hop adds. No filter moves into an outer hop, because that would turn a row the filter drops into a row of nulls | `outer` | Planning the input a second time to start the optional side, then a left join back |
 | Degrees: one row per input node with the number of its neighbours that pass the target filter, and how many of them are the node itself, for the [two-hop count](optimizer.md#two-hop-counts-from-degrees) | `degrees=[__n1, __s1]` | A hash aggregate over one row per edge |
 
 A hop that uses several of these at once:

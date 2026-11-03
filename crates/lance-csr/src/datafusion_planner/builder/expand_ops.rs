@@ -58,7 +58,7 @@ impl DataFusionPlanner {
     /// otherwise relationship scan + joins. Shared by single hops and by every hop of
     /// a variable-length path.
     #[allow(clippy::too_many_arguments)]
-    fn expand_plan(
+    pub(crate) fn expand_plan(
         &self,
         ctx: &mut PlanningContext,
         left_plan: LogicalPlan,
