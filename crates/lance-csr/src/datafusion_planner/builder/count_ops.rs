@@ -435,6 +435,231 @@ impl DataFusionPlanner {
     }
 }
 
+impl DataFusionPlanner {
+    /// `RETURN m.name, count(x)` (or `count(*)`) over `(x)-[r]->(m)...`, where nothing else
+    /// reads `x` or `r`: on the CSR, count each `m`'s neighbours `x` once (`n(m)`, in place,
+    /// see [`HopDegreesNode`]), plan the rest of the pattern from `m`, and sum `n(m)` over
+    /// its rows. The hop's edges are read once to count them, rather than carried, one row
+    /// each, through the rest of the pattern and into the aggregate (eager aggregation,
+    /// as in [`Self::try_build_two_hop_count`]). `None` (plan as usual) for any other query.
+    ///
+    /// Applies when the hop's mean fan-out at `m` is at least two, every aggregate is a
+    /// plain count of rows, and the group keys are properties or variables other than
+    /// `x` and `r`. `WHERE` conjuncts over `x` alone filter the counted neighbours; any
+    /// other conjunct that reads `x` or `r` keeps the usual plan.
+    pub(crate) fn try_build_root_hop_count(
+        &self,
+        ctx: &mut PlanningContext,
+        input: &LogicalOperator,
+        projections: &[ProjectionItem],
+    ) -> Result<Option<LogicalPlan>> {
+        if self.adjacency.is_none() {
+            return Ok(None);
+        }
+        let mut predicates = Vec::new();
+        let mut op = input;
+        while let LogicalOperator::Filter { input, predicate } = op {
+            conjuncts(predicate, &mut predicates);
+            op = input;
+        }
+        // The pattern's hops, last first, down to the one from the root.
+        let mut hops = vec![op];
+        while let LogicalOperator::Expand { input, .. } = op {
+            if matches!(input.as_ref(), LogicalOperator::ScanByLabel { .. }) {
+                break;
+            }
+            op = input;
+            hops.push(op);
+        }
+        let Some((first, root_op)) = Hop::of(op) else {
+            return Ok(None);
+        };
+        let LogicalOperator::ScanByLabel {
+            variable: root,
+            label: root_label,
+            properties: root_properties,
+        } = root_op
+        else {
+            return Ok(None);
+        };
+        let (x, m) = (root.as_str(), first.target);
+        let counted = |v: &str| v == x || v == "*";
+        let hidden: HashSet<&str> = [x].into_iter().chain(first.relationship).collect();
+        // `x` and `r` appear in no later hop.
+        for hop in &hops[..hops.len() - 1] {
+            let LogicalOperator::Expand {
+                source_variable,
+                target_variable,
+                relationship_variable,
+                ..
+            } = hop
+            else {
+                return Ok(None);
+            };
+            let names = [
+                Some(source_variable),
+                Some(target_variable),
+                relationship_variable.as_ref(),
+            ];
+            if names
+                .into_iter()
+                .flatten()
+                .any(|n| hidden.contains(n.as_str()))
+            {
+                return Ok(None);
+            }
+        }
+        let mut counts = false;
+        for p in projections {
+            match &p.expression {
+                ValueExpression::AggregateFunction {
+                    name,
+                    args,
+                    distinct: false,
+                } if name.eq_ignore_ascii_case("count") => match args.as_slice() {
+                    [ValueExpression::Variable(v)] if counted(v) => counts = true,
+                    // `count(x)` of a node arrives as `count(x.id)`, never null.
+                    [ValueExpression::Property(p)]
+                        if p.variable == x
+                            && self.id_column(ctx, x) == Some(qualify_column(x, &p.property)) =>
+                    {
+                        counts = true
+                    }
+                    _ => return Ok(None),
+                },
+                ValueExpression::Property(p) if !hidden.contains(p.variable.as_str()) => {}
+                ValueExpression::Variable(v) if !hidden.contains(v.as_str()) => {}
+                _ => return Ok(None),
+            }
+        }
+        if !counts {
+            return Ok(None);
+        }
+        let fan_out = self.fan_out.as_ref().and_then(|f| first.fan_out(f, m));
+        if !fan_out.is_some_and(|d| d >= 2.0) {
+            return Ok(None);
+        }
+        let Some(middle_id) = self.id_column(ctx, m) else {
+            return Ok(None);
+        };
+        let (mut far, mut rest) = (vec![], vec![]);
+        for predicate in predicates {
+            let mut names = HashSet::new();
+            if referenced(predicate, &mut names).is_none() {
+                return Ok(None);
+            }
+            if names.iter().all(|n| n == x) {
+                far.push(predicate.clone());
+            } else if names.iter().any(|n| hidden.contains(n.as_str())) {
+                return Ok(None);
+            } else {
+                rest.push(predicate.clone());
+            }
+        }
+
+        let LogicalOperator::Expand {
+            target_label,
+            relationship_types,
+            direction,
+            properties,
+            target_properties,
+            ..
+        } = first.op
+        else {
+            unreachable!("Hop::of matched an Expand")
+        };
+        let scan = LogicalOperator::ScanByLabel {
+            variable: m.to_string(),
+            label: target_label.clone(),
+            properties: target_properties.clone(),
+        };
+        let reversed = match direction {
+            RelationshipDirection::Outgoing => RelationshipDirection::Incoming,
+            _ => RelationshipDirection::Outgoing,
+        };
+        let hop = LogicalOperator::Expand {
+            input: Box::new(scan.clone()),
+            source_variable: m.to_string(),
+            target_variable: x.to_string(),
+            target_label: root_label.clone(),
+            relationship_types: relationship_types.clone(),
+            direction: reversed,
+            relationship_variable: None,
+            properties: properties.clone(),
+            target_properties: root_properties.clone(),
+        };
+        // The rest of the pattern, from `m` instead of the hop.
+        let mut rest_op = scan;
+        for hop in hops[..hops.len() - 1].iter().rev() {
+            let mut hop = (*hop).clone();
+            if let LogicalOperator::Expand { input, .. } = &mut hop {
+                **input = rest_op;
+            }
+            rest_op = hop;
+        }
+        let filtered = |op: LogicalOperator, predicates: Vec<BooleanExpression>| match predicates
+            .into_iter()
+            .reduce(|a, b| BooleanExpression::And(Box::new(a), Box::new(b)))
+        {
+            Some(predicate) => LogicalOperator::Filter {
+                input: Box::new(op),
+                predicate,
+            },
+            None => op,
+        };
+        // Built in the original order, so each hop takes the same relationship instance.
+        let hop_plan = self.build_operator(ctx, &filtered(hop, far))?;
+        let rest_plan = self.build_operator(ctx, &filtered(rest_op, rest))?;
+
+        let column = |name: &str| col(Column::new_unqualified(name));
+        let degrees = LogicalPlanBuilder::from(hop_plan)
+            .aggregate(
+                vec![column(&middle_id).alias("__m0")],
+                vec![count(lit(1)).alias("__n0")],
+            )?
+            .build()
+            .map_err(|e| self.plan_error("Failed to count a hop per node", e))?;
+        let degrees = LogicalPlan::Extension(Extension {
+            node: std::sync::Arc::new(HopDegreesNode::new(degrees, &middle_id, "__n0", "__s0")),
+        });
+        let joined = LogicalPlanBuilder::from(rest_plan)
+            .join(
+                degrees,
+                JoinType::Inner,
+                (vec![middle_id.as_str()], vec!["__m0"]),
+                None,
+            )?
+            .build()
+            .map_err(|e| self.plan_error("Failed to join a hop's counts", e))?;
+        // Each count of rows becomes the sum of the counted neighbours, 0 over no rows.
+        let summed = ValueExpression::ScalarFunction {
+            name: "coalesce".to_string(),
+            args: vec![
+                ValueExpression::AggregateFunction {
+                    name: "sum".to_string(),
+                    args: vec![ValueExpression::Variable("__n0".to_string())],
+                    distinct: false,
+                },
+                ValueExpression::Literal(crate::ast::PropertyValue::Integer(0)),
+            ],
+        };
+        let projections: Vec<ProjectionItem> = projections
+            .iter()
+            .map(|p| match &p.expression {
+                ValueExpression::AggregateFunction { .. } => ProjectionItem {
+                    expression: summed.clone(),
+                    alias: Some(p.alias.clone().unwrap_or_else(|| {
+                        super::super::expression::to_cypher_column_name(&p.expression)
+                    })),
+                },
+                _ => p.clone(),
+            })
+            .collect();
+        self.build_project_with_aggregates(ctx, joined, &projections, &[])
+            .map(Some)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -598,6 +823,70 @@ mod tests {
             let result = engine.execute(&query, params.clone()).await.unwrap();
             let column = result.column(0).as_any().downcast_ref::<Int64Array>();
             assert_eq!(column.unwrap().value(0), 3);
+        }
+    }
+
+    /// Rows of `query` as sorted strings, equal on the join path and the CSR; on the CSR,
+    /// whether the plan counts a hop in place matches `in_place`.
+    async fn grouped(follows: &[(i64, i64)], query: &str, in_place: bool) -> Vec<String> {
+        let mut answers = Vec::new();
+        for use_csr in [false, true] {
+            let engine = engine(follows, &[], use_csr).await;
+            let plan = engine.explain(query, HashMap::new()).await.unwrap();
+            assert_eq!(
+                plan.contains("degrees="),
+                use_csr && in_place,
+                "{query}: {plan}"
+            );
+            let result = engine.execute(query, HashMap::new()).await.unwrap();
+            let mut rows: Vec<String> = (0..result.num_rows())
+                .map(|i| {
+                    let values = result
+                        .columns()
+                        .iter()
+                        .map(|c| arrow::util::display::array_value_to_string(c, i).unwrap());
+                    values.collect::<Vec<_>>().join(",")
+                })
+                .collect();
+            rows.sort();
+            answers.push(rows);
+        }
+        assert_eq!(answers[0], answers[1], "{query}");
+        answers.pop().unwrap()
+    }
+
+    #[tokio::test]
+    async fn root_hop_counted_per_node() {
+        // 1, 2 and 3 follow 2; 2 follows 3 and itself; 99 has no Person row.
+        let follows = [(1, 2), (3, 2), (2, 2), (99, 2), (2, 3), (2, 99)];
+        let one = "MATCH (a:Person)-[:FOLLOWS]->(b:Person) ";
+        let query = format!("{one}RETURN b.id AS b, count(a.id) AS n");
+        assert!(grouped(&follows, &query, true)
+            .await
+            .contains(&"2,3".to_string()));
+        let query = format!("{one}WHERE a.age > 15 AND b.age < 50 RETURN b.age, count(*)");
+        assert!(grouped(&follows, &query, true)
+            .await
+            .contains(&"30,2".to_string()));
+        // Nothing left to count is 0, not null.
+        let query = format!("{one}WHERE b.age > 1000 RETURN count(*) AS n");
+        assert_eq!(grouped(&follows, &query, true).await, ["0"]);
+        // The rest of the pattern continues from b, with b's count on each of its rows.
+        let two = "MATCH (a:Person)-[:FOLLOWS]->(b:Person)-[:LIVES_IN]->(c:Person) ";
+        let query = format!("{two}RETURN c.id AS c, b.age AS age, count(a) AS n");
+        assert!(grouped(&follows, &query, true)
+            .await
+            .contains(&"1,30,3".to_string()));
+        // Anything else that reads a, or a different aggregate, keeps the usual plan.
+        for query in [
+            format!("{one}RETURN a.age, count(*)"),
+            format!("{one}RETURN b.id, count(a.age)"),
+            format!("{one}RETURN b.id, count(DISTINCT a)"),
+            format!("{one}RETURN b.id, sum(b.age)"),
+            format!("{one}WHERE a.age < b.age RETURN b.id, count(*)"),
+            format!("{two}WHERE c.id <> a.id RETURN c.id, count(*)"),
+        ] {
+            grouped(&follows, &query, false).await;
         }
     }
 

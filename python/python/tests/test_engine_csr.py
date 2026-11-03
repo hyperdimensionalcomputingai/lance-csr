@@ -448,7 +448,11 @@ def test_node_index_rebuilt_only_when_node_version_changes(tmp_path):
 @pytest.mark.parametrize(
     ("query", "taken"),
     [
-        ("MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN count(*) AS n", "take=b[]"),
+        # Counted per node in place, from b: nothing is taken but each a's row position.
+        (
+            "MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN count(*) AS n",
+            "take=a[], degrees=",
+        ),
         ("MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN b.id", "take=b[b__id*]"),
         ("MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN b.name", "take=b[b__name]"),
         (

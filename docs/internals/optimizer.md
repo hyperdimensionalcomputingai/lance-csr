@@ -150,6 +150,46 @@ ProjectionExec: expr=[CASE WHEN __paths@0 IS NOT NULL THEN __paths@0 ELSE 0 END 
                       DataSourceExec: partitions=10, partition_sizes=[2, 2, 2, 1, 1, 1, 1, 1, 1, 1]
 ```
 
+### Counting the first hop per node
+
+`MATCH (x)-[:R]->(m)-[:S]->(c) RETURN c.name, count(x)` doesn't need `x`'s rows, only how many there are for each
+`m`. When every aggregate is a plain count of rows and nothing else reads `x` or the relationship, the planner
+counts each `m`'s `x` neighbours once, through the same `HopDegreesNode`, plans the rest of the pattern from `m`,
+joins the counts on `m`'s id, and sums them in place of the count. Conditions on `x` alone filter the counted
+neighbours. It applies only with the CSR and when the hop's mean fan-out at `m` is at least two, so that the counts
+are fewer than the edges.
+
+Without it, the first hop's edges come out of the CSR expansion one row each, and those rows reach the aggregate spread
+over every partition, so each partition's partial aggregate holds a row for nearly every group. On the benchmark
+graph that made `RETURN person.name, count(follower.id), city.city, city.state, city.country` over two hops about
+three times slower than the join path. Counting first, the rest of the pattern and the aggregate see one row per
+person:
+
+```text
+MATCH (follower:Person)-[:FOLLOWS]->(person:Person)-[:LIVES_IN]->(city:City)
+RETURN person.name AS name, count(follower.id) AS numfollowers, city.city AS city, city.state AS state,
+       city.country AS country ORDER BY numfollowers DESC LIMIT 1
+
+SortPreservingMergeExec: [numfollowers@1 DESC], fetch=1
+  SortExec: TopK(fetch=1), expr=[numfollowers@1 DESC], preserve_partitioning=[true]
+    ProjectionExec: expr=[person__name@0 as name, CASE WHEN __agg_0@4 IS NOT NULL THEN __agg_0@4 ELSE 0 END as numfollowers, city__city@1 as city, city__state@2 as state, city__country@3 as country]
+      AggregateExec: mode=FinalPartitioned, gby=[person__name@0 as person__name, city__city@1 as city__city, city__state@2 as city__state, city__country@3 as city__country], aggr=[sum(__n0) as __agg_0]
+        RepartitionExec: partitioning=Hash([person__name@0, city__city@1, city__state@2, city__country@3], 10), input_partitions=10
+          AggregateExec: mode=Partial, gby=[person__name@0 as person__name, city__city@1 as city__city, city__state@2 as city__state, city__country@3 as city__country], aggr=[sum(__n0) as __agg_0]
+            HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(person__id@0, __m0@0)], projection=[person__name@1, city__city@2, city__state@3, city__country@4, __n0@6]
+              CoalescePartitionsExec
+                ProjectionExec: expr=[person__id@0 as person__id, person__name@1 as person__name, city__city@4 as city__city, city__state@5 as city__state, city__country@6 as city__country]
+                  CsrExpandExec: key=person__id, edges=100000, take=city[city__city, city__state, city__country]
+                    ProjectionExec: expr=[id@0 as person__id, name@1 as person__name]
+                      KeyStatisticsExec: distinct=[id=100000]
+                        DataSourceExec: partitions=10, partition_sizes=[2, 2, 2, 1, 1, 1, 1, 1, 1, 1]
+              ProjectionExec: expr=[person__id@0 as __m0, __n0@1 as __n0]
+                CsrExpandExec: key=person__id, edges=2417738, take=follower[], degrees=[__n0, __s0]
+                  ProjectionExec: expr=[id@0 as person__id]
+                    KeyStatisticsExec: distinct=[id=100000]
+                      DataSourceExec: partitions=10, partition_sizes=[2, 2, 2, 1, 1, 1, 1, 1, 1, 1]
+```
+
 ## Join statistics for graph workloads
 
 Not every hop runs on the CSR, and the joins that remain need good cardinality estimates. DataFusion estimates an

@@ -7,6 +7,8 @@ Uses the graph from ``test_engine_csr.py``. Its valid edges are 1->2 (twice), 1-
 2->3, 3->3 and 5->1. Expected answers are written out by hand.
 """
 
+import re
+
 import lance
 import pyarrow as pa
 import pytest
@@ -97,6 +99,12 @@ def test_camel_case_aggregate_alias_can_be_ordered_by():
     ]
 
 
+def hop_takes_b_columns(plan):
+    """Whether a CSR hop in the physical plan fetches b's name or age for every edge."""
+    physical = plan.split("physical_plan")[-1]
+    return re.search(r"CsrExpandExec.*take=b\[[^]]*b__(name|age)", physical) is not None
+
+
 def test_grouped_node_columns_fetched_after_grouping():
     # With a node index (unique integer ids), `WITH b, ...` groups by b's id and looks
     # its other columns up afterwards; without one it groups by all of b's columns.
@@ -109,8 +117,8 @@ def test_grouped_node_columns_fetched_after_grouping():
     join = CypherEngine(CONFIG, datasets)
     plan = csr.explain(query)
     assert "NodeLookupExec: key=b__id" in plan
-    # The hop under the aggregate takes only b's id; the lookup fetches the rest.
-    assert "take=b[b__id*]" in plan, plan
+    # No hop under the aggregate takes b's other columns; the lookup fetches them.
+    assert not hop_takes_b_columns(plan), plan
     assert "NodeLookup" not in join.explain(query)
     by_id = lambda t: sorted(t.to_pylist(), key=lambda r: r["id"])  # noqa: E731
     assert by_id(csr.execute(query)) == by_id(join.execute(query))
@@ -141,7 +149,10 @@ def test_grouped_node_columns_fetched_after_grouping():
             "RETURN b.name AS name, count(*) AS n",
             False,
         ),
-        ("MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN b.id AS id, count(*) AS n", False),
+        (
+            "MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN b.id AS id, count(*) AS n",
+            False,
+        ),
     ],
 )
 def test_grouped_node_properties_fetched_after_grouping(query, lookup):
@@ -150,9 +161,11 @@ def test_grouped_node_properties_fetched_after_grouping(query, lookup):
     plan = csr.explain(query)
     assert ("NodeLookupExec: key=b__id" in plan) is lookup, plan
     if lookup:
-        assert "take=b[b__id*]" in plan, plan
+        assert not hop_takes_b_columns(plan), plan
     rows = lambda t: sorted(map(str, t.to_pylist()))  # noqa: E731
-    assert rows(csr.execute(query)) == rows(CypherEngine(CONFIG, datasets).execute(query))
+    assert rows(csr.execute(query)) == rows(
+        CypherEngine(CONFIG, datasets).execute(query)
+    )
 
 
 @pytest.mark.parametrize("use_csr", [False, True])
