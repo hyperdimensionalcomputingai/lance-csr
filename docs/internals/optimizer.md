@@ -106,6 +106,50 @@ Two details keep this from repeating each row's data once per element:
 A list of nodes binds each element to its node through a [`NodeLookup`](operators.md#nodelookup-group-by-id-then-look-up)
 when the node table is in memory, rather than a hash join against the whole table.
 
+### Two-hop counts from degrees
+
+`MATCH (a)-[:R]->(b)-[:S]->(c) RETURN count(*)` counts paths, and the paths through a middle node `b` number
+`n1(b) × n2(b)`: its neighbours on each side that pass that side's filters. `count_ops.rs` plans the count as
+`Σ n1(b) × n2(b)` (eager aggregation, after Yan and Larson), so the work follows the edges, not the paths. Each hop
+is planned from `b` on its own, after any filter on `b` alone, and grouped to one row per `b` before the two sides
+join on `b`'s id. When both hops have the same type, Cypher's rule that a path uses each edge once excludes the pairs
+that reuse a self-loop at `b`, so the planner subtracts `s1(b) × s2(b)`, the self-loops counted on each side. It
+applies when every `WHERE` condition reads one hop's variables, and the hops' mean fan-outs at `b` (from the
+[join statistics](#join-statistics-for-graph-workloads)) say there are at least twice as many paths as edges.
+
+A relationship variable no condition reads is left unbound, so the CSR doesn't fetch its edge rows. Each side's
+grouping is a `HopDegreesNode` over the aggregate. After `PushCsrTargetFilters` has moved the side's far-end filter
+into its `CsrExpand`, the `CountCsrDegrees` rule replaces it: a CSR hop with at most that filter counts each node's
+neighbours in place ([`degrees=`](operators.md#what-one-expansion-can-do)), one row per node, and any other hop keeps
+the aggregate. The rule runs in the optimizer, not while planning, because the far-end filter may hold query
+parameters, and those are bound into the cached plan template after it is planned. On a graph of 100,000 people and 2.4
+million `FOLLOWS` edges:
+
+```text
+MATCH (a:Person)-[r1:FOLLOWS]->(b:Person)-[r2:FOLLOWS]->(c:Person)
+WHERE b.age < $age_1 AND c.age > $age_2 RETURN count(*) AS numpaths
+
+ProjectionExec: expr=[CASE WHEN __paths@0 IS NOT NULL THEN __paths@0 ELSE 0 END as numpaths]
+  AggregateExec: mode=Final, gby=[], aggr=[sum(__n1 * __n2 - __s1 * __s2) as __paths]
+    CoalescePartitionsExec
+      AggregateExec: mode=Partial, gby=[], aggr=[sum(__n1 * __n2 - __s1 * __s2) as __paths]
+        HashJoinExec: mode=Partitioned, join_type=Inner, on=[(__m1@0, __m2@0)], projection=[__n1@1, __s1@2, __n2@4, __s2@5]
+          RepartitionExec: partitioning=Hash([__m1@0], 10), input_partitions=10
+            ProjectionExec: expr=[b__id@0 as __m1, __n1@1 as __n1, __s1@2 as __s1]
+              CsrExpandExec: key=b__id, edges=2417738, take=a[], degrees=[__n1, __s1]
+                ProjectionExec: expr=[id@0 as b__id]
+                  FilterExec: age@1 < 50, projection=[id@0]
+                    KeyStatisticsExec: distinct=[id=100000]
+                      DataSourceExec: partitions=10, partition_sizes=[2, 2, 2, 1, 1, 1, 1, 1, 1, 1]
+          RepartitionExec: partitioning=Hash([__m2@0], 10), input_partitions=10
+            ProjectionExec: expr=[b__id@0 as __m2, __n2@1 as __n2, __s2@2 as __s2]
+              CsrExpandExec: key=b__id, edges=2417738, take=c[], filter=age@0 > 25, degrees=[__n2, __s2]
+                ProjectionExec: expr=[id@0 as b__id]
+                  FilterExec: age@1 < 50, projection=[id@0]
+                    KeyStatisticsExec: distinct=[id=100000]
+                      DataSourceExec: partitions=10, partition_sizes=[2, 2, 2, 1, 1, 1, 1, 1, 1, 1]
+```
+
 ## Join statistics for graph workloads
 
 Not every hop runs on the CSR, and the joins that remain need good cardinality estimates. DataFusion estimates an

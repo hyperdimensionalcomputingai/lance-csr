@@ -6,13 +6,15 @@
 //! The paths through a middle node `m` number `in(m) × out(m)`, so the count is
 //! `Σ_m n1(m) · n2(m)`, where `n1` and `n2` count each hop's edges at `m` that pass that
 //! hop's filters (eager aggregation, Yan and Larson). Each hop is planned as a one-hop
-//! pattern of its own and grouped down to one row per `m` before the join, so the work
-//! follows the edges, not the paths.
+//! pattern of its own from `m` and grouped down to one row per `m` before the join, so
+//! the work follows the edges, not the paths. On the CSR the grouping is the expansion
+//! itself: it counts each `m`'s neighbours in place (`HopDegreesNode`).
 
 use std::collections::HashSet;
 
 use crate::ast::{BooleanExpression, ComparisonOperator, RelationshipDirection, ValueExpression};
 use crate::case_insensitive::qualify_column;
+use crate::csr_expand::HopDegreesNode;
 use crate::datafusion_planner::analysis::PlanningContext;
 use crate::datafusion_planner::DataFusionPlanner;
 use crate::error::Result;
@@ -20,7 +22,9 @@ use crate::logical_plan::*;
 use datafusion::common::Column;
 use datafusion::functions::core::expr_fn::coalesce;
 use datafusion::functions_aggregate::expr_fn::{count, sum};
-use datafusion::logical_expr::{col, lit, when, Expr, JoinType, LogicalPlan, LogicalPlanBuilder};
+use datafusion::logical_expr::{
+    col, lit, when, Expr, Extension, JoinType, LogicalPlan, LogicalPlanBuilder,
+};
 
 /// One `Expand` of the pattern, with its edge's endpoints in stored direction.
 struct Hop<'a> {
@@ -284,7 +288,8 @@ impl DataFusionPlanner {
 
         let pairs = [(first.edge.0, second.edge.0), (first.edge.1, second.edge.1)];
         let chain = first.edge.1 == second.edge.0 || first.edge.0 == second.edge.1;
-        let (mut first_filter, mut second_filter, mut self_loops) = (vec![], vec![], false);
+        let (mut middle_filter, mut first_filter, mut second_filter) = (vec![], vec![], vec![]);
+        let mut self_loops = false;
         // Variables the kept filters read: a relationship no filter reads needs no edge.
         let mut read = HashSet::new();
         for predicate in predicates {
@@ -299,7 +304,9 @@ impl DataFusionPlanner {
             if referenced(predicate, &mut names).is_none() {
                 return Ok(None);
             }
-            if names.iter().all(|n| first_vars.contains(n.as_str())) {
+            if names.iter().all(|n| n == middle) {
+                middle_filter.push(predicate.clone());
+            } else if names.iter().all(|n| first_vars.contains(n.as_str())) {
                 first_filter.push(predicate.clone());
             } else if names.iter().all(|n| second_vars.contains(n.as_str())) {
                 second_filter.push(predicate.clone());
@@ -327,62 +334,78 @@ impl DataFusionPlanner {
             },
             None => op,
         };
-        let LogicalOperator::Expand {
-            target_variable,
-            target_label,
-            relationship_types,
-            direction,
-            relationship_variable,
-            properties,
-            target_properties,
-            ..
-        } = second.op
-        else {
-            unreachable!("Hop::of matched an Expand")
-        };
-        let second_op = LogicalOperator::Expand {
-            input: Box::new(LogicalOperator::ScanByLabel {
+        // Each hop is re-rooted at `m`, after the filters on `m` alone, so that on the CSR
+        // it reads `m`'s neighbours in one direction and can count them in place.
+        let from_middle = |hop: &Hop, predicates: Vec<BooleanExpression>| {
+            let LogicalOperator::Expand {
+                target_label,
+                relationship_types,
+                direction,
+                relationship_variable,
+                properties,
+                target_properties,
+                ..
+            } = hop.op
+            else {
+                unreachable!("Hop::of matched an Expand")
+            };
+            let (other_label, other_properties, direction) = if hop.source == middle {
+                (target_label, target_properties, direction.clone())
+            } else {
+                // Only the first hop ends at `m`, and its source is then the root.
+                let reversed = match direction {
+                    RelationshipDirection::Outgoing => RelationshipDirection::Incoming,
+                    RelationshipDirection::Incoming => RelationshipDirection::Outgoing,
+                    RelationshipDirection::Undirected => RelationshipDirection::Undirected,
+                };
+                (root_label, root_properties, reversed)
+            };
+            let scan = LogicalOperator::ScanByLabel {
                 variable: middle.to_string(),
                 label: middle_label.clone(),
                 properties: middle_properties.clone(),
-            }),
-            source_variable: middle.to_string(),
-            target_variable: target_variable.clone(),
-            target_label: target_label.clone(),
-            relationship_types: relationship_types.clone(),
-            direction: direction.clone(),
-            relationship_variable: bound(relationship_variable.as_deref()),
-            properties: properties.clone(),
-            target_properties: target_properties.clone(),
+            };
+            let expand = LogicalOperator::Expand {
+                input: Box::new(filtered(scan, middle_filter.clone())),
+                source_variable: middle.to_string(),
+                target_variable: hop.other(middle).to_string(),
+                target_label: other_label.clone(),
+                relationship_types: relationship_types.clone(),
+                direction,
+                relationship_variable: bound(relationship_variable.as_deref()),
+                properties: properties.clone(),
+                target_properties: other_properties.clone(),
+            };
+            filtered(expand, predicates)
         };
-        let mut first_op = first.op.clone();
-        if let LogicalOperator::Expand {
-            relationship_variable,
-            ..
-        } = &mut first_op
-        {
-            *relationship_variable = bound(relationship_variable.as_deref());
-        }
         // Built in the original order, so each hop takes the same relationship instance.
-        let first_plan = self.build_operator(ctx, &filtered(first_op, first_filter))?;
-        let second_plan = self.build_operator(ctx, &filtered(second_op, second_filter))?;
+        let first_plan = self.build_operator(ctx, &from_middle(&first, first_filter))?;
+        let second_plan = self.build_operator(ctx, &from_middle(&second, second_filter))?;
 
         let column = |name: &str| col(Column::new_unqualified(name));
         let per_middle = |plan: LogicalPlan, other: &str, n: usize| -> Result<LogicalPlan> {
-            let mut aggregates = vec![count(lit(1)).alias(format!("__n{n}"))];
+            let (paths, loops) = (format!("__n{n}"), format!("__s{n}"));
+            let mut aggregates = vec![count(lit(1)).alias(&paths)];
             if self_loops {
                 let is_loop = column(other).eq(column(&middle_id));
-                aggregates.push(
-                    sum(when(is_loop, lit(1_i64)).otherwise(lit(0_i64))?).alias(format!("__s{n}")),
-                );
+                aggregates
+                    .push(sum(when(is_loop, lit(1_i64)).otherwise(lit(0_i64))?).alias(&loops));
             }
-            LogicalPlanBuilder::from(plan)
+            let aggregate = LogicalPlanBuilder::from(plan)
                 .aggregate(
                     vec![column(&middle_id).alias(format!("__m{n}"))],
                     aggregates,
                 )?
                 .build()
-                .map_err(|e| self.plan_error("Failed to group a hop by its middle node", e))
+                .map_err(|e| self.plan_error("Failed to group a hop by its middle node", e))?;
+            if self.adjacency.is_none() {
+                return Ok(aggregate);
+            }
+            // On the CSR, the optimizer may count each `m`'s neighbours in place instead.
+            let hop = HopDegreesNode::new(aggregate, &middle_id, &paths, &loops);
+            Ok(LogicalPlan::Extension(Extension {
+                node: std::sync::Arc::new(hop),
+            }))
         };
         let first_plan = per_middle(first_plan, &first_other, 1)?;
         let second_plan = per_middle(second_plan, &second_other, 2)?;
@@ -544,6 +567,38 @@ mod tests {
         let query = CHAIN.replace("RETURN", "WHERE r2.src <> 4 RETURN");
         let plan = engine.explain(&query, HashMap::new()).await.unwrap();
         assert_eq!(plan.matches("edge=").count(), 2, "{plan}");
+    }
+
+    #[tokio::test]
+    async fn csr_hops_count_degrees_in_place() {
+        // Edges to and from 99, which has no Person row, match nothing on either path.
+        let dangling = [(1, 2), (2, 3), (2, 99), (99, 2), (2, 2)];
+        assert_eq!(count(&dangling, &[], CHAIN).await, 3);
+        let engine = engine(&dangling, &[], true).await;
+        for (filter, degrees) in [
+            ("", 2),
+            // Filters on the far ends and the middle node count in place.
+            ("WHERE b.age < 50 AND c.age > 25 AND a.age > 5", 2),
+            // A filter across a hop's ends, or on its edge, needs that hop's rows.
+            ("WHERE a.age < b.age", 1),
+            ("WHERE r2.src <> 4", 1),
+        ] {
+            let query = CHAIN.replace("RETURN", &format!("{filter} RETURN"));
+            let plan = engine.explain(&query, HashMap::new()).await.unwrap();
+            assert_eq!(plan.matches("CsrExpandExec").count(), 2, "{plan}");
+            // Lowered in the optimizer: only the physical plan counts degrees.
+            assert_eq!(plan.matches("degrees=").count(), degrees, "{query}: {plan}");
+        }
+        // A far-end filter with a parameter, bound into a cached plan after planning.
+        let literal = CHAIN.replace("RETURN", "WHERE c.age > 25 RETURN");
+        assert_eq!(count(&dangling, &[], &literal).await, 3);
+        let query = CHAIN.replace("RETURN", "WHERE c.age > $age RETURN");
+        let params = HashMap::from([("age".to_string(), serde_json::Value::from(25))]);
+        for _ in 0..2 {
+            let result = engine.execute(&query, params.clone()).await.unwrap();
+            let column = result.column(0).as_any().downcast_ref::<Int64Array>();
+            assert_eq!(column.unwrap().value(0), 3);
+        }
     }
 
     #[tokio::test]
