@@ -470,11 +470,53 @@ print(open_engine().delete_stored_csr())  # 1
     change. `python/benchmarks/csr_persist.py` measures the same cases on a synthetic graph, including a load
     with a delta.
 
+## When it helps
+
+A CSR hop's cost follows the edges it reads, and it reads only the neighbours of its input rows. A hash join
+reads the whole relationship table and builds a hash table on it, however few rows it starts from. So the CSR
+gains most when a hop starts from few rows: a filtered node, or the result of an earlier hop.
+
+A hop that starts from every node of a label reads every edge either way. An in-memory hash join is already
+cheap there, and a CSR hop that emits one row per edge is no faster. What the CSR adds is that it can count a
+node's neighbours without emitting a row per edge, and the planner uses that wherever a query only counts:
+
+- `RETURN count(*)` over a two-hop chain `(a)-->(b)-->(c)` is the sum, over each middle node `b`, of its
+  incoming times its outgoing neighbours, less the paths that would use one self-loop twice.
+- `RETURN m.name, count(x)` over `(x)-[:R]->(m)...`, when nothing else reads `x` or the relationship, counts
+  each `m`'s `x` neighbours once and plans the rest of the pattern from `m`.
+- Grouping by a node's id and its other properties groups by the id alone (see
+  [grouping by a node](#grouping-by-a-node)).
+
+In `explain()` output, a hop counted in place shows `degrees=[...]` on its `CsrExpandExec` line, and its output
+has one row per node rather than one per edge. A `WHERE` condition on the counted neighbour alone still applies
+(`filter=` on the same line); a condition that compares it with another variable, or reads the relationship,
+needs the hop's rows and keeps the plain hop.
+
+### Spotting a hop over the whole relationship
+
+`edges=` on a `CsrExpandExec` line is the relationship's edge count, not the number of edges the hop reads.
+The hop reads all of them when its input is the whole node table: the lines below it are a scan of that table,
+with no `FilterExec` and no earlier hop in between. From a 100,000-person graph with 2.4 million `FOLLOWS` edges,
+`MATCH (follower:Person)-[:FOLLOWS]->(person:Person) RETURN person.name, max(follower.age)` plans:
+
+```text
+CsrExpandExec: key=follower__id, edges=2417738, take=person[person__name]
+  ProjectionExec: expr=[id@0 as follower__id, age@1 as follower__age]
+    KeyStatisticsExec: distinct=[id=100000]
+      DataSourceExec: partitions=10, partition_sizes=[2, 2, 2, 1, 1, 1, 1, 1, 1, 1]
+```
+
+If such a hop isn't counted in place and the query is slower with `use_csr=True`, the join path is doing the
+same work with less overhead. Narrow the hop's input (a filter on its start node) where the query allows it,
+or run that workload without the CSR.
+
 ## Should I turn it on?
 
 | Situation | Recommendation |
 | --- | --- |
 | Queries traverse relationships, especially 2+ hops or variable-length | **Turn it on** |
+| Queries read whole relationships (no filter on the start node) and only count | **Turn it on**; counts are taken per node ([when it helps](#when-it-helps)) |
+| Queries read whole relationships and return or group by each edge's properties | About even with the join path; measure both |
 | Integer node keys and edge endpoints | **Turn it on**; you get the fused target lookup too |
 | String or UUID keys | Little benefit; add an integer id column if traversal matters |
 | Only node lookups and aggregations, no hops | Leave it off; it costs build time and memory for nothing |
