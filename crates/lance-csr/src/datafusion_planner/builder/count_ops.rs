@@ -285,6 +285,8 @@ impl DataFusionPlanner {
         let pairs = [(first.edge.0, second.edge.0), (first.edge.1, second.edge.1)];
         let chain = first.edge.1 == second.edge.0 || first.edge.0 == second.edge.1;
         let (mut first_filter, mut second_filter, mut self_loops) = (vec![], vec![], false);
+        // Variables the kept filters read: a relationship no filter reads needs no edge.
+        let mut read = HashSet::new();
         for predicate in predicates {
             if self.is_distinct_edges(ctx, predicate, pairs) {
                 if !chain {
@@ -304,7 +306,16 @@ impl DataFusionPlanner {
             } else {
                 return Ok(None);
             }
+            read.extend(names);
         }
+        // The distinct-edges predicate became the self-loop correction above, so edge
+        // identity is needed only by a filter on the relationship; an unread one is left
+        // unbound, and the CSR does not fetch its edge rows.
+        let bound = |relationship: Option<&str>| {
+            relationship
+                .filter(|r| read.contains(*r))
+                .map(str::to_string)
+        };
 
         let filtered = |op: LogicalOperator, predicates: Vec<BooleanExpression>| match predicates
             .into_iter()
@@ -340,12 +351,20 @@ impl DataFusionPlanner {
             target_label: target_label.clone(),
             relationship_types: relationship_types.clone(),
             direction: direction.clone(),
-            relationship_variable: relationship_variable.clone(),
+            relationship_variable: bound(relationship_variable.as_deref()),
             properties: properties.clone(),
             target_properties: target_properties.clone(),
         };
+        let mut first_op = first.op.clone();
+        if let LogicalOperator::Expand {
+            relationship_variable,
+            ..
+        } = &mut first_op
+        {
+            *relationship_variable = bound(relationship_variable.as_deref());
+        }
         // Built in the original order, so each hop takes the same relationship instance.
-        let first_plan = self.build_operator(ctx, &filtered(first.op.clone(), first_filter))?;
+        let first_plan = self.build_operator(ctx, &filtered(first_op, first_filter))?;
         let second_plan = self.build_operator(ctx, &filtered(second_op, second_filter))?;
 
         let column = |name: &str| col(Column::new_unqualified(name));
@@ -512,6 +531,19 @@ mod tests {
         assert_eq!(count(&follows, &[], &query).await, 3);
         let query = CHAIN.replace("RETURN", "WHERE a.age < b.age AND r2.src <> 4 RETURN");
         assert_eq!(count(&follows, &[], &query).await, 4);
+    }
+
+    #[tokio::test]
+    async fn only_relationships_a_filter_reads_fetch_edges() {
+        let engine = engine(&[(1, 2), (2, 3)], &[], true).await;
+        let plan = engine.explain(CHAIN, HashMap::new()).await.unwrap();
+        assert!(
+            plan.contains("__paths") && !plan.contains("edge="),
+            "{plan}"
+        );
+        let query = CHAIN.replace("RETURN", "WHERE r2.src <> 4 RETURN");
+        let plan = engine.explain(&query, HashMap::new()).await.unwrap();
+        assert_eq!(plan.matches("edge=").count(), 2, "{plan}");
     }
 
     #[tokio::test]
