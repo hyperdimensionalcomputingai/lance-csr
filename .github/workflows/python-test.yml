@@ -44,8 +44,14 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           shared-key: "lance-csr-python"
-          # maturin builds the bindings crate, which sits outside the workspace.
-          workspaces: crates/lance-csr-python
+          # maturin builds the bindings crate, which sits outside the root
+          # workspace. The root workspace is listed too so the cache key hashes
+          # the manifests of lance-csr and lance-csr-catalog, which the bindings
+          # use by path; otherwise a dependency or feature change there keeps
+          # restoring a stale cache. Its target directory is never built here.
+          workspaces: |
+            . -> target
+            crates/lance-csr-python -> target
       - name: Install dependencies
         run: |
           sudo apt update
