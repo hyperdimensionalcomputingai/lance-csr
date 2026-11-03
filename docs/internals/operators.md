@@ -80,6 +80,7 @@ keeps the two hops from reusing one edge. Both plans start from `c` (Dan), not `
 | Relationship filter: drops failing edges before anything else is fetched | `edge_filter=since > 2020` | `FilterExec` after the join |
 | Closing edge: the target is already bound (a cycle), so only neighbours equal to it are kept | `match=b__id` | Expanding everything, then filtering |
 | [Iterative variable-length traversal](../csr.md#variable-length-traversal): one cursor per hop over typed (label, key) frontiers, with bounded output batches | `iterative hops=1..3` | One join branch per path length, combined with `UNION ALL` |
+| Degrees: one row per input node with the number of its neighbours that pass the target filter, and how many of them are the node itself, for the [two-hop count](optimizer.md#two-hop-counts-from-degrees) | `degrees=[__n1, __s1]` | A hash aggregate over one row per edge |
 
 A hop that uses several of these at once:
 
@@ -128,11 +129,12 @@ has the full list. Any other hop stays a join.
 
 ## `NodeLookup`: group by id, then look up
 
-`WITH b, count(*) AS n` groups by the node `b`, which relationally means grouping by every one of `b`'s columns. Rows
-before a grouping can outnumber nodes many times over, because they come out of an expansion, so carrying `b`'s
-properties through the aggregate for each of them is expensive. When `b`'s label has a node index (unique ids), the
-planner groups by `b`'s id alone and adds a `NodeLookup` above the aggregate that fetches `b`'s other properties once
-per group:
+`WITH b, count(*) AS n` groups by the node `b`, which relationally means grouping by every one of `b`'s columns, and
+`RETURN b.id, b.name, count(*)` groups by two of them. Rows before a grouping can outnumber nodes many times over,
+because they come out of an expansion, so carrying `b`'s properties through the aggregate for each of them is
+expensive. When `b`'s label has a node index (unique ids) and the grouping includes `b`'s id, whole or as `b.id`, the
+planner groups by the id alone and adds a `NodeLookup` above the aggregate that fetches `b`'s other grouped properties
+once per group:
 
 ```text
 MATCH (a:Person)-[:KNOWS]->(b:Person) WITH b, count(*) AS n RETURN b.name, n
@@ -144,11 +146,14 @@ ProjectionExec: expr=[b__name@2 as b.name, __agg_0@1 as n]
         AggregateExec: mode=Partial, gby=[b__id@0 as b__id], aggr=[count(1) as __agg_0]
           RepartitionExec: partitioning=RoundRobinBatch(10), input_partitions=1
             ProjectionExec: expr=[b__id@3 as b__id]
-              CsrExpandExec: key=a__id, edges=4, take=b[b__id*, b__name]
+              CsrExpandExec: key=a__id, edges=4, take=b[b__id*]
                 ...
 ```
 
-Unlike a join back to the node table, its cost follows the number of groups, not the size of the table. It applies to
+The expansion below takes only `b`'s id: the lookup's `b__name` is a column of its own, so
+[`PruneCsrTargetColumns`](optimizer.md#prunecsrtargetcolumns) doesn't count it as a use of the expansion's. Grouping by
+`b.name` without `b.id` keeps the plain grouping, since two nodes may share a name. Unlike a join back to the node
+table, the lookup's cost follows the number of groups, not the size of the table. It applies to
 in-memory node tables only; see [grouping by a node](../csr.md#grouping-by-a-node) for why lazily read Lance tables
 keep the old plan. A [list comprehension](optimizer.md#list-comprehensions-keep-each-row-once) over a list of nodes uses
 it too, to bind each element to its node.

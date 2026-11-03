@@ -65,7 +65,7 @@ flowchart TD
     S --> R["Graph rewrites<br/><code>pattern_order.rs</code><br/><code>pattern_alternatives.rs</code>"]
     R --> G["Graph logical plan<br/><code>logical_plan.rs</code><br/>ScanByLabel, Expand, VariableLengthExpand,<br/>ShortestPath, PathMatch, OptionalMatch, Apply"]
     G --> D["DataFusion logical plan<br/><code>datafusion_planner/</code><br/>scans + joins + extension nodes"]
-    D --> O["DataFusion optimizer<br/>+ PushCsrTargetFilters<br/>+ PruneCsrTargetColumns"]
+    D --> O["DataFusion optimizer<br/>+ PushCsrTargetFilters<br/>+ CountCsrDegrees<br/>+ PruneCsrTargetColumns"]
     O --> X["Physical planning<br/>CsrQueryPlanner → CsrExtensionPlanner"]
     X --> E["Execution<br/>CsrExpandExec, NodeLookupExec, ShortestPathExec,<br/>PathMatchExec, ApplyExec, KeyStatisticsExec"]
     E --> B["Arrow record batches"]
@@ -80,19 +80,20 @@ DataFusion logical plan and the physical plan, and every custom operator shows u
 
 | DataFusion trait | lance-csr implementation | Role |
 | --- | --- | --- |
-| `UserDefinedLogicalNodeCore` | `CsrExpandNode`, `NodeLookupNode`, `ShortestPathNode`, `PathMatchNode`, `ApplyNode` | Graph operators as logical plan nodes |
+| `UserDefinedLogicalNodeCore` | `CsrExpandNode`, `NodeLookupNode`, `ShortestPathNode`, `PathMatchNode`, `ApplyNode`, `HopDegreesNode` | Graph operators as logical plan nodes |
 | `ExecutionPlan` | `CsrExpandExec`, `NodeLookupExec`, `ShortestPathExec`, `PathMatchExec`, `ApplyExec`, `KeyStatisticsExec` | Their physical operators |
 | `ExtensionPlanner` | `CsrExtensionPlanner` | Lowers each graph node to its `ExecutionPlan` |
 | `QueryPlanner` | `CsrQueryPlanner` | Installs the extension planner on the session |
-| `OptimizerRule` | `PushCsrTargetFilters`, `PruneCsrTargetColumns` | Filter pushdown into, and column pruning of, extension nodes |
+| `OptimizerRule` | `PushCsrTargetFilters`, `CountCsrDegrees`, `PruneCsrTargetColumns` | Filter pushdown into extension nodes, per-node counts on the CSR, and column pruning |
 | `PhysicalOptimizerRule` | `DeadlineJoins` (`query_deadline_joins`) | Cooperative deadlines in nested-loop and cross joins |
 | `TableProvider` | `KeyStatisticsProvider` | Reports distinct counts of join keys so DataFusion sizes graph joins correctly |
 | `ScalarUDFImpl` | `cypher_list`, `cypher_field`, Cypher math and scalar functions; vector distance and similarity functions (from [lance-graph](https://github.com/lance-format/lance-graph)) | Cypher semantics that DataFusion's built-ins don't match |
 
 Apart from the vector functions, every implementation in this table was added in lance-csr;
 [lance-graph](https://github.com/lance-format/lance-graph) used no DataFusion extension points. `CypherEngine` builds
-one DataFusion session per snapshot (in `engine.rs`). It installs `CsrQueryPlanner` and adds `PushCsrTargetFilters`
-before `PruneCsrTargetColumns`, so that pruning can drop the columns a moved filter reads. Rust callers that bring
+one DataFusion session per snapshot (in `engine.rs`). It installs `CsrQueryPlanner` and adds `PushCsrTargetFilters`,
+then `CountCsrDegrees`, then `PruneCsrTargetColumns`: counting in place needs the hop's filter moved in first, and
+pruning can then drop the columns a moved filter reads. Rust callers that bring
 their own `SessionContext` must install `CsrQueryPlanner` themselves; contexts created by `CypherQuery` and
 `CypherEngine` already have it.
 

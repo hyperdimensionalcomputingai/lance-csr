@@ -143,6 +143,11 @@ When those hold, it covers:
 Everything else in the query (filters, aggregations, sorts and any hop the CSR can't take) is planned by
 DataFusion as usual. You can mix: a three-hop query might run two hops on the CSR and one as a join.
 
+The planner chooses between the two by what the CSR can express, not by which is faster. A hop that meets the
+conditions above always runs on the CSR, even when a join would be about as fast; see
+[when it helps](#when-it-helps). `use_csr` is set once, for the whole engine, because it decides whether the
+CSR is built at all: with `use_csr=False` every hop is a join.
+
 Named path values and `relationships(path)` use a query-local inventory of actual edge occurrences because
 CSR neighbors do not carry edge identity or properties. This also preserves parallel edges when a path
 passes through `collect()` and `UNWIND`. The inventory materializes the participating node and relationship
@@ -219,9 +224,9 @@ cache across queries or dataset versions.
 
 ### Grouping by a node
 
-`WITH b, count(*) AS n` groups by the node `b`. When `b`'s label has a node index and its table is in
-memory, the grouping uses `b`'s id alone and looks up `b`'s other properties afterwards, once per node, by the
-same row positions. Rows before a grouping can outnumber nodes many times over (an expansion), and carrying a
+`WITH b, count(*) AS n` groups by the node `b`, and `RETURN b.id, b.name, count(*) AS n` by its id and name.
+When `b`'s label has a node index and its table is in memory, either grouping uses `b`'s id alone and looks up
+`b`'s other properties afterwards, once per node, by the same row positions. Rows before a grouping can outnumber nodes many times over (an expansion), and carrying a
 node's properties through the aggregate for each of them costs more than one lookup per node. With unique
 ids, the groups are the same. `explain()` shows the lookup as `NodeLookupExec`, with only the properties the
 query uses:
@@ -234,7 +239,8 @@ print([line.strip(" |") for line in plan.splitlines() if "NodeLookupExec" in lin
 # ['NodeLookupExec: key=b__id, take=b[b__name]']
 ```
 
-This applies only when the node table is held in memory. For a Lance dataset read lazily, grouping by a node
+The grouping needs the id: `RETURN b.name, count(*)` groups by the name, because two people can share one.
+It applies only when the node table is held in memory. For a Lance dataset read lazily, grouping by a node
 still groups by all of its properties, as before. By the time the query groups by `b`, its rows already hold
 `b`'s properties, read from the dataset by an earlier step, so grouping by them reads nothing more. Looking
 them up after the grouping would read them from disk a second time, which costs more than keeping them.
@@ -469,11 +475,55 @@ print(open_engine().delete_stored_csr())  # 1
     change. `python/benchmarks/csr_persist.py` measures the same cases on a synthetic graph, including a load
     with a delta.
 
+## When it helps
+
+A CSR hop's cost follows the edges it reads, and it reads only the neighbours of its input rows. A hash join
+reads the whole relationship table and builds a hash table on it, however few rows it starts from. So the CSR
+gains most when a hop starts from few rows: a filtered node, or the result of an earlier hop.
+
+A hop that starts from every node of a label reads every edge either way. An in-memory hash join is already
+cheap there, and a CSR hop that emits one row per edge is no faster. What the CSR adds is that it can count a
+node's neighbours without emitting a row per edge, and the planner uses that wherever a query only counts:
+
+- `RETURN count(*)` over a two-hop chain `(a)-->(b)-->(c)` is the sum, over each middle node `b`, of its
+  incoming times its outgoing neighbours, less the paths that would use one self-loop twice.
+- `RETURN m.name, count(x)` over `(x)-[:R]->(m)...`, when nothing else reads `x` or the relationship, counts
+  each `m`'s `x` neighbours once and plans the rest of the pattern from `m`.
+- Grouping by a node's id and its other properties groups by the id alone (see
+  [grouping by a node](#grouping-by-a-node)).
+
+In `explain()` output, a hop counted in place shows `degrees=[...]` on its `CsrExpandExec` line, and its output
+has one row per node rather than one per edge. A `WHERE` condition on the counted neighbour alone still applies
+(`filter=` on the same line); a condition that compares it with another variable, or reads the relationship,
+needs the hop's rows and keeps the plain hop.
+
+### Spotting a hop over the whole relationship
+
+`edges=` on a `CsrExpandExec` line is the relationship's edge count, not the number of edges the hop reads.
+The hop reads all of them when its input is the whole node table: the lines below it are a scan of that table,
+with no `FilterExec` and no earlier hop in between. From a 100,000-person graph with 2.4 million `FOLLOWS` edges,
+`MATCH (follower:Person)-[:FOLLOWS]->(person:Person) RETURN person.name, max(follower.age)` plans:
+
+```text
+CsrExpandExec: key=follower__id, edges=2417738, take=person[person__name]
+  ProjectionExec: expr=[id@0 as follower__id, age@1 as follower__age]
+    KeyStatisticsExec: distinct=[id=100000]
+      DataSourceExec: partitions=10, partition_sizes=[2, 2, 2, 1, 1, 1, 1, 1, 1, 1]
+```
+
+If such a hop isn't counted in place and the query is slower with `use_csr=True`, the join path is doing the
+same work with less overhead. The planner won't switch that hop to a join for you: the fallback covers hops the
+CSR can't take, not slower ones. Narrow the hop's input (a filter on its start node) where the query allows
+it. If the workload is mostly such queries, measure it with `use_csr=False` too, as that setting applies to
+every query on the engine.
+
 ## Should I turn it on?
 
 | Situation | Recommendation |
 | --- | --- |
 | Queries traverse relationships, especially 2+ hops or variable-length | **Turn it on** |
+| Queries read whole relationships (no filter on the start node) and only count | **Turn it on**; counts are taken per node ([when it helps](#when-it-helps)) |
+| Queries read whole relationships and return or group by each edge's properties | About even with the join path; measure both |
 | Integer node keys and edge endpoints | **Turn it on**; you get the fused target lookup too |
 | String or UUID keys | Little benefit; add an integer id column if traversal matters |
 | Only node lookups and aggregations, no hops | Leave it off; it costs build time and memory for nothing |

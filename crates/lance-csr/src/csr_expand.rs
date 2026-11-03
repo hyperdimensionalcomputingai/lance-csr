@@ -1490,6 +1490,9 @@ pub struct CsrExpandNode {
     /// equal to it are kept, replacing a filter after a full expansion.
     closing_column: Option<String>,
     traversal: Option<Arc<crate::csr_traversal::Traversal>>,
+    /// When set, one row per input row with its neighbours' count and the self-loops
+    /// among them (see [`CsrExpandNode::degrees`]) instead of one row per neighbour.
+    degrees: Option<[Field; 2]>,
     schema: DFSchemaRef,
 }
 
@@ -1524,8 +1527,64 @@ impl CsrExpandNode {
             edge_filter: None,
             closing_column: None,
             traversal: None,
+            degrees: None,
             schema: Arc::new(schema),
         })
+    }
+
+    /// `plan`, a hop over a fused target with at most a filter on the target above it
+    /// (and column-only projections), as one row per input row: the input columns, then
+    /// `count` (neighbours with a target row that pass the filter) and `loops` (those
+    /// equal to the input key). The node's degree in `plan`'s direction, without a row
+    /// per edge for a hash aggregate to group again. `None` for any other plan.
+    fn degrees(plan: &LogicalPlan, count: &str, loops: &str) -> Option<LogicalPlan> {
+        let mut plan = PushCsrTargetFilters
+            .rewrite(
+                plan.clone(),
+                &datafusion::optimizer::OptimizerContext::new(),
+            )
+            .ok()?
+            .data;
+        while let LogicalPlan::Projection(p) = &plan {
+            if !p.expr.iter().all(|e| matches!(e, Expr::Column(_))) {
+                return None;
+            }
+            plan = p.input.as_ref().clone();
+        }
+        let LogicalPlan::Extension(ext) = &plan else {
+            return None;
+        };
+        let node = ext.node.as_any().downcast_ref::<CsrExpandNode>()?;
+        let simple = node.edge.is_none()
+            && node.closing_column.is_none()
+            && node.traversal.is_none()
+            && node.degrees.is_none();
+        let target = node.target.as_ref().filter(|_| simple)?;
+        let target = TargetLookup {
+            columns: vec![],
+            fields: vec![],
+            ..target.clone()
+        };
+        let mut counted = node.rebuilt(node.input.clone(), Some(target), None).ok()?;
+        counted
+            .count_degrees([count, loops].map(|n| Field::new(n, DataType::Int64, false)))
+            .ok()?;
+        Some(LogicalPlan::Extension(Extension {
+            node: Arc::new(counted),
+        }))
+    }
+
+    fn count_degrees(&mut self, fields: [Field; 2]) -> Result<()> {
+        let added = DFSchema::try_from(Schema::new(fields.to_vec()))
+            .map_err(|e| plan_error(format!("CsrExpand schema: {}", e)))?;
+        self.schema = Arc::new(
+            self.input
+                .schema()
+                .join(&added)
+                .map_err(|e| plan_error(format!("CsrExpand schema: {}", e)))?,
+        );
+        self.degrees = Some(fields);
+        Ok(())
     }
 
     /// Keep only neighbours equal to the bound target id in `column` (a closing edge).
@@ -1560,6 +1619,9 @@ impl CsrExpandNode {
         node.edge_filter = self.edge_filter.clone();
         node.closing_column = self.closing_column.clone();
         node.traversal = self.traversal.clone();
+        if let Some(fields) = &self.degrees {
+            node.count_degrees(fields.clone())?;
+        }
         Ok(node)
     }
 
@@ -1600,9 +1662,13 @@ impl CsrExpandNode {
         self.rebuilt(self.input.clone(), target, edge).ok()
     }
 
-    /// Names of the columns this node adds (endpoints, then any target and edge columns).
-    fn added_columns(&self) -> impl Iterator<Item = &String> {
-        [self.key_output.name(), self.neighbor_output.name()]
+    /// Names of the columns this node adds (endpoints, then any target and edge columns,
+    /// or the degree columns).
+    fn added_columns(&self) -> Box<dyn Iterator<Item = &String> + '_> {
+        if let Some(fields) = &self.degrees {
+            return Box::new(fields.iter().map(|f| f.name()));
+        }
+        let columns = [self.key_output.name(), self.neighbor_output.name()]
             .into_iter()
             .chain(
                 self.target
@@ -1613,7 +1679,8 @@ impl CsrExpandNode {
                 self.edge
                     .iter()
                     .flat_map(|e| e.fields.iter().map(|f| f.name())),
-            )
+            );
+        Box::new(columns)
     }
 }
 
@@ -1651,6 +1718,7 @@ impl PartialEq for CsrExpandNode {
                 (None, None) => true,
                 _ => false,
             }
+            && self.degrees == other.degrees
     }
 }
 impl Eq for CsrExpandNode {}
@@ -1668,6 +1736,10 @@ impl Hash for CsrExpandNode {
         self.target_filter.hash(state);
         self.edge_filter.hash(state);
         self.closing_column.hash(state);
+        self.degrees
+            .as_ref()
+            .map(|f| [f[0].name(), f[1].name()])
+            .hash(state);
     }
 }
 impl PartialOrd for CsrExpandNode {
@@ -1775,6 +1847,9 @@ impl UserDefinedLogicalNodeCore for CsrExpandNode {
         if let Some(walk) = &self.traversal {
             write!(f, ", iterative hops={}..{}", walk.min_hops, walk.max_hops)?;
         }
+        if let Some([count, loops]) = &self.degrees {
+            write!(f, ", degrees=[{}, {}]", count.name(), loops.name())?;
+        }
         Ok(())
     }
 
@@ -1806,6 +1881,8 @@ pub struct CsrExpandExec {
     target_state: Arc<TargetScanState>,
     closing_column: Option<String>,
     traversal: Option<Arc<crate::csr_traversal::Traversal>>,
+    /// Count each input row's neighbours instead of emitting them.
+    degrees: bool,
     schema: SchemaRef,
     properties: Arc<PlanProperties>,
 }
@@ -1822,6 +1899,7 @@ impl CsrExpandExec {
         edge_filter: Option<CompiledFilter>,
         closing_column: Option<String>,
         traversal: Option<Arc<crate::csr_traversal::Traversal>>,
+        degrees: bool,
         schema: SchemaRef,
     ) -> Self {
         let properties = Arc::new(PlanProperties::new(
@@ -1842,6 +1920,7 @@ impl CsrExpandExec {
             target_state: Arc::default(),
             closing_column,
             traversal,
+            degrees,
             schema,
             properties,
         }
@@ -1860,6 +1939,8 @@ struct BatchExpansion {
     edge_rows: bool,
     /// Passing edge rows of the relationship filter, once built: others are skipped.
     edge_mask: Option<Arc<EdgeMask>>,
+    /// Per input row, in degree mode: neighbours kept, and those equal to the key.
+    degrees: Option<(Vec<i64>, Vec<i64>)>,
 }
 
 impl BatchExpansion {
@@ -1882,7 +1963,29 @@ impl BatchExpansion {
             walk: None,
             edge_rows: false,
             edge_mask: None,
+            degrees: None,
         })
+    }
+
+    /// In degree mode, the input rows with at least one neighbour, each with its two
+    /// counts; `None` otherwise or when no row has one.
+    fn degree_batch(self, schema: &SchemaRef) -> datafusion::common::Result<Option<RecordBatch>> {
+        let Some((counts, loops)) = self.degrees else {
+            return Ok(None);
+        };
+        let keep = arrow::array::BooleanArray::from_iter(counts.iter().map(|&c| Some(c > 0)));
+        if keep.true_count() == 0 {
+            return Ok(None);
+        }
+        let mut columns = self
+            .batch
+            .columns()
+            .iter()
+            .map(|c| filter_array(c.as_ref(), &keep))
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        columns.push(filter_array(&Int64Array::from(counts), &keep)?);
+        columns.push(filter_array(&Int64Array::from(loops), &keep)?);
+        Ok(Some(RecordBatch::try_new(schema.clone(), columns)?))
     }
 
     /// Collect only the next chunk; target properties are fetched after this returns.
@@ -2072,63 +2175,19 @@ async fn materialize(
             .map_err(|e| datafusion::common::DataFusionError::External(Box::new(e)))?;
         expanded.retain(&filter.keep(columns)?);
     }
-    let ExpandedRows {
-        mut rows,
-        mut key_values,
-        mut neighbor_values,
-        mut edge_rows,
-        mut target_positions,
-    } = expanded;
-    let mut reused = Vec::new();
-    if let (Some(target), Some(filter)) = (target, target_filter) {
-        // Take only the filter's columns, evaluate, and keep passing rows before
-        // taking anything else. Null counts as false, as in a WHERE clause.
-        let fetch: Vec<_> = filter
-            .columns
-            .iter()
-            .copied()
-            .filter(|&c| c != target.rows.id_index)
-            .collect();
-        let mut taken = take_target(target, scanned, &target_positions, &fetch)
-            .await?
-            .into_iter();
-        let arrays = filter
-            .columns
-            .iter()
-            .enumerate()
-            .map(|(i, &c)| {
-                if c == target.rows.id_index {
-                    cast(
-                        &Int64Array::from(neighbor_values.clone()),
-                        filter.schema.field(i).data_type(),
-                    )
-                } else {
-                    Ok(taken
-                        .next()
-                        .expect("one fetched array per non-id filter column"))
-                }
-            })
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-        let candidates = RecordBatch::try_new(filter.schema.clone(), arrays)?;
-        let mask = filter
-            .predicate
-            .evaluate(&candidates)?
-            .into_array(candidates.num_rows())?;
-        let mask = mask.as_boolean();
-        let keep: Vec<bool> = (0..mask.len())
-            .map(|i| mask.is_valid(i) && mask.value(i))
-            .collect();
-        for (i, &column) in filter.columns.iter().enumerate() {
-            if column != target.rows.id_index && target.columns.contains(&column) {
-                reused.push((column, filter_array(candidates.column(i), mask)?));
-            }
+    let reused = match (target, target_filter) {
+        (Some(target), Some(filter)) => {
+            filter_targets(target, scanned, filter, &mut expanded).await?
         }
-        retain_by_mask(&mut rows, &keep);
-        retain_by_mask(&mut key_values, &keep);
-        retain_by_mask(&mut neighbor_values, &keep);
-        retain_by_mask(&mut edge_rows, &keep);
-        retain_by_mask(&mut target_positions, &keep);
-    }
+        _ => vec![],
+    };
+    let ExpandedRows {
+        rows,
+        key_values,
+        neighbor_values,
+        edge_rows,
+        target_positions,
+    } = expanded;
     let rows = UInt32Array::from(rows);
     let mut columns: Vec<ArrayRef> = batch
         .columns()
@@ -2175,6 +2234,60 @@ async fn materialize(
     Ok(RecordBatch::try_new(schema.clone(), columns)?)
 }
 
+/// Keep the rows of `expanded` whose target passes the moved target filter. Takes only
+/// the filter's columns; returns those the target also outputs, for the rows kept.
+/// Null counts as false, as in a WHERE clause.
+async fn filter_targets(
+    target: &TargetLookup,
+    scanned: Option<&TargetColumns>,
+    filter: &CompiledFilter,
+    expanded: &mut ExpandedRows,
+) -> datafusion::common::Result<Vec<(usize, ArrayRef)>> {
+    let fetch: Vec<_> = filter
+        .columns
+        .iter()
+        .copied()
+        .filter(|&c| c != target.rows.id_index)
+        .collect();
+    let mut taken = take_target(target, scanned, &expanded.target_positions, &fetch)
+        .await?
+        .into_iter();
+    let arrays = filter
+        .columns
+        .iter()
+        .enumerate()
+        .map(|(i, &c)| {
+            if c == target.rows.id_index {
+                cast(
+                    &Int64Array::from(expanded.neighbor_values.clone()),
+                    filter.schema.field(i).data_type(),
+                )
+            } else {
+                Ok(taken
+                    .next()
+                    .expect("one fetched array per non-id filter column"))
+            }
+        })
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let candidates = RecordBatch::try_new(filter.schema.clone(), arrays)?;
+    let mask = filter
+        .predicate
+        .evaluate(&candidates)?
+        .into_array(candidates.num_rows())?;
+    let mask = mask.as_boolean();
+    let keep: Vec<bool> = (0..mask.len())
+        .map(|i| mask.is_valid(i) && mask.value(i))
+        .collect();
+    let mut reused = Vec::new();
+    for (i, &column) in filter.columns.iter().enumerate() {
+        if column != target.rows.id_index && target.columns.contains(&column) {
+            reused.push((column, filter_array(candidates.column(i), mask)?));
+        }
+    }
+    expanded.retain(&keep);
+    Ok(reused)
+}
+
 /// Keep the elements of `values` whose position in `keep` is true.
 fn retain_by_mask<T>(values: &mut Vec<T>, keep: &[bool]) {
     let mut keep = keep.iter();
@@ -2210,6 +2323,10 @@ impl DisplayAs for CsrExpandExec {
         if let Some(walk) = &self.traversal {
             write!(f, ", iterative hops={}..{}", walk.min_hops, walk.max_hops)?;
         }
+        if self.degrees {
+            let names: Vec<_> = self.schema.fields().iter().rev().take(2).collect();
+            write!(f, ", degrees=[{}, {}]", names[1].name(), names[0].name())?;
+        }
         Ok(())
     }
 }
@@ -2231,7 +2348,12 @@ impl ExecutionPlan for CsrExpandExec {
         if self.traversal.is_some() {
             return Ok(Arc::new(stats));
         }
-        let degree = self.adjacency.mean_degree();
+        // At most one row per input row when counting.
+        let degree = if self.degrees {
+            1.0
+        } else {
+            self.adjacency.mean_degree()
+        };
         stats.num_rows = match input.num_rows {
             Precision::Exact(n) | Precision::Inexact(n) => {
                 Precision::Inexact((n as f64 * degree).ceil() as usize)
@@ -2267,6 +2389,7 @@ impl ExecutionPlan for CsrExpandExec {
             self.edge_filter.clone(),
             self.closing_column.clone(),
             self.traversal.clone(),
+            self.degrees,
             self.schema.clone(),
         )))
     }
@@ -2324,6 +2447,7 @@ impl ExecutionPlan for CsrExpandExec {
         let schema = self.schema.clone();
         let out_schema = schema.clone();
         let traversal = self.traversal.clone();
+        let degrees = self.degrees;
         // Keep one input and one materialization in flight per partition. A hub's
         // remaining neighbours stay in the immutable adjacency until the next poll.
         let stream = futures::stream::try_unfold((input, None), move |(mut input, mut pending)| {
@@ -2346,6 +2470,8 @@ impl ExecutionPlan for CsrExpandExec {
                         let mut expansion =
                             BatchExpansion::try_new(batch?, key_index, closing_index)?;
                         expansion.edge_rows = edge.is_some();
+                        let rows = expansion.keys.len();
+                        expansion.degrees = degrees.then(|| (vec![0; rows], vec![0; rows]));
                         pending = Some(expansion);
                     }
                     let expansion = pending.as_mut().expect("input batch just set");
@@ -2370,7 +2496,10 @@ impl ExecutionPlan for CsrExpandExec {
                         }
                     };
                     if chunk.rows.is_empty() {
-                        pending = None;
+                        let done = pending.take().expect("input batch just set");
+                        if let Some(batch) = done.degree_batch(&schema)? {
+                            return Ok(Some((batch, (input, None))));
+                        }
                         continue;
                     }
                     let mut chunk = chunk;
@@ -2415,6 +2544,20 @@ impl ExecutionPlan for CsrExpandExec {
                         }
                     }
                     let scanned = target_state.columns.get().cloned().flatten();
+                    if let Some((counts, loops)) = expansion.degrees.as_mut() {
+                        if let (Some(target), Some(compiled)) =
+                            (target.as_deref(), target_filter.as_deref())
+                        {
+                            filter_targets(target, scanned.as_deref(), compiled, &mut chunk)
+                                .await?;
+                        }
+                        let ends = chunk.key_values.iter().zip(&chunk.neighbor_values);
+                        for (&row, (&key, &neighbor)) in chunk.rows.iter().zip(ends) {
+                            counts[row as usize] += 1;
+                            loops[row as usize] += i64::from(key == neighbor);
+                        }
+                        continue;
+                    }
                     let batch = materialize(
                         &expansion.batch,
                         chunk,
@@ -2480,6 +2623,10 @@ impl ExtensionPlanner for CsrExtensionPlanner {
         if let Some(node) = node.as_any().downcast_ref::<PathExistsNode>() {
             return Ok(Some(path_exists::plan_path_exists(node, physical_inputs)));
         }
+        if node.as_any().is::<HopDegreesNode>() {
+            // Not lowered by `CountCsrDegrees`: run the aggregate it wraps.
+            return Ok(Some(physical_inputs[0].clone()));
+        }
         let Some(node) = node.as_any().downcast_ref::<CsrExpandNode>() else {
             return Ok(None);
         };
@@ -2501,6 +2648,7 @@ impl ExtensionPlanner for CsrExtensionPlanner {
             edge_filter,
             node.closing_column.clone(),
             node.traversal.clone(),
+            node.degrees.is_some(),
             Arc::new(node.schema.as_arrow().clone()),
         ))))
     }
@@ -2614,6 +2762,129 @@ impl OptimizerRule for PushCsrTargetFilters {
     }
 }
 
+/// A hop's per-node count: an aggregate grouping a hop by its key, `count(*)` as `count`
+/// and, optionally, the rows whose other end is the key as `loops`. [`CountCsrDegrees`]
+/// replaces it with [`CsrExpandNode::degrees`] when the hop qualifies, and otherwise
+/// with the aggregate. It is lowered in the optimizer rather than when planning, as the
+/// hop's target filter may hold query parameters, bound only after planning.
+#[derive(Clone, PartialEq, Eq, Hash, PartialOrd)]
+pub struct HopDegreesNode {
+    aggregate: LogicalPlan,
+    key: String,
+    count: String,
+    loops: String,
+}
+
+impl HopDegreesNode {
+    pub fn new(aggregate: LogicalPlan, key: &str, count: &str, loops: &str) -> Self {
+        Self {
+            aggregate,
+            key: key.to_string(),
+            count: count.to_string(),
+            loops: loops.to_string(),
+        }
+    }
+
+    /// The degree plan with the aggregate's output columns, if the hop qualifies.
+    fn lowered(&self) -> Option<LogicalPlan> {
+        let LogicalPlan::Aggregate(aggregate) = &self.aggregate else {
+            return None;
+        };
+        let degrees = CsrExpandNode::degrees(&aggregate.input, &self.count, &self.loops)?;
+        let column = |name: &str| Expr::Column(Column::new_unqualified(name));
+        let fields = self.aggregate.schema().fields();
+        let mut columns = vec![column(&self.key).alias(fields[0].name())];
+        columns.extend(fields[1..].iter().map(|f| column(f.name())));
+        LogicalPlanBuilder::from(degrees)
+            .project(columns)
+            .and_then(|b| b.build())
+            .ok()
+    }
+}
+
+impl std::fmt::Debug for HopDegreesNode {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        UserDefinedLogicalNodeCore::fmt_for_explain(self, f)
+    }
+}
+
+impl UserDefinedLogicalNodeCore for HopDegreesNode {
+    fn name(&self) -> &str {
+        "HopDegrees"
+    }
+
+    fn inputs(&self) -> Vec<&LogicalPlan> {
+        vec![&self.aggregate]
+    }
+
+    fn schema(&self) -> &DFSchemaRef {
+        self.aggregate.schema()
+    }
+
+    fn expressions(&self) -> Vec<Expr> {
+        vec![]
+    }
+
+    /// Keeps filters above, so that the aggregate stays the node's input.
+    fn prevent_predicate_push_down_columns(&self) -> HashSet<String> {
+        self.aggregate
+            .schema()
+            .fields()
+            .iter()
+            .map(|f| f.name().clone())
+            .collect()
+    }
+
+    fn necessary_children_exprs(&self, output_columns: &[usize]) -> Option<Vec<Vec<usize>>> {
+        Some(vec![output_columns.to_vec()])
+    }
+
+    fn fmt_for_explain(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "HopDegrees: key={}", self.key)
+    }
+
+    fn with_exprs_and_inputs(
+        &self,
+        _exprs: Vec<Expr>,
+        inputs: Vec<LogicalPlan>,
+    ) -> datafusion::common::Result<Self> {
+        let aggregate = inputs.into_iter().next().expect("HopDegrees has one input");
+        Ok(Self {
+            aggregate,
+            ..self.clone()
+        })
+    }
+}
+
+/// Optimizer rule: lower each [`HopDegreesNode`], after [`PushCsrTargetFilters`] has
+/// moved the hop's target filter into its CSR node.
+#[derive(Debug, Default)]
+pub struct CountCsrDegrees;
+
+impl OptimizerRule for CountCsrDegrees {
+    fn name(&self) -> &str {
+        "count_csr_degrees"
+    }
+
+    fn rewrite(
+        &self,
+        plan: LogicalPlan,
+        _config: &dyn OptimizerConfig,
+    ) -> datafusion::common::Result<Transformed<LogicalPlan>> {
+        plan.transform_up(|node| {
+            let LogicalPlan::Extension(ext) = &node else {
+                return Ok(Transformed::no(node));
+            };
+            let Some(hop) = ext.node.as_any().downcast_ref::<HopDegreesNode>() else {
+                return Ok(Transformed::no(node));
+            };
+            Ok(Transformed::yes(
+                hop.lowered().unwrap_or_else(|| hop.aggregate.clone()),
+            ))
+        })
+    }
+}
+
 /// Optimizer rule: drop fused target columns, and node lookup columns, that nothing
 /// in the plan uses.
 ///
@@ -2635,30 +2906,76 @@ impl OptimizerRule for PruneCsrTargetColumns {
         plan: LogicalPlan,
         _config: &dyn OptimizerConfig,
     ) -> datafusion::common::Result<Transformed<LogicalPlan>> {
-        let used = used_columns(&plan)?;
-        plan.transform_up(|node| {
+        prune_unused_columns(plan)
+    }
+}
+
+fn prune_unused_columns(plan: LogicalPlan) -> datafusion::common::Result<Transformed<LogicalPlan>> {
+    let used = used_columns(&plan)?;
+    prune_within(plan, &used)
+}
+
+/// `plan` with the CSR and lookup columns not in `used` dropped, visiting each node once.
+fn prune_within(
+    plan: LogicalPlan,
+    used: &HashSet<String>,
+) -> datafusion::common::Result<Transformed<LogicalPlan>> {
+    if let LogicalPlan::Extension(ext) = &plan {
+        if let Some(lookup) = ext.node.as_any().downcast_ref::<NodeLookupNode>() {
+            // The columns a lookup fetches shadow any of the same name below it (a CSR
+            // hop's `take` of `b__name` under `NodeLookup: take=b[b__name]`), so its input
+            // needs only what the input itself outputs. Find that set only when some hop
+            // below fetches one of them, as it takes a walk of the input.
+            let shadows = lookup.input().exists(|node| {
+                Ok(matches!(node, LogicalPlan::Extension(ext)
+                if ext.node.as_any().downcast_ref::<CsrExpandNode>().is_some_and(|csr| {
+                    csr.added_columns()
+                        .any(|c| lookup.fields().iter().any(|f| f.name() == c))
+                })))
+            })?;
+            let input = if shadows {
+                prune_unused_columns(lookup.input().clone())?
+            } else {
+                prune_within(lookup.input().clone(), used)?
+            };
+            let rebuilt;
+            let lookup = if input.transformed {
+                rebuilt = UserDefinedLogicalNodeCore::with_exprs_and_inputs(
+                    lookup,
+                    vec![],
+                    vec![input.data],
+                )?;
+                &rebuilt
+            } else {
+                lookup
+            };
+            let extension = |node: NodeLookupNode| {
+                LogicalPlan::Extension(Extension {
+                    node: Arc::new(node),
+                })
+            };
+            return Ok(match lookup.pruned(used) {
+                Some(Ok(pruned)) => Transformed::yes(extension(pruned)),
+                // Nothing it fetches is used: drop the lookup.
+                Some(Err(input)) => Transformed::yes(input),
+                None if input.transformed => Transformed::yes(extension(lookup.clone())),
+                None => Transformed::no(plan),
+            });
+        }
+    }
+    plan.map_children(|child| prune_within(child, used))?
+        .transform_data(|node| {
             if let LogicalPlan::Extension(ext) = &node {
                 if let Some(csr) = ext.node.as_any().downcast_ref::<CsrExpandNode>() {
-                    if let Some(pruned) = csr.with_target_columns(&used) {
+                    if let Some(pruned) = csr.with_target_columns(used) {
                         return Ok(Transformed::yes(LogicalPlan::Extension(Extension {
                             node: Arc::new(pruned),
                         })));
                     }
                 }
-                if let Some(lookup) = ext.node.as_any().downcast_ref::<NodeLookupNode>() {
-                    return Ok(match lookup.pruned(&used) {
-                        Some(Ok(pruned)) => Transformed::yes(LogicalPlan::Extension(Extension {
-                            node: Arc::new(pruned),
-                        })),
-                        // Nothing it fetches is used: drop the lookup.
-                        Some(Err(input)) => Transformed::yes(input),
-                        None => Transformed::no(node),
-                    });
-                }
             }
             Ok(Transformed::no(node))
         })
-    }
 }
 
 fn used_columns(plan: &LogicalPlan) -> datafusion::common::Result<HashSet<String>> {

@@ -48,7 +48,8 @@ use serde_json::Value as JsonValue;
 use crate::config::GraphConfig;
 use crate::csr_expand::{
     edge_changes, edge_changes_since, is_supported_id_type, Adjacency, AdjacencyCatalog,
-    CsrQueryPlanner, EdgeChanges, EdgeRows, NodeRows, PruneCsrTargetColumns, PushCsrTargetFilters,
+    CountCsrDegrees, CsrQueryPlanner, EdgeChanges, EdgeRows, NodeRows, PruneCsrTargetColumns,
+    PushCsrTargetFilters,
 };
 use crate::csr_store;
 use crate::error::{GraphError, Result};
@@ -521,6 +522,7 @@ async fn build_engine_state(
             // Move target-only filters into CSR nodes first, so pruning can then drop
             // the filter columns from the take.
             .with_optimizer_rule(Arc::new(PushCsrTargetFilters))
+            .with_optimizer_rule(Arc::new(CountCsrDegrees))
             .with_optimizer_rule(Arc::new(PruneCsrTargetColumns))
             .build(),
     );
