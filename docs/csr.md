@@ -143,6 +143,11 @@ When those hold, it covers:
 Everything else in the query (filters, aggregations, sorts and any hop the CSR can't take) is planned by
 DataFusion as usual. You can mix: a three-hop query might run two hops on the CSR and one as a join.
 
+The planner chooses between the two by what the CSR can express, not by which is faster. A hop that meets the
+conditions above always runs on the CSR, even when a join would be about as fast; see
+[when it helps](#when-it-helps). `use_csr` is set once, for the whole engine, because it decides whether the
+CSR is built at all: with `use_csr=False` every hop is a join.
+
 Named path values and `relationships(path)` use a query-local inventory of actual edge occurrences because
 CSR neighbors do not carry edge identity or properties. This also preserves parallel edges when a path
 passes through `collect()` and `UNWIND`. The inventory materializes the participating node and relationship
@@ -507,8 +512,10 @@ CsrExpandExec: key=follower__id, edges=2417738, take=person[person__name]
 ```
 
 If such a hop isn't counted in place and the query is slower with `use_csr=True`, the join path is doing the
-same work with less overhead. Narrow the hop's input (a filter on its start node) where the query allows it,
-or run that workload without the CSR.
+same work with less overhead. The planner won't switch that hop to a join for you: the fallback covers hops the
+CSR can't take, not slower ones. Narrow the hop's input (a filter on its start node) where the query allows
+it. If the workload is mostly such queries, measure it with `use_csr=False` too, as that setting applies to
+every query on the engine.
 
 ## Should I turn it on?
 

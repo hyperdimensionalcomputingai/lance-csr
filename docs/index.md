@@ -118,8 +118,9 @@ flowchart LR
     J --> R
 ```
 
-Every hop that the CSR can answer becomes a neighbour lookup; anything it can't express falls back to an
-ordinary join, so enabling the CSR never changes results. [How it works](execution.md) walks through each
+With `use_csr=True`, every hop that the CSR can answer becomes a neighbour lookup; anything it can't express
+falls back to an ordinary join, so enabling the CSR never changes results. The choice is by what the CSR can
+express, not by cost: see [when the CSR helps](csr.md#when-it-helps). [How it works](execution.md) walks through each
 stage.
 
 ## What it is not
