@@ -263,10 +263,7 @@ fn shortest_path_pattern(input: &str) -> IResult<&str, PathPattern> {
         path_pattern,
         tuple((multispace0, char(')'))),
     )(input)?;
-    path.shortest = Some(ShortestPathSpec {
-        all,
-        variable: variable.map(str::to_string),
-    });
+    path.shortest = Some(ShortestPathSpec { all, variable });
     Ok((input, path))
 }
 
@@ -392,15 +389,15 @@ fn relationship_pattern(input: &str) -> IResult<&str, RelationshipPattern> {
 }
 
 // Type alias for complex relationship content return type
-type RelationshipContentResult<'a> = (
-    Option<&'a str>,
-    Vec<&'a str>,
+type RelationshipContentResult = (
+    Option<String>,
+    Vec<String>,
     Option<HashMap<String, PropertyValue>>,
     Option<LengthRange>,
 );
 
 // Parse relationship content inside brackets
-fn relationship_content(input: &str) -> IResult<&str, RelationshipContentResult<'_>> {
+fn relationship_content(input: &str) -> IResult<&str, RelationshipContentResult> {
     let (input, _) = multispace0(input)?;
     let (input, variable) = opt(identifier)(input)?;
     // `:A`, alternation `:A|B` or `:A|:B`, and upstream's `:A:B` (also read as A or B).
@@ -415,7 +412,7 @@ fn relationship_content(input: &str) -> IResult<&str, RelationshipContentResult<
         )),
         identifier,
     ))(input)?;
-    let types: Vec<&str> = first.into_iter().chain(rest).collect();
+    let types: Vec<String> = first.into_iter().chain(rest).collect();
     let (input, _) = multispace0(input)?;
     let (input, length) = opt(length_range)(input)?;
     let (input, _) = multispace0(input)?;
@@ -804,7 +801,7 @@ fn reduce_expression(input: &str) -> IResult<&str, ValueExpression> {
     let (input, mut body) =
         preceded(tuple((multispace0, char('|'), multispace0)), expression)(input)?;
     let (input, _) = tuple((multispace0, char(')')))(input)?;
-    mark_locals(&mut body, &[accumulator, variable]);
+    mark_locals(&mut body, &[&accumulator, &variable]);
     Ok((
         input,
         ValueExpression::Reduce {
@@ -835,7 +832,7 @@ fn list_predicate(input: &str) -> IResult<&str, ValueExpression> {
         expression,
     )(input)?;
     let (input, _) = tuple((multispace0, char(')')))(input)?;
-    mark_locals(&mut predicate, &[variable]);
+    mark_locals(&mut predicate, &[&variable]);
     Ok((
         input,
         ValueExpression::ListPredicate {
@@ -1011,7 +1008,7 @@ fn case_expression(input: &str) -> IResult<&str, ValueExpression> {
 fn single_value_expression(input: &str) -> IResult<&str, ValueExpression> {
     // Peek at first identifier to dispatch to correct parser
     // This eliminates failed parser attempts for every non-vector expression
-    if let Ok((_, first_ident)) = peek(identifier)(input) {
+    if let Ok((_, first_ident)) = peek(bare_identifier)(input) {
         let ident_lower = first_ident.to_lowercase();
 
         match ident_lower.as_str() {
@@ -1111,7 +1108,10 @@ fn parse_parameter(input: &str) -> IResult<&str, ValueExpression> {
 // Parse a function call: function_name(args)
 fn function_call(input: &str) -> IResult<&str, ValueExpression> {
     // Namespaced names such as `duration.inSeconds`.
-    let (input, name) = recognize(pair(identifier, many0(preceded(char('.'), identifier))))(input)?;
+    let (input, name) = recognize(pair(
+        bare_identifier,
+        many0(preceded(char('.'), bare_identifier)),
+    ))(input)?;
     let (input, _) = multispace0(input)?;
     let (input, _) = char('(')(input)?;
     let (input, _) = multispace0(input)?;
@@ -1484,8 +1484,26 @@ fn pagination_clauses(input: &str) -> IResult<&str, (Option<RowCount>, Option<Ro
 
 // Helper parsers
 
-// Parse an identifier
-fn identifier(input: &str) -> IResult<&str, &str> {
+// Parse an identifier: a bare name, or a backtick-quoted one in which a doubled backtick
+// stands for one backtick. A quoted name may contain any character and may match a keyword.
+fn identifier(input: &str) -> IResult<&str, String> {
+    alt((
+        map(
+            delimited(
+                char('`'),
+                many0(alt((
+                    map(tag("``"), |_| '`'),
+                    nom::character::complete::none_of("`"),
+                ))),
+                char('`'),
+            ),
+            |chars| chars.into_iter().collect(),
+        ),
+        map(bare_identifier, str::to_string),
+    ))(input)
+}
+
+fn bare_identifier(input: &str) -> IResult<&str, &str> {
     take_while1(|c: char| c.is_alphanumeric() || c == '_')(input)
 }
 
@@ -1554,7 +1572,7 @@ fn boolean_literal(input: &str) -> IResult<&str, bool> {
 // Parse a parameter reference
 fn parameter(input: &str) -> IResult<&str, String> {
     // Only support $param syntax
-    map(preceded(char('$'), identifier), |s| s.to_string())(input)
+    map(preceded(char('$'), bare_identifier), |s| s.to_string())(input)
 }
 
 // Parse comma with optional whitespace
