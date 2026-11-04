@@ -62,6 +62,7 @@ print(friends.to_pylist())
 !!! note "Table names are lower-cased"
 
     `SqlEngine` lower-cases dataset names when it registers them, so a `"Person"` key is queried as `person`.
+    A quoted table name must be lower-case too: a `"Device Type"` key is queried as `"device type"`.
     Constructing an engine with an empty dict raises `ValueError`.
 
 The engine keeps up to 128 plans per snapshot, keyed by the query text and the names and types of its scalar
@@ -105,12 +106,27 @@ print(engine.execute("""
 # [{'person': 'Alice', 'friend_age': 29}, {'person': 'Alice', 'friend_age': 34}]
 ```
 
-Inside `GRAPH_TABLE`, the `MATCH` pattern, the `WHERE` condition and the `COLUMNS` list are Cypher: the clause runs
-as `MATCH ... WHERE ... RETURN <columns>` would, so any pattern `CypherEngine.execute` supports works there, and
+Inside `GRAPH_TABLE`, the `MATCH` pattern, the `WHERE` condition and the `COLUMNS` list are Cypher with SQL's
+quoting: the clause runs as `MATCH ... WHERE ... RETURN <columns>` would, so any pattern `CypherEngine.execute` supports works there, and
 the columns take the names their aliases give them. One `params` dict serves the SQL and every pattern. Only the
 clause's shape comes from SQL/PGQ. There is no `CREATE PROPERTY GRAPH`: the graph is the engine's `GraphConfig`,
 and a graph name before `MATCH` is accepted and ignored. `graph_table('<Cypher query>')` is the same table written
 as a function call. Without a `config`, `GRAPH_TABLE` raises `ValueError`.
+
+As in the rest of the SQL query, strings inside `GRAPH_TABLE` use single quotes, and double quotes name a label,
+relationship type, variable, property or column that contains spaces or other characters, or that matches a
+keyword, such as `x."asset id"` or `(x:"Device Type")`. Inside a double-quoted name, `""` stands for one `"`.
+Cypher's backticks work too. The direct `graph_table('...')` call takes Cypher text as written, so there `"..."`
+is a string.
+
+```python
+engine.execute("""
+    SELECT g."asset id" FROM GRAPH_TABLE (
+        MATCH (x:"Device Type") WHERE x.status = 'active'
+        COLUMNS (x."asset id" AS "asset id")
+    ) g
+""")
+```
 
 To run Cypher and SQL over the same data, build the `CypherEngine` and share its snapshot. Nothing is rebuilt, and
 because the two engines share one snapshot, `checkout_latest()` on either moves both:

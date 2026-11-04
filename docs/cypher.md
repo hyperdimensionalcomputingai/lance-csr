@@ -587,6 +587,19 @@ variable; the following `ORDER BY` uses the output alias. For example,
 `RETURN p.name AS p, p.id AS id ORDER BY p` returns names and IDs, sorted by name. This also works with
 aggregation and `OPTIONAL MATCH`.
 
+## Quoted names
+
+Backticks quote a label, relationship type, variable, property name or alias that contains spaces or
+other characters, or that matches a keyword. Inside a quoted name, two backticks stand for one. Quoting
+doesn't change the case rules above.
+
+```python
+engine.execute(
+    "MATCH (x:`Device Type`) WHERE x.`asset id` IN $keys RETURN x.`asset id` AS `asset id`",
+    {"keys": ["a-1"]},
+).to_pylist()  # [{'asset id': 'a-1'}]
+```
+
 ## Errors
 
 | Exception | Raised when |

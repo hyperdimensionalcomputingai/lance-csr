@@ -146,10 +146,36 @@ fn to_cypher(body: &str) -> Result<String> {
     if columns.is_empty() {
         return Err(syntax_error("COLUMNS (...) is empty"));
     }
-    Ok(format!(
+    sql_identifiers(&format!(
         "{} RETURN {columns}",
         body[match_at..columns_at].trim()
     ))
+}
+
+/// SQL/PGQ quoting in Cypher text: each `"name"` (with `""` for `"`) becomes the Cypher
+/// identifier `` `name` `` (with ``` `` ``` for `` ` ``). `'...'` strings and `` `...` `` names are kept.
+fn sql_identifiers(text: &str) -> Result<String> {
+    let b = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let (mut copied, mut i) = (0, 0);
+    while i < b.len() {
+        if !is_quote(b[i]) {
+            i += 1;
+            continue;
+        }
+        let end = skip_quoted(b, i)?;
+        if b[i] == b'"' {
+            out.push_str(&text[copied..i]);
+            let name = text[i + 1..end - 1].replace("\"\"", "\"");
+            out.push('`');
+            out.push_str(&name.replace('`', "``"));
+            out.push('`');
+            copied = end;
+        }
+        i = end;
+    }
+    out.push_str(&text[copied..]);
+    Ok(out)
 }
 
 /// Byte offsets of `word` outside quotes and brackets.
@@ -199,7 +225,7 @@ fn is_quote(c: u8) -> bool {
 }
 
 /// Offset just past the quoted string or identifier starting at `i`; a doubled quote is an escape.
-// shortcut: Cypher's backslash escapes (`'it\'s'`) aren't recognized; use a doubled quote or "..." instead.
+// shortcut: Cypher's backslash escapes (`'it\'s'`) aren't recognized; use a doubled quote instead.
 fn skip_quoted(b: &[u8], i: usize) -> Result<usize> {
     let quote = b[i];
     let mut j = i + 1;
@@ -263,6 +289,18 @@ mod tests {
         ] {
             assert_eq!(rewrite_graph_table(sql).unwrap(), sql);
         }
+    }
+
+    #[test]
+    fn double_quotes_name_identifiers() {
+        let sql = "SELECT * FROM GRAPH_TABLE (MATCH (\"match\":\"Device Type\") \
+                   WHERE \"match\".\"asset id\" = 'a\"b' \
+                   COLUMNS (\"match\".\"a\"\"b`c\" AS \"select\"))";
+        assert_eq!(
+            rewrite_graph_table(sql).unwrap(),
+            "SELECT * FROM graph_table('MATCH (`match`:`Device Type`) \
+             WHERE `match`.`asset id` = ''a\"b'' RETURN `match`.`a\"b``c` AS `select`')"
+        );
     }
 
     #[test]
