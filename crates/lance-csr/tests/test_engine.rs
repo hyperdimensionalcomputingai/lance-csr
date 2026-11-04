@@ -451,3 +451,235 @@ async fn path_exists_matches_the_join_plan() {
         assert!(!plan.contains("PathExistsExec"), "{query}\n{plan}");
     }
 }
+
+#[tokio::test]
+async fn anonymous_patterns_keep_mixed_label_identity_and_query_semantics() {
+    use arrow_array::{cast::AsArray, StructArray};
+    for use_csr in [false, true] {
+        let project = RecordBatch::try_from_iter([
+            (
+                "id",
+                Arc::new(Int64Array::from(vec![1])) as arrow_array::ArrayRef,
+            ),
+            (
+                "title",
+                Arc::new(StringArray::from(vec!["Project one"])) as arrow_array::ArrayRef,
+            ),
+        ])
+        .unwrap();
+        let cfg = GraphConfig::builder()
+            .node_table("Person", "id")
+            .node_table("Project", "id")
+            .rel_table("KNOWS", "Person", "Person", "src_id", "dst_id")
+            .rel_table("WORKS_ON", "Person", "Project", "src_id", "dst_id")
+            .build()
+            .unwrap();
+        let engine = CypherEngine::new(
+            cfg,
+            HashMap::from([
+                ("Person".into(), EngineSource::Arrow(people())),
+                ("Project".into(), EngineSource::Arrow(project)),
+                (
+                    "KNOWS".into(),
+                    EngineSource::Arrow(knows(&[(1, 2), (1, 2), (1, 1)])),
+                ),
+                ("WORKS_ON".into(), EngineSource::Arrow(knows(&[(1, 1)]))),
+            ]),
+            use_csr,
+        )
+        .await
+        .unwrap();
+        for query in [
+            "MATCH (a)-[]-(b) RETURN a,b",
+            "MATCH (a)-[r]-(b) RETURN a,r,b",
+            "MATCH p = (a)-[]-(b) RETURN p",
+        ] {
+            let batch = engine.execute(query, HashMap::new()).await.unwrap();
+            assert_eq!(batch.num_rows(), 7, "{query}");
+            if let Some(column) = batch.column_by_name("a") {
+                let entity = column.as_any().downcast_ref::<StructArray>().unwrap();
+                let identity = entity
+                    .column_by_name("__lance_csr_identity")
+                    .unwrap()
+                    .as_struct();
+                let labels = identity.column_by_name("label").unwrap().as_string::<i32>();
+                assert!((0..labels.len()).any(|row| labels.value(row) == "Person"));
+                assert!((0..labels.len()).any(|row| labels.value(row) == "Project"));
+            }
+        }
+        for (query, expected) in [
+            ("MATCH (a)-[]-(b) RETURN count(*) AS total", 7),
+            (
+                "MATCH (a)-[]-(b) WHERE a.name = 'Alice' RETURN count(*) AS total",
+                4,
+            ),
+        ] {
+            let batch = engine.execute(query, HashMap::new()).await.unwrap();
+            assert_eq!(
+                batch
+                    .column_by_name("total")
+                    .unwrap()
+                    .as_primitive::<arrow_array::types::Int64Type>()
+                    .value(0),
+                expected
+            );
+        }
+        let alias = engine
+            .execute(
+                "MATCH (a)-[]-(b) WITH a AS friend RETURN friend",
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(alias.num_rows(), 7);
+        assert!(matches!(
+            alias.schema().field(0).data_type(),
+            DataType::Struct(_)
+        ));
+        let limit = engine
+            .execute(
+                "MATCH p = (a)-[]-(b) RETURN p SKIP 2 LIMIT 3",
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(limit.num_rows(), 3);
+    }
+}
+
+#[tokio::test]
+async fn string_predicate_parameters_preserve_literals_nulls_and_cached_values() {
+    use serde_json::json;
+    let batch = RecordBatch::try_from_iter(vec![
+        (
+            "id",
+            Arc::new(Int64Array::from(vec![1, 2, 3, 4, 5])) as arrow_array::ArrayRef,
+        ),
+        (
+            "name",
+            Arc::new(StringArray::from(vec![
+                Some("Ada_%\\Zoë"),
+                Some("Ada"),
+                Some("ada"),
+                None,
+                Some(""),
+            ])) as arrow_array::ArrayRef,
+        ),
+    ])
+    .unwrap();
+    let engine = CypherEngine::new(
+        config(),
+        HashMap::from([
+            ("Person".into(), EngineSource::Arrow(batch)),
+            ("KNOWS".into(), EngineSource::Arrow(knows(&[]))),
+        ]),
+        false,
+    )
+    .await
+    .unwrap();
+    for (operator, needle, expected) in [
+        ("CONTAINS", json!("Ada"), 2),
+        ("CONTAINS", json!("ada"), 1),
+        ("CONTAINS", json!("%"), 1),
+        ("CONTAINS", json!("_"), 1),
+        ("CONTAINS", json!("\\"), 1),
+        ("CONTAINS", json!("Zoë"), 1),
+        ("CONTAINS", json!(""), 4),
+        ("CONTAINS", json!(null), 0),
+        ("CONTAINS", json!(42), 0),
+        ("CONTAINS", json!("' OR true //"), 0),
+        ("STARTS WITH", json!("Ada"), 2),
+        ("STARTS WITH", json!(""), 4),
+        ("STARTS WITH", json!(null), 0),
+        ("ENDS WITH", json!("Zoë"), 1),
+        ("ENDS WITH", json!(""), 4),
+        ("ENDS WITH", json!(null), 0),
+    ] {
+        let text = format!(
+            "MATCH (p:Person) WHERE p.name {operator} $needle RETURN p.name AS name ORDER BY p.id"
+        );
+        let batches: Vec<_> = engine
+            .execute_stream(&text, HashMap::from([("needle".into(), needle.clone())]))
+            .await
+            .unwrap()
+            .try_collect()
+            .await
+            .unwrap();
+        assert_eq!(
+            batches.iter().map(RecordBatch::num_rows).sum::<usize>(),
+            expected,
+            "{operator} {needle}"
+        );
+    }
+    // Literal metacharacters are text, as for bound operands, rather than SQL LIKE wildcards.
+    for (pattern, expected) in [("%", 1), ("_", 1), ("", 4)] {
+        let text =
+            format!("MATCH (p:Person) WHERE p.name CONTAINS '{pattern}' RETURN p.name AS name");
+        let batches: Vec<_> = engine
+            .execute_stream(&text, HashMap::new())
+            .await
+            .unwrap()
+            .try_collect()
+            .await
+            .unwrap();
+        assert_eq!(
+            batches.iter().map(RecordBatch::num_rows).sum::<usize>(),
+            expected
+        );
+    }
+    let text = "MATCH (p:Person) WITH p WHERE p.name STARTS WITH left($needle, $n) RETURN p.name AS name ORDER BY p.id SKIP $skip LIMIT $take";
+    let batches: Vec<_> = engine
+        .execute_stream(
+            text,
+            HashMap::from([
+                ("needle".into(), json!("Ada")),
+                ("n".into(), json!(1)),
+                ("skip".into(), json!(1)),
+                ("take".into(), json!(1)),
+            ]),
+        )
+        .await
+        .unwrap()
+        .try_collect()
+        .await
+        .unwrap();
+    assert_eq!(batches.iter().flat_map(names).collect::<Vec<_>>(), ["Ada"]);
+    assert!(engine
+        .execute_stream(
+            "MATCH (p:Person) WHERE p.name CONTAINS $missing RETURN p",
+            HashMap::new()
+        )
+        .await
+        .is_err());
+}
+
+#[tokio::test]
+async fn parameterized_key_map_with_declared_property_projection() {
+    let config = GraphConfig::builder()
+        .with_node_mapping(
+            lance_csr::NodeMapping::new("Person", "id").with_properties(vec!["name".into()]),
+        )
+        .build()
+        .unwrap();
+    let engine = CypherEngine::new(
+        config,
+        HashMap::from([("Person".into(), EngineSource::Arrow(people()))]),
+        false,
+    )
+    .await
+    .unwrap();
+    let batches: Vec<_> = engine
+        .execute_stream(
+            "MATCH (p:Person {id:$id}) RETURN p.name AS name",
+            HashMap::from([("id".into(), serde_json::json!(1))]),
+        )
+        .await
+        .unwrap()
+        .try_collect()
+        .await
+        .unwrap();
+    assert_eq!(
+        batches.iter().flat_map(names).collect::<Vec<_>>(),
+        ["Alice"]
+    );
+}

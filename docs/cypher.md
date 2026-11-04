@@ -97,6 +97,21 @@ engine.execute(
 ).to_pylist()  # [{'name': 'Alice'}, {'name': 'Carol'}]
 ```
 
+`CONTAINS`, `STARTS WITH` and `ENDS WITH` accept bound strings and expressions:
+
+```python
+engine.execute(
+    "MATCH (p:Person) WHERE p.name STARTS WITH $prefix RETURN p.name AS name",
+    {"prefix": "Ali"},
+).to_pylist()  # [{'name': 'Alice'}]
+```
+
+Text matching is case-sensitive. Use `toLower()` on both operands for case-insensitive matching.
+Percent signs, underscores and backslashes are literal characters. An empty search string matches
+all non-null strings; a null or non-string operand produces null and does not pass a `WHERE` filter.
+Use `($name IS NULL OR p.name CONTAINS $name)` for an optional text filter. Parameters bind values,
+not raw property names or labels: `p.name = $name` is valid; `p.$property` is not.
+
 Pagination also accepts parameters, for example `RETURN 1 AS n LIMIT $take` with `{"take": 1}`.
 `WITH ... LIMIT $take` uses the same rules. Missing, null, boolean, fractional, negative and overflowing
 counts raise `ValueError`; arbitrary expressions and `WITH SKIP` remain unsupported.
@@ -305,6 +320,12 @@ MATCH p = shortestPath((a:Person {id: 1})-[:KNOWS*]-(b:Person {id: 4}))
 RETURN length(p), nodes(p)
 ```
 
+- **Untyped relationships** (`MATCH (a)-[]-(b) RETURN a,b` or
+  `MATCH path = (a)-[]-(b) RETURN path`) range over the configured relationship types.
+  Endpoint mappings resolve unlabeled nodes without combining identities from different tables.
+  Undirected matches include both orientations; a self-loop appears once and parallel edges remain
+  distinct. Whole-node returns in these queries use typed Arrow entity records. The existing
+  alternative-branch bound still applies.
 - **Variable length** defaults to a minimum of 1 and a maximum of 20 hops; a maximum above 20 is rejected.
   `*0..` also matches the source itself, once per input row; `*0..0` matches only that identity. The start
   and end must have the same label and key for a zero-hop match. Eligible CSR paths use one iterative

@@ -616,10 +616,28 @@ impl SemanticAnalyzer {
                             });
                         }
                     }
-                    "date_part" | "to_epoch_ms" | "length" | "nodes" | "size" | "left"
-                    | "right" | "split" | "replace" | "__index" => {
+                    "date_part"
+                    | "to_epoch_ms"
+                    | "length"
+                    | "nodes"
+                    | "size"
+                    | "left"
+                    | "right"
+                    | "split"
+                    | "replace"
+                    | "__index"
+                    | "__string_contains"
+                    | "__string_starts_with"
+                    | "__string_ends_with" => {
                         let want = match function_name.as_str() {
-                            "date_part" | "__index" | "left" | "right" | "split" => 2,
+                            "date_part"
+                            | "__index"
+                            | "left"
+                            | "right"
+                            | "split"
+                            | "__string_contains"
+                            | "__string_starts_with"
+                            | "__string_ends_with" => 2,
                             "replace" => 3,
                             _ => 1,
                         };
@@ -1168,6 +1186,17 @@ impl SemanticAnalyzer {
                             // Property is valid if present in at least one label's property_fields
                             // Use case-insensitive comparison
                             let prop_lower = prop.to_lowercase();
+                            if var_info
+                                .labels
+                                .iter()
+                                .filter_map(|label| self.config.get_node_mapping(label))
+                                .any(|mapping| {
+                                    mapping.id_field.eq_ignore_ascii_case(prop)
+                                        || prop.eq_ignore_ascii_case("id")
+                                })
+                            {
+                                continue 'prop;
+                            }
                             for fields in &label_property_sets {
                                 if fields.iter().any(|f| f.to_lowercase() == prop_lower) {
                                     continue 'prop;

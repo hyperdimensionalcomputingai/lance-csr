@@ -48,6 +48,21 @@ pub fn infer_labels(
     bound: &HashMap<String, String>,
 ) -> Vec<GraphPattern> {
     let mut patterns = patterns.to_vec();
+    // An omitted relationship type ranges over the configured graph, not a fictitious Node table.
+    let mut types: Vec<_> = config
+        .iter_relationship_mappings()
+        .map(|(_, mapping)| mapping.relationship_type.clone())
+        .collect();
+    types.sort();
+    for pattern in &mut patterns {
+        if let GraphPattern::Path(path) = pattern {
+            for segment in &mut path.segments {
+                if segment.relationship.types.is_empty() {
+                    segment.relationship.types = types.clone();
+                }
+            }
+        }
+    }
     let mut known: HashMap<String, String> = bound
         .iter()
         .filter(|(_, l)| config.get_node_mapping(l).is_some())
@@ -154,13 +169,31 @@ pub fn infer_labels(
     patterns
 }
 
-/// True when any relationship has several types or any node several labels.
-pub fn needs_expansion(patterns: &[GraphPattern], retain_variable: bool) -> bool {
+/// Branch on alternatives and fixed-hop unlabeled endpoints that mappings can resolve.
+pub fn needs_expansion(
+    patterns: &[GraphPattern],
+    retain_variable: bool,
+    config: &GraphConfig,
+) -> bool {
     let nodes_multi = |n: &NodePattern| n.labels.len() > 1;
     patterns.iter().any(|p| match p {
         GraphPattern::Node(n) => nodes_multi(n),
         GraphPattern::Path(path) => {
+            let unresolved = path.start_node.labels.is_empty()
+                || path.segments.iter().any(|s| s.end_node.labels.is_empty());
+            let fixed_endpoints = path.segments.iter().all(|s| {
+                s.relationship.length.is_none()
+                    && !s.relationship.types.is_empty()
+                    && s.relationship.types.iter().all(|kind| {
+                        config
+                            .get_relationship_mapping(kind)
+                            .is_some_and(|mapping| {
+                                mapping.source_label.is_some() && mapping.target_label.is_some()
+                            })
+                    })
+            });
             nodes_multi(&path.start_node)
+                || (unresolved && fixed_endpoints)
                 || path.segments.iter().any(|s| {
                     (s.relationship.types.len() > 1
                         && !(retain_variable && s.relationship.length.is_some()))

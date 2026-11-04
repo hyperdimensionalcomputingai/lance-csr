@@ -13,7 +13,7 @@ use crate::error::{GraphError, Result};
 use crate::{ast::*, GraphConfig};
 use serde::{Deserialize, Serialize};
 use snafu::Location;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// A logical plan operator - describes what operation to perform
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -147,6 +147,8 @@ pub enum LogicalOperator {
     PathMatch {
         input: Box<LogicalOperator>,
         path: PathPattern,
+        /// Preserve typed node identities for untyped relationship queries.
+        node_values: bool,
     },
 
     /// `shortestPath` / `allShortestPaths` between two variables bound in `input`; adds
@@ -267,6 +269,8 @@ pub struct LogicalPlanner<'a> {
     /// The types each relationship variable was first written with.
     relationship_types: HashMap<String, Vec<String>>,
     rich_paths: bool,
+    /// Untyped MATCH results need per-row identities across endpoint label alternatives.
+    wildcard_relationships: bool,
     /// The rows a projection or WHERE started from, while its EXISTS marks and
     /// comprehensions are being added: each is seeded from these, not from the rows with
     /// the previous ones joined on, so planned copies grow linearly, not exponentially.
@@ -287,6 +291,7 @@ impl<'a> LogicalPlanner<'a> {
             path_labels: HashMap::new(),
             relationship_types: HashMap::new(),
             rich_paths: false,
+            wildcard_relationships: false,
             seed_source: None,
         }
     }
@@ -441,6 +446,28 @@ impl<'a> LogicalPlanner<'a> {
 
     /// Convert a Cypher AST to a logical plan
     pub fn plan(&mut self, query: &CypherQuery) -> Result<LogicalOperator> {
+        let mut relationships = Vec::new();
+        query.for_each_query(&mut |scope| {
+            for clause in scope.all_reading_clauses() {
+                if let ReadingClause::Match(m) = clause {
+                    for pattern in &m.patterns {
+                        if let GraphPattern::Path(path) = pattern {
+                            relationships
+                                .extend(path.segments.iter().map(|s| s.relationship.clone()));
+                        }
+                    }
+                }
+            }
+        });
+        // A reused relationship variable takes its types from where it was written with them.
+        let typed: HashSet<_> = relationships
+            .iter()
+            .filter(|r| !r.types.is_empty())
+            .filter_map(|r| r.variable.as_ref())
+            .collect();
+        self.wildcard_relationships = relationships
+            .iter()
+            .any(|r| r.types.is_empty() && r.variable.as_ref().is_none_or(|v| !typed.contains(v)));
         self.rich_paths = crate::path_value::needs_values(query, self.config);
         self.plan_query(query, None, false)
     }
@@ -544,6 +571,7 @@ impl<'a> LogicalPlanner<'a> {
                 .with_adjacency(self.adjacency);
             planner.calls = self.calls;
             planner.rich_paths = self.rich_paths;
+            planner.wildcard_relationships = self.wildcard_relationships;
             if preserve_entities {
                 planner.variables = imports.0.clone();
                 planner.node_lists = imports.1.clone();
@@ -637,6 +665,7 @@ impl<'a> LogicalPlanner<'a> {
             .with_adjacency(self.adjacency);
         inner.calls = self.calls;
         inner.rich_paths = self.rich_paths;
+        inner.wildcard_relationships = self.wildcard_relationships;
         for name in &imports {
             if let Some(label) = self.variables.get(name) {
                 inner.variables.insert(name.clone(), label.clone());
@@ -881,7 +910,11 @@ impl<'a> LogicalPlanner<'a> {
         };
         let match_clause = &inferred;
         let retain_variable = self.retain_variable_alternation(&match_clause.patterns);
-        if crate::pattern_alternatives::needs_expansion(&match_clause.patterns, retain_variable) {
+        if crate::pattern_alternatives::needs_expansion(
+            &match_clause.patterns,
+            retain_variable,
+            self.config,
+        ) {
             let branches = crate::pattern_alternatives::expand(
                 &match_clause.patterns,
                 self.config,
@@ -945,11 +978,12 @@ impl<'a> LogicalPlanner<'a> {
                     plan = Some(self.plan_shortest_path(plan, path)?)
                 }
                 GraphPattern::Path(path)
-                    if self.rich_paths
-                        && path
-                            .segments
-                            .iter()
-                            .any(|s| s.relationship.variable.is_some()) =>
+                    if self.wildcard_relationships
+                        || (self.rich_paths
+                            && path
+                                .segments
+                                .iter()
+                                .any(|s| s.relationship.variable.is_some())) =>
                 {
                     let mut path = path.clone();
                     path.variable = Some(format!("_path_value_{}", self.variables.len()));
@@ -1659,6 +1693,7 @@ impl<'a> LogicalPlanner<'a> {
             return Ok(LogicalOperator::PathMatch {
                 input: Box::new(plan.expect("both ends planned")),
                 path: path.clone(),
+                node_values: self.wildcard_relationships,
             });
         }
         Ok(LogicalOperator::ShortestPath {
@@ -2026,6 +2061,7 @@ impl<'a> LogicalPlanner<'a> {
         Ok(LogicalOperator::PathMatch {
             input: Box::new(base),
             path,
+            node_values: self.wildcard_relationships,
         })
     }
 
@@ -2117,6 +2153,16 @@ impl<'a> LogicalPlanner<'a> {
             match &item.expression {
                 ValueExpression::Variable(var) => {
                     match self.variables.get(var) {
+                        Some(label)
+                            if self.wildcard_relationships
+                                && label != "Unwound"
+                                && label != "Path" =>
+                        {
+                            projections.push(ProjectionItem {
+                                expression: item.expression.clone(),
+                                alias: alias.clone(),
+                            });
+                        }
                         // if it is a node variable, expand to all properties
                         Some(label) if label != "Unwound" && label != "Path" => {
                             let mapping = self.config.get_node_mapping(label).ok_or_else(|| {
