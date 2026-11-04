@@ -13,7 +13,7 @@ use crate::error::{GraphError, Result};
 use crate::{ast::*, GraphConfig};
 use serde::{Deserialize, Serialize};
 use snafu::Location;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// A logical plan operator - describes what operation to perform
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -446,14 +446,28 @@ impl<'a> LogicalPlanner<'a> {
 
     /// Convert a Cypher AST to a logical plan
     pub fn plan(&mut self, query: &CypherQuery) -> Result<LogicalOperator> {
-        self.wildcard_relationships = false;
+        let mut relationships = Vec::new();
         query.for_each_query(&mut |scope| {
-            self.wildcard_relationships |= scope.all_reading_clauses().any(|clause| {
-                matches!(clause, ReadingClause::Match(m) if m.patterns.iter().any(|pattern| {
-                    matches!(pattern, GraphPattern::Path(path) if path.segments.iter().any(|segment| segment.relationship.types.is_empty()))
-                }))
-            });
+            for clause in scope.all_reading_clauses() {
+                if let ReadingClause::Match(m) = clause {
+                    for pattern in &m.patterns {
+                        if let GraphPattern::Path(path) = pattern {
+                            relationships
+                                .extend(path.segments.iter().map(|s| s.relationship.clone()));
+                        }
+                    }
+                }
+            }
         });
+        // A reused relationship variable takes its types from where it was written with them.
+        let typed: HashSet<_> = relationships
+            .iter()
+            .filter(|r| !r.types.is_empty())
+            .filter_map(|r| r.variable.as_ref())
+            .collect();
+        self.wildcard_relationships = relationships
+            .iter()
+            .any(|r| r.types.is_empty() && r.variable.as_ref().is_none_or(|v| !typed.contains(v)));
         self.rich_paths = crate::path_value::needs_values(query, self.config);
         self.plan_query(query, None, false)
     }
