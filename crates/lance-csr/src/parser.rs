@@ -564,6 +564,27 @@ fn exists_subquery(input: &str) -> IResult<&str, BooleanExpression> {
     ))
 }
 
+// Keep literal AST constructors compatible while expression operands use normal parameter traversal.
+fn string_match(
+    left: ValueExpression,
+    right: ValueExpression,
+    function: &str,
+    literal: impl FnOnce(ValueExpression, String) -> BooleanExpression,
+) -> BooleanExpression {
+    if let ValueExpression::Literal(PropertyValue::String(text)) = right {
+        literal(left, text)
+    } else {
+        BooleanExpression::Comparison {
+            left: ValueExpression::ScalarFunction {
+                name: function.into(),
+                args: vec![left, right],
+            },
+            operator: ComparisonOperator::Equal,
+            right: ValueExpression::Literal(PropertyValue::Boolean(true)),
+        }
+    }
+}
+
 fn comparison_expression(input: &str) -> IResult<&str, BooleanExpression> {
     let (input, _) = multispace0(input)?;
     let (input, left) = value_expression(input)?;
@@ -618,14 +639,16 @@ fn comparison_expression(input: &str) -> IResult<&str, BooleanExpression> {
     }
     // Match CONTAINS substring
     if let Ok((input_after_contains, (_, _, substring))) =
-        tuple((tag_no_case("CONTAINS"), multispace0, string_literal))(input)
+        tuple((tag_no_case("CONTAINS"), multispace0, value_expression))(input)
     {
         return Ok((
             input_after_contains,
-            BooleanExpression::Contains {
-                expression: left,
-                substring,
-            },
+            string_match(left, substring, "__string_contains", |expression, text| {
+                BooleanExpression::Contains {
+                    expression,
+                    substring: text,
+                }
+            }),
         ));
     }
     // Match STARTS WITH prefix (note: multi-word operator)
@@ -634,15 +657,17 @@ fn comparison_expression(input: &str) -> IResult<&str, BooleanExpression> {
         multispace1,
         tag_no_case("WITH"),
         multispace0,
-        string_literal,
+        value_expression,
     ))(input)
     {
         return Ok((
             input_after_starts,
-            BooleanExpression::StartsWith {
-                expression: left,
-                prefix,
-            },
+            string_match(left, prefix, "__string_starts_with", |expression, text| {
+                BooleanExpression::StartsWith {
+                    expression,
+                    prefix: text,
+                }
+            }),
         ));
     }
     // Match ENDS WITH suffix (note: multi-word operator)
@@ -651,15 +676,17 @@ fn comparison_expression(input: &str) -> IResult<&str, BooleanExpression> {
         multispace1,
         tag_no_case("WITH"),
         multispace0,
-        string_literal,
+        value_expression,
     ))(input)
     {
         return Ok((
             input_after_ends,
-            BooleanExpression::EndsWith {
-                expression: left,
-                suffix,
-            },
+            string_match(left, suffix, "__string_ends_with", |expression, text| {
+                BooleanExpression::EndsWith {
+                    expression,
+                    suffix: text,
+                }
+            }),
         ));
     }
     // Match is null

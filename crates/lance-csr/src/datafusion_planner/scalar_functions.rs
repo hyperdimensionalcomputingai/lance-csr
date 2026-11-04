@@ -7,7 +7,8 @@
 use std::sync::Arc;
 
 use arrow::array::{
-    new_null_array, Array, AsArray, Int64Array, ListBuilder, StringArray, StringBuilder,
+    new_null_array, Array, AsArray, BooleanArray, Int64Array, ListBuilder, StringArray,
+    StringBuilder,
 };
 use arrow::compute::{cast, cast_with_options, CastOptions};
 use arrow_schema::{DataType, Field};
@@ -47,6 +48,7 @@ impl ScalarUDFImpl for CypherScalar {
     fn return_type(&self, types: &[DataType]) -> Result<DataType> {
         for (i, t) in types.iter().enumerate() {
             let valid = match self.name.as_str() {
+                "__string_contains" | "__string_starts_with" | "__string_ends_with" => true,
                 "range" => t.is_integer(),
                 "__predicate_all" | "__predicate_any" | "__predicate_none"
                 | "__predicate_single" => list_field(t)
@@ -70,9 +72,13 @@ impl ScalarUDFImpl for CypherScalar {
                 DataType::Struct(fields) => fields[2].data_type().clone(),
                 _ => DataType::Null,
             },
-            "__predicate_all" | "__predicate_any" | "__predicate_none" | "__predicate_single" => {
-                DataType::Boolean
-            }
+            "__predicate_all"
+            | "__predicate_any"
+            | "__predicate_none"
+            | "__predicate_single"
+            | "__string_contains"
+            | "__string_starts_with"
+            | "__string_ends_with" => DataType::Boolean,
             "size" => DataType::Int64,
             "range" => DataType::List(Arc::new(Field::new("item", DataType::Int64, true))),
             "split" | "keys" | "__entity_keys" | "labels" => {
@@ -92,6 +98,19 @@ impl ScalarUDFImpl for CypherScalar {
 
     fn invoke_with_args(&self, mut args: ScalarFunctionArgs) -> Result<ColumnarValue> {
         let output_type = args.return_type().clone();
+        if matches!(
+            self.name.as_str(),
+            "__string_contains" | "__string_starts_with" | "__string_ends_with"
+        ) && args
+            .args
+            .iter()
+            .any(|a| !is_string(&a.data_type()) && !a.data_type().is_null())
+        {
+            return Ok(ColumnarValue::Array(new_null_array(
+                &DataType::Boolean,
+                args.number_rows,
+            )));
+        }
         if args.args[0].data_type().is_null() && self.name != "range" {
             return Ok(ColumnarValue::Array(new_null_array(
                 &output_type,
@@ -263,6 +282,25 @@ impl ScalarUDFImpl for CypherScalar {
             })
             .collect::<std::result::Result<Vec<_>, _>>()?;
         let strings = arrays[0].as_string::<i32>();
+        if matches!(
+            self.name.as_str(),
+            "__string_contains" | "__string_starts_with" | "__string_ends_with"
+        ) {
+            let patterns = arrays[1].as_string::<i32>();
+            let result: BooleanArray = strings
+                .iter()
+                .zip(patterns.iter())
+                .map(|(text, pattern)| {
+                    text.zip(pattern)
+                        .map(|(text, pattern)| match self.name.as_str() {
+                            "__string_contains" => text.contains(pattern),
+                            "__string_starts_with" => text.starts_with(pattern),
+                            _ => text.ends_with(pattern),
+                        })
+                })
+                .collect();
+            return Ok(ColumnarValue::Array(Arc::new(result)));
+        }
         if self.name == "size" {
             return Ok(ColumnarValue::Array(Arc::new(
                 strings
@@ -379,6 +417,21 @@ pub(crate) fn sql_expr(
     }
     let args = &function.args;
     Ok(match function.name() {
+        "__string_contains" | "__string_starts_with" | "__string_ends_with" => {
+            if args.iter().any(|a| {
+                a.get_type(schema)
+                    .is_ok_and(|t| !is_string(&t) && !t.is_null())
+            }) {
+                Some(datafusion::logical_expr::lit(ScalarValue::Boolean(None)))
+            } else {
+                let function = match function.name() {
+                    "__string_contains" => datafusion::functions::string::contains(),
+                    "__string_starts_with" => datafusion::functions::string::starts_with(),
+                    _ => datafusion::functions::string::ends_with(),
+                };
+                Some(function.call(args.clone()))
+            }
+        }
         "size" if list_field(&args[0].get_type(schema)?).is_some() => Some(cast(
             length::array_length_udf().call(args.clone()),
             DataType::Int64,
