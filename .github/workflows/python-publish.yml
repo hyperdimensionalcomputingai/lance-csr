@@ -217,8 +217,8 @@ jobs:
 
   publish-crates:
     # After PyPI, so the two registries never disagree. If only this job fails, rerun it on
-    # its own; the wheels don't need rebuilding. The crates.io trusted publishers for both
-    # crates are registered for this workflow and environment `crates-io`.
+    # its own; the wheels don't need rebuilding. The crates.io trusted publisher for the
+    # crate is registered for this workflow and environment `crates-io`.
     needs: publish
     runs-on: ubuntu-24.04
     timeout-minutes: 60
