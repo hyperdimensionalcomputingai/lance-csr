@@ -73,7 +73,7 @@ Publishing it starts `.github/workflows/python-publish.yml`:
 The build jobs run in parallel. Nothing reaches PyPI unless every build and test job passes, and nothing
 reaches crates.io unless PyPI publishing succeeds. The `pypi` and `crates-io` environments only accept `v*`
 tags. The PyPI trusted publisher is registered for workflow `python-publish.yml` and environment `pypi`, and
-the crates.io trusted publishers for both crates for the same workflow and environment `crates-io`, so don't
+the crates.io trusted publisher for `lance-csr` for the same workflow and environment `crates-io`, so don't
 rename any of them.
 
 **Don't run a separate `mode=dry_run` before a release.** The release run builds and tests the same wheels
