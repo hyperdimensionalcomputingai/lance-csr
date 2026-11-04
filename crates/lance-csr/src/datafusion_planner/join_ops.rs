@@ -14,11 +14,11 @@ use crate::ast::{PropertyValue, RelationshipDirection};
 use crate::case_insensitive::qualify_column;
 use crate::config::{NodeMapping, RelationshipMapping};
 use crate::error::Result;
+use crate::GraphSourceCatalog;
 use datafusion::common::Column;
 use datafusion::logical_expr::{
     col, BinaryExpr, Expr, JoinType, LogicalPlan, LogicalPlanBuilder, Operator, TableSource,
 };
-use lance_csr_catalog::GraphSourceCatalog;
 use std::collections::HashMap;
 use std::sync::Arc;
 

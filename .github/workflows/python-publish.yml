@@ -237,14 +237,13 @@ jobs:
           sudo apt-get install -y protobuf-compiler
 
       # Verifying compiles lance, so do it before getting the token, which lasts 30 minutes.
-      # Cargo packages lance-csr-catalog first, since lance-csr depends on it.
-      - name: Package and verify the crates
-        run: cargo package --locked -p lance-csr-catalog -p lance-csr
+      - name: Package and verify the crate
+        run: cargo package --locked -p lance-csr
 
       - uses: rust-lang/crates-io-auth-action@v1
         id: auth
 
       - name: Publish to crates.io
-        run: cargo publish --locked --no-verify -p lance-csr-catalog -p lance-csr
+        run: cargo publish --locked --no-verify -p lance-csr
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}

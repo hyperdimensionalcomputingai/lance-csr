@@ -506,7 +506,7 @@ mod tests {
     #[test]
     fn call_bypasses_snapshot_templates_in_every_reading_stage() {
         let (config, _) = graph();
-        let catalog = Arc::new(lance_csr_catalog::InMemoryCatalog::new());
+        let catalog = Arc::new(crate::InMemoryCatalog::new());
         for text in [
             "CALL { RETURN 1 AS n } RETURN n",
             "WITH 1 AS x CALL { WITH x RETURN x AS n } RETURN n",

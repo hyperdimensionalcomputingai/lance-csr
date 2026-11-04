@@ -37,8 +37,8 @@ pub(crate) use scalar_functions::sql_expr;
 use crate::config::GraphConfig;
 use crate::error::Result;
 use crate::logical_plan::LogicalOperator;
+use crate::GraphSourceCatalog;
 use datafusion::logical_expr::LogicalPlan;
-use lance_csr_catalog::GraphSourceCatalog;
 use std::sync::Arc;
 
 /// Planner abstraction for graph-to-physical planning

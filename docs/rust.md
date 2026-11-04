@@ -7,11 +7,9 @@ different: installing the crate, the async API, and the Rust types.
 
 !!! info "Rust API reference"
 
-    Every public Rust type and function is documented on docs.rs:
-    [`lance-csr`](https://docs.rs/lance-csr) for the engine, and
-    [`lance-csr-catalog`](https://docs.rs/lance-csr-catalog) for `DirNamespace` and the catalog types.
-    Both crates are published on crates.io as [`lance-csr`](https://crates.io/crates/lance-csr) and
-    [`lance-csr-catalog`](https://crates.io/crates/lance-csr-catalog).
+    Every public Rust type and function is documented on docs.rs under
+    [`lance-csr`](https://docs.rs/lance-csr), including `DirNamespace` and the catalog types, which
+    lived in a separate `lance-csr-catalog` crate up to 0.7.1.
 
 Every Rust snippet on this page comes from
 [`examples/embedded_query.rs`](https://github.com/hyperdimensionalcomputingai/lance-csr/blob/main/crates/lance-csr/examples/embedded_query.rs),
@@ -131,6 +129,42 @@ checked, so also race the query against the same deadline with `tokio::time::tim
 
 The deadline applies only to work inside the call; it isn't stored in the engine. A timed-out query surfaces as
 `Err(Elapsed)` from `timeout_at`, or as an execution error from a join checkpoint; treat both as a timeout.
+
+## Graph mappings and pinned snapshots
+
+An application that keeps a graph as plain Lance tables, one per node label and relationship type, has to
+record which table plays which role and which version of each table it read. The `mapping` module holds
+both, in a JSON format that applications can store next to their tables or in a publication manifest:
+
+- `GraphMapping` is the graph descriptor: per label, its table and key column, and per relationship type,
+  its source and target columns and the node labels they point to. `validate()` checks what needs no
+  table data: version 1, at least one node label, at most 64 labels, labels that are ASCII identifiers
+  and unique ignoring case, and one graph role per table.
+- `GraphSnapshot` pins each table, by `name`, to a `path` and Lance `version`, and carries the mapping.
+  It ignores fields it doesn't know, so it reads a manifest that also lists row counts or schemas.
+
+`GraphSnapshot::open` opens each mapped table at its pinned version and returns the `GraphConfig` and
+sources that `CypherEngine::new` takes. Building the configuration also checks the tables themselves: the
+key, display and endpoint columns exist, keys are scalar, and each endpoint column has the type of the node
+key it refers to.
+
+```rust
+use std::collections::HashMap;
+use lance_csr::{CypherEngine, GraphSnapshot};
+
+let snapshot: GraphSnapshot = serde_json::from_str(&manifest)?;
+let (config, sources) = snapshot.open(&HashMap::new()).await?;
+let engine = CypherEngine::new(config, sources, true).await?;
+```
+
+A relative `path` in a manifest is relative to wherever the application keeps its data, so resolve it
+before calling `open`. To open one table at a pinned version without a mapping, use
+`lance_csr::open_lance_dataset(uri, Some(version), &storage_options)`.
+
+`CypherQuery::execute_with_namespace` accepts any Lance namespace, such as Lance's own `DirectoryNamespace`
+as well as `DirNamespace`. It opens each table at the version and with the storage options that the
+namespace's `describe_table` returns, and at the latest version when it returns none, which is always the
+case for `DirNamespace`.
 
 ## Python and Rust side by side
 

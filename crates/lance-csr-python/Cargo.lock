@@ -3846,7 +3846,6 @@ dependencies = [
  "datafusion-sql",
  "futures",
  "lance",
- "lance-csr-catalog",
  "lance-linalg",
  "lance-namespace",
  "lance-table",
@@ -3857,19 +3856,6 @@ dependencies = [
  "serde_json",
  "snafu 0.8.9",
  "tokio",
-]
-
-[[package]]
-name = "lance-csr-catalog"
-version = "0.7.1"
-dependencies = [
- "arrow-schema",
- "async-trait",
- "datafusion",
- "lance-namespace",
- "serde",
- "serde_json",
- "snafu 0.8.9",
 ]
 
 [[package]]

@@ -1,7 +1,7 @@
 # Releasing lance-csr
 
 A release publishes the Python package to [PyPI](https://pypi.org/project/lance-csr/) and the
-`lance-csr-catalog` and `lance-csr` crates to [crates.io](https://crates.io/crates/lance-csr). PyPI publishing is
+`lance-csr` crate to [crates.io](https://crates.io/crates/lance-csr). PyPI publishing is
 automated from a GitHub release, and the crates follow once PyPI has the new version.
 
 The whole release takes about 50 minutes: the macOS wheel build, then the crates. Don't add steps that build the
@@ -26,9 +26,9 @@ cargo update --workspace --manifest-path crates/lance-csr-python/Cargo.toml
 (cd python && uv lock)
 ```
 
-`bump-my-version` updates `.bumpversion.toml`, the four crate `Cargo.toml` files and `python/pyproject.toml`. It
+`bump-my-version` updates `.bumpversion.toml`, the three crate `Cargo.toml` files and `python/pyproject.toml`. It
 doesn't update the three lockfiles that also carry the version, which is what the other three commands are for.
-The diff should be 9 files and 15 lines each way, touching only version lines. If `uv lock` or `cargo update`
+The diff should be 8 files and 11 lines each way, touching only version lines. If `uv lock` or `cargo update`
 moves a dependency, undo that and update only the workspace packages. Add `--allow-dirty` to `bump-my-version` if
 untracked files in your checkout stop it.
 
@@ -68,7 +68,7 @@ Publishing it starts `.github/workflows/python-publish.yml`:
 | `build-macos` | about 35 min | macOS arm64 wheel, built natively on `macos-15` |
 | `test` | under 1 min each | each wheel on Python 3.12, 3.13 and 3.14 |
 | `publish` | seconds | checks the tag matches `python/pyproject.toml`, then uploads through PyPI trusted publishing |
-| `publish-crates` | about 10 to 15 min | after `publish`: packages and verifies `lance-csr-catalog` and `lance-csr`, then uploads them through crates.io trusted publishing |
+| `publish-crates` | about 10 to 15 min | after `publish`: packages and verifies `lance-csr`, then uploads it through crates.io trusted publishing |
 
 The build jobs run in parallel. Nothing reaches PyPI unless every build and test job passes, and nothing
 reaches crates.io unless PyPI publishing succeeds. The `pypi` and `crates-io` environments only accept `v*`
@@ -94,11 +94,8 @@ If a build or test job failed, nothing has been published, so nothing needs undo
 PyPI already has the release, so don't release again. Rerun just that job with `gh run rerun <run id> --failed`;
 the wheels aren't rebuilt.
 
-Cargo publishes `lance-csr-catalog` first, since `lance-csr` depends on it. If it published the catalog and
-then failed on `lance-csr`, a rerun fails because the catalog version already exists. Publish the rest by hand
-from the release tag: a crate owner runs `cargo publish -p lance-csr`. If **Require trusted publishing** is on
-for the crate, crates.io rejects API tokens, so turn it off for the manual publish and back on afterwards.
-`lance-csr-python` and `lance-csr-benches` are `publish = false`.
+`lance-csr-python` and `lance-csr-benches` are `publish = false`. Up to 0.7.1, the catalog types shipped
+in a separate `lance-csr-catalog` crate; it is no longer published.
 
 ## 4. Check the release
 

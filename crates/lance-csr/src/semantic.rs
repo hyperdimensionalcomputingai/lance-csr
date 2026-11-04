@@ -25,7 +25,7 @@ pub struct SemanticAnalyzer {
     /// Variables whose scope a WITH ended; still type-checked at the end.
     retired: Vec<VariableInfo>,
     current_scope: ScopeType,
-    catalog: Option<Arc<dyn lance_csr_catalog::GraphSourceCatalog>>,
+    catalog: Option<Arc<dyn crate::GraphSourceCatalog>>,
     expression_types: HashMap<String, ExpressionType>,
     call_body: bool,
 }
@@ -84,10 +84,7 @@ impl SemanticAnalyzer {
     }
 
     /// Use the execution snapshot's schemas for checks that configuration alone cannot make.
-    pub(crate) fn with_catalog(
-        mut self,
-        catalog: Arc<dyn lance_csr_catalog::GraphSourceCatalog>,
-    ) -> Self {
+    pub(crate) fn with_catalog(mut self, catalog: Arc<dyn crate::GraphSourceCatalog>) -> Self {
         self.catalog = Some(catalog);
         self
     }

@@ -3962,7 +3962,6 @@ dependencies = [
  "futures",
  "lance",
  "lance-arrow",
- "lance-csr-catalog",
  "lance-linalg",
  "lance-namespace",
  "lance-table",
@@ -3988,20 +3987,6 @@ dependencies = [
  "lance",
  "lance-csr",
  "tempfile",
- "tokio",
-]
-
-[[package]]
-name = "lance-csr-catalog"
-version = "0.7.1"
-dependencies = [
- "arrow-schema",
- "async-trait",
- "datafusion",
- "lance-namespace",
- "serde",
- "serde_json",
- "snafu 0.8.9",
  "tokio",
 ]
 
