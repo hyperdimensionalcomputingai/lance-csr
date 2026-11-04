@@ -511,8 +511,9 @@ fn config_error(message: String) -> GraphError {
     }
 }
 
-/// Open a Lance dataset. `version = None` means the latest version.
-async fn open_lance_dataset(
+/// Open the Lance dataset at `uri`, pinned to `version`, or at its latest version when
+/// `version` is `None`. Storage options go to the object store, as in Lance itself.
+pub async fn open_lance_dataset(
     uri: &str,
     version: Option<u64>,
     storage_options: &HashMap<String, String>,

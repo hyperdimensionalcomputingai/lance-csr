@@ -1,5 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
+//! [`DirNamespace`], a Lance namespace for a directory of datasets: the table `person` under
+//! `s3://bucket/graph` is `s3://bucket/graph/person.lance`.
+//!
+//! [`crate::CypherQuery::execute_with_namespace`] accepts any `LanceNamespace`, so Lance's own
+//! `DirectoryNamespace` and REST namespaces work as well. Those can also pin a table version and
+//! supply storage options, which this one never does.
+
 use async_trait::async_trait;
 use lance_namespace::models::{DescribeTableRequest, DescribeTableResponse};
 use lance_namespace::{Error as NamespaceError, LanceNamespace, Result};

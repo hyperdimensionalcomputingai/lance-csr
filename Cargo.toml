@@ -1,7 +1,6 @@
 [workspace]
 members = [
     "crates/lance-csr",
-    "crates/lance-csr-catalog",
     "crates/lance-csr-benches",
 ]
 # Python package needs to be built by maturin.

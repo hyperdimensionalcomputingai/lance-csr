@@ -34,11 +34,6 @@ search = 'version = "{current_version}"'
 replace = 'version = "{new_version}"'
 
 [[tool.bumpversion.files]]
-filename = "crates/lance-csr-catalog/Cargo.toml"
-search = 'version = "{current_version}"'
-replace = 'version = "{new_version}"'
-
-[[tool.bumpversion.files]]
 filename = "crates/lance-csr-benches/Cargo.toml"
 search = 'version = "{current_version}"'
 replace = 'version = "{new_version}"'

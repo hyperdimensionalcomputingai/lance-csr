@@ -2,7 +2,6 @@
 
 ## Project Structure & Module Organization
 - `crates/lance-csr/` hosts the Rust Cypher engine; keep new modules under `src/` and co-locate helpers inside `query/` or feature-specific submodules.
-- `crates/lance-csr-catalog/` provides the graph source catalog and `DirNamespace` (Unity Catalog and Delta Lake support were removed).
 - `crates/lance-csr-benches/` contains performance benchmarks in a dedicated unpublished crate; add new benchmarks here rather than in the main crate.
 - `crates/lance-csr-python/src/` contains the PyO3 bridge; `python/python/lance_csr/` holds the pure-Python facade and packaging metadata.
 - `python/python/tests/` stores functional tests; mirror new features with targeted cases here and in the corresponding Rust module.

@@ -157,12 +157,13 @@ clauses, patterns, expressions and functions the engine runs.
 - `query` – High level `CypherQuery` API and runtime.
 - `csr_index`, `csr_expand` – The CSR adjacency index and the traversal operators that use it.
 - `error` – `GraphError` and result helpers.
-- `namespace` – Namespace helpers (re-exported from `lance-csr-catalog`).
-- `source_catalog` – Catalog helpers for looking up table metadata (re-exported from `lance-csr-catalog`).
+- `mapping` – `GraphMapping`, the JSON graph descriptor that maps labels to tables, and
+  `GraphSnapshot`, which pins each table to a Lance version and opens them for `CypherEngine`.
+- `namespace` – `DirNamespace`, a Lance namespace for a directory of datasets.
+- `source_catalog` – `GraphSourceCatalog`, which resolves labels to DataFusion table sources.
 
-`lance-csr` re-exports the catalog and namespace types from the `lance-csr-catalog` crate for
-API compatibility. You can depend on `lance-csr-catalog` directly if you only need catalog or
-namespace utilities.
+Up to 0.7.1 the `namespace` and `source_catalog` types lived in a separate `lance-csr-catalog` crate.
+They now live here, at the same root paths (`lance_csr::DirNamespace` and so on).
 
 ## Error Handling
 

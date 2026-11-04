@@ -20,7 +20,6 @@ use datafusion_sql::unparser::dialect::{
     CustomDialect, DefaultDialect, MySqlDialect, PostgreSqlDialect, SqliteDialect,
 };
 use datafusion_sql::unparser::Unparser;
-use lance_csr_catalog::DirNamespace;
 use lance_namespace::models::DescribeTableRequest;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -248,7 +247,7 @@ pub struct CypherQuery {
 struct CachedPlan {
     graph: crate::logical_plan::LogicalOperator,
     datafusion: datafusion::logical_expr::LogicalPlan,
-    catalog: Arc<dyn lance_csr_catalog::GraphSourceCatalog>,
+    catalog: Arc<dyn crate::GraphSourceCatalog>,
     parameter_types: HashMap<String, arrow_schema::DataType>,
 }
 
@@ -346,7 +345,7 @@ impl CypherQuery {
     #[doc(hidden)]
     pub fn prepare_cached_plan(
         &mut self,
-        catalog: Arc<dyn lance_csr_catalog::GraphSourceCatalog>,
+        catalog: Arc<dyn crate::GraphSourceCatalog>,
     ) -> Result<bool> {
         // Rich path properties live in an extension-owned spec, and its inventory is
         // query-local. Keep ordinary substitution and a fresh inventory for each query.
@@ -463,12 +462,14 @@ impl CypherQuery {
         }
     }
 
-    /// Execute the query using a namespace-backed table resolver.
+    /// Execute the query, resolving each node label and relationship type to a table through a
+    /// Lance namespace, such as [`crate::DirNamespace`] or Lance's own `DirectoryNamespace`.
     ///
-    /// The namespace is provided by value and will be shared internally as needed.
+    /// Each table opens at the version and with the storage options the namespace's
+    /// `describe_table` returns, or at its latest version when the namespace returns none.
     pub async fn execute_with_namespace(
         &self,
-        namespace: DirNamespace,
+        namespace: impl lance_namespace::LanceNamespace + 'static,
         strategy: Option<ExecutionStrategy>,
     ) -> Result<arrow::record_batch::RecordBatch> {
         self.execute_with_namespace_arc(std::sync::Arc::new(namespace), strategy)
@@ -478,18 +479,16 @@ impl CypherQuery {
     /// Execute the query using a shared namespace instance.
     pub async fn execute_with_namespace_arc(
         &self,
-        namespace: std::sync::Arc<DirNamespace>,
+        namespace: std::sync::Arc<dyn lance_namespace::LanceNamespace>,
         strategy: Option<ExecutionStrategy>,
     ) -> Result<arrow::record_batch::RecordBatch> {
-        let namespace_trait: std::sync::Arc<dyn lance_namespace::LanceNamespace + Send + Sync> =
-            namespace;
-        self.execute_with_namespace_internal(namespace_trait, strategy)
+        self.execute_with_namespace_internal(namespace, strategy)
             .await
     }
 
     async fn execute_with_namespace_internal(
         &self,
-        namespace: std::sync::Arc<dyn lance_namespace::LanceNamespace + Send + Sync>,
+        namespace: std::sync::Arc<dyn lance_namespace::LanceNamespace>,
         strategy: Option<ExecutionStrategy>,
     ) -> Result<arrow::record_batch::RecordBatch> {
         let strategy = strategy.unwrap_or_default();
@@ -729,8 +728,8 @@ impl CypherQuery {
         &self,
         ctx: datafusion::execution::context::SessionContext,
     ) -> Result<arrow::record_batch::RecordBatch> {
+        use crate::InMemoryCatalog;
         use datafusion::datasource::DefaultTableSource;
-        use lance_csr_catalog::InMemoryCatalog;
         use std::sync::Arc;
 
         let config = self.require_config()?;
@@ -815,7 +814,7 @@ impl CypherQuery {
     /// ```
     pub async fn execute_with_catalog_and_context(
         &self,
-        catalog: std::sync::Arc<dyn lance_csr_catalog::GraphSourceCatalog>,
+        catalog: std::sync::Arc<dyn crate::GraphSourceCatalog>,
         ctx: datafusion::execution::context::SessionContext,
     ) -> Result<arrow::record_batch::RecordBatch> {
         let df = self
@@ -831,7 +830,7 @@ impl CypherQuery {
     /// operators (scans and filters stream; joins, sorts and aggregates may buffer).
     pub async fn execute_stream_with_catalog_and_context(
         &self,
-        catalog: std::sync::Arc<dyn lance_csr_catalog::GraphSourceCatalog>,
+        catalog: std::sync::Arc<dyn crate::GraphSourceCatalog>,
         ctx: datafusion::execution::context::SessionContext,
     ) -> Result<datafusion::physical_plan::SendableRecordBatchStream> {
         let df = self
@@ -848,7 +847,7 @@ impl CypherQuery {
     /// Explain the plan with an explicit catalog and session context.
     pub async fn explain_with_catalog_and_context(
         &self,
-        catalog: std::sync::Arc<dyn lance_csr_catalog::GraphSourceCatalog>,
+        catalog: std::sync::Arc<dyn crate::GraphSourceCatalog>,
         ctx: datafusion::execution::context::SessionContext,
     ) -> Result<String> {
         self.explain_internal(catalog, ctx).await
@@ -857,7 +856,7 @@ impl CypherQuery {
     /// Plan the query (phases 1-3) and hand it to DataFusion (phase 4) without executing.
     async fn dataframe_with_catalog_and_context(
         &self,
-        catalog: std::sync::Arc<dyn lance_csr_catalog::GraphSourceCatalog>,
+        catalog: std::sync::Arc<dyn crate::GraphSourceCatalog>,
         ctx: datafusion::execution::context::SessionContext,
     ) -> Result<datafusion::dataframe::DataFrame> {
         let (_logical_plan, df_logical_plan) = self.create_logical_plans(catalog)?;
@@ -867,7 +866,7 @@ impl CypherQuery {
     /// The unoptimized DataFusion plan (phases 1-3), for embedding in a larger plan.
     pub(crate) fn datafusion_plan(
         &self,
-        catalog: std::sync::Arc<dyn lance_csr_catalog::GraphSourceCatalog>,
+        catalog: std::sync::Arc<dyn crate::GraphSourceCatalog>,
     ) -> Result<datafusion::logical_expr::LogicalPlan> {
         Ok(self.create_logical_plans(catalog)?.1)
     }
@@ -908,12 +907,12 @@ impl CypherQuery {
         &self,
         datasets: HashMap<String, arrow::record_batch::RecordBatch>,
     ) -> Result<(
-        lance_csr_catalog::InMemoryCatalog,
+        crate::InMemoryCatalog,
         datafusion::execution::context::SessionContext,
     )> {
+        use crate::InMemoryCatalog;
         use datafusion::datasource::{DefaultTableSource, MemTable};
         use datafusion::execution::context::SessionContext;
-        use lance_csr_catalog::InMemoryCatalog;
         use std::sync::Arc;
 
         if datasets.is_empty() {
@@ -973,15 +972,15 @@ impl CypherQuery {
     /// Helper to build catalog and context using a namespace resolver
     async fn build_catalog_and_context_from_namespace(
         &self,
-        namespace: std::sync::Arc<dyn lance_namespace::LanceNamespace + Send + Sync>,
+        namespace: std::sync::Arc<dyn lance_namespace::LanceNamespace>,
     ) -> Result<(
-        lance_csr_catalog::InMemoryCatalog,
+        crate::InMemoryCatalog,
         datafusion::execution::context::SessionContext,
     )> {
+        use crate::InMemoryCatalog;
         use datafusion::datasource::{DefaultTableSource, TableProvider};
         use datafusion::execution::context::SessionContext;
         use lance::datafusion::LanceTableProvider;
-        use lance_csr_catalog::InMemoryCatalog;
         use std::sync::Arc;
 
         let config = self.require_config()?;
@@ -1042,7 +1041,19 @@ impl CypherQuery {
                 location: snafu::Location::new(file!(), line!(), column!()),
             })?;
 
-            let dataset = lance::dataset::Dataset::open(&location)
+            let version = response
+                .version
+                .map(u64::try_from)
+                .transpose()
+                .map_err(|_| GraphError::ConfigError {
+                    message: format!(
+                        "Namespace returned a negative version for table '{}'",
+                        table_name
+                    ),
+                    location: snafu::Location::new(file!(), line!(), column!()),
+                })?;
+            let storage_options = response.storage_options.unwrap_or_default();
+            let dataset = crate::engine::open_lance_dataset(&location, version, &storage_options)
                 .await
                 .map_err(|e| GraphError::ConfigError {
                     message: format!("Failed to open dataset for table '{}': {}", table_name, e),
@@ -1104,7 +1115,7 @@ impl CypherQuery {
     /// Internal helper to explain the query execution plan with explicit catalog and session context
     async fn explain_internal(
         &self,
-        catalog: std::sync::Arc<dyn lance_csr_catalog::GraphSourceCatalog>,
+        catalog: std::sync::Arc<dyn crate::GraphSourceCatalog>,
         ctx: datafusion::execution::context::SessionContext,
     ) -> Result<String> {
         // Create all plans (phases 1-4)
@@ -1121,7 +1132,7 @@ impl CypherQuery {
     /// DataFusion logical planning) without creating the physical plan.
     fn create_logical_plans(
         &self,
-        catalog: std::sync::Arc<dyn lance_csr_catalog::GraphSourceCatalog>,
+        catalog: std::sync::Arc<dyn crate::GraphSourceCatalog>,
     ) -> Result<(
         crate::logical_plan::LogicalOperator,
         datafusion::logical_expr::LogicalPlan,
@@ -1151,7 +1162,7 @@ impl CypherQuery {
 
     fn build_logical_plans(
         &self,
-        catalog: Arc<dyn lance_csr_catalog::GraphSourceCatalog>,
+        catalog: Arc<dyn crate::GraphSourceCatalog>,
         parameterized: bool,
     ) -> Result<(
         crate::logical_plan::LogicalOperator,
@@ -1203,7 +1214,7 @@ impl CypherQuery {
     /// Helper to create all plans (graph logical, DataFusion logical, physical)
     async fn create_plans(
         &self,
-        catalog: std::sync::Arc<dyn lance_csr_catalog::GraphSourceCatalog>,
+        catalog: std::sync::Arc<dyn crate::GraphSourceCatalog>,
         ctx: &datafusion::execution::context::SessionContext,
     ) -> Result<(
         crate::logical_plan::LogicalOperator,
@@ -1689,11 +1700,11 @@ mod tests {
 
     #[tokio::test]
     async fn cartesian_stream_yields_and_drops_before_full_collection() {
+        use crate::InMemoryCatalog;
         use arrow_array::{ArrayRef, Int64Array};
         use datafusion::datasource::{DefaultTableSource, MemTable};
         use datafusion::execution::context::{SessionConfig, SessionContext};
         use futures::TryStreamExt;
-        use lance_csr_catalog::InMemoryCatalog;
         use std::sync::atomic::{AtomicUsize, Ordering};
 
         let batch = RecordBatch::try_from_iter([(
@@ -1867,7 +1878,7 @@ mod tests {
                 .build_catalog_and_context_from_datasets(datasets.clone())
                 .await
                 .unwrap();
-            let catalog: Arc<dyn lance_csr_catalog::GraphSourceCatalog> = Arc::new(catalog);
+            let catalog: Arc<dyn crate::GraphSourceCatalog> = Arc::new(catalog);
             assert!(
                 template.prepare_cached_plan(catalog.clone()).unwrap(),
                 "{text}"
@@ -2011,7 +2022,7 @@ mod tests {
             .build_catalog_and_context_from_datasets(data)
             .await
             .unwrap();
-        let catalog: Arc<dyn lance_csr_catalog::GraphSourceCatalog> = Arc::new(catalog);
+        let catalog: Arc<dyn crate::GraphSourceCatalog> = Arc::new(catalog);
         template.prepare_cached_plan(catalog.clone()).unwrap();
         let state = context.state();
         let mut totals = [std::time::Duration::ZERO; 8];
@@ -2950,7 +2961,7 @@ mod tests {
             .expect("query parses")
             .with_config(config);
 
-        let namespace = DirNamespace::new(tmp_dir.path().to_string_lossy().into_owned());
+        let namespace = crate::DirNamespace::new(tmp_dir.path().to_string_lossy().into_owned());
 
         let result = query
             .execute_with_namespace(namespace.clone(), None)
@@ -2969,6 +2980,81 @@ mod tests {
             .collect();
         values.sort();
         assert_eq!(values, vec!["Bob".to_string(), "David".to_string()]);
+    }
+
+    /// Pins every table to version 1, as Lance's `DirectoryNamespace` does for a tagged table.
+    #[derive(Debug)]
+    struct PinnedNamespace(crate::DirNamespace);
+
+    #[async_trait::async_trait]
+    impl lance_namespace::LanceNamespace for PinnedNamespace {
+        fn namespace_id(&self) -> String {
+            "pinned".to_string()
+        }
+
+        async fn describe_table(
+            &self,
+            request: DescribeTableRequest,
+        ) -> lance_namespace::Result<lance_namespace::models::DescribeTableResponse> {
+            let mut response = self.0.describe_table(request).await?;
+            response.version = Some(1);
+            Ok(response)
+        }
+    }
+
+    #[tokio::test]
+    async fn namespace_execution_opens_the_described_version() {
+        use arrow_array::{Array, RecordBatchIterator, StringArray};
+        use lance::dataset::{Dataset, WriteMode, WriteParams};
+        use tempfile::tempdir;
+
+        let tmp_dir = tempdir().unwrap();
+        let person = tmp_dir.path().join("Person.lance");
+        write_lance_dataset(&person, build_people_batch()).await;
+        write_lance_dataset(
+            &tmp_dir.path().join("FRIEND_OF.lance"),
+            build_friendship_batch(),
+        )
+        .await;
+        // Version 2 keeps only Alice, who is under 30.
+        let alice = build_people_batch().slice(0, 1);
+        let reader = RecordBatchIterator::new(vec![Ok(alice.clone())], alice.schema());
+        let params = WriteParams {
+            mode: WriteMode::Overwrite,
+            ..Default::default()
+        };
+        Dataset::write(reader, person.to_str().unwrap(), Some(params))
+            .await
+            .unwrap();
+
+        let config = GraphConfig::builder()
+            .node_table("Person", "person_id")
+            .rel_table("FRIEND_OF", "Person", "Person", "person1_id", "person2_id")
+            .build()
+            .unwrap();
+        let query = CypherQuery::new("MATCH (p:Person) WHERE p.age > 30 RETURN p.name")
+            .unwrap()
+            .with_config(config);
+        let root = tmp_dir.path().to_string_lossy().into_owned();
+
+        let latest = query
+            .execute_with_namespace(crate::DirNamespace::new(root.clone()), None)
+            .await
+            .unwrap();
+        assert_eq!(latest.num_rows(), 0);
+
+        let pinned = query
+            .execute_with_namespace(PinnedNamespace(crate::DirNamespace::new(root)), None)
+            .await
+            .unwrap();
+        let names = pinned
+            .column(0)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let mut values: Vec<&str> = (0..names.len()).map(|i| names.value(i)).collect();
+        values.sort();
+        assert_eq!(values, ["Bob", "David"]);
     }
 
     #[tokio::test]

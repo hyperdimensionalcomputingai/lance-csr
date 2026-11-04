@@ -10,7 +10,7 @@ use super::analysis::PlanningContext;
 use super::DataFusionPlanner;
 use crate::config::{NodeMapping, RelationshipMapping};
 use crate::error::Result;
-use lance_csr_catalog::GraphSourceCatalog;
+use crate::GraphSourceCatalog;
 use std::sync::Arc;
 
 impl DataFusionPlanner {

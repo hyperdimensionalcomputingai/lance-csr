@@ -324,8 +324,8 @@ pub(super) fn comparison_operator(operator: &ComparisonOperator) -> Operator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{InMemoryCatalog, SimpleTableSource};
     use arrow_schema::{Field, Schema};
-    use lance_csr_catalog::{InMemoryCatalog, SimpleTableSource};
 
     fn analyze(query: &str) -> SemanticResult {
         let schema = Arc::new(Schema::new(vec![

@@ -1,15 +1,14 @@
 # Project structure
 
-lance-csr is a Cargo workspace with Python bindings. The Rust crates are named `lance-csr*`; the engine and
-catalog crates are published on crates.io.
+lance-csr is a Cargo workspace with Python bindings. The Rust crates are named `lance-csr*`; only the engine
+crate, `lance-csr`, is published on crates.io.
 
 ```
 .
-├── Cargo.toml                    # Workspace: lance-csr, lance-csr-catalog, lance-csr-benches
+├── Cargo.toml                    # Workspace: lance-csr, lance-csr-benches
 ├── crates/
 │   ├── lance-csr/                # The engine: Cypher parser, semantic analysis, logical planner,
 │   │                             # DataFusion planner, CSR index and traversal operators
-│   ├── lance-csr-catalog/        # Graph source catalog and DirNamespace
 │   ├── lance-csr-python/         # PyO3 bindings (built by maturin; outside the workspace)
 │   └── lance-csr-benches/        # Criterion benchmarks (not published)
 ├── python/

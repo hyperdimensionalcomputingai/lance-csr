@@ -118,7 +118,7 @@ impl DataFusionPlanner {
         // No catalog attached - create empty source fallback for flexibility
         // This allows planners created with DataFusionPlanner::new() to work
         // without requiring a catalog, though they won't have actual data sources
-        let empty_source = Arc::new(lance_csr_catalog::SimpleTableSource::empty());
+        let empty_source = Arc::new(crate::SimpleTableSource::empty());
         let normalized_label = label.to_lowercase();
         let builder =
             LogicalPlanBuilder::scan(&normalized_label, empty_source, None).map_err(|e| {
