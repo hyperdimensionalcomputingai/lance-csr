@@ -18,8 +18,9 @@ Or run a script with it, without a project:
 uv run --with lance-csr python your_script.py
 ```
 
-Prebuilt wheels are published for Linux x86-64 (glibc 2.28 or newer: RHEL 8, Ubuntu 20.04 and later)
-and native Apple Silicon (macOS 11 or newer), for CPython 3.12 and later. Installing from a wheel needs
+Prebuilt wheels are published for Linux x86-64 (glibc 2.28 or newer: RHEL 8, Ubuntu 20.04 and later),
+native Apple Silicon (macOS 11 or newer) and Windows x86-64, for CPython 3.12 and later. The x86-64
+wheels need a CPU with AVX2 (Intel Haswell, AMD Excavator or newer). Installing from a wheel needs
 no Rust toolchain; to make sure uv never falls back to compiling from source, use:
 
 ```bash

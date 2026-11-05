@@ -4,7 +4,7 @@ A release publishes the Python package to [PyPI](https://pypi.org/project/lance-
 `lance-csr` crate to [crates.io](https://crates.io/crates/lance-csr). PyPI publishing is
 automated from a GitHub release, and the crates follow once PyPI has the new version.
 
-The whole release takes about 50 minutes: the macOS wheel build, then the crates. Don't add steps that build the
+The whole release takes about 65 minutes: the Windows wheel build, then the crates. Don't add steps that build the
 release wheels a second time.
 
 ## Before you start
@@ -66,6 +66,7 @@ Publishing it starts `.github/workflows/python-publish.yml`:
 | --- | ---: | --- |
 | `build-linux` | about 22 min | manylinux_2_28 x86-64 wheel and the sdist |
 | `build-macos` | about 35 min | macOS arm64 wheel, built natively on `macos-15` |
+| `build-windows` | about 52 min | Windows x86-64 wheel, built natively on `windows-2022` |
 | `test` | under 1 min each | each wheel on Python 3.12, 3.13 and 3.14 |
 | `publish` | seconds | checks the tag matches `python/pyproject.toml`, then uploads through PyPI trusted publishing |
 | `publish-crates` | about 10 to 15 min | after `publish`: packages and verifies `lance-csr`, then uploads it through crates.io trusted publishing |
