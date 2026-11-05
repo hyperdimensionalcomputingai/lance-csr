@@ -156,7 +156,8 @@ jobs:
           command: build
           working-directory: python
           target: x86_64-pc-windows-msvc
-          sccache: "true"
+          # sccache's Windows server dropped the connection mid-way through compiling lance.
+          sccache: "false"
           args: --release --locked --strip --out dist
 
       - name: Inspect wheel
