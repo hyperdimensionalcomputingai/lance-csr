@@ -58,7 +58,7 @@ case needs distributed graph queries or graph algorithms, that's the kind of eng
 uv add lance-csr
 ```
 
-Prebuilt wheels cover Linux x86-64 and native Apple Silicon (CPython 3.12+); no Rust toolchain is needed. From
+Prebuilt wheels cover Linux x86-64, native Apple Silicon and Windows x86-64 (CPython 3.12+); no Rust toolchain is needed. From
 Rust, run `cargo add lance-csr` and see the [Rust guide](https://lance-csr.hdclabs.ai/rust/). To build from
 source, see [`python/DEVELOPMENT.md`](python/DEVELOPMENT.md).
 

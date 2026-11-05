@@ -66,6 +66,7 @@ Publishing it starts `.github/workflows/python-publish.yml`:
 | --- | ---: | --- |
 | `build-linux` | about 22 min | manylinux_2_28 x86-64 wheel and the sdist |
 | `build-macos` | about 35 min | macOS arm64 wheel, built natively on `macos-15` |
+| `build-windows` | not yet measured | Windows x86-64 wheel, built natively on `windows-2022` |
 | `test` | under 1 min each | each wheel on Python 3.12, 3.13 and 3.14 |
 | `publish` | seconds | checks the tag matches `python/pyproject.toml`, then uploads through PyPI trusted publishing |
 | `publish-crates` | about 10 to 15 min | after `publish`: packages and verifies `lance-csr`, then uploads it through crates.io trusted publishing |
