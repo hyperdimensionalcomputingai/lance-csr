@@ -28,7 +28,7 @@ def graph():
 @pytest.mark.parametrize("partitions", [None, 1, 2])
 @pytest.mark.parametrize("use_csr", [False, True])
 @pytest.mark.parametrize("storage", ["arrow", "lance"])
-def test_partition_targets_preserve_queries_and_refresh(
+def test_partition_targets_preserve_queries_and_checkout_latest(
     graph, partitions, use_csr, storage, tmp_path
 ):
     config, data = graph

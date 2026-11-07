@@ -9,7 +9,7 @@ edges / AVG_DEGREE), then in a fresh subprocess per mode (``csr`` / ``join``):
 - engine construction time, and for ``csr`` the CSR build time (both directions);
 - warm latency (median/p95) of single-hop queries, with row counts and checksums
   checked against the other mode;
-- refresh cost after appending edges (CSR rebuild) and with nothing changed;
+- ``checkout_latest()`` cost after appending edges (CSR rebuild) and with nothing changed;
 - peak RSS of the process.
 
     python benchmarks/csr_expand.py --data /tmp/csr-bench --edges 100000 1000000
@@ -125,11 +125,11 @@ def child(root: Path, mode: str, repeats: int) -> dict:
 
     t = time.perf_counter()
     engine.checkout_latest()
-    out["refresh_unchanged_ms"] = (time.perf_counter() - t) * 1e3
+    out["checkout_unchanged_ms"] = (time.perf_counter() - t) * 1e3
     # Recorded before the copy below, which materializes the edge table.
     out["peak_rss_mib"] = peak_rss_mib()
 
-    # Append 0.1% more edges, then refresh: the CSR engine must rebuild.
+    # Append 0.1% more edges, then check out the latest version: the CSR engine must rebuild.
     n_new = max(1, lance.dataset(root / "knows.lance").count_rows() // 1000)
     new_edges = pa.table(
         {
@@ -150,7 +150,7 @@ def child(root: Path, mode: str, repeats: int) -> dict:
     lance.write_dataset(new_edges, knows, mode="append")
     t = time.perf_counter()
     engine.checkout_latest()
-    out["refresh_after_append_ms"] = (time.perf_counter() - t) * 1e3
+    out["checkout_after_append_ms"] = (time.perf_counter() - t) * 1e3
     if mode == "csr":
         out["csr_rebuild_ms"] = engine.csr_stats()["KNOWS"]["build_ms"]
     return out

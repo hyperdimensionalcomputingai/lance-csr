@@ -116,7 +116,7 @@ def main() -> None:
             engine = CypherEngine(CONFIG, datasets, use_csr=True)
 
             change(uri, nodes)
-            refresh_ms, _ = timed(engine.checkout_latest)
+            checkout_ms, _ = timed(engine.checkout_latest)
             stats = engine.csr_stats()["KNOWS"]
 
             latest = {"Person": person, "KNOWS": lance.dataset(uri)}
@@ -128,7 +128,7 @@ def main() -> None:
                 "update": stats["update"],
                 "delta_edges": stats["delta_edges"],
                 "tombstones": stats["tombstones"],
-                "refresh_ms": refresh_ms,
+                "checkout_ms": checkout_ms,
                 "delta_apply_ms": stats["build_ms"],
                 "rebuild_ms": fresh.csr_stats()["KNOWS"]["build_ms"],
             }
