@@ -148,7 +148,13 @@ jobs:
       - uses: astral-sh/setup-uv@v4
 
       - name: Install build dependencies
-        run: choco install protoc --version=29.3 -y --no-progress
+        # protoc comes from its GitHub release: Chocolatey's feed is intermittently unreachable from runners.
+        run: |
+          $zip = "$env:RUNNER_TEMP\protoc.zip"
+          Invoke-WebRequest https://github.com/protocolbuffers/protobuf/releases/download/v29.3/protoc-29.3-win64.zip -OutFile $zip
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne "57EA59E9F551AD8D71FFAA9B5CFBE0CA1F4E720972A1DB7EC2D12AB44BFF9383") { throw "protoc checksum mismatch" }
+          Expand-Archive $zip "$env:RUNNER_TEMP\protoc"
+          "$env:RUNNER_TEMP\protoc\bin" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
 
       - name: Build Windows x86-64 wheel
         uses: PyO3/maturin-action@04ac600d27cdf7a9a280dadf7147097c42b757ad # v1
