@@ -529,9 +529,10 @@ every query on the engine.
 | Queries traverse relationships, especially 2+ hops or variable-length | **Turn it on** |
 | Queries read whole relationships (no filter on the start node) and only count | **Turn it on**; counts are taken per node ([when it helps](#when-it-helps)) |
 | Queries read whole relationships and return or group by each edge's properties | About even with the join path; measure both |
-| Integer node keys and edge endpoints | **Turn it on**; you get the fused target lookup too |
-| String or UUID keys | Little benefit; add an integer id column if traversal matters |
+| Integer node keys and edge endpoints | **Turn it on**. This is the fast case: each hop reads only its start nodes' neighbours, and each neighbour's properties are read straight from its row instead of through a second join ([the fused target lookup](#the-fused-target-lookup)) |
+| String or UUID keys | Little benefit: the CSR can't index them, so every hop still joins whole tables. Add an integer id column if traversal matters |
 | Only node lookups and aggregations, no hops | Leave it off; it costs build time and memory for nothing |
 | Very large edge tables and tight memory | Budget ~95 bytes per edge of peak memory before turning it on |
 
-The [benchmarks](benchmarks.md) were all run with `use_csr=True`.
+The [benchmarks](benchmarks.md) were all run with `use_csr=True`, on GDC SNB data whose node keys and edge
+endpoints are integers.

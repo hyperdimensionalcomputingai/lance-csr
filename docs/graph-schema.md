@@ -159,12 +159,13 @@ Key columns are properties too: `p.id` returns the node's key.
     `MATCH (p:Person)-[:LIKES_POST|LIKES_COMMENT]->(m) RETURN m.content` returns content from both tables.
     The engine plans one branch per relationship type, each joined to the right target table.
 
-## Keys and the CSR
+## Key types and traversal performance
 
 Any column type works as a key for joins. The [CSR index](csr.md) is stricter: it needs **integer**
 relationship endpoints (`int8` to `int64`, `uint8` to `uint32`), and its fused target lookup needs **unique
-integer** node keys. If your keys are strings or UUIDs, queries still work, using joins; consider adding a
-dense integer id column if traversal speed matters.
+integer** node keys. If your keys are strings or UUIDs, queries still return the same results, but every hop
+uses hash joins over whole tables instead of the CSR, without a warning. Add an integer id column if traversal
+speed matters; the ids don't have to be consecutive.
 
 ## Removed builder methods
 
