@@ -77,6 +77,30 @@ flowchart LR
 The same edges, endpoints, labels and variables are matched, and the full `WHERE` clause still applies above the
 match. Only the order of work changes.
 
+### Predicates implied by an `OR`
+
+A condition that accepts either direction of an edge between `a` and `b` is an `OR` whose branches each read both
+variables:
+
+```cypher
+WHERE (a.id = $x AND b.id = $y) OR (a.id = $y AND b.id = $x)
+```
+
+Neither re-rooting nor DataFusion's filter pushdown can use it, because no single conjunct reads only `a`. The filter
+waits until both ends are bound, so the match expands from every `a`. When the pattern comprehension or `OPTIONAL
+MATCH` around it is correlated with outer rows through this condition, that cost is paid for every distinct outer
+binding: the official LDBC IC14 text spent minutes this way on SF1.
+
+So when a `WHERE` is planned, `implied_by_disjunctions` in `pattern_order.rs` adds, for each variable the `OR` reads,
+the `OR` of each branch without the conjuncts that read that variable. Dropping `b` above leaves
+`a.id = $x OR a.id = $y`, which reads only `a` and outer values. DataFusion moves it below the expansion as an
+ordinary filter or join condition, so the expansion starts from at most two people per outer row.
+
+The added predicate is implied by the original, which stays in the filter, so the rows don't change: a true branch
+makes each of its conjuncts true, so the shortened branch is true too. Nothing is added when a branch would be left
+with no conjunct (`a.x = 1 OR b.y = 2` says nothing about `a` alone) or when no conjunct was dropped. Only
+comparisons and `IN` lists without subqueries are copied, so no pattern or comprehension is planned twice.
+
 ### Alternation and multi-label nodes become branches
 
 `-[:A|B]->` and `(m:Post:Comment)` are rewritten into branches with exactly one type per relationship and at most one

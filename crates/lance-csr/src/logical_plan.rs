@@ -1172,7 +1172,11 @@ impl<'a> LogicalPlanner<'a> {
         input: LogicalOperator,
         predicate: &BooleanExpression,
     ) -> Result<LogicalOperator> {
-        let mut predicate = predicate.clone();
+        let mut predicate = crate::pattern_order::implied_by_disjunctions(predicate)
+            .into_iter()
+            .fold(predicate.clone(), |p, implied| {
+                BooleanExpression::And(Box::new(p), Box::new(implied))
+            });
         let saved = self.seed_source.replace(input.clone());
         let input = self.rewrite_exists(input, &mut predicate);
         self.seed_source = saved;
