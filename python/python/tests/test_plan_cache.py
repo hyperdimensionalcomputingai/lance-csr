@@ -77,7 +77,7 @@ def test_cached_queries_keep_concurrent_parameters_separate(engine):
 def test_cached_query_still_rejects_missing_or_wrong_types(engine):
     query = "MATCH (p:Person) WHERE p.id = $id RETURN p.age AS age"
     engine.execute(query, {"id": 1})
-    with pytest.raises(ValueError, match="[Pp]arameter"):
+    with pytest.raises(ValueError, match="(?i)parameter"):
         engine.execute(query)
     with pytest.raises(ValueError, match="Type mismatch"):
         engine.execute(query, {"id": True})
