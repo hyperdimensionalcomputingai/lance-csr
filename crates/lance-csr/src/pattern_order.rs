@@ -111,6 +111,89 @@ fn conjuncts(expr: &BooleanExpression) -> Vec<&BooleanExpression> {
     }
 }
 
+/// The top-level `OR` disjuncts of a predicate.
+fn disjuncts(expr: &BooleanExpression) -> Vec<&BooleanExpression> {
+    match expr {
+        BooleanExpression::Or(left, right) => {
+            let mut out = disjuncts(left);
+            out.extend(disjuncts(right));
+            out
+        }
+        other => vec![other],
+    }
+}
+
+/// Predicates implied by `predicate`'s `OR`-of-`AND` conjuncts, one per variable they
+/// read: each disjunct without its conjuncts that read that variable, OR-ed back together.
+///
+/// `(a.id = $x AND b.id = $y) OR (a.id = $y AND b.id = $x)` implies `a.id = $x OR a.id = $y`
+/// (and the same for `b`). Adding that to the filter lets planning narrow `a` before
+/// expanding to `b`, where the whole `OR` can only run once both are bound. The original
+/// stays in the filter, so results are unchanged: a true disjunct makes each of its
+/// conjuncts, hence the implied disjunct, true. Only comparisons and `IN` without
+/// subqueries are copied, so no pattern or comprehension is planned twice.
+pub(crate) fn implied_by_disjunctions(predicate: &BooleanExpression) -> Vec<BooleanExpression> {
+    let copyable = |c: &BooleanExpression| match c {
+        BooleanExpression::Comparison { left, right, .. } => {
+            !crate::ast::needs_relational_evaluation(left)
+                && !crate::ast::needs_relational_evaluation(right)
+        }
+        BooleanExpression::In { expression, list } => {
+            !crate::ast::needs_relational_evaluation(expression)
+                && !list.iter().any(crate::ast::needs_relational_evaluation)
+        }
+        _ => false,
+    };
+    let mut implied = Vec::new();
+    for conjunct in conjuncts(predicate) {
+        let branches: Vec<_> = disjuncts(conjunct).into_iter().map(conjuncts).collect();
+        if branches.len() < 2 {
+            continue;
+        }
+        let mut variables = HashSet::new();
+        boolean_variables(conjunct, &mut variables);
+        let mut variables: Vec<_> = variables.into_iter().collect();
+        variables.sort_unstable();
+        for dropped in variables {
+            let reads = |c: &BooleanExpression| {
+                let mut names = HashSet::new();
+                boolean_variables(c, &mut names);
+                names.contains(dropped)
+            };
+            // Each branch keeps its copyable conjuncts that don't read `dropped`; a branch
+            // left with none implies nothing, and neither does a branch that lost none.
+            let mut weakened = false;
+            let mut kept_branches = Vec::with_capacity(branches.len());
+            for branch in &branches {
+                let kept: Vec<_> = branch
+                    .iter()
+                    .filter(|c| copyable(c) && !reads(c))
+                    .map(|c| (*c).clone())
+                    .collect();
+                weakened |= kept.len() < branch.len();
+                let Some(kept) = kept
+                    .into_iter()
+                    .reduce(|l, r| BooleanExpression::And(Box::new(l), Box::new(r)))
+                else {
+                    kept_branches.clear();
+                    break;
+                };
+                kept_branches.push(kept);
+            }
+            let Some(or) = kept_branches
+                .into_iter()
+                .reduce(|l, r| BooleanExpression::Or(Box::new(l), Box::new(r)))
+            else {
+                continue;
+            };
+            if weakened && !implied.contains(&or) {
+                implied.push(or);
+            }
+        }
+    }
+    implied
+}
+
 /// Selectivity of `conjunct` for `variable`, if it constrains only that variable.
 fn score_conjunct(
     conjunct: &BooleanExpression,
@@ -625,5 +708,55 @@ mod tests {
             reorder("MATCH (a:Person)-[:hasMember]->(b:Forum), (c:Tag)-[:hasType]->(d:Tagclass) WHERE d.id = 1 RETURN a"),
             None
         );
+    }
+
+    fn implied(predicate: &str) -> Vec<BooleanExpression> {
+        let ast =
+            parse_cypher_query(&format!("MATCH (a), (b) WHERE {predicate} RETURN a")).unwrap();
+        implied_by_disjunctions(&ast.where_clause.unwrap().expression)
+    }
+
+    fn parsed(predicates: &[&str]) -> Vec<BooleanExpression> {
+        predicates
+            .iter()
+            .map(|p| {
+                let ast =
+                    parse_cypher_query(&format!("MATCH (a), (b) WHERE {p} RETURN a")).unwrap();
+                ast.where_clause.unwrap().expression
+            })
+            .collect()
+    }
+
+    #[test]
+    fn disjunctions_imply_one_predicate_per_dropped_variable() {
+        // Either direction of an edge between a and b: each end narrows on its own.
+        assert_eq!(
+            implied("(a.id = $x AND b.id = $y) OR (a.id = $y AND b.id = $x)"),
+            parsed(&["b.id = $y OR b.id = $x", "a.id = $x OR a.id = $y"]),
+        );
+        // A top-level conjunct beside the OR is untouched; only the OR is weakened.
+        assert_eq!(
+            implied("a.age > 1 AND ((a.id = 1 AND b.id = 2) OR (a.id IN [3, 4] AND b.id = 5))"),
+            parsed(&["b.id = 2 OR b.id = 5", "a.id = 1 OR a.id IN [3, 4]"]),
+        );
+        // Dropping a leaves every branch a conjunct on b; dropping b empties one branch.
+        assert_eq!(
+            implied("(a.id = 1 AND b.id = 2) OR b.id = 3"),
+            parsed(&["b.id = 2 OR b.id = 3"]),
+        );
+        // A subquery conjunct is never copied, but the rest of its branch still implies.
+        assert_eq!(
+            implied("(a.id = 1 AND EXISTS { (a)-[:R]->(b) }) OR (a.id = 2 AND b.id = 3)"),
+            parsed(&["a.id = 1 OR a.id = 2"]),
+        );
+    }
+
+    #[test]
+    fn disjunctions_that_imply_nothing_new() {
+        // A branch left with no conjunct implies nothing.
+        assert!(implied("a.id = 1 OR b.id = 2").is_empty());
+        // Nothing to drop: the implied predicate would be the OR itself.
+        assert!(implied("(a.id = 1 AND a.age = 2) OR a.id = 3").is_empty());
+        assert!(implied("a.id = 1 AND b.id = 2").is_empty());
     }
 }

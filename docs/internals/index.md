@@ -117,7 +117,7 @@ All paths are under
 | `path_match.rs`, `path_inventory.rs`, `path_value.rs` | Named paths, the edge inventory, Arrow path values | lance-csr |
 | `apply.rs` | `ApplyNode` and `ApplyExec` for CALL subqueries | lance-csr |
 | `key_statistics.rs` | `KeyStatisticsProvider` and `KeyStatisticsExec` | lance-csr |
-| `pattern_order.rs`, `pattern_alternatives.rs` | Re-rooting, alternation and multi-label branching | lance-csr |
+| `pattern_order.rs`, `pattern_alternatives.rs` | Re-rooting, predicates implied by an `OR`, alternation and multi-label branching | lance-csr |
 | `logical_plan.rs` | Graph logical operators | [lance-graph](https://github.com/lance-format/lance-graph), extended in lance-csr |
 | `datafusion_planner/` | Graph plan to DataFusion plan; `builder/expand_ops.rs` chooses CSR or join for each hop | [lance-graph](https://github.com/lance-format/lance-graph), extended in lance-csr |
 | `engine.rs` | `CypherEngine`: snapshots, session setup, refresh, plan template cache, SQL entry points | lance-csr |
