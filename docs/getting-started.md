@@ -25,8 +25,9 @@ lance-csr is published on PyPI as `lance-csr`. Use [uv](https://docs.astral.sh/u
     uv add lance-csr --no-build-package lance-csr
     ```
 
-Prebuilt wheels cover **Linux x86-64** (glibc 2.28+: RHEL 8, Ubuntu 20.04 and later) and **Apple Silicon**
-(macOS 11+), for **CPython 3.12, 3.13 and 3.14**. Installing a wheel needs no Rust toolchain. Other platforms
+Prebuilt wheels cover **Linux x86-64** (glibc 2.28+: RHEL 8, Ubuntu 20.04 and later), **Apple Silicon**
+(macOS 11+) and **Windows x86-64**, for **CPython 3.12, 3.13 and 3.14**. Installing a wheel needs no Rust
+toolchain. On Windows you can also use lance-csr inside WSL2, where it installs the Linux wheel. Other platforms
 build from the source distribution, which needs Rust and `protoc` (see [Contributing](contributing.md)).
 
 The package depends on `pyarrow>=14` and `pylance` 13.x, which uv installs for you.
