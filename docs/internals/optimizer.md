@@ -34,6 +34,10 @@ narrows each `CsrExpand`'s target and relationship columns, and each `NodeLookup
 columns are all unused is removed. The columns a `NodeLookup` fetches shadow any of the same name below it, so the rule
 prunes the plan under each lookup again, against only what that plan outputs: a hop under
 `NodeLookup: take=b[b__name]` doesn't fetch `b__name` for every edge just because the lookup's `b__name` is used above.
+A `NodeLookup` directly under a projection is also narrowed to the columns that projection references, whatever else
+in the plan uses the same names. When a query groups by the same node twice, the lookup after the first grouping
+would otherwise keep fetching `b__name`, used only after the second, even where the plan above it, such as one side of
+an `OPTIONAL MATCH` join on `b`'s id, keeps nothing but the id.
 
 "Used" is conservative: expression references, the plan's output columns, each CSR node's key and closing column, and
 all inputs of nodes whose column use is implicit, such as `DISTINCT` and `UNION`.
