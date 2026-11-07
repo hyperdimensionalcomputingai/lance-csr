@@ -1,0 +1,14 @@
+# Keep the commit-SHA pins on GitHub Actions current. One grouped PR a week, and only for
+# releases at least a week old, so a compromised release has time to be caught first.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions:
+        patterns:
+          - "*"

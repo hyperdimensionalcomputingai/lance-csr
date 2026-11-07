@@ -1,0 +1,38 @@
+# Audit the workflows and Dependabot config with zizmor: unpinned actions, template
+# injection, cache poisoning, persisted credentials and broad token permissions.
+name: Workflow Audit
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/**
+  pull_request:
+    paths:
+      - .github/**
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  zizmor:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4.2.0
+        with:
+          enable-cache: false
+
+      - name: Run zizmor
+        # The token enables the online audits: impostor commits and known-vulnerable actions.
+        run: uvx zizmor@1.32.0 --format=github .github
+        env:
+          GH_TOKEN: ${{ github.token }}

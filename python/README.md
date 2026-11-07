@@ -18,7 +18,7 @@ Or run a script with it, without a project:
 uv run --with lance-csr python your_script.py
 ```
 
-Prebuilt wheels are published for Linux x86-64 (glibc 2.28 or newer: RHEL 8, Ubuntu 20.04 and later),
+Prebuilt wheels are published for Linux x86-64 and aarch64 (glibc 2.28 or newer: RHEL 8, Ubuntu 20.04 and later),
 native Apple Silicon (macOS 11 or newer) and Windows x86-64, for CPython 3.12 and later. The x86-64
 wheels need a CPU with AVX2 (Intel Haswell, AMD Excavator or newer). Installing from a wheel needs
 no Rust toolchain; to make sure uv never falls back to compiling from source, use:
@@ -27,7 +27,7 @@ no Rust toolchain; to make sure uv never falls back to compiling from source, us
 uv add lance-csr --no-build-package lance-csr
 ```
 
-On Windows you can also use lance-csr inside WSL2, where it installs the Linux x86-64 wheel. Other
+On Windows you can also use lance-csr inside WSL2, where it installs the Linux wheel. Other
 platforms install from the source distribution, which needs Rust and `protoc`.
 
 ## Quick Start
@@ -207,7 +207,7 @@ r2 = engine.execute(
 
 ## Requirements
 
-- Python 3.12 or newer (3.12, 3.13 and 3.14 tested); macOS arm64, Linux x86-64 or Windows x86-64 (natively or in WSL2)
+- Python 3.12 or newer (3.12, 3.13 and 3.14 tested); macOS arm64, Linux x86-64 or aarch64, or Windows x86-64 (natively or in WSL2)
 - `pylance` 13.x for writing Lance datasets
 
 ## Contributing
