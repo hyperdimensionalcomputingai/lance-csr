@@ -106,6 +106,21 @@ Each key of `datasets` is a node label or relationship type. Now describe how th
     --8<-- "crates/lance-csr/examples/embedded_query.rs:gs_config"
     ```
 
+!!! tip "Use integer keys"
+
+    We recommend integer node keys and integer `src`/`dst` columns, as in this example. String keys,
+    including UUIDs, give the same results but slow down every query that traverses relationships.
+
+    With the [CSR index](#go-multi-hop-with-the-csr) turned on, a hop from a node reads only that node's
+    neighbours from an in-memory adjacency list. That list stores each key as a 64-bit integer, so string keys
+    can't go in it. Their hops fall back to two hash joins: one over the whole relationship table and one over
+    the whole target node table. That's whole-table work at every hop, however few nodes the query starts
+    from, and it grows with the number of hops and the size of the tables. The engine doesn't warn when it falls
+    back. Path variables (`MATCH p = ...`) need integer keys too, and raise an error without them.
+
+    If your source data uses UUIDs, add an integer id column to use as the key and keep the UUID as an ordinary
+    property. See [Key types and traversal performance](graph-schema.md#key-types-and-traversal-performance).
+
 ## Run a query
 
 `CypherEngine` registers the datasets once and runs as many queries as you like against them:
