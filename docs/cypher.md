@@ -594,7 +594,12 @@ other characters, or that matches a keyword. Inside a quoted name, two backticks
 doesn't change the case rules above.
 
 ```python
-engine.execute(
+device_config = GraphConfig.builder().node_table("Device Type", "asset id").build()
+devices = {
+    "Device Type": pa.table({"asset id": ["a-1", "b-2"], "status": ["active", "retired"]})
+}
+device_engine = CypherEngine(device_config, devices)
+device_engine.execute(
     "MATCH (x:`Device Type`) WHERE x.`asset id` IN $keys RETURN x.`asset id` AS `asset id`",
     {"keys": ["a-1"]},
 ).to_pylist()  # [{'asset id': 'a-1'}]
