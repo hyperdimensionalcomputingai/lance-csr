@@ -22,6 +22,12 @@ Apache DataFusion, with Python bindings. It is a fork of [lance-graph](https://g
 and a research test bed: it pushes the limits of CSR indexes and DataFusion on top of the Lance format, with the
 goal of making multi-hop path traversal fast.
 
+A CSR (compressed sparse row) is a compact adjacency format from the sparse-matrix literature. Each node's
+neighbours sit in one contiguous slice of an array, and a second array of offsets says where each slice starts, so
+following a relationship is an array lookup instead of a join. Embedded graph databases such as
+[Kùzu](https://github.com/kuzudb/kuzu) and [LadybugDB](https://github.com/LadybugDB/ladybug) store their
+relationships this way; lance-csr builds the same structure over relationship tables stored in Lance.
+
 **Documentation:** Visit the [lance-csr documentation site](https://lance-csr.hdclabs.ai/) for getting started,
 Cypher guides, the CSR index, the Python API reference, and benchmarks.
 
@@ -47,9 +53,9 @@ case needs distributed graph queries or graph algorithms, that's the kind of eng
   joins, updated incrementally as the Lance datasets change. See [the CSR index](https://lance-csr.hdclabs.ai/csr/).
 - **A Lance-native engine** that reads each table lazily from a pinned Lance snapshot or holds it in memory, and
   `checkout_latest()`es to new versions.
-- **Much wider Cypher**, enough to run the Graph Data Council's Interactive complex queries: `OPTIONAL MATCH`,
-  pattern predicates, chained `WITH`, `UNWIND`, list and pattern comprehensions, `shortestPath`, `$parameters`
-  and more.
+- **Broader openCypher support**, enough to run the Graph Data Council's Interactive complex queries:
+  `OPTIONAL MATCH`, pattern predicates, chained `WITH`, `UNWIND`, list and pattern comprehensions,
+  `shortestPath`, `$parameters` and more.
 - **Correctness fixes** to behaviour inherited from lance-graph, each with a regression test, and current
   dependencies (Lance 13, DataFusion 54, Arrow 58).
 
@@ -59,9 +65,11 @@ case needs distributed graph queries or graph algorithms, that's the kind of eng
 uv add lance-csr
 ```
 
-Prebuilt wheels cover Linux x86-64 and aarch64, native Apple Silicon and Windows x86-64 (CPython 3.12+); no Rust toolchain is needed. On
-Windows you can also use lance-csr inside WSL2, where it installs the Linux wheel. From Rust, run
-`cargo add lance-csr` and see the [Rust guide](https://lance-csr.hdclabs.ai/rust/). To build from source, see [`python/DEVELOPMENT.md`](python/DEVELOPMENT.md).
+Prebuilt wheels cover Linux x86-64 and aarch64, native Apple Silicon and Windows x86-64 (CPython 3.12+), so no
+Rust toolchain is needed. On Windows, the same command installs the native Windows wheel; you don't need WSL2,
+though lance-csr works there too, with the Linux wheel. From Rust, run `cargo add lance-csr` and see the
+[Rust guide](https://lance-csr.hdclabs.ai/rust/). To build from source, see
+[`python/DEVELOPMENT.md`](python/DEVELOPMENT.md).
 
 ## Example
 
