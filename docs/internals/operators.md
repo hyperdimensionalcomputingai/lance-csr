@@ -154,9 +154,13 @@ ProjectionExec: expr=[b__name@2 as b.name, __agg_0@1 as n]
 The expansion below takes only `b`'s id: the lookup's `b__name` is a column of its own, so
 [`PruneCsrTargetColumns`](optimizer.md#prunecsrtargetcolumns) doesn't count it as a use of the expansion's. Grouping by
 `b.name` without `b.id` keeps the plain grouping, since two nodes may share a name. Unlike a join back to the node
-table, the lookup's cost follows the number of groups, not the size of the table. It applies to
-in-memory node tables only; see [grouping by a node](../csr.md#grouping-by-a-node) for why lazily read Lance tables
-keep the old plan. A [list comprehension](optimizer.md#list-comprehensions-keep-each-row-once) over a list of nodes uses
+table, the lookup's cost follows the number of groups, not the size of the table. A lazily read Lance node table
+gets the lookup only when a `CsrExpand` in the aggregate's input fetches the grouped columns and no other node in that
+input reads them (a projection passing them through doesn't count; a `Filter` or `Distinct` does). Pruning then drops
+them from the expansion, so the lookup replaces that per-edge fetch instead of reading the columns a second time; see
+[grouping by a node](../csr.md#grouping-by-a-node). From Lance, once the looked-up rows pass 1/8 of the table, the
+lookup reads its columns in one sequential pass and gathers from memory, with the same threshold and shared state as
+`CsrExpand`'s target columns. A [list comprehension](optimizer.md#list-comprehensions-keep-each-row-once) over a list of nodes uses
 it too, to bind each element to its node.
 
 ## `PathExists`: pattern predicates walked in place

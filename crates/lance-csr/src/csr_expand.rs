@@ -909,6 +909,41 @@ impl fmt::Debug for TargetScanState {
 // shortcut: fixed share and no memory budget (the engine sets no DataFusion memory pool); add a reservation and fall back to per-chunk fetches if one is configured.
 const TARGET_SCAN_FRACTION: u64 = 8;
 
+/// Fetched rows of `rows` after which [`TargetScanState::read_once`] reads the columns
+/// whole. Fetching at most one batch makes at most one take: never worth a scan.
+fn read_once_after(rows: &NodeRows, batch_size: usize) -> u64 {
+    (rows.num_rows() as u64 / TARGET_SCAN_FRACTION).max(batch_size as u64 + 1)
+}
+
+impl TargetScanState {
+    /// Count `fetched` more rows of `rows`, read `columns` of the whole table once the
+    /// count reaches `scan_after`, and return that read when there is one. A batch that
+    /// crosses the threshold already uses the read. `CsrExpandExec` inlines the same
+    /// steps: calling this per chunk measured about 2% slower on a hop over 1.6M edges.
+    async fn read_once(
+        &self,
+        rows: &NodeRows,
+        columns: &[usize],
+        fetched: u64,
+        scan_after: u64,
+    ) -> datafusion::common::Result<Option<Arc<TargetColumns>>> {
+        use std::sync::atomic::Ordering::Relaxed;
+        if self.columns.get().is_none()
+            && self.fetched.fetch_add(fetched, Relaxed) + fetched >= scan_after
+        {
+            let _building = self.building.lock().await;
+            if self.columns.get().is_none() {
+                let columns = rows
+                    .scan_columns(columns)
+                    .await
+                    .map_err(|e| datafusion::common::DataFusionError::External(Box::new(e)))?;
+                let _ = self.columns.set(columns.map(Arc::new));
+            }
+        }
+        Ok(self.columns.get().cloned().flatten())
+    }
+}
+
 /// Fetch a target's columns from the read-once columns when present, else by row id.
 async fn take_target(
     target: &TargetLookup,
@@ -2531,10 +2566,10 @@ impl ExecutionPlan for CsrExpandExec {
                 .unwrap_or_default(),
         );
         let batch_size = context.session_config().batch_size();
-        // A hop that fetches at most one batch makes at most one take: never worth a scan.
-        let scan_after = self.target.as_ref().map_or(1, |t| {
-            (t.rows.num_rows() as u64 / TARGET_SCAN_FRACTION).max(batch_size as u64 + 1)
-        });
+        let scan_after = self
+            .target
+            .as_ref()
+            .map_or(1, |t| read_once_after(&t.rows, batch_size));
         let schema = self.schema.clone();
         let out_schema = schema.clone();
         let traversal = self.traversal.clone();
@@ -3028,19 +3063,44 @@ fn prune_within(
     plan: LogicalPlan,
     used: &HashSet<String>,
 ) -> datafusion::common::Result<Transformed<LogicalPlan>> {
+    // A projection outputs only its expressions, so lookup columns right under it that
+    // they don't reference are unused, whatever else shares their names (the same
+    // node's columns from another lookup).
+    if let LogicalPlan::Projection(projection) = &plan {
+        if let LogicalPlan::Extension(ext) = projection.input.as_ref() {
+            if let Some(lookup) = ext.node.as_any().downcast_ref::<NodeLookupNode>() {
+                let referenced: HashSet<String> = projection
+                    .expr
+                    .iter()
+                    .flat_map(|e| e.column_refs())
+                    .map(|c| c.name.clone())
+                    .collect();
+                if let Some(pruned) = lookup.pruned(&referenced) {
+                    let input = match pruned {
+                        Ok(node) => LogicalPlan::Extension(Extension {
+                            node: Arc::new(node),
+                        }),
+                        Err(input) => input,
+                    };
+                    let plan =
+                        LogicalPlan::Projection(datafusion::logical_expr::Projection::try_new(
+                            projection.expr.clone(),
+                            Arc::new(input),
+                        )?);
+                    return Ok(Transformed::yes(prune_within(plan, used)?.data));
+                }
+            }
+        }
+    }
     if let LogicalPlan::Extension(ext) = &plan {
         if let Some(lookup) = ext.node.as_any().downcast_ref::<NodeLookupNode>() {
             // The columns a lookup fetches shadow any of the same name below it (a CSR
             // hop's `take` of `b__name` under `NodeLookup: take=b[b__name]`), so its input
             // needs only what the input itself outputs. Find that set only when some hop
             // below fetches one of them, as it takes a walk of the input.
-            let shadows = lookup.input().exists(|node| {
-                Ok(matches!(node, LogicalPlan::Extension(ext)
-                if ext.node.as_any().downcast_ref::<CsrExpandNode>().is_some_and(|csr| {
-                    csr.added_columns()
-                        .any(|c| lookup.fields().iter().any(|f| f.name() == c))
-                })))
-            })?;
+            let shadows = hop_fetches(lookup.input(), |c| {
+                lookup.fields().iter().any(|f| f.name() == c)
+            });
             let input = if shadows {
                 prune_unused_columns(lookup.input().clone())?
             } else {
@@ -3084,6 +3144,48 @@ fn prune_within(
             }
             Ok(Transformed::no(node))
         })
+}
+
+/// Whether a CSR hop in `plan` adds a column for which `wanted` holds (`b__name` for a
+/// hop that fetches `b`'s name).
+pub(crate) fn hop_fetches(plan: &LogicalPlan, wanted: impl Fn(&str) -> bool) -> bool {
+    plan.exists(|node| {
+        Ok(matches!(node, LogicalPlan::Extension(ext)
+            if ext.node.as_any().downcast_ref::<CsrExpandNode>()
+                .is_some_and(|csr| csr.added_columns().any(|c| wanted(c)))))
+    })
+    .unwrap_or(false)
+}
+
+/// Whether a CSR hop in `plan` fetches a column for which `wanted` holds and nothing
+/// else in `plan` reads one, other than a projection passing it through. Pruning then
+/// leaves the hop fetching none of them, once the columns are only needed above `plan`.
+pub(crate) fn only_hop_fetches(plan: &LogicalPlan, wanted: impl Fn(&str) -> bool) -> bool {
+    let passes_through = |e: &Expr| match e {
+        Expr::Column(_) => true,
+        Expr::Alias(alias) => matches!(alias.expr.as_ref(), Expr::Column(_)),
+        _ => false,
+    };
+    let mut fetched = false;
+    let read = plan.exists(|node| {
+        if let LogicalPlan::Extension(ext) = node {
+            if let Some(csr) = ext.node.as_any().downcast_ref::<CsrExpandNode>() {
+                fetched |= csr.added_columns().any(|c| wanted(c));
+                return Ok(false);
+            }
+        }
+        // `DISTINCT` compares every column without naming them.
+        if let LogicalPlan::Distinct(_) = node {
+            return Ok(node.schema().fields().iter().any(|f| wanted(f.name())));
+        }
+        let projection = matches!(node, LogicalPlan::Projection(_));
+        Ok(node
+            .expressions()
+            .iter()
+            .filter(|e| !(projection && passes_through(e)))
+            .any(|e| e.column_refs().iter().any(|c| wanted(&c.name))))
+    });
+    fetched && read.is_ok_and(|read| !read)
 }
 
 fn used_columns(plan: &LogicalPlan) -> datafusion::common::Result<HashSet<String>> {
