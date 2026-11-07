@@ -1124,11 +1124,6 @@ impl CypherEngine {
             .map_err(graph_error_to_pyerr)
     }
 
-    /// Deprecated alias; the Python wrapper warns before calling it.
-    fn refresh(&self, py: Python) -> PyResult<()> {
-        self.checkout_latest(py)
-    }
-
     fn optimize_csr(&self, py: Python) -> PyResult<()> {
         RT.block_on(Some(py), self.inner.optimize_csr())?
             .map_err(graph_error_to_pyerr)

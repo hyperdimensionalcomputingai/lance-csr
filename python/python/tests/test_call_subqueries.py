@@ -396,7 +396,7 @@ def test_rich_path_parameters_bind_freshly(graph):
         assert engine.execute(query, {"start": start}).column(0).to_pylist() == expected
 
 
-def test_rich_path_reader_retains_snapshot_after_refresh(graph, tmp_path):
+def test_rich_path_reader_retains_snapshot_after_checkout_latest(graph, tmp_path):
     import lance
 
     original, config, data = graph

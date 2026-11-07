@@ -112,17 +112,16 @@ def main() -> None:
         warm.append(t)
     emit("warm_query", **summary(warm))
 
-    # Upstream has no checkout_latest() (refresh() in older lance-csr); its equivalent
-    # is building a new engine.
-    refresh = []
-    checkout = getattr(engine, "checkout_latest", None) or getattr(engine, "refresh", None)
+    # Upstream has no checkout_latest(); its equivalent is building a new engine.
+    checkouts = []
+    checkout = getattr(engine, "checkout_latest", None)
     for _ in range(min(args.repeats, 10)):
         if checkout is not None:
             t, _ = timed(checkout)
         else:
             t, engine = timed(lambda: mod.CypherEngine(config, open_datasets()))
-        refresh.append(t)
-    emit("refresh_unchanged", **summary(refresh))
+        checkouts.append(t)
+    emit("checkout_unchanged", **summary(checkouts))
 
     # Control: no engine, inputs converted and catalog rebuilt for every query.
     rebuild = []

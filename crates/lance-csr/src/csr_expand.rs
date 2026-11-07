@@ -107,8 +107,8 @@ use crate::error::{GraphError, Result};
 ///
 /// # Design note for future changes (read before "optimizing" the delta)
 ///
-/// `with_changes` copies the whole delta (not the base) on every refresh, so refresh
-/// cost grows with the delta accumulated since the last full build, not just with
+/// `with_changes` copies the whole delta (not the base) on every `checkout_latest()`,
+/// so its cost grows with the delta accumulated since the last full build, not just with
 /// the new commit. This is deliberate. Snapshots must stay immutable because
 /// in-flight queries keep using the previous one, so the delta cannot be mutated in
 /// place. The copy is bounded: the engine rebuilds once the delta exceeds
@@ -117,16 +117,16 @@ use crate::error::{GraphError, Result};
 /// occurrence offsets; queries can then resume without allocating deletion maps.
 ///
 /// Measured at 10M edges (`python/benchmarks/csr_delta_accumulated.py`, 20 × 1%
-/// appends): refresh grows from about 11 ms to about 80 ms as the delta reaches 20%,
+/// appends): `checkout_latest()` grows from about 11 ms to about 80 ms as the delta reaches 20%,
 /// against 1.2–1.6 s for a full rebuild. Two alternatives were tried or assessed
 /// and rejected:
-/// - shared, immutable delta layers merged like a binary counter: median refresh
-///   74 → 32 ms, but merge cascades spiked to 298 ms, lookups got 5–25% slower, and
+/// - shared, immutable delta layers merged like a binary counter: median
+///   `checkout_latest()` 74 → 32 ms, but merge cascades spiked to 298 ms, lookups got 5–25% slower, and
 ///   the code was about 60 lines larger;
 /// - a persistent hash map (`imbl`): no spikes and one lookup, but about five new
 ///   crates and `unsafe` code to trust.
 ///
-/// Revisit if refreshes become frequent on graphs far larger than 10M edges, or if
+/// Revisit if calls to `checkout_latest()` become frequent on graphs far larger than 10M edges, or if
 /// the rebuild threshold is raised.
 pub struct Adjacency {
     base: Arc<CsrBase>,
@@ -200,7 +200,7 @@ impl Adjacency {
     /// Removals apply to the edges present before this call, so a rewritten fragment
     /// can drop its old rows and add new ones under the same fragment id. `self` is
     /// unchanged, so snapshots still using it keep their answers. The base is never copied.
-    // shortcut: copies the accumulated delta on refresh; bounded by the engine's 25% rebuild threshold. Upgrade to a persistent map if refreshes get frequent on much larger graphs.
+    // shortcut: copies the accumulated delta on each `checkout_latest()`; bounded by the engine's 25% rebuild threshold. Upgrade to a persistent map if `checkout_latest()` gets frequent on much larger graphs.
     pub fn with_changes(&self, added: &[(i64, i64, u64)], removed: &RemovedRows) -> Self {
         let mut next = Self {
             base: self.base.clone(),

@@ -42,7 +42,7 @@ nav = [
       "internals/index.md",
       { "Custom operators" = "internals/operators.md" },
       { "Optimizer rules and rewrites" = "internals/optimizer.md" },
-      { "Indexes and refresh" = "internals/indexes.md" },
+      { "Indexes and updates" = "internals/indexes.md" },
       { "Execution plumbing" = "internals/execution-plumbing.md" },
     ] },
   ] },

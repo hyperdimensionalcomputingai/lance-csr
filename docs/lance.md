@@ -67,11 +67,6 @@ print(engine.execute("MATCH (p:Person) RETURN count(*) AS n").to_pylist())  # [{
 print(engine.dataset_versions())  # {'Person': 2, 'KNOWS': 2}
 ```
 
-!!! note "Formerly `refresh()`"
-
-    This method was called `refresh()` before. `refresh()` still works, and does exactly the same, but it
-    warns with `DeprecationWarning` and will be removed in a later release.
-
 What `checkout_latest()` guarantees:
 
 - **Unchanged datasets keep their handle.** A dataset whose version and commit time are unchanged is reused,

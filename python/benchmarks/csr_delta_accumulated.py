@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright The Lance Authors
 
-"""Refresh cost as CSR deltas accumulate over many small commits.
+"""`checkout_latest()` cost as CSR deltas accumulate over many small commits.
 
 Uses a graph written by ``csr_expand.py``. On a fresh copy of the edge table,
 appends ``--step`` of the edges ``--commits`` times, calling ``checkout_latest()`` after
-each, and prints each refresh's time with the delta size so far. With deltas that
-are copied on every refresh, the time grows with the accumulated delta; with
+each, and prints each call's time with the delta size so far. With deltas that
+are copied on every call, the time grows with the accumulated delta; with
 shared delta layers it should stay roughly proportional to the step.
 
     python benchmarks/csr_delta_accumulated.py --data /tmp/csr-bench --edges 10000000
@@ -60,7 +60,7 @@ def main() -> None:
         lance.write_dataset(new, uri, mode="append")
         start = time.perf_counter()
         engine.checkout_latest()
-        refresh_ms = (time.perf_counter() - start) * 1e3
+        checkout_ms = (time.perf_counter() - start) * 1e3
         stats = engine.csr_stats()["KNOWS"]
         print(
             json.dumps(
@@ -68,7 +68,7 @@ def main() -> None:
                     "commit": commit + 1,
                     "update": stats["update"],
                     "delta_edges": stats["delta_edges"],
-                    "refresh_ms": refresh_ms,
+                    "checkout_ms": checkout_ms,
                 }
             ),
             flush=True,

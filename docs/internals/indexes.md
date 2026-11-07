@@ -1,4 +1,4 @@
-# Indexes and refresh
+# Indexes and updates
 
 The [custom operators](operators.md) read two in-memory indexes. Both are built from the same underlying Lance dataset and point back into
 it, so neither holds a copy of node or relationship properties. [The CSR index](../csr.md) covers what users see:
@@ -7,7 +7,7 @@ are laid out and maintained.
 
 The compact store of offsets and neighbours came from [lance-graph](https://github.com/lance-format/lance-graph),
 whose query planner didn't use it. lance-csr added the edge rows, the delta and tombstones, the node index and
-incremental refresh, and wired the store into query execution through the [custom operators](operators.md).
+incremental updates, and wired the store into query execution through the [custom operators](operators.md).
 
 ```text
                     Lance datasets (pinned version)
@@ -39,7 +39,7 @@ each type has an outgoing and an incoming one. It is built from the relationship
 - each neighbour also records the row its edge came from: its Lance row address (fragment id in the high 32 bits,
   offset in the low 32), or its row number for in-memory input.
 
-The edge row is what lets a hop fetch relationship properties with `take`, and what lets a refresh find deleted edges
+The edge row is what lets a hop fetch relationship properties with `take`, and what lets `checkout_latest()` find deleted edges
 without reading the old dataset version. Edges with a null endpoint are skipped: they could never satisfy the equality
 join the CSR replaces.
 
@@ -51,7 +51,7 @@ from that minimum. Neighbouring slots mostly come from nearby rows of the same f
 GDC SF1 edge rows take about 2 bytes per edge in each direction instead of 8, which cut the CSR's arrays from 613 to
 419 MiB. Any position stays directly readable,
 which traversal needs to resume part-way through a list, and reading a range loads each block's header once. Plain
-hops never unpack edge rows; only hops that name their relationship, and refresh deletes, do.
+hops never unpack edge rows; only hops that name their relationship, and deletes applied by `checkout_latest()`, do.
 
 Neighbours stay a plain `u64` array. Packing them the same way roughly halved them on SF1 (their keys are sparse:
 Comment keys span 2.2 trillion for 2 million rows, so a single width for the whole array, as a `u32` offset, wouldn't
@@ -65,7 +65,7 @@ by scanning only the id column. A label whose ids aren't integers, or aren't uni
 matches several rows in a join, which a single position can't reproduce. The node index depends only on its node
 table, so edge commits update only the adjacency and node commits rebuild only the node index.
 
-## How a refresh diffs Lance versions
+## How `checkout_latest()` diffs Lance versions { #how-checkout-latest-diffs-lance-versions }
 
 `checkout_latest()` compares the pinned and latest versions of each relationship dataset fragment by fragment, from their
 manifests:
@@ -86,25 +86,25 @@ threshold.
 
 ## The delta
 
-The base CSR is immutable and shared between snapshots through an `Arc`. A refresh applies changes as a delta on top
+The base CSR is immutable and shared between snapshots through an `Arc`. `checkout_latest()` applies changes as a delta on top
 of it: appended edges per source key, and tombstones stored as sorted offsets into each source's neighbours. Offsets
 let readers skip deleted occurrences without copying deletion state for each query. Identical edges stay distinct
 occurrences.
 
-Each refresh copies the whole delta, never the base. Snapshots must stay immutable because running queries keep using
+Each `checkout_latest()` call copies the whole delta, never the base. Snapshots must stay immutable because running queries keep using
 the previous one, so the delta can't be mutated in place. The copy is bounded because the engine rebuilds once the
 delta passes 25% of the base. Measured at 10 million edges with `python/benchmarks/csr_delta_accumulated.py` (twenty
-appends of 1% each), a refresh grows from about 11 ms to about 80 ms as the delta reaches 20%, against 1.2 to 1.6 s
+appends of 1% each), a call grows from about 11 ms to about 80 ms as the delta reaches 20%, against 1.2 to 1.6 s
 for a full rebuild.
 
 ??? note "Alternatives that were tried and rejected"
 
-    - **Shared, immutable delta layers merged like a binary counter.** Median refresh fell from 74 to 32 ms, but merge
+    - **Shared, immutable delta layers merged like a binary counter.** The median call fell from 74 to 32 ms, but merge
       cascades spiked to 298 ms, lookups got 5 to 25% slower, and the code was about 60 lines larger.
     - **A persistent hash map (`imbl`).** No spikes and one lookup, but about five new crates and `unsafe` code to
       trust.
 
-    Revisit this if refreshes become frequent on graphs far larger than 10 million edges, or if the rebuild threshold
+    Revisit this if calls to `checkout_latest()` become frequent on graphs far larger than 10 million edges, or if the rebuild threshold
     is raised.
 
 The base and delta map onto Lance's own index design: the delta plays the part of Lance's unindexed rows, and
@@ -130,8 +130,8 @@ The arrays only make sense to `csr_store.rs`, which validates every one before u
 the raw parts, not neighbour lists. The schema metadata records the format, the dataset version, the endpoint column
 names, their Lance field ids and types, and the fragments the base was built from. The delta is never stored.
 
-When an engine starts, it reads the newest file at or before the pinned version. It then diffs that file's fragments against the pinned version, as a refresh diffs two versions (see
-[How a refresh diffs Lance versions](#how-a-refresh-diffs-lance-versions)), so the file's own version doesn't need to
+When an engine starts, it reads the newest file at or before the pinned version. It then diffs that file's fragments against the pinned version, as `checkout_latest()` diffs two versions (see
+[How `checkout_latest()` diffs Lance versions](#how-checkout-latest-diffs-lance-versions)), so the file's own version doesn't need to
 exist any more. An empty diff uses the file as it is; otherwise the changes become the delta, under the same 25%
 threshold. Rebuilds after start-up (from `checkout_latest()` or `optimize_csr()`) don't look for a file, since the stored base
 is the one the engine already holds, but they do store the new one.
