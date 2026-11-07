@@ -64,14 +64,15 @@ Publishing it starts `.github/workflows/python-publish.yml`:
 
 | Job | Time | What it does |
 | --- | ---: | --- |
-| `build-linux` | about 22 min | manylinux_2_28 x86-64 wheel and the sdist |
+| `build-linux` | about 22 min (x86-64), TBD (aarch64) | manylinux_2_28 x86-64 and aarch64 wheels, each built natively (`ubuntu-24.04`, `ubuntu-24.04-arm`), and the sdist |
 | `build-macos` | about 35 min | macOS arm64 wheel, built natively on `macos-15` |
 | `build-windows` | about 52 min | Windows x86-64 wheel, built natively on `windows-2022` |
 | `test` | under 1 min each | each wheel on Python 3.12, 3.13 and 3.14 |
 | `publish` | seconds | checks the tag matches `python/pyproject.toml`, then uploads through PyPI trusted publishing |
 | `publish-crates` | about 10 to 15 min | after `publish`: packages and verifies `lance-csr`, then uploads it through crates.io trusted publishing |
 
-The build jobs run in parallel. Nothing reaches PyPI unless every build and test job passes, and nothing
+The build jobs run in parallel and restore no caches (no sccache, no uv cache), so nothing a pull request's run left
+behind can end up in a release wheel. Nothing reaches PyPI unless every build and test job passes, and nothing
 reaches crates.io unless PyPI publishing succeeds. The `pypi` and `crates-io` environments only accept `v*`
 tags. The PyPI trusted publisher is registered for workflow `python-publish.yml` and environment `pypi`, and
 the crates.io trusted publisher for `lance-csr` for the same workflow and environment `crates-io`, so don't

@@ -18,6 +18,7 @@
 ## Coding Style & Naming Conventions
 - Format Rust with `cargo fmt --all`; keep modules and functions snake_case, types PascalCase, and reuse `snafu` error patterns.
 - Run `cargo clippy --workspace --all-targets -- -D warnings` to catch lint regressions, as CI does.
+- Pin every GitHub Action to a full commit SHA with its exact version in a comment (`@<sha> # v4.4.0`); Dependabot updates the pins. The Workflow Audit job runs `zizmor`; run `uvx zizmor@1.32.0 .github` before pushing workflow changes.
 - Use 4-space indentation in Python; maintain snake_case modules, CamelCase classes, and type-annotated public APIs.
 - Apply `ruff format python/` before committing; `ruff check` and `pyright` enforce import hygiene and typing.
 
