@@ -26,15 +26,25 @@ use datafusion::logical_expr::{
     col, lit, when, Expr, Extension, JoinType, LogicalPlan, LogicalPlanBuilder,
 };
 
-/// One `Expand` of the pattern, with its edge's endpoints in stored direction.
+/// The pairs of a two-hop pattern's edges that the distinct-edges predicate excludes, as
+/// the paths that would use one edge twice. Ordered so that the larger set wins.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Excluded {
+    /// Both edges are self-loops at the middle node: a directed chain.
+    SelfLoops,
+    /// Both edges join the middle node to the same far end: hops that share an end, or
+    /// any undirected hop.
+    SameFarEnd,
+}
+
+/// One `Expand` of the pattern.
 struct Hop<'a> {
     op: &'a LogicalOperator,
     source: &'a str,
     target: &'a str,
     relationship: Option<&'a str>,
     rel_type: &'a str,
-    /// `(src, dst)` of the edge: the traversal reversed for an incoming hop.
-    edge: (&'a str, &'a str),
+    direction: &'a RelationshipDirection,
 }
 
 impl<'a> Hop<'a> {
@@ -52,11 +62,6 @@ impl<'a> Hop<'a> {
             return None;
         };
         let (source, target) = (source_variable.as_str(), target_variable.as_str());
-        let edge = match direction {
-            RelationshipDirection::Outgoing => (source, target),
-            RelationshipDirection::Incoming => (target, source),
-            RelationshipDirection::Undirected => return None,
-        };
         (relationship_types.len() == 1 && source != target).then_some((
             Self {
                 op,
@@ -64,7 +69,7 @@ impl<'a> Hop<'a> {
                 target,
                 relationship: relationship_variable.as_deref(),
                 rel_type: &relationship_types[0],
-                edge,
+                direction,
             },
             input.as_ref(),
         ))
@@ -77,12 +82,19 @@ impl<'a> Hop<'a> {
             .collect()
     }
 
-    /// Mean edges per `middle` node, from the engine's key statistics.
+    /// Mean edges per `middle` node, from the engine's key statistics: both directions'
+    /// for an undirected hop.
     fn fan_out(&self, fan_out: &FanOut, middle: &str) -> Option<f64> {
-        let outgoing = self.edge.0 == middle;
-        fan_out
-            .get(&(self.rel_type.to_lowercase(), outgoing))
-            .copied()
+        let mean = |outgoing| {
+            fan_out
+                .get(&(self.rel_type.to_lowercase(), outgoing))
+                .copied()
+        };
+        match self.direction {
+            RelationshipDirection::Outgoing => mean(self.source == middle),
+            RelationshipDirection::Incoming => mean(self.target == middle),
+            RelationshipDirection::Undirected => Some(mean(true)? + mean(false)?),
+        }
     }
 
     /// The endpoint that is not `middle`.
@@ -145,33 +157,64 @@ impl DataFusionPlanner {
         Some(qualify_column(variable, &mapping.id_field))
     }
 
-    /// Whether `expr` is `NOT (x1 = y1 AND x2 = y2)` over node ids, with `(x1, y1)` and
-    /// `(x2, y2)` being `pairs`: the predicate the logical planner adds so that two hops of
-    /// one type never bind the same edge (`distinct_relationships`).
-    fn is_distinct_edges(
+    /// Which pairs of edges `expr` excludes, if it is the predicate the logical planner adds
+    /// so that two hops of one type never bind the same edge (`distinct_relationships`):
+    /// `NOT (x1 = y1 AND x2 = y2)` over node ids, or, when a hop is undirected, an `OR` of
+    /// that and the swapped endpoints. Every endpoint is the middle node `m` or a far end,
+    /// `a` of the first hop or `c` of the second; `None` for any other predicate.
+    fn excluded_pairs(
         &self,
         ctx: &PlanningContext,
         expr: &BooleanExpression,
-        pairs: [(&str, &str); 2],
-    ) -> bool {
+        [m, a, c]: [&str; 3],
+    ) -> Option<Excluded> {
         let BooleanExpression::Not(inner) = expr else {
-            return false;
+            return None;
         };
-        let BooleanExpression::And(first, second) = inner.as_ref() else {
-            return false;
+        let variable = |value: &ValueExpression| match value {
+            ValueExpression::Property(p)
+                if self.id_column(ctx, &p.variable)
+                    == Some(qualify_column(&p.variable, &p.property)) =>
+            {
+                [m, a, c].into_iter().find(|v| *v == p.variable)
+            }
+            _ => None,
         };
-        let is_id = |value: &ValueExpression, variable: &str| {
-            matches!(value, ValueExpression::Property(p)
-                if p.variable == variable
-                    && self.id_column(ctx, variable)
-                        == Some(qualify_column(variable, &p.property)))
+        // The nodes one `x1 = y1 AND x2 = y2` makes equal: all three, or `a` and `c`.
+        let same = |expr: &BooleanExpression| {
+            let BooleanExpression::And(first, second) = expr else {
+                return None;
+            };
+            let mut equal = Vec::new();
+            for expr in [first, second] {
+                let BooleanExpression::Comparison {
+                    left,
+                    operator: ComparisonOperator::Equal,
+                    right,
+                } = expr.as_ref()
+                else {
+                    return None;
+                };
+                let pair = [variable(left)?, variable(right)?];
+                if pair[0] != pair[1] {
+                    equal.push(pair);
+                }
+            }
+            let joins = |x: &str, y: &str| equal.iter().any(|p| p.contains(&x) && p.contains(&y));
+            match equal.len() {
+                1 if joins(a, c) => Some(Excluded::SameFarEnd),
+                2 if joins(a, m) && joins(m, c) => Some(Excluded::SelfLoops),
+                _ => None,
+            }
         };
-        let equal = |expr: &BooleanExpression, (x, y): (&str, &str)| {
-            matches!(expr, BooleanExpression::Comparison {
-                left, operator: ComparisonOperator::Equal, right
-            } if is_id(left, x) && is_id(right, y))
-        };
-        equal(first, pairs[0]) && equal(second, pairs[1])
+        match inner.as_ref() {
+            BooleanExpression::Or(first, second) => {
+                let (first, second) = (same(first)?, same(second)?);
+                // Self-loops at `m` already have the same far end.
+                Some(first.max(second))
+            }
+            inner => same(inner),
+        }
     }
 
     /// `RETURN count(*)` (or `count(v)` of a pattern variable, never null) over
@@ -182,15 +225,16 @@ impl DataFusionPlanner {
     /// filter that hop's edges before grouping, and the hops' mean fan-outs at `m` say
     /// there are many more paths than edges (not so for `(i)<--(p)-->(city)`, one city
     /// per person, where grouping only adds work). When both hops have the same type the
-    /// logical planner also requires that they not have the same endpoints; for a chain
-    /// (`m` the target of one edge and the source of the other) that only excludes pairs
-    /// of self-loops at `m`, which `s1` and `s2` count. Endpoints are compared, not edge
-    /// ids, so k parallel self-loops exclude k² pairs, as on the join path.
+    /// logical planner also requires that they not have the same endpoints; for a directed
+    /// chain (`m` the target of one edge and the source of the other) that only excludes
+    /// pairs of self-loops at `m`, which `s1` and `s2` count. Endpoints are compared, not
+    /// edge ids, so k parallel self-loops exclude k² pairs, as on the join path.
     ///
-    /// Two same-type hops that share an end (`(a)-->(m)<--(c)`) exclude every pair whose
-    /// far ends are the same node `x`: `Σ_x k1(m, x) · k2(m, x)`, where `k1` and `k2` count
-    /// each hop's edges between `m` and `x`. Those hops are grouped by both ends instead,
-    /// which [`Self::shared_end_count`] sums to the count.
+    /// Two same-type hops that share an end (`(a)-->(m)<--(c)`), or where either hop is
+    /// undirected, exclude every pair whose far ends are the same node `x`:
+    /// `Σ_x k1(m, x) · k2(m, x)`, where `k1` and `k2` count each hop's edges between `m`
+    /// and `x`. Those hops are grouped by both ends instead, which
+    /// [`Self::shared_end_count`] sums to the count.
     pub(crate) fn try_build_two_hop_count(
         &self,
         ctx: &mut PlanningContext,
@@ -289,20 +333,18 @@ impl DataFusionPlanner {
             return Ok(None);
         };
 
-        let pairs = [(first.edge.0, second.edge.0), (first.edge.1, second.edge.1)];
-        let chain = first.edge.1 == second.edge.0 || first.edge.0 == second.edge.1;
+        let ends = [middle, first.other(middle), second.other(middle)];
         let (mut middle_filter, mut first_filter, mut second_filter) = (vec![], vec![], vec![]);
-        // The correction the distinct-edges predicate needs: self-loops for a chain, pairs
-        // with the same far end for hops that share an end.
+        // The correction the distinct-edges predicate needs: self-loops for a directed
+        // chain, pairs with the same far end for hops that share an end or are undirected.
         let (mut self_loops, mut shared_end) = (false, false);
         // Variables the kept filters read: a relationship no filter reads needs no edge.
         let mut read = HashSet::new();
         for predicate in predicates {
-            if self.is_distinct_edges(ctx, predicate, pairs) {
-                if chain {
-                    self_loops = true;
-                } else {
-                    shared_end = true;
+            if let Some(excluded) = self.excluded_pairs(ctx, predicate, ends) {
+                match excluded {
+                    Excluded::SelfLoops => self_loops = true,
+                    Excluded::SameFarEnd => shared_end = true,
                 }
                 continue;
             }
@@ -646,7 +688,8 @@ impl DataFusionPlanner {
         };
         let reversed = match direction {
             RelationshipDirection::Outgoing => RelationshipDirection::Incoming,
-            _ => RelationshipDirection::Outgoing,
+            RelationshipDirection::Incoming => RelationshipDirection::Outgoing,
+            RelationshipDirection::Undirected => RelationshipDirection::Undirected,
         };
         let hop = LogicalOperator::Expand {
             input: Box::new(scan.clone()),
@@ -1016,13 +1059,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn undirected_hops() {
+        // Counts beyond the engine's dense block, which `count` checks against the join plan.
+        let extra = |edges: &'static [(i64, i64)],
+                     likes: &'static [(i64, i64)],
+                     q: &'static str| async move {
+            count(edges, likes, q).await - count(&[], &[], q).await
+        };
+        let mixed = "MATCH (a:Person)-[:FOLLOWS]-(b:Person)-[:LIKES]->(c:Person) RETURN count(*)";
+        // 2's undirected FOLLOWS neighbours 1 and 3, times its one LIKES edge.
+        assert_eq!(extra(&[(1, 2), (2, 3)], &[(2, 4)], mixed).await, 2);
+        // An undirected self-loop is one neighbour, and different types never share an edge.
+        assert_eq!(extra(&[(2, 2)], &[(2, 2)], mixed).await, 1);
+        // Same type: a pair with the same far end would walk one edge twice.
+        let both = "MATCH (a:Person)-[:FOLLOWS]-(b:Person)-[:FOLLOWS]-(c:Person) RETURN count(*)";
+        assert_eq!(extra(&[(1, 2), (2, 3)], &[], both).await, 2);
+        assert_eq!(extra(&[(1, 2), (2, 3), (2, 2)], &[], both).await, 6);
+        // Endpoints are compared either way round, so 1→2 and 2→1 never pair up.
+        assert_eq!(extra(&[(1, 2), (2, 1), (2, 3)], &[], both).await, 4);
+        // Only 1-2-3: 3-2-3 would walk 2→3, or 3→2 against it, twice.
+        let half = "MATCH (a:Person)-[:FOLLOWS]-(b:Person)-[:FOLLOWS]->(c:Person) RETURN count(c)";
+        assert_eq!(extra(&[(1, 2), (2, 3), (3, 2)], &[], half).await, 1);
+        // At 2: three edges in from a.age > 15, four neighbours, three far ends shared.
+        let into = "MATCH (a:Person)-[:FOLLOWS]->(b:Person)-[:FOLLOWS]-(c:Person) \
+                    WHERE a.age > 15 RETURN count(*)";
+        assert_eq!(extra(&[(1, 2), (3, 2), (4, 2), (2, 2)], &[], into).await, 9);
+        // The root hop, counted per node.
+        let follows = [(1, 2), (3, 2), (2, 2), (2, 4)];
+        let query = "MATCH (a:Person)-[:FOLLOWS]-(b:Person) RETURN b.id AS b, count(a) AS n";
+        assert!(grouped(&follows, query, true)
+            .await
+            .contains(&"2,4".to_string()));
+    }
+
+    #[tokio::test]
     async fn other_queries_keep_the_join_plan() {
         let engine = engine(&[(1, 2), (2, 3)], &[], false).await;
         for query in [
             // A filter across the two hops.
             "MATCH (a:Person)-[:FOLLOWS]->(b:Person)-[:FOLLOWS]->(c:Person) \
              WHERE a.age < c.age RETURN count(*)",
-            "MATCH (a:Person)-[:FOLLOWS]-(b:Person)-[:FOLLOWS]->(c:Person) RETURN count(*)",
             "MATCH (a:Person)-[:FOLLOWS]->(b:Person)-[:FOLLOWS]->(a) RETURN count(*)",
             "MATCH (a:Person)-[:FOLLOWS]->(b:Person)-[:FOLLOWS]->(c:Person) \
              RETURN count(DISTINCT c)",
