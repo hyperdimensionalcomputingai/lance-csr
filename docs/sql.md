@@ -120,12 +120,17 @@ Cypher's backticks work too. The direct `graph_table('...')` call takes Cypher t
 is a string.
 
 ```python
-engine.execute("""
+device_config = GraphConfig.builder().node_table("Device Type", "asset id").build()
+devices = {
+    "Device Type": pa.table({"asset id": ["a-1", "b-2"], "status": ["active", "retired"]})
+}
+device_engine = SqlEngine(devices, device_config)
+device_engine.execute("""
     SELECT g."asset id" FROM GRAPH_TABLE (
         MATCH (x:"Device Type") WHERE x.status = 'active'
         COLUMNS (x."asset id" AS "asset id")
     ) g
-""")
+""").to_pylist()  # [{'asset id': 'a-1'}]
 ```
 
 To run Cypher and SQL over the same data, build the `CypherEngine` and share its snapshot. Nothing is rebuilt, and
