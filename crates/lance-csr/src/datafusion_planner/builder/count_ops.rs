@@ -186,8 +186,11 @@ impl DataFusionPlanner {
     /// (`m` the target of one edge and the source of the other) that only excludes pairs
     /// of self-loops at `m`, which `s1` and `s2` count. Endpoints are compared, not edge
     /// ids, so k parallel self-loops exclude k² pairs, as on the join path.
-    // shortcut: two same-type hops that share an end (`(a)-->(m)<--(c)`) keep the join
-    // plan, as their correction needs grouping by both ends; add it if that shape matters.
+    ///
+    /// Two same-type hops that share an end (`(a)-->(m)<--(c)`) exclude every pair whose
+    /// far ends are the same node `x`: `Σ_x k1(m, x) · k2(m, x)`, where `k1` and `k2` count
+    /// each hop's edges between `m` and `x`. Those hops are grouped by both ends instead,
+    /// which [`Self::shared_end_count`] sums to the count.
     pub(crate) fn try_build_two_hop_count(
         &self,
         ctx: &mut PlanningContext,
@@ -289,15 +292,18 @@ impl DataFusionPlanner {
         let pairs = [(first.edge.0, second.edge.0), (first.edge.1, second.edge.1)];
         let chain = first.edge.1 == second.edge.0 || first.edge.0 == second.edge.1;
         let (mut middle_filter, mut first_filter, mut second_filter) = (vec![], vec![], vec![]);
-        let mut self_loops = false;
+        // The correction the distinct-edges predicate needs: self-loops for a chain, pairs
+        // with the same far end for hops that share an end.
+        let (mut self_loops, mut shared_end) = (false, false);
         // Variables the kept filters read: a relationship no filter reads needs no edge.
         let mut read = HashSet::new();
         for predicate in predicates {
             if self.is_distinct_edges(ctx, predicate, pairs) {
-                if !chain {
-                    return Ok(None);
+                if chain {
+                    self_loops = true;
+                } else {
+                    shared_end = true;
                 }
-                self_loops = true;
                 continue;
             }
             let mut names = HashSet::new();
@@ -381,6 +387,22 @@ impl DataFusionPlanner {
         // Built in the original order, so each hop takes the same relationship instance.
         let first_plan = self.build_operator(ctx, &from_middle(&first, first_filter))?;
         let second_plan = self.build_operator(ctx, &from_middle(&second, second_filter))?;
+        let output = item.alias.as_ref().map_or_else(
+            || super::super::expression::to_cypher_column_name(&item.expression),
+            |alias| alias.to_lowercase(),
+        );
+        if shared_end {
+            return self
+                .shared_end_count(
+                    [
+                        (first_plan, first_other.as_str()),
+                        (second_plan, second_other.as_str()),
+                    ],
+                    &middle_id,
+                    &output,
+                )
+                .map(Some);
+        }
 
         let column = |name: &str| col(Column::new_unqualified(name));
         let per_middle = |plan: LogicalPlan, other: &str, n: usize| -> Result<LogicalPlan> {
@@ -414,10 +436,6 @@ impl DataFusionPlanner {
         if self_loops {
             paths = paths - column("__s1") * column("__s2");
         }
-        let output = item.alias.as_ref().map_or_else(
-            || super::super::expression::to_cypher_column_name(&item.expression),
-            |alias| alias.to_lowercase(),
-        );
         let plan = LogicalPlanBuilder::from(first_plan)
             .join(
                 second_plan,
@@ -432,6 +450,59 @@ impl DataFusionPlanner {
             .build()
             .map_err(|e| self.plan_error("Failed to build two-hop count", e))?;
         Ok(Some(plan))
+    }
+
+    /// The two-hop count for same-type hops that share an end `m`, from each hop's rows
+    /// (`m`'s id column `middle_id`, the far end's id column): `Σ_m n1(m) · n2(m) - c(m)`,
+    /// where `c(m) = Σ_x k1(m, x) · k2(m, x)` counts the excluded pairs, whose two edges
+    /// join `m` to the same `x`. Both hops' rows go through one grouping by `(m, x)` and
+    /// one by `m`, so the work still follows the edges.
+    fn shared_end_count(
+        &self,
+        hops: [(LogicalPlan, &str); 2],
+        middle_id: &str,
+        output: &str,
+    ) -> Result<LogicalPlan> {
+        let column = |name: &str| col(Column::new_unqualified(name));
+        // One row per edge, marked with the hop it belongs to.
+        let side = |plan: LogicalPlan, other: &str, marks: [i64; 2]| {
+            LogicalPlanBuilder::from(plan)
+                .project(vec![
+                    column(middle_id).alias("__m"),
+                    column(other).alias("__x"),
+                    lit(marks[0]).alias("__k1"),
+                    lit(marks[1]).alias("__k2"),
+                ])?
+                .build()
+        };
+        let [(first, first_other), (second, second_other)] = hops;
+        let pairs = (column("__k1") * column("__k2")).alias("__c");
+        LogicalPlanBuilder::from(side(first, first_other, [1, 0])?)
+            .union(side(second, second_other, [0, 1])?)?
+            .aggregate(
+                vec![column("__m"), column("__x")],
+                vec![
+                    sum(column("__k1")).alias("__k1"),
+                    sum(column("__k2")).alias("__k2"),
+                ],
+            )?
+            .aggregate(
+                vec![column("__m")],
+                vec![
+                    sum(column("__k1")).alias("__n1"),
+                    sum(column("__k2")).alias("__n2"),
+                    sum(pairs).alias("__c"),
+                ],
+            )?
+            .aggregate(
+                Vec::<Expr>::new(),
+                vec![sum(column("__n1") * column("__n2") - column("__c")).alias("__paths")],
+            )?
+            .project(vec![
+                coalesce(vec![column("__paths"), lit(0_i64)]).alias(output)
+            ])?
+            .build()
+            .map_err(|e| self.plan_error("Failed to build two-hop count", e))
     }
 }
 
@@ -903,14 +974,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn same_type_hops_sharing_an_end() {
+        let into =
+            "MATCH (a:Person)-[r1:FOLLOWS]->(b:Person)<-[r2:FOLLOWS]-(c:Person) RETURN count(*)";
+        let out_of =
+            "MATCH (a:Person)<-[:FOLLOWS]-(b:Person)-[:FOLLOWS]->(c:Person) RETURN count(c)";
+        // The engine's dense block adds 400 paths to each shape: each of its five middle
+        // nodes has two parallel edges to five far ends, 10² - 5 · 2² pairs.
+        const DENSE: i64 = 400;
+        // 1 and 3 follow 2: each pairs with the other, never with itself.
+        assert_eq!(count(&[(1, 2), (3, 2)], &[], into).await, DENSE + 2);
+        // Endpoints are compared: 1's two parallel edges to 2 exclude all four of their
+        // pairs, as on the join path, leaving 1 and 3 paired both ways, twice each.
+        assert_eq!(count(&[(1, 2), (1, 2), (3, 2)], &[], into).await, DENSE + 4);
+        // A self-loop at 2 is one more far end, 2 itself.
+        assert_eq!(count(&[(1, 2), (2, 2)], &[], into).await, DENSE + 2);
+        assert_eq!(
+            count(&[(2, 1), (2, 3), (2, 2)], &[], out_of).await,
+            DENSE + 6
+        );
+        // The shared end as the pattern's root.
+        let rooted =
+            "MATCH (b:Person)-[:FOLLOWS]->(a:Person), (b)-[:FOLLOWS]->(c:Person) RETURN count(*)";
+        assert_eq!(
+            count(&[(2, 1), (2, 3), (2, 2)], &[], rooted).await,
+            DENSE + 6
+        );
+        // A far end that passes only one hop's filter is never excluded; the counts are
+        // checked against the join plan.
+        let follows = [(1, 2), (3, 2), (4, 2), (4, 2), (2, 2), (4, 3)];
+        for filter in [
+            "WHERE a.age > 15",
+            "WHERE a.age > 15 AND c.age < 50",
+            "WHERE b.age < 50 AND c.age > 25",
+            "WHERE r1.src <> 3",
+        ] {
+            let query = into.replace("RETURN", &format!("{filter} RETURN"));
+            let n = count(&follows, &[], &query).await;
+            assert!(n > 0, "{query}");
+        }
+    }
+
+    #[tokio::test]
     async fn other_queries_keep_the_join_plan() {
         let engine = engine(&[(1, 2), (2, 3)], &[], false).await;
         for query in [
             // A filter across the two hops.
             "MATCH (a:Person)-[:FOLLOWS]->(b:Person)-[:FOLLOWS]->(c:Person) \
              WHERE a.age < c.age RETURN count(*)",
-            // Same-type hops sharing an end: the correction needs both ends.
-            "MATCH (a:Person)-[:FOLLOWS]->(b:Person)<-[:FOLLOWS]-(c:Person) RETURN count(*)",
             "MATCH (a:Person)-[:FOLLOWS]-(b:Person)-[:FOLLOWS]->(c:Person) RETURN count(*)",
             "MATCH (a:Person)-[:FOLLOWS]->(b:Person)-[:FOLLOWS]->(a) RETURN count(*)",
             "MATCH (a:Person)-[:FOLLOWS]->(b:Person)-[:FOLLOWS]->(c:Person) \

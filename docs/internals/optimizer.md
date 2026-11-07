@@ -137,8 +137,11 @@ when the node table is in memory, rather than a hash join against the whole tabl
 `Σ n1(b) × n2(b)` (eager aggregation, after Yan and Larson), so the work follows the edges, not the paths. Each hop
 is planned from `b` on its own, after any filter on `b` alone, and grouped to one row per `b` before the two sides
 join on `b`'s id. When both hops have the same type, Cypher's rule that a path uses each edge once excludes the pairs
-that reuse a self-loop at `b`, so the planner subtracts `s1(b) × s2(b)`, the self-loops counted on each side. It
-applies when every `WHERE` condition reads one hop's variables, and the hops' mean fan-outs at `b` (from the
+that reuse a self-loop at `b`, so the planner subtracts `s1(b) × s2(b)`, the self-loops counted on each side. Two
+same-type hops that share an end, such as `(a)-[:R]->(b)<-[:R]-(c)`, instead exclude every pair whose far ends are
+the same node `x`, and their edges are compared by endpoints, so `k` parallel edges between `b` and `x` exclude `k²`
+pairs. Those hops are grouped by both ends, `b` and the far end, and then by `b`, which gives `n1(b)`, `n2(b)` and
+the excluded pairs `Σ k1(b, x) × k2(b, x)` in one pass over the edges; they don't count in place. It applies when every `WHERE` condition reads one hop's variables, and the hops' mean fan-outs at `b` (from the
 [join statistics](#join-statistics-for-graph-workloads)) say there are at least twice as many paths as edges.
 
 A relationship variable no condition reads is left unbound, so the CSR doesn't fetch its edge rows. Each side's
