@@ -146,6 +146,13 @@ edges between `b` and `x` exclude `k²` pairs, as on the join path. These hops a
 far end, and then by `b`, which gives `n1(b)`, `n2(b)` and the excluded pairs `Σ k1(b, x) × k2(b, x)` in one pass
 over the edges; they don't count in place. An undirected hop's mean fan-out is the sum of both directions'.
 
+The second hop can also be an `OPTIONAL MATCH (b)-[:S]->(c)` from the first hop's `b`. It is grouped per `b` the
+same way and left-joined, and a `b` without a match contributes `n1(b)` rows, one per first-hop edge, with `c` null:
+the count is `Σ n1(b) × coalesce(n2(b), 1)`, or `coalesce(n2(b), 0)` for `count(c)`, which skips nulls. The
+optional clause's own `WHERE` filters the second hop's edges, including conditions on `b` alone, since a `b` it
+rejects still keeps its null row. The two clauses don't share the rule that a path uses each edge once, so no pairs
+are subtracted.
+
 The rewrite applies when every `WHERE` condition reads one hop's variables, and the hops' mean fan-outs at `b` (from
 the [join statistics](#join-statistics-for-graph-workloads)) say there are at least twice as many paths as edges.
 
