@@ -180,10 +180,63 @@ def test_unmatched_optional_node_groups_with_null_columns(use_csr):
     assert rows == [(0, None, 2), (1, "a", 1), (2, "b", 2), (3, "c", 3)]
 
 
+def test_lookup_projected_away_is_dropped():
+    # The OPTIONAL MATCH joins on b's id alone, so the lookup under the join's left
+    # side fetches nothing anyone reads, even though b.name is used elsewhere.
+    datasets = {"Person": PEOPLE, "KNOWS": KNOWS}
+    query = (
+        "MATCH (a:Person)-[:KNOWS]->(b:Person) WITH b, collect(a.id) AS xs "
+        "OPTIONAL MATCH (b)-[:KNOWS]->(c:Person) WHERE c.id IN xs "
+        "WITH b, count(c) AS m RETURN b.name AS name, m"
+    )
+    csr = CypherEngine(CONFIG, datasets, use_csr=True)
+    assert csr.explain(query).count("NodeLookupExec") == 2
+    got = sorted((r["name"], r["m"]) for r in csr.execute(query).to_pylist())
+    assert got == [("a", 0), ("b", 0), ("c", 1)]
+
+
 @pytest.mark.parametrize("lazy", [False, True])
-def test_node_lookup_over_many_groups(tmp_path, lazy):
-    # More groups than one batch. From Lance, with deleted rows, the plain grouping
-    # must still match the join path.
+@pytest.mark.parametrize(
+    ("query", "lance_lookup"),
+    [
+        # More groups than one batch: from Lance, the columns are read whole once.
+        (
+            "MATCH (a:Person)-[:KNOWS]->(b:Person) WITH b, collect(a.age) AS ages "
+            "RETURN b.id AS id, b.name AS name, size(ages) AS n",
+            True,
+        ),
+        # A few groups: from Lance, looked up by row id.
+        (
+            "MATCH (a:Person)-[:KNOWS]->(b:Person) WHERE a.id < 100 "
+            "WITH b, collect(a.age) AS ages "
+            "RETURN b.id AS id, b.name AS name, size(ages) AS n",
+            True,
+        ),
+        # b's columns come from a scan, not a hop: from Lance, a lookup would read
+        # them twice, so it keeps the plain grouping.
+        (
+            "MATCH (b:Person)-[:KNOWS]->(a:Person) WITH b, collect(a.age) AS ages "
+            "RETURN b.id AS id, b.name AS name, size(ages) AS n",
+            False,
+        ),
+        # The hop's b columns are also read before the grouping, by a WHERE or a
+        # DISTINCT, so the hop keeps fetching them: from Lance, no second read.
+        (
+            "MATCH (a:Person)-[:KNOWS]->(b:Person) WHERE b.age > 10 "
+            "WITH b, collect(a.age) AS ages "
+            "RETURN b.id AS id, b.name AS name, size(ages) AS n",
+            False,
+        ),
+        (
+            "MATCH (a:Person)-[:KNOWS]->(b:Person) WITH DISTINCT a, b "
+            "WITH b, collect(a.age) AS ages "
+            "RETURN b.id AS id, b.name AS name, size(ages) AS n",
+            False,
+        ),
+    ],
+)
+def test_node_lookup_over_many_groups(tmp_path, lazy, query, lance_lookup):
+    # From Lance, with deleted rows, the lookup must still match the join path.
     n = 20000
     people = pa.table(
         {
@@ -203,13 +256,9 @@ def test_node_lookup_over_many_groups(tmp_path, lazy):
         lance.dataset(tmp_path / "p.lance").delete("id % 13 = 0")
         people = lance.dataset(tmp_path / "p.lance")
     datasets = {"Person": people, "KNOWS": knows}
-    query = (
-        "MATCH (a:Person)-[:KNOWS]->(b:Person) WITH b, count(*) AS n "
-        "RETURN b.id AS id, b.name AS name, b.age AS age, n"
-    )
     csr = CypherEngine(CONFIG, datasets, use_csr=True)
-    # Only in-memory node tables are looked up; Lance ones keep the plain grouping.
-    assert ("NodeLookupExec" in csr.explain(query)) is not lazy
+    plan = csr.explain(query)
+    assert ("NodeLookupExec" in plan) is (lance_lookup or not lazy), plan
     by_id = lambda t: sorted(t.to_pylist(), key=lambda r: r["id"])  # noqa: E731
     assert by_id(csr.execute(query)) == by_id(
         CypherEngine(CONFIG, datasets).execute(query)

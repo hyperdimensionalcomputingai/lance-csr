@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::ast::ValueExpression;
 use crate::case_insensitive::qualify_column;
-use crate::csr_expand::{NodeLookupNode, NodeRows};
+use crate::csr_expand::{only_hop_fetches, NodeLookupNode, NodeRows};
 use crate::datafusion_planner::analysis::PlanningContext;
 use crate::datafusion_planner::DataFusionPlanner;
 use crate::error::Result;
@@ -112,28 +112,30 @@ fn count_values_without_ids(
 
 impl DataFusionPlanner {
     /// For `WITH b, ...` grouped by a node, or `RETURN b.id, b.name, ...` grouped by its
-    /// id and other properties: when `b`'s label has an in-memory node index (unique
-    /// integer ids), group by the id alone and look the other columns up afterwards,
-    /// once per node. Rows before the grouping can outnumber nodes many times over (an
-    /// expansion), and carrying each node's columns through the aggregate costs more
-    /// than the lookup. With unique ids, grouping by the id and by all the columns are
-    /// the same. A Lance node table keeps the plain grouping: the input rows already hold
-    /// the node's columns, read by an earlier step, so grouping by them reads nothing
-    /// more, while a lookup afterwards would read them from disk a second time.
+    /// id and other properties: when `b`'s label has a node index (unique integer ids),
+    /// group by the id alone and look the other columns up afterwards, once per node.
+    /// Rows before the grouping can outnumber nodes many times over (an expansion), and
+    /// carrying each node's columns through the aggregate costs more than the lookup.
+    /// With unique ids, grouping by the id and by all the columns are the same.
+    ///
+    /// A Lance node table is looked up only when a CSR hop in `input` fetches the
+    /// columns and nothing else in `input` reads them: the hop then fetches only the id,
+    /// and the lookup reads the columns once per node instead of once per expanded row.
+    /// Columns read by a scan or a join, or used before the grouping (a `WHERE` or
+    /// `DISTINCT` on them), keep the plain grouping, as a lookup afterwards would read
+    /// them a second time.
     ///
     /// `names` are the grouped columns of `var` (`b__id`, `b__name`); `None` unless they
     /// include the id and at least one other column of the node table.
     fn late_node<'a>(
         &self,
         ctx: &PlanningContext,
+        input: &LogicalPlan,
         var: &str,
         names: impl IntoIterator<Item = &'a str>,
     ) -> Option<LateNode> {
         let label = ctx.analysis.var_to_label.get(var)?;
         let rows = self.adjacency.as_ref()?.nodes(label)?.clone();
-        if !rows.in_memory() {
-            return None;
-        }
         let id = self.id_column(ctx, var)?;
         let prefix = format!("{}__", var.to_lowercase());
         let table = rows.schema().clone();
@@ -154,6 +156,9 @@ impl DataFusionPlanner {
                 others.push((name.to_string(), field.name().clone()));
             }
         }
+        if !rows.in_memory() && !only_hop_fetches(input, |c| others.iter().any(|(n, _)| n == c)) {
+            return None;
+        }
         (found_id && !others.is_empty()).then(|| LateNode {
             variable: var.to_lowercase(),
             rows,
@@ -167,6 +172,7 @@ impl DataFusionPlanner {
     fn late_properties(
         &self,
         ctx: &PlanningContext,
+        input: &LogicalPlan,
         projections: &[ProjectionItem],
     ) -> Vec<LateNode> {
         let mut grouped: Vec<(String, Vec<String>)> = Vec::new();
@@ -187,7 +193,9 @@ impl DataFusionPlanner {
         grouped
             .into_iter()
             .filter(|(var, _)| !whole(var))
-            .filter_map(|(var, names)| self.late_node(ctx, &var, names.iter().map(String::as_str)))
+            .filter_map(|(var, names)| {
+                self.late_node(ctx, input, &var, names.iter().map(String::as_str))
+            })
             .collect()
     }
 
@@ -214,7 +222,7 @@ impl DataFusionPlanner {
             })
             .collect();
         let projections = bound.as_slice();
-        let late_properties = self.late_properties(ctx, projections);
+        let late_properties = self.late_properties(ctx, &input_plan, projections);
         let mut late = Vec::new();
         for p in projections {
             // Grouping by a node groups by all its columns (`WITH b, count(*) AS n`).
@@ -229,7 +237,9 @@ impl DataFusionPlanner {
                         _ => None,
                     })
                     .collect();
-                if let Some(node) = names.and_then(|names| self.late_node(ctx, var, names)) {
+                if let Some(node) =
+                    names.and_then(|names| self.late_node(ctx, &input_plan, var, names))
+                {
                     group_exprs.push(col(Column::new_unqualified(&node.id)));
                     late.push(node);
                     continue;

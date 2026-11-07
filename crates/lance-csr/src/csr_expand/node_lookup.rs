@@ -229,9 +229,9 @@ impl UserDefinedLogicalNodeCore for NodeLookupNode {
 }
 
 /// Executes [`NodeLookupNode`]: per batch, the key's node rows, then one take of the
-/// wanted columns.
-// shortcut: no read-once switch like `CsrExpandExec`'s targets, as the planner only looks
-// up in-memory node tables; add one if Lance node tables are looked up.
+/// wanted columns. From a Lance table, once the looked-up rows pass the share a CSR
+/// hop's target fetch switches at, the columns are read whole once and gathered from
+/// memory, like the hop's.
 #[derive(Debug)]
 pub struct NodeLookupExec {
     input: Arc<dyn ExecutionPlan>,
@@ -241,6 +241,8 @@ pub struct NodeLookupExec {
     columns: Vec<usize>,
     schema: SchemaRef,
     properties: Arc<PlanProperties>,
+    /// Shared by the partitions: rows looked up so far, and the columns once read whole.
+    scan_state: Arc<TargetScanState>,
 }
 
 impl NodeLookupExec {
@@ -260,6 +262,7 @@ impl NodeLookupExec {
             columns: node.columns.clone(),
             schema,
             properties,
+            scan_state: Arc::default(),
         }
     }
 
@@ -270,6 +273,8 @@ impl NodeLookupExec {
         rows: &NodeRows,
         columns: &[usize],
         schema: &SchemaRef,
+        scan_state: &TargetScanState,
+        scan_after: u64,
     ) -> datafusion::common::Result<RecordBatch> {
         let external = |e: GraphError| datafusion::common::DataFusionError::External(Box::new(e));
         let ids = int64_column(&batch, key_column).map_err(external)?;
@@ -285,7 +290,14 @@ impl NodeLookupExec {
                 Some(positions.len() as u32 - 1)
             })
             .collect();
-        let fetched = rows.take(&positions, columns).await.map_err(external)?;
+        let scanned = scan_state
+            .read_once(rows, columns, positions.len() as u64, scan_after)
+            .await?;
+        let fetched = match scanned {
+            Some(scanned) => scanned.take(&positions, columns),
+            None => rows.take(&positions, columns).await,
+        }
+        .map_err(external)?;
         let fetched = if positions.len() == ids.len() {
             fetched
         } else {
@@ -353,6 +365,7 @@ impl ExecutionPlan for NodeLookupExec {
             columns: self.columns.clone(),
             schema: self.schema.clone(),
             properties,
+            scan_state: Arc::default(),
         }))
     }
 
@@ -361,14 +374,27 @@ impl ExecutionPlan for NodeLookupExec {
         partition: usize,
         context: Arc<TaskContext>,
     ) -> datafusion::common::Result<SendableRecordBatchStream> {
+        let scan_after = read_once_after(&self.rows, context.session_config().batch_size());
         let input = self.input.execute(partition, context)?;
         let (rows, columns, schema) =
             (self.rows.clone(), self.columns.clone(), self.schema.clone());
-        let key_column = self.key_column.clone();
+        let (key_column, scan_state) = (self.key_column.clone(), self.scan_state.clone());
         let stream = input.then(move |batch| {
             let (rows, columns, schema) = (rows.clone(), columns.clone(), schema.clone());
-            let key_column = key_column.clone();
-            async move { Self::lookup(batch?, &key_column, &rows, &columns, &schema).await }
+            let (key_column, scan_state) = (key_column.clone(), scan_state.clone());
+            async move {
+                let batch = batch?;
+                Self::lookup(
+                    batch,
+                    &key_column,
+                    &rows,
+                    &columns,
+                    &schema,
+                    &scan_state,
+                    scan_after,
+                )
+                .await
+            }
         });
         Ok(Box::pin(RecordBatchStreamAdapter::new(
             self.schema.clone(),
@@ -412,7 +438,8 @@ mod tests {
             Field::new("b__id", DataType::Int64, true),
             Field::new("b__name", DataType::Utf8, true),
         ]));
-        let out = NodeLookupExec::lookup(input, "b__id", &rows, &[1], &schema)
+        let state = TargetScanState::default();
+        let out = NodeLookupExec::lookup(input, "b__id", &rows, &[1], &schema, &state, u64::MAX)
             .await
             .unwrap();
         let names = out.column(1).as_string::<i32>();
