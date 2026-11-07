@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import warnings
 from enum import IntEnum
 from typing import TYPE_CHECKING, Any, Self, final
 
@@ -272,21 +271,6 @@ class CypherEngine:
         datasets](lance.md#checkout-latest).
         """
         self._inner.checkout_latest()
-
-    def refresh(self) -> None:
-        """Deprecated alias of `checkout_latest`.
-
-        Behaves exactly like
-        [`checkout_latest`][lance_csr.CypherEngine.checkout_latest], and warns with
-        `DeprecationWarning`.
-        """
-        warnings.warn(
-            "CypherEngine.refresh() is deprecated; use checkout_latest(), named after "
-            "Lance's LanceDataset.checkout_latest()",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        self.checkout_latest()
 
     def optimize_csr(self) -> None:
         """Rebuild each CSR that carries a delta (experimental; needs `use_csr=True`).

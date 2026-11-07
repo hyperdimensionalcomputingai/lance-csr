@@ -578,7 +578,9 @@ def test_cross_label_shortest_scopes_rebind_each_parameter(cross_label_graph, sc
         assert engine.execute_batches(query, params).read_all().to_pylist() == expected
 
 
-def test_cross_label_shortest_inventory_isolates_refresh(cross_label_graph, tmp_path):
+def test_cross_label_shortest_inventory_isolates_checkout_latest(
+    cross_label_graph, tmp_path
+):
     import lance
 
     config, tables, use_csr = cross_label_graph

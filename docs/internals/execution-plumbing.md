@@ -16,7 +16,7 @@ partition per core. Lance datasets are scanned by Lance's own parallel reader.
 Each [snapshot](../execution.md#snapshots-and-concurrency) keeps up to 128 unoptimized DataFusion plan templates,
 least recently used first out, keyed by the query text and the types of its parameters. Running a query again with
 new scalar `$parameters` skips parsing and graph planning, and only binds the new values. Some operators need literal
-values while planning; when a template can't be built, the query is planned in full as before. A refresh starts the
+values while planning; when a template can't be built, the query is planned in full as before. `checkout_latest()` starts the
 new snapshot with an empty cache. CALL queries skip the cache and are planned in full.
 
 ## Cooperative deadlines

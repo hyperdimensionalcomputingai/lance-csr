@@ -318,7 +318,7 @@ struct CsrEntry {
     base_version: Option<u64>,
     /// Wall time of the last build or delta application.
     build_ms: f64,
-    /// How the last refresh or optimize produced this entry: build, rebuild, loaded, delta or reused.
+    /// How the last build, `checkout_latest()` or optimize produced this entry: build, rebuild, loaded, delta or reused.
     update: &'static str,
 }
 
@@ -326,9 +326,10 @@ struct CsrEntry {
 /// tombstones, accumulated since the last full build) would exceed this fraction
 /// of the base. Lookups read the delta on every query, and a rebuild clears it.
 ///
-/// This threshold also bounds refresh cost: each delta refresh copies the whole
-/// accumulated delta (see the design note on `crate::csr_expand::Adjacency`).
-/// Raising it makes refreshes slower as well as lookups.
+/// This threshold also bounds the cost of `checkout_latest()`: each delta it applies
+/// copies the whole accumulated delta (see the design note on
+/// `crate::csr_expand::Adjacency`).
+/// Raising it makes `checkout_latest()` slower as well as lookups.
 // shortcut: fixed threshold, chosen from python/benchmarks/csr_delta_accumulated.py; tune per workload if deltas grow large.
 const CSR_REBUILD_FRACTION: f64 = 0.25;
 
@@ -741,7 +742,7 @@ fn memtable_partitions(batch: &RecordBatch) -> Vec<Vec<RecordBatch>> {
 /// source and target counts when the CSR is built, and otherwise one scan of the two
 /// endpoint columns; only integer endpoints are counted. Reused while a dataset is
 /// the same snapshot, so an unchanged `checkout_latest()` costs nothing.
-// shortcut: the fallback scan reads every edge endpoint at construction and on each changed refresh (about one CSR build's scan); switch to an approximate counter (HyperLogLog) or Lance column statistics if that shows up in startup time.
+// shortcut: the fallback scan reads every edge endpoint at construction and on each `checkout_latest()` that finds changes (about one CSR build's scan); switch to an approximate counter (HyperLogLog) or Lance column statistics if that shows up in startup time.
 async fn build_key_statistics(
     config: &GraphConfig,
     sources: &HashMap<String, EngineSource>,
@@ -793,7 +794,7 @@ async fn build_key_statistics(
                 dst.name().clone(),
             ));
             match csr.get(&mapping.relationship_type) {
-                // Built from this same snapshot in this refresh, so its counts are current.
+                // Built from this same snapshot in this `checkout_latest()`, so its counts are current.
                 Some(entry) => {
                     distinct.insert(src.name().clone(), entry.outgoing.num_sources());
                     distinct.insert(dst.name().clone(), entry.incoming.num_sources());
@@ -923,7 +924,7 @@ async fn build_csr_entries(
             }
         }
 
-        // The one full build: the first, a refresh whose delta would pass the threshold,
+        // The one full build: the first, a `checkout_latest()` whose delta would pass the threshold,
         // and optimize_csr() (`rebuild_deltas`) all end here.
         let started = std::time::Instant::now();
         // Two projected scans of the endpoint columns, one per direction.
@@ -1339,12 +1340,6 @@ impl CypherEngine {
         Ok(())
     }
 
-    /// Former name of [`checkout_latest`](Self::checkout_latest).
-    #[deprecated(note = "renamed to `checkout_latest`, after Lance's `Dataset::checkout_latest`")]
-    pub async fn refresh(&self) -> Result<()> {
-        self.checkout_latest().await
-    }
-
     /// Rebuild each CSR that carries a delta, at the snapshot the engine is pinned to: the
     /// CSR's counterpart of Lance's `optimize_indices()`.
     ///
@@ -1650,7 +1645,7 @@ mod tests {
         assert_eq!(first, again);
         assert_eq!(first.num_rows(), 1);
 
-        // A refresh publishes a new snapshot with an empty cache; the old one is untouched.
+        // `checkout_latest()` publishes a new snapshot with an empty cache; the old one is untouched.
         engine.checkout_latest().await.unwrap();
         assert!(engine.snapshot().plans.lock().unwrap().is_empty());
         assert_eq!(cached(), PLAN_CACHE_ENTRIES);
@@ -1717,7 +1712,7 @@ mod tests {
         let sources = HashMap::from([("Person".to_string(), source)]);
         let engine = Arc::new(CypherEngine::new(config, sources, true).await.unwrap());
 
-        // Stand in for refresh A, still building its replacement.
+        // Stand in for `checkout_latest()` A, still building its replacement.
         let in_flight = engine.update_lock.lock().await;
         let b = tokio::spawn({
             let engine = engine.clone();

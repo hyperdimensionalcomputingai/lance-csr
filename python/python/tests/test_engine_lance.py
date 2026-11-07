@@ -102,7 +102,7 @@ def test_engine_empty_lance_dataset(tmp_path):
     assert count_people(engine) == 0
 
 
-def test_snapshot_until_refresh_after_append(graph):
+def test_snapshot_until_checkout_latest_after_append(graph):
     path, person, knows = graph
     engine = CypherEngine(CONFIG, {"Person": person, "KNOWS": knows})
 
@@ -114,16 +114,7 @@ def test_snapshot_until_refresh_after_append(graph):
     assert engine.dataset_versions()["Person"] == 2
 
 
-def test_refresh_is_a_deprecated_alias_of_checkout_latest(graph):
-    path, person, knows = graph
-    engine = CypherEngine(CONFIG, {"Person": person, "KNOWS": knows})
-    lance.write_dataset(people(N, N + 5), path / "person.lance", mode="append")
-    with pytest.warns(DeprecationWarning, match="checkout_latest"):
-        engine.refresh()
-    assert count_people(engine) == N + 5
-
-
-def test_refresh_without_changes_keeps_results(graph):
+def test_checkout_latest_without_changes_keeps_results(graph):
     _, person, knows = graph
     engine = CypherEngine(CONFIG, {"Person": person, "KNOWS": knows})
     before = engine.execute("MATCH (p:Person) WHERE p.id < 3 RETURN p.name")
@@ -133,7 +124,7 @@ def test_refresh_without_changes_keeps_results(graph):
     assert engine.dataset_versions() == {"Person": 1, "KNOWS": 1}
 
 
-def test_refresh_sees_overwrite_with_added_and_retyped_columns(graph):
+def test_checkout_latest_sees_overwrite_with_added_and_retyped_columns(graph):
     path, person, knows = graph
     engine = CypherEngine(CONFIG, {"Person": person, "KNOWS": knows})
     with pytest.raises(Exception):
@@ -151,7 +142,7 @@ def test_refresh_sees_overwrite_with_added_and_retyped_columns(graph):
     assert sorted(out.column(1).to_pylist()) == [30, 40]
 
 
-def test_refresh_sees_table_replaced_at_same_location(graph):
+def test_checkout_latest_sees_table_replaced_at_same_location(graph):
     path, person, knows = graph
     engine = CypherEngine(CONFIG, {"Person": person, "KNOWS": knows})
 
@@ -163,7 +154,7 @@ def test_refresh_sees_table_replaced_at_same_location(graph):
 
 
 @pytest.mark.parametrize("use_csr", [False, True])
-def test_failed_refresh_keeps_previous_snapshot(graph, use_csr):
+def test_failed_checkout_latest_keeps_previous_snapshot(graph, use_csr):
     path, person, knows = graph
     engine = CypherEngine(CONFIG, {"Person": person, "KNOWS": knows}, use_csr=use_csr)
 
@@ -207,14 +198,14 @@ def test_lance_dataset_subclass_is_read_lazily(graph):
 
     person.__class__ = Wrapped
     engine = CypherEngine(CONFIG, {"Person": person, "KNOWS": knows})
-    # Treated as Lance (pinned, refreshable), not materialized as Arrow.
+    # Treated as Lance (pinned, moved by checkout_latest()), not materialized as Arrow.
     assert engine.dataset_versions()["Person"] == 1
     lance.write_dataset(people(N, N + 1), path / "person.lance", mode="append")
     engine.checkout_latest()
     assert count_people(engine) == N + 1
 
 
-def test_concurrent_execute_and_refresh(graph):
+def test_concurrent_execute_and_checkout_latest(graph):
     path, person, knows = graph
     engine = CypherEngine(CONFIG, {"Person": person, "KNOWS": knows})
     allowed = {N + 5 * i for i in range(6)}
@@ -266,7 +257,7 @@ def test_execute_batches_partial_consumption(graph):
 
 
 @pytest.mark.parametrize("use_csr", [False, True])
-def test_execute_batches_keeps_snapshot_across_refresh(graph, use_csr):
+def test_execute_batches_keeps_snapshot_across_checkout_latest(graph, use_csr):
     path, person, knows = graph
     engine = CypherEngine(CONFIG, {"Person": person, "KNOWS": knows}, use_csr=use_csr)
     reader = engine.execute_batches("MATCH (p:Person) RETURN p.id")

@@ -15,7 +15,7 @@ the data structure those pieces read.
 | --- | --- |
 | [Custom operators](operators.md) | `CsrExpand`, `NodeLookup`, `PathExists`, `ShortestPath`, `PathMatch`, `Apply` and `KeyStatistics`, with their plans |
 | [Optimizer rules and rewrites](optimizer.md) | The two logical optimizer rules, graph rewrites before DataFusion sees the plan, and join statistics |
-| [Indexes and refresh](indexes.md) | How the CSR adjacency and node indexes are laid out, and how a refresh diffs Lance versions |
+| [Indexes and updates](indexes.md) | How the CSR adjacency and node indexes are laid out, and how `checkout_latest()` diffs Lance versions |
 | [Execution plumbing](execution-plumbing.md) | Partitioning, the plan template cache, deadlines and Cypher functions |
 
 ## What lance-csr added to lance-graph
@@ -34,7 +34,7 @@ Added in lance-csr
 :   Everything this section describes as a DataFusion extension: the extension nodes and their operators, the
     extension planner, both optimizer rules, the deadline rule and the join statistics. Also the graph rewrites
     (re-rooting, alternation and multi-label branching), the `OptionalMatch`, `ShortestPath`, `PathMatch` and `Apply`
-    operators, the CSR adjacency and node indexes with incremental refresh, engine snapshots, the plan template cache
+    operators, the CSR adjacency and node indexes with incremental updates, engine snapshots, the plan template cache
     and the Cypher-specific functions.
 
 [lance-graph](https://github.com/lance-format/lance-graph) plans every hop as joins, and lance-csr keeps that planning
@@ -109,7 +109,7 @@ All paths are under
 
 | File | What it holds | Origin |
 | --- | --- | --- |
-| `csr_expand.rs` | `Adjacency`, `NodeRows`, `EdgeRows`, `CsrExpandNode` and `CsrExpandExec`, `CsrExtensionPlanner`, `CsrQueryPlanner`, both optimizer rules, fragment diffing for refresh | lance-csr |
+| `csr_expand.rs` | `Adjacency`, `NodeRows`, `EdgeRows`, `CsrExpandNode` and `CsrExpandExec`, `CsrExtensionPlanner`, `CsrQueryPlanner`, both optimizer rules, fragment diffing for `checkout_latest()` | lance-csr |
 | `csr_expand/node_lookup.rs` | `NodeLookupNode` and `NodeLookupExec` | lance-csr |
 | `csr_index.rs` | The compact CSR neighbour store | [lance-graph](https://github.com/lance-format/lance-graph); edge rows and the delta added in lance-csr, unused traversal helpers removed |
 | `csr_traversal.rs` | Resumable, typed variable-length walks | lance-csr |
@@ -120,6 +120,6 @@ All paths are under
 | `pattern_order.rs`, `pattern_alternatives.rs` | Re-rooting, predicates implied by an `OR`, alternation and multi-label branching | lance-csr |
 | `logical_plan.rs` | Graph logical operators | [lance-graph](https://github.com/lance-format/lance-graph), extended in lance-csr |
 | `datafusion_planner/` | Graph plan to DataFusion plan; `builder/expand_ops.rs` chooses CSR or join for each hop | [lance-graph](https://github.com/lance-format/lance-graph), extended in lance-csr |
-| `engine.rs` | `CypherEngine`: snapshots, session setup, refresh, plan template cache, SQL entry points | lance-csr |
+| `engine.rs` | `CypherEngine`: snapshots, session setup, `checkout_latest()`, plan template cache, SQL entry points | lance-csr |
 | `graph_table.rs` | The `GRAPH_TABLE` rewrite and `GraphTableFunction` | lance-csr |
 | `query/deadline.rs` | `DeadlineJoins` and `with_execution_deadline` | lance-csr |
