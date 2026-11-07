@@ -489,7 +489,8 @@ node's neighbours without emitting a row per edge, and the planner uses that whe
   incoming times its outgoing neighbours, less the paths that would use one self-loop twice. Two hops of one
   type that share an end, `(a)-->(b)<--(c)`, or that are undirected, `(a)--(b)--(c)`, are counted from edges
   too, though not in place: the paths where `a` and `c` are the same node would use one edge twice, and finding
-  them takes grouping by both ends.
+  them takes grouping by both ends. The second hop can be an `OPTIONAL MATCH` from `b`, where a `b` with no
+  match counts once per incoming edge.
 - `RETURN m.name, count(x)` over `(x)-[:R]->(m)...` (in either direction, or undirected), when nothing else
   reads `x` or the relationship, counts
   each `m`'s `x` neighbours once and plans the rest of the pattern from `m`.

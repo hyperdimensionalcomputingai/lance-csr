@@ -273,8 +273,48 @@ impl DataFusionPlanner {
             conjuncts(predicate, &mut predicates);
             op = input;
         }
-        let Some((second, op)) = Hop::of(op) else {
-            return Ok(None);
+        // `OPTIONAL MATCH (m)-[r2]-(y)` after the first hop: the second hop, planned from
+        // the distinct `m`, and its own `WHERE`, which applies before rows are null-extended.
+        let mut optional_filters = None;
+        let (second, op) = match op {
+            LogicalOperator::OptionalMatch {
+                input,
+                optional,
+                keys,
+            } if predicates.is_empty() => {
+                let mut own = Vec::new();
+                let mut op = optional.as_ref();
+                while let LogicalOperator::Filter { input, predicate } = op {
+                    conjuncts(predicate, &mut own);
+                    op = input;
+                }
+                let Some((second, seed)) = Hop::of(op) else {
+                    return Ok(None);
+                };
+                let LogicalOperator::Distinct { input: seed } = seed else {
+                    return Ok(None);
+                };
+                let distinct_middle = matches!(seed.as_ref(), LogicalOperator::Project { projections, .. }
+                    if matches!(projections.as_slice(), [ProjectionItem {
+                        expression: ValueExpression::Variable(v), ..
+                    }] if v == second.source));
+                if !distinct_middle || keys.len() != 1 {
+                    return Ok(None);
+                }
+                optional_filters = Some(own);
+                let mut op = input.as_ref();
+                while let LogicalOperator::Filter { input, predicate } = op {
+                    conjuncts(predicate, &mut predicates);
+                    op = input;
+                }
+                (second, op)
+            }
+            op => {
+                let Some((second, op)) = Hop::of(op) else {
+                    return Ok(None);
+                };
+                (second, op)
+            }
         };
         let Some((first, op)) = Hop::of(op) else {
             return Ok(None);
@@ -361,6 +401,18 @@ impl DataFusionPlanner {
             } else {
                 return Ok(None);
             }
+            read.extend(names);
+        }
+        // The optional hop's own conditions filter its edges, `m` included: a middle node
+        // they reject keeps its rows, null-extended.
+        for predicate in optional_filters.iter().flatten() {
+            let mut names = HashSet::new();
+            if referenced(predicate, &mut names).is_none()
+                || !names.iter().all(|n| second_vars.contains(n.as_str()))
+            {
+                return Ok(None);
+            }
+            second_filter.push((*predicate).clone());
             read.extend(names);
         }
         // The distinct-edges predicate became the self-loop correction above, so edge
@@ -474,17 +526,22 @@ impl DataFusionPlanner {
         let first_plan = per_middle(first_plan, &first_other, 1)?;
         let second_plan = per_middle(second_plan, &second_other, 2)?;
 
-        let mut paths = column("__n1") * column("__n2");
+        // A middle node without an optional match still has one row per first-hop edge,
+        // with nulls that `count` of an optional variable skips.
+        let (join, second_count) = match optional_filters {
+            None => (JoinType::Inner, column("__n2")),
+            Some(_) => {
+                let skips_nulls = counted != middle && second_vars.contains(counted);
+                let unmatched = lit(if skips_nulls { 0_i64 } else { 1_i64 });
+                (JoinType::Left, coalesce(vec![column("__n2"), unmatched]))
+            }
+        };
+        let mut paths = column("__n1") * second_count;
         if self_loops {
             paths = paths - column("__s1") * column("__s2");
         }
         let plan = LogicalPlanBuilder::from(first_plan)
-            .join(
-                second_plan,
-                JoinType::Inner,
-                (vec!["__m1"], vec!["__m2"]),
-                None,
-            )?
+            .join(second_plan, join, (vec!["__m1"], vec!["__m2"]), None)?
             .aggregate(Vec::<Expr>::new(), vec![sum(paths).alias("__paths")])?
             .project(vec![
                 coalesce(vec![column("__paths"), lit(0_i64)]).alias(output)
@@ -1090,6 +1147,41 @@ mod tests {
         assert!(grouped(&follows, query, true)
             .await
             .contains(&"2,4".to_string()));
+    }
+
+    #[tokio::test]
+    async fn optional_second_hop() {
+        // Counts beyond the engine's dense block, which `count` checks against the join plan.
+        async fn extra(follows: &[(i64, i64)], likes: &[(i64, i64)], query: &str) -> i64 {
+            count(follows, likes, query).await - count(&[], &[], query).await
+        }
+        let base =
+            "MATCH (a:Person)-[:FOLLOWS]->(b:Person) OPTIONAL MATCH (b)-[:LIKES]->(c:Person)";
+        // 1 and 3 follow 2, which likes 3 and 1; 1 follows 4, which likes no one.
+        let (follows, likes) = ([(1, 2), (3, 2), (1, 4)], [(2, 3), (2, 1)]);
+        for (rest, n) in [
+            // 2 · 2 at 2, and 4's one row with nulls.
+            ("RETURN count(*)", 5),
+            ("RETURN count(a)", 5),
+            // Counting the optional variable skips the null row.
+            ("RETURN count(c)", 4),
+            // The optional hop's own WHERE filters its edges; 2 keeps one, 4 its null row.
+            ("WHERE c.age > 50 RETURN count(*)", 3),
+            // Rejecting 2 itself leaves it a null row per follower.
+            ("WHERE b.age > 35 RETURN count(*)", 3),
+            ("WHERE b.age > 35 RETURN count(c)", 0),
+        ] {
+            let query = format!("{base} {rest}");
+            assert_eq!(extra(&follows, &likes, &query).await, n, "{query}");
+        }
+        // The first clause's WHERE drops 4 before the optional match.
+        let query = base.replace(" OPTIONAL", " WHERE b.age < 35 OPTIONAL") + " RETURN count(*)";
+        assert_eq!(extra(&follows, &likes, &query).await, 4);
+        // A separate clause may walk the first hop's edge again: 2's self-loop pairs with
+        // itself.
+        let query = "MATCH (a:Person)-[:FOLLOWS]->(b:Person) \
+                     OPTIONAL MATCH (b)-[:FOLLOWS]->(c:Person) RETURN count(*)";
+        assert_eq!(extra(&[(1, 2), (2, 2)], &[], query).await, 2);
     }
 
     #[tokio::test]
