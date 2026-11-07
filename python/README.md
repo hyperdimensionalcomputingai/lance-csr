@@ -27,7 +27,8 @@ no Rust toolchain; to make sure uv never falls back to compiling from source, us
 uv add lance-csr --no-build-package lance-csr
 ```
 
-Other platforms install from the source distribution, which needs Rust and `protoc`.
+On Windows you can also use lance-csr inside WSL2, where it installs the Linux x86-64 wheel. Other
+platforms install from the source distribution, which needs Rust and `protoc`.
 
 ## Quick Start
 
@@ -206,7 +207,7 @@ r2 = engine.execute(
 
 ## Requirements
 
-- Python 3.12 or newer (3.12, 3.13 and 3.14 tested); macOS arm64 or Linux x86-64
+- Python 3.12 or newer (3.12, 3.13 and 3.14 tested); macOS arm64, Linux x86-64 or Windows x86-64 (natively or in WSL2)
 - `pylance` 13.x for writing Lance datasets
 
 ## Contributing

@@ -8,10 +8,11 @@
 
 **Fast graph queries on Lance**
 
-[![Rust tests](https://github.com/hyperdimensionalcomputingai/lance-csr/actions/workflows/rust-test.yml/badge.svg?branch=main)](https://github.com/hyperdimensionalcomputingai/lance-csr/actions/workflows/rust-test.yml)
-[![Python tests](https://github.com/hyperdimensionalcomputingai/lance-csr/actions/workflows/python-test.yml/badge.svg?branch=main)](https://github.com/hyperdimensionalcomputingai/lance-csr/actions/workflows/python-test.yml)
-[![PyPI version](https://img.shields.io/pypi/v/lance-csr?color=555)](https://pypi.org/project/lance-csr/)
-[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-555)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue?style=for-the-badge)](LICENSE)
+[![Rust tests](https://img.shields.io/github/actions/workflow/status/hyperdimensionalcomputingai/lance-csr/rust-test.yml?branch=main&label=rust%20tests&logo=rust&style=for-the-badge)](https://github.com/hyperdimensionalcomputingai/lance-csr/actions/workflows/rust-test.yml)
+[![Python tests](https://img.shields.io/github/actions/workflow/status/hyperdimensionalcomputingai/lance-csr/python-test.yml?branch=main&label=python%20tests&logo=python&logoColor=white&style=for-the-badge)](https://github.com/hyperdimensionalcomputingai/lance-csr/actions/workflows/python-test.yml)
+[![crates.io](https://img.shields.io/crates/v/lance-csr?logo=rust&style=for-the-badge)](https://crates.io/crates/lance-csr)
+[![PyPI](https://img.shields.io/pypi/v/lance-csr?logo=pypi&logoColor=white&style=for-the-badge)](https://pypi.org/project/lance-csr/)
 
 [Documentation](https://lance-csr.hdclabs.ai/) · [Examples](examples/README.md) ·
 [Releases](https://github.com/hyperdimensionalcomputingai/lance-csr/releases) · [Contributing](CONTRIBUTING.md)
@@ -58,9 +59,9 @@ case needs distributed graph queries or graph algorithms, that's the kind of eng
 uv add lance-csr
 ```
 
-Prebuilt wheels cover Linux x86-64, native Apple Silicon and Windows x86-64 (CPython 3.12+); no Rust toolchain is needed. From
-Rust, run `cargo add lance-csr` and see the [Rust guide](https://lance-csr.hdclabs.ai/rust/). To build from
-source, see [`python/DEVELOPMENT.md`](python/DEVELOPMENT.md).
+Prebuilt wheels cover Linux x86-64, native Apple Silicon and Windows x86-64 (CPython 3.12+); no Rust toolchain is needed. On
+Windows you can also use lance-csr inside WSL2, where it installs the Linux wheel. From Rust, run
+`cargo add lance-csr` and see the [Rust guide](https://lance-csr.hdclabs.ai/rust/). To build from source, see [`python/DEVELOPMENT.md`](python/DEVELOPMENT.md).
 
 ## Example
 
