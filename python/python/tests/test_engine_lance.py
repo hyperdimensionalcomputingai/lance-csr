@@ -114,15 +114,6 @@ def test_snapshot_until_refresh_after_append(graph):
     assert engine.dataset_versions()["Person"] == 2
 
 
-def test_refresh_is_a_deprecated_alias_of_checkout_latest(graph):
-    path, person, knows = graph
-    engine = CypherEngine(CONFIG, {"Person": person, "KNOWS": knows})
-    lance.write_dataset(people(N, N + 5), path / "person.lance", mode="append")
-    with pytest.warns(DeprecationWarning, match="checkout_latest"):
-        engine.refresh()
-    assert count_people(engine) == N + 5
-
-
 def test_refresh_without_changes_keeps_results(graph):
     _, person, knows = graph
     engine = CypherEngine(CONFIG, {"Person": person, "KNOWS": knows})

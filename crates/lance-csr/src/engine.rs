@@ -1339,12 +1339,6 @@ impl CypherEngine {
         Ok(())
     }
 
-    /// Former name of [`checkout_latest`](Self::checkout_latest).
-    #[deprecated(note = "renamed to `checkout_latest`, after Lance's `Dataset::checkout_latest`")]
-    pub async fn refresh(&self) -> Result<()> {
-        self.checkout_latest().await
-    }
-
     /// Rebuild each CSR that carries a delta, at the snapshot the engine is pinned to: the
     /// CSR's counterpart of Lance's `optimize_indices()`.
     ///

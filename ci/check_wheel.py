@@ -5,7 +5,7 @@
 
 Run with ``python -I`` from a clean virtual environment. Covers both table placements
 (Arrow tables in memory, Lance datasets on disk), CSR traversal, shortestPath, and
-``refresh()`` picking up a new Lance version.
+``checkout_latest()`` picking up a new Lance version.
 """
 
 import importlib.metadata
@@ -57,17 +57,17 @@ def main():
             engine = CypherEngine(config, datasets, use_csr=True)
             assert engine.execute(TWO_HOPS).to_pylist() == [{"name": "Carol"}]
             assert engine.execute(SHORTEST).to_pylist() == [{"hops": 3}]
-        # The last engine reads Lance datasets: refresh() follows an appended version.
+        # The last engine reads Lance datasets: checkout_latest() follows an appended version.
         appended = pa.table({"src": [4], "dst": [1]})
         lance.write_dataset(appended, Path(root) / "knows.lance", mode="append")
-        engine.refresh()
+        engine.checkout_latest()
         got = engine.execute(
             "MATCH (a:Person {id: 4})-[:KNOWS]->(b:Person) RETURN b.id AS id"
         )
         assert got.to_pylist() == [{"id": 1}]
     print(
         f"Installed lance-csr {importlib.metadata.version('lance-csr')} wheel passed "
-        f"in-memory, on-disk, CSR, shortestPath and refresh checks on Python "
+        f"in-memory, on-disk, CSR, shortestPath and checkout_latest checks on Python "
         f"{sys.version.split()[0]} without Rust"
     )
 
