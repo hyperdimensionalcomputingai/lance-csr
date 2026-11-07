@@ -8,10 +8,12 @@
 
 **Fast graph queries on Lance**
 
-[![Rust tests](https://github.com/hyperdimensionalcomputingai/lance-csr/actions/workflows/rust-test.yml/badge.svg?branch=main)](https://github.com/hyperdimensionalcomputingai/lance-csr/actions/workflows/rust-test.yml)
-[![Python tests](https://github.com/hyperdimensionalcomputingai/lance-csr/actions/workflows/python-test.yml/badge.svg?branch=main)](https://github.com/hyperdimensionalcomputingai/lance-csr/actions/workflows/python-test.yml)
-[![PyPI version](https://img.shields.io/pypi/v/lance-csr?color=555)](https://pypi.org/project/lance-csr/)
-[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-555)](LICENSE)
+[![Rust tests](https://img.shields.io/github/actions/workflow/status/hyperdimensionalcomputingai/lance-csr/rust-test.yml?branch=main&label=rust%20tests&logo=rust&style=for-the-badge)](https://github.com/hyperdimensionalcomputingai/lance-csr/actions/workflows/rust-test.yml)
+[![Python tests](https://img.shields.io/github/actions/workflow/status/hyperdimensionalcomputingai/lance-csr/python-test.yml?branch=main&label=python%20tests&logo=python&logoColor=white&style=for-the-badge)](https://github.com/hyperdimensionalcomputingai/lance-csr/actions/workflows/python-test.yml)
+[![PyPI](https://img.shields.io/pypi/v/lance-csr?logo=pypi&logoColor=white&style=for-the-badge)](https://pypi.org/project/lance-csr/)
+[![Downloads](https://img.shields.io/pepy/dt/lance-csr?label=downloads&style=for-the-badge)](https://pepy.tech/project/lance-csr)
+[![crates.io](https://img.shields.io/crates/v/lance-csr?logo=rust&style=for-the-badge)](https://crates.io/crates/lance-csr)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue?style=for-the-badge)](LICENSE)
 
 [Documentation](https://lance-csr.hdclabs.ai/) · [Examples](examples/README.md) ·
 [Releases](https://github.com/hyperdimensionalcomputingai/lance-csr/releases) · [Contributing](CONTRIBUTING.md)
