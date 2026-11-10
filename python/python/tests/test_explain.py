@@ -71,3 +71,19 @@ def test_explain_error_handling(person_data):
     )
     with pytest.raises(ValueError, match="No input datasets provided"):
         query_with_config.explain({})
+
+
+def test_explain_with_large_list_parameter(person_data):
+    """Explain handles plan lines wider than Rust's 65,535-character format width."""
+    config, people = person_data
+    ids = list(range(6_000))
+    query = (
+        CypherQuery("MATCH (p:Person) WHERE p.person_id IN $ids RETURN p.name")
+        .with_config(config)
+        .with_parameter("ids", ids)
+    )
+    plan = query.explain({"Person": people})
+
+    assert "5999" in plan
+    # Lines holding the list overflow the table instead of widening every row.
+    assert len(plan) < 10_000_000

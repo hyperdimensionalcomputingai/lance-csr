@@ -1271,11 +1271,16 @@ impl CypherQuery {
         );
         rows.push(("physical_plan", df_physical_str));
 
-        // Calculate column widths
+        // Calculate column widths. Lines wider than MAX_PLAN_WIDTH (long parameter
+        // values, such as a large `IN` list or a query vector) run past the right border
+        // instead of widening the column: padding every line to them made the output
+        // grow with lines × width.
+        const MAX_PLAN_WIDTH: usize = 1_000;
         let plan_type_width = rows.iter().map(|(t, _)| t.len()).max().unwrap_or(10);
         let plan_width = rows
             .iter()
-            .map(|(_, p)| p.lines().map(|l| l.len()).max().unwrap_or(0))
+            .flat_map(|(_, p)| p.lines().map(|l| l.chars().count()))
+            .filter(|&w| w <= MAX_PLAN_WIDTH)
             .max()
             .unwrap_or(50);
 
@@ -1285,52 +1290,27 @@ impl CypherQuery {
             "-".repeat(plan_type_width + 2),
             "-".repeat(plan_width + 2)
         );
+        // Pad by hand: `{:<width$}` panics on widths above u16::MAX.
+        let row = |plan_type: &str, plan: &str| {
+            format!(
+                "| {plan_type}{} | {plan}{} |\n",
+                " ".repeat(plan_type_width.saturating_sub(plan_type.chars().count())),
+                " ".repeat(plan_width.saturating_sub(plan.chars().count())),
+            )
+        };
 
         output.push_str(&separator);
         output.push('\n');
-
-        // Header
-        output.push_str(&format!(
-            "| {:<width$} | {:<plan_width$} |\n",
-            "plan_type",
-            "plan",
-            width = plan_type_width,
-            plan_width = plan_width
-        ));
+        output.push_str(&row("plan_type", "plan"));
         output.push_str(&separator);
         output.push('\n');
 
-        // Data rows
+        // Data rows: the plan type labels the first line of each plan
         for (plan_type, plan_content) in rows {
-            let lines: Vec<&str> = plan_content.lines().collect();
-            if lines.is_empty() {
-                output.push_str(&format!(
-                    "| {:<width$} | {:<plan_width$} |\n",
-                    plan_type,
-                    "",
-                    width = plan_type_width,
-                    plan_width = plan_width
-                ));
-            } else {
-                // First line with plan_type
-                output.push_str(&format!(
-                    "| {:<width$} | {:<plan_width$} |\n",
-                    plan_type,
-                    lines[0],
-                    width = plan_type_width,
-                    plan_width = plan_width
-                ));
-
-                // Remaining lines with empty plan_type
-                for line in &lines[1..] {
-                    output.push_str(&format!(
-                        "| {:<width$} | {:<plan_width$} |\n",
-                        "",
-                        line,
-                        width = plan_type_width,
-                        plan_width = plan_width
-                    ));
-                }
+            let mut lines = plan_content.lines();
+            output.push_str(&row(plan_type, lines.next().unwrap_or("")));
+            for line in lines {
+                output.push_str(&row("", line));
             }
         }
 

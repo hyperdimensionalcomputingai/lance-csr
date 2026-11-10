@@ -164,8 +164,9 @@ From Rust, use `with_execution_deadline`; see [Timeouts](rust.md#timeouts).
 
 ### `explain(query, params=None)`
 
-Returns the plan as text: the graph logical plan, DataFusion's logical plan and the physical plan.
-It's the quickest way to check whether a hop used the CSR (`CsrExpandExec`) or a join (`HashJoinExec`), and
+Returns the plan as text: the graph logical plan, DataFusion's logical plan and the physical plan,
+laid out as a table. Lines longer than 1,000 characters, such as one holding a long list or vector
+parameter, run past the table's right border rather than widening every row. It's the quickest way to check whether a hop used the CSR (`CsrExpandExec`) or a join (`HashJoinExec`), and
 whether filters reached the Lance scan:
 
 ```python
