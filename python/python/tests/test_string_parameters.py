@@ -49,3 +49,8 @@ def test_bound_string_operands(csr: bool) -> None:
     assert engine.execute(
         "MATCH (p:Person {id: $id}) RETURN p.id AS id", {"id": 2}
     ).to_pylist() == [{"id": 2}]
+    # The search string can also be a column, one value per row.
+    assert engine.execute(
+        "MATCH (p:Person), (q:Person) WHERE q.id IN [2, 3] "
+        "AND p.name CONTAINS q.name RETURN p.id AS id, q.id AS q ORDER BY id, q"
+    ).to_pylist() == [{"id": 1, "q": 2}, {"id": 2, "q": 2}]

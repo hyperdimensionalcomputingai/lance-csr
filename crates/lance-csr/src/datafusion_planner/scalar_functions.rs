@@ -7,9 +7,9 @@
 use std::sync::Arc;
 
 use arrow::array::{
-    new_null_array, Array, AsArray, BooleanArray, Int64Array, ListBuilder, StringArray,
-    StringBuilder,
+    new_null_array, Array, AsArray, Datum, Int64Array, ListBuilder, StringArray, StringBuilder,
 };
+use arrow::compute::kernels::comparison;
 use arrow::compute::{cast, cast_with_options, CastOptions};
 use arrow_schema::{DataType, Field};
 use datafusion::common::{exec_err, plan_err, ScalarValue};
@@ -268,6 +268,24 @@ impl ScalarUDFImpl for CypherScalar {
                 Ok(result)
             };
         }
+        if matches!(
+            self.name.as_str(),
+            "__string_contains" | "__string_starts_with" | "__string_ends_with"
+        ) {
+            // Arrow's kernels build one substring searcher per batch, and a literal
+            // pattern stays a scalar instead of being repeated for every row.
+            let text = cast(&args.args[0].to_array(args.number_rows)?, &DataType::Utf8)?;
+            let pattern: Box<dyn Datum> = match &args.args[1] {
+                ColumnarValue::Scalar(p) => Box::new(p.cast_to(&DataType::Utf8)?.to_scalar()?),
+                ColumnarValue::Array(p) => Box::new(cast(p, &DataType::Utf8)?),
+            };
+            let result = match self.name.as_str() {
+                "__string_contains" => comparison::contains(&text, pattern.as_ref()),
+                "__string_starts_with" => comparison::starts_with(&text, pattern.as_ref()),
+                _ => comparison::ends_with(&text, pattern.as_ref()),
+            }?;
+            return Ok(ColumnarValue::Array(Arc::new(result)));
+        }
         let arrays = args
             .args
             .iter()
@@ -282,25 +300,6 @@ impl ScalarUDFImpl for CypherScalar {
             })
             .collect::<std::result::Result<Vec<_>, _>>()?;
         let strings = arrays[0].as_string::<i32>();
-        if matches!(
-            self.name.as_str(),
-            "__string_contains" | "__string_starts_with" | "__string_ends_with"
-        ) {
-            let patterns = arrays[1].as_string::<i32>();
-            let result: BooleanArray = strings
-                .iter()
-                .zip(patterns.iter())
-                .map(|(text, pattern)| {
-                    text.zip(pattern)
-                        .map(|(text, pattern)| match self.name.as_str() {
-                            "__string_contains" => text.contains(pattern),
-                            "__string_starts_with" => text.starts_with(pattern),
-                            _ => text.ends_with(pattern),
-                        })
-                })
-                .collect();
-            return Ok(ColumnarValue::Array(Arc::new(result)));
-        }
         if self.name == "size" {
             return Ok(ColumnarValue::Array(Arc::new(
                 strings
