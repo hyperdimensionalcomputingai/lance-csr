@@ -93,6 +93,12 @@ pub fn bench_grouped_two_hop(c: &mut Criterion) {
             let execute = |query: &str| rt.block_on(engine.execute(query, HashMap::new())).unwrap();
             let actual = execute(&query);
             assert_eq!(rows(&actual), rows(&execute(&reference)), "{query}");
+            let plan = rt.block_on(engine.explain(&query, HashMap::new())).unwrap();
+            assert_eq!(
+                plan.contains("__paths"),
+                !skewed && degree > 1 && !(selective && key.starts_with("a.")),
+                "{query}: {plan}"
+            );
             let plan = rt
                 .block_on(engine.explain(&reference, HashMap::new()))
                 .unwrap();

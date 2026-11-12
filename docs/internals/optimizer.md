@@ -200,6 +200,9 @@ It requires a node index proving that the middle node's integer ids are unique; 
 at a middle table with duplicate ids would multiply its rows. Without that proof it retains the existing
 plan, including when CSR indexing is disabled. It uses the same fan-out gate and hop-local predicate
 checks as the scalar count. Eligibility is checked before consuming relationship instances.
+An outer grouping node bound by an id equality to a literal or parameter, or by an inline id property,
+keeps its existing plan: the selective walk avoids counting the opposite hop across the graph. Other
+predicate selectivities still use the existing mean-fan-out heuristic.
 
 For middle-node grouping, the rewrite retains `n1(b) * n2(b)` minus the existing exclusion correction as
 `__paths` per middle id. A `NodeLookup` fetches requested grouping properties, and a final aggregate sums

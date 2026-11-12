@@ -232,7 +232,8 @@ the contributions of different nodes with the same value, including null.
 
 This applies to fixed-length inner matches when the middle node has a unique integer id, every condition
 reads at most one hop, and estimated fan-out justifies counting first. Same-type and undirected hops retain
-the usual exclusions for reusing a relationship. Groups with no valid paths are omitted. Optional matches,
+the usual exclusions for reusing a relationship. A grouped outer node bound to one id keeps its selective
+walk instead of counting across the graph. Groups with no valid paths are omitted. Optional matches,
 distinct counts, counts of nullable properties, and grouping by several nodes keep their existing plans.
 
 `WITH b, count(*) AS n` groups by the node `b`, and `RETURN b.id, b.name, count(*) AS n` by its id and name.
