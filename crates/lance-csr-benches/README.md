@@ -79,3 +79,9 @@ cargo bench -p lance-csr-benches --bench graph_execution -- grouped_two_hop --wa
 
 These operator-focused comparisons supplement the unchanged SF1 suites required by `CONTRIBUTING.md`.
 The reference can be faster on small or selective queries; report all cases rather than only improvements.
+
+The [2026-11-12 comparison](results/grouped-two-hop-2026-11-12.md) records every SF1 query in both modes,
+repeated main/branch runs, focused latency and memory measurements, and the selective-query safeguard.
+The [profiling helper](scripts/grouped_two_hop.py) emits JSON for one generated case, including a separate
+`EXPLAIN ANALYZE` through `GRAPH_TABLE` on the same engine. Its row metrics are rounded by DataFusion;
+peak process RSS is captured before profiling and the reference-answer self-check.
