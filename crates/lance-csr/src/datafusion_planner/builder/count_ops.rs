@@ -14,7 +14,7 @@ use std::collections::HashSet;
 
 use crate::ast::{BooleanExpression, ComparisonOperator, RelationshipDirection, ValueExpression};
 use crate::case_insensitive::qualify_column;
-use crate::csr_expand::HopDegreesNode;
+use crate::csr_expand::{HopDegreesNode, NodeLookupNode};
 use crate::datafusion_planner::analysis::PlanningContext;
 use crate::datafusion_planner::DataFusionPlanner;
 use crate::error::Result;
@@ -234,38 +234,48 @@ impl DataFusionPlanner {
     /// undirected, exclude every pair whose far ends are the same node `x`:
     /// `Σ_x k1(m, x) · k2(m, x)`, where `k1` and `k2` count each hop's edges between `m`
     /// and `x`. Those hops are grouped by both ends instead, which
-    /// [`Self::shared_end_count`] sums to the count.
+    /// [`Self::shared_end_weights`] reduces to per-middle counts.
     pub(crate) fn try_build_two_hop_count(
         &self,
         ctx: &mut PlanningContext,
         input: &LogicalOperator,
         projections: &[ProjectionItem],
     ) -> Result<Option<LogicalPlan>> {
-        let [item] = projections else {
-            return Ok(None);
-        };
-        let ValueExpression::AggregateFunction {
-            name,
-            args,
-            distinct: false,
-        } = &item.expression
-        else {
-            return Ok(None);
-        };
-        if !name.eq_ignore_ascii_case("count") {
+        let mut group = None;
+        let mut counts = Vec::new();
+        for item in projections {
+            match &item.expression {
+                ValueExpression::Property(p) => {
+                    if group.is_some_and(|v| v != p.variable.as_str()) {
+                        return Ok(None);
+                    }
+                    group = Some(p.variable.as_str());
+                }
+                ValueExpression::AggregateFunction {
+                    name,
+                    args,
+                    distinct: false,
+                } if name.eq_ignore_ascii_case("count") => {
+                    // Matched node ids are never null.
+                    let counted = match args.as_slice() {
+                        [ValueExpression::Variable(v)] => v.as_str(),
+                        [ValueExpression::Property(p)]
+                            if self.id_column(ctx, &p.variable)
+                                == Some(qualify_column(&p.variable, &p.property)) =>
+                        {
+                            p.variable.as_str()
+                        }
+                        _ => return Ok(None),
+                    };
+                    counts.push(counted);
+                }
+                _ => return Ok(None),
+            }
+        }
+        if counts.is_empty() || (group.is_none() && projections.len() != 1) {
             return Ok(None);
         }
-        // `count(b)` of a node arrives as `count(b.id)`; matched node ids are never null.
-        let counted = match args.as_slice() {
-            [ValueExpression::Variable(v)] => v.as_str(),
-            [ValueExpression::Property(p)]
-                if self.id_column(ctx, &p.variable)
-                    == Some(qualify_column(&p.variable, &p.property)) =>
-            {
-                p.variable.as_str()
-            }
-            _ => return Ok(None),
-        };
+        let counted = counts[0];
 
         let mut predicates = Vec::new();
         let mut op = input;
@@ -355,8 +365,28 @@ impl DataFusionPlanner {
         {
             return Ok(None);
         }
-        if counted != "*" && !first_vars.contains(counted) && !second_vars.contains(counted) {
+        if counts
+            .iter()
+            .any(|v| *v != "*" && !first_vars.contains(v) && !second_vars.contains(v))
+        {
             return Ok(None);
+        }
+        if let Some(group) = group {
+            // Re-rooting must not multiply duplicate middle-node rows. The node index
+            // proves uniqueness; estimated distinct counts do not.
+            if optional_filters.is_some()
+                || ![middle, first.other(middle), second.other(middle)].contains(&group)
+                || self
+                    .adjacency
+                    .as_ref()
+                    .and_then(|a| a.nodes(middle_label))
+                    .is_none()
+                || counts
+                    .iter()
+                    .any(|v| *v != "*" && self.id_column(ctx, v).is_none())
+            {
+                return Ok(None);
+            }
         }
         // Grouping pays off only when paths through `m` outnumber the edges grouped there:
         // at least twice, by mean fan-out. Without statistics, keep the join plan.
@@ -481,50 +511,64 @@ impl DataFusionPlanner {
         // Built in the original order, so each hop takes the same relationship instance.
         let first_plan = self.build_operator(ctx, &from_middle(&first, first_filter))?;
         let second_plan = self.build_operator(ctx, &from_middle(&second, second_filter))?;
+        let column = |name: &str| col(Column::new_unqualified(name));
+        if let Some(group) = group.filter(|g| *g != middle) {
+            let hops = if group == first.other(middle) {
+                [
+                    (first_plan, first_other.as_str()),
+                    (second_plan, second_other.as_str()),
+                ]
+            } else {
+                [
+                    (second_plan, second_other.as_str()),
+                    (first_plan, first_other.as_str()),
+                ]
+            };
+            let excluded = if shared_end {
+                Some(Excluded::SameFarEnd)
+            } else if self_loops {
+                Some(Excluded::SelfLoops)
+            } else {
+                None
+            };
+            let weights = self.outer_hop_weights(hops, &middle_id, excluded)?;
+            return self
+                .project_path_weights(ctx, weights, projections)
+                .map(Some);
+        }
+        let item = &projections[0];
         let output = item.alias.as_ref().map_or_else(
             || super::super::expression::to_cypher_column_name(&item.expression),
             |alias| alias.to_lowercase(),
         );
         if shared_end {
-            return self
-                .shared_end_count(
-                    [
-                        (first_plan, first_other.as_str()),
-                        (second_plan, second_other.as_str()),
-                    ],
-                    &middle_id,
-                    &output,
-                )
-                .map(Some);
+            let weights = self.shared_end_weights(
+                [
+                    (first_plan, first_other.as_str()),
+                    (second_plan, second_other.as_str()),
+                ],
+                &middle_id,
+            )?;
+            if group.is_some() {
+                return self
+                    .project_middle_weights(ctx, weights, middle, &middle_id, projections)
+                    .map(Some);
+            }
+            return LogicalPlanBuilder::from(weights)
+                .aggregate(
+                    Vec::<Expr>::new(),
+                    vec![sum(column("__paths")).alias("__paths")],
+                )?
+                .project(vec![
+                    coalesce(vec![column("__paths"), lit(0_i64)]).alias(output)
+                ])?
+                .build()
+                .map(Some)
+                .map_err(|e| self.plan_error("Failed to sum path counts", e));
         }
 
-        let column = |name: &str| col(Column::new_unqualified(name));
-        let per_middle = |plan: LogicalPlan, other: &str, n: usize| -> Result<LogicalPlan> {
-            let (paths, loops) = (format!("__n{n}"), format!("__s{n}"));
-            let mut aggregates = vec![count(lit(1)).alias(&paths)];
-            if self_loops {
-                let is_loop = column(other).eq(column(&middle_id));
-                aggregates
-                    .push(sum(when(is_loop, lit(1_i64)).otherwise(lit(0_i64))?).alias(&loops));
-            }
-            let aggregate = LogicalPlanBuilder::from(plan)
-                .aggregate(
-                    vec![column(&middle_id).alias(format!("__m{n}"))],
-                    aggregates,
-                )?
-                .build()
-                .map_err(|e| self.plan_error("Failed to group a hop by its middle node", e))?;
-            if self.adjacency.is_none() {
-                return Ok(aggregate);
-            }
-            // On the CSR, the optimizer may count each `m`'s neighbours in place instead.
-            let hop = HopDegreesNode::new(aggregate, &middle_id, &paths, &loops);
-            Ok(LogicalPlan::Extension(Extension {
-                node: std::sync::Arc::new(hop),
-            }))
-        };
-        let first_plan = per_middle(first_plan, &first_other, 1)?;
-        let second_plan = per_middle(second_plan, &second_other, 2)?;
+        let first_plan = self.hop_counts(first_plan, &middle_id, &first_other, 1, self_loops)?;
+        let second_plan = self.hop_counts(second_plan, &middle_id, &second_other, 2, self_loops)?;
 
         // A middle node without an optional match still has one row per first-hop edge,
         // with nulls that `count` of an optional variable skips.
@@ -540,8 +584,24 @@ impl DataFusionPlanner {
         if self_loops {
             paths = paths - column("__s1") * column("__s2");
         }
-        let plan = LogicalPlanBuilder::from(first_plan)
-            .join(second_plan, join, (vec!["__m1"], vec!["__m2"]), None)?
+        let joined = LogicalPlanBuilder::from(first_plan).join(
+            second_plan,
+            join,
+            (vec!["__m1"], vec!["__m2"]),
+            None,
+        )?;
+        if group.is_some() {
+            let weights = joined
+                .project(vec![
+                    column("__m1").alias(&middle_id),
+                    paths.alias("__paths"),
+                ])?
+                .build()?;
+            return self
+                .project_middle_weights(ctx, weights, middle, &middle_id, projections)
+                .map(Some);
+        }
+        let plan = joined
             .aggregate(Vec::<Expr>::new(), vec![sum(paths).alias("__paths")])?
             .project(vec![
                 coalesce(vec![column("__paths"), lit(0_i64)]).alias(output)
@@ -551,16 +611,185 @@ impl DataFusionPlanner {
         Ok(Some(plan))
     }
 
+    /// Count one filtered hop per middle id, lowered to CSR degrees when eligible.
+    fn hop_counts(
+        &self,
+        plan: LogicalPlan,
+        middle: &str,
+        other: &str,
+        side: usize,
+        loops: bool,
+    ) -> Result<LogicalPlan> {
+        let column = |name: &str| col(Column::new_unqualified(name));
+        let (paths, self_loops) = (format!("__n{side}"), format!("__s{side}"));
+        let mut aggregates = vec![count(lit(1)).alias(&paths)];
+        if loops {
+            aggregates.push(
+                sum(when(column(other).eq(column(middle)), lit(1_i64)).otherwise(lit(0_i64))?)
+                    .alias(&self_loops),
+            );
+        }
+        let aggregate = LogicalPlanBuilder::from(plan)
+            .aggregate(vec![column(middle).alias(format!("__m{side}"))], aggregates)?
+            .build()?;
+        if self.adjacency.is_none() {
+            return Ok(aggregate);
+        }
+        Ok(LogicalPlan::Extension(Extension {
+            node: std::sync::Arc::new(HopDegreesNode::new(aggregate, middle, &paths, &self_loops)),
+        }))
+    }
+
+    /// Retain the grouped endpoint's rows, weighted by valid continuations of each edge.
+    fn outer_hop_weights(
+        &self,
+        hops: [(LogicalPlan, &str); 2],
+        middle: &str,
+        excluded: Option<Excluded>,
+    ) -> Result<LogicalPlan> {
+        let [(first, endpoint), (second, opposite)] = hops;
+        let column = |name: &str| col(Column::new_unqualified(name));
+        let mut columns: Vec<_> = first
+            .schema()
+            .fields()
+            .iter()
+            .map(|f| column(f.name()))
+            .collect();
+        let correction = if excluded == Some(Excluded::SameFarEnd) {
+            Some(
+                LogicalPlanBuilder::from(second.clone())
+                    .aggregate(
+                        vec![column(middle).alias("__cm"), column(opposite).alias("__cx")],
+                        vec![count(lit(1)).alias("__excluded")],
+                    )?
+                    .build()?,
+            )
+        } else {
+            None
+        };
+        let counts = self.hop_counts(
+            second,
+            middle,
+            opposite,
+            2,
+            excluded == Some(Excluded::SelfLoops),
+        )?;
+        let mut joined = LogicalPlanBuilder::from(first).join(
+            counts,
+            JoinType::Inner,
+            (vec![middle], vec!["__m2"]),
+            None,
+        )?;
+        let mut weight = column("__n2");
+        if let Some(correction) = correction {
+            joined = joined.join(
+                correction,
+                JoinType::Left,
+                (vec![middle, endpoint], vec!["__cm", "__cx"]),
+                None,
+            )?;
+            weight = weight - coalesce(vec![column("__excluded"), lit(0_i64)]);
+        } else if excluded == Some(Excluded::SelfLoops) {
+            weight = weight
+                - when(column(endpoint).eq(column(middle)), column("__s2"))
+                    .otherwise(lit(0_i64))?;
+        }
+        columns.push(weight.alias("__paths"));
+        joined
+            .project(columns)?
+            .build()
+            .map_err(|e| self.plan_error("Failed to weight a hop", e))
+    }
+
+    /// Fetch grouping properties once per middle node before merging equal values.
+    fn project_middle_weights(
+        &self,
+        ctx: &PlanningContext,
+        mut plan: LogicalPlan,
+        middle: &str,
+        middle_id: &str,
+        projections: &[ProjectionItem],
+    ) -> Result<LogicalPlan> {
+        let label = &ctx.analysis.var_to_label[middle];
+        // Eligibility already required this index, which proves middle ids unique.
+        let rows = self
+            .adjacency
+            .as_ref()
+            .unwrap()
+            .nodes(label)
+            .unwrap()
+            .clone();
+        let mut wanted: Vec<(String, String)> = Vec::new();
+        for item in projections {
+            if let ValueExpression::Property(p) = &item.expression {
+                let name = qualify_column(&p.variable, &p.property);
+                if name != middle_id && !wanted.iter().any(|(n, _)| *n == name) {
+                    let field = rows
+                        .schema()
+                        .fields()
+                        .iter()
+                        .find(|f| f.name().eq_ignore_ascii_case(&p.property))
+                        .ok_or_else(|| self.plan_error("Unknown grouping property", &p.property))?;
+                    wanted.push((name, field.name().clone()));
+                }
+            }
+        }
+        if !wanted.is_empty() {
+            plan = LogicalPlan::Extension(Extension {
+                node: std::sync::Arc::new(NodeLookupNode::try_new(
+                    plan,
+                    middle_id.to_string(),
+                    middle.to_string(),
+                    rows,
+                    &wanted,
+                )?),
+            });
+        }
+        self.project_path_weights(ctx, plan, projections)
+    }
+
+    /// Restore the original grouping and aliases, replacing each row count by a sum.
+    fn project_path_weights(
+        &self,
+        ctx: &PlanningContext,
+        plan: LogicalPlan,
+        projections: &[ProjectionItem],
+    ) -> Result<LogicalPlan> {
+        let plan = LogicalPlanBuilder::from(plan)
+            // A group with no valid inner-match paths must disappear, not count as zero.
+            .filter(col("__paths").gt(lit(0_i64)))?
+            .build()?;
+        let projections: Vec<_> = projections
+            .iter()
+            .map(|p| {
+                if matches!(&p.expression, ValueExpression::AggregateFunction { .. }) {
+                    ProjectionItem {
+                        expression: ValueExpression::AggregateFunction {
+                            name: "sum".to_string(),
+                            args: vec![ValueExpression::Variable("__paths".to_string())],
+                            distinct: false,
+                        },
+                        alias: Some(p.alias.clone().unwrap_or_else(|| {
+                            super::super::expression::to_cypher_column_name(&p.expression)
+                        })),
+                    }
+                } else {
+                    p.clone()
+                }
+            })
+            .collect();
+        self.build_project_with_aggregates(ctx, plan, &projections, &[])
+    }
+
     /// The two-hop count for same-type hops that share an end `m`, from each hop's rows
     /// (`m`'s id column `middle_id`, the far end's id column): `Σ_m n1(m) · n2(m) - c(m)`,
     /// where `c(m) = Σ_x k1(m, x) · k2(m, x)` counts the excluded pairs, whose two edges
     /// join `m` to the same `x`. Both hops' rows go through one grouping by `(m, x)` and
     /// one by `m`, so the work still follows the edges.
-    fn shared_end_count(
+    fn shared_end_weights(
         &self,
         hops: [(LogicalPlan, &str); 2],
         middle_id: &str,
-        output: &str,
     ) -> Result<LogicalPlan> {
         let column = |name: &str| col(Column::new_unqualified(name));
         // One row per edge, marked with the hop it belongs to.
@@ -593,12 +822,9 @@ impl DataFusionPlanner {
                     sum(pairs).alias("__c"),
                 ],
             )?
-            .aggregate(
-                Vec::<Expr>::new(),
-                vec![sum(column("__n1") * column("__n2") - column("__c")).alias("__paths")],
-            )?
             .project(vec![
-                coalesce(vec![column("__paths"), lit(0_i64)]).alias(output)
+                column("__m").alias(middle_id),
+                (column("__n1") * column("__n2") - column("__c")).alias("__paths"),
             ])?
             .build()
             .map_err(|e| self.plan_error("Failed to build two-hop count", e))
@@ -1059,6 +1285,139 @@ mod tests {
         ] {
             grouped(&follows, &query, false).await;
         }
+    }
+
+    #[tokio::test]
+    async fn grouped_two_hop_weights_match_enumeration() {
+        let follows = [(1, 2), (1, 2), (2, 2), (2, 3), (3, 2), (3, 3), (4, 99)];
+        let likes = [(1, 2), (2, 2), (2, 3), (3, 2), (3, 4)];
+        for use_csr in [false, true] {
+            let engine = engine(&follows, &likes, use_csr).await;
+            for pattern in [
+                "(a:Person)-[:FOLLOWS]->(b:Person)-[:LIKES]->(c:Person)",
+                "(a:Person)-[:FOLLOWS]->(b:Person)-[:FOLLOWS]->(c:Person)",
+                "(a:Person)-[:FOLLOWS]->(b:Person)<-[:FOLLOWS]-(c:Person)",
+                "(a:Person)<-[:FOLLOWS]-(b:Person)-[:FOLLOWS]->(c:Person)",
+                "(a:Person)-[:FOLLOWS]-(b:Person)-[:FOLLOWS]-(c:Person)",
+                "(a:Person)<-[:FOLLOWS]-(b:Person)<-[:LIKES]-(c:Person)",
+            ] {
+                for group in [
+                    "a.id",
+                    "b.id",
+                    "c.id",
+                    "a.age",
+                    "b.age",
+                    "c.age",
+                    "b.id, b.age",
+                ] {
+                    for filter in ["", "WHERE a.age > 15 AND b.age < 60 AND c.age > 15"] {
+                        let query = format!("MATCH {pattern} {filter} RETURN {group}, count(*) AS n, count(a.id) AS na, count(c) AS nc");
+                        let reference = query
+                            .replace("count(*)", "(count(*) + 0)")
+                            .replace("count(a.id)", "(count(a.id) + 0)")
+                            .replace("count(c)", "(count(c) + 0)");
+                        let plan = engine.explain(&query, HashMap::new()).await.unwrap();
+                        assert_eq!(plan.contains("__paths"), use_csr, "{query}: {plan}");
+                        let reference_plan =
+                            engine.explain(&reference, HashMap::new()).await.unwrap();
+                        assert!(
+                            !reference_plan.contains("__paths")
+                                && !reference_plan.contains("degrees="),
+                            "{reference_plan}"
+                        );
+                        let result = engine.execute(&query, HashMap::new()).await.unwrap();
+                        let expected = engine.execute(&reference, HashMap::new()).await.unwrap();
+                        let sorted = |batch: &RecordBatch| {
+                            let mut rows: Vec<_> = (0..batch.num_rows())
+                                .map(|i| {
+                                    batch
+                                        .columns()
+                                        .iter()
+                                        .map(|c| {
+                                            arrow::util::display::array_value_to_string(c, i)
+                                                .unwrap()
+                                        })
+                                        .collect::<Vec<_>>()
+                                })
+                                .collect();
+                            rows.sort();
+                            rows
+                        };
+                        assert_eq!(sorted(&result), sorted(&expected), "{query}: {plan}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn grouped_zero_paths_and_cached_filters() {
+        let engine = engine(&[(1, 1), (2, 2), (1, 2)], &[], true).await;
+        for group in ["a.id", "b.id", "c.id", "b.age"] {
+            let query = format!(
+                "MATCH (a:Person)-[:FOLLOWS]->(b:Person)-[:FOLLOWS]->(c:Person) \
+                WHERE b.id = 2 AND a.id = 2 RETURN {group}, count(*) AS n"
+            );
+            assert_eq!(
+                engine
+                    .execute(&query, HashMap::new())
+                    .await
+                    .unwrap()
+                    .num_rows(),
+                0
+            );
+        }
+        let query = "MATCH (a:Person)-[:FOLLOWS]->(b:Person)-[:FOLLOWS]->(c:Person) \
+            WHERE a.id < 5 AND c.age > $age RETURN a.id, count(*) AS n";
+        for (age, rows) in [(20, 1), (50, 0), (20, 1)] {
+            let params = HashMap::from([("age".to_string(), serde_json::Value::from(age))]);
+            let plan = engine.explain(query, params.clone()).await.unwrap();
+            assert!(plan.contains("__paths"), "{plan}");
+            assert_eq!(
+                engine.execute(query, params).await.unwrap().num_rows(),
+                rows
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn grouped_count_plan_boundaries() {
+        let engine = engine(&[(1, 2), (2, 3)], &[(2, 3)], true).await;
+        let pattern = "MATCH (a:Person)-[:FOLLOWS]->(b:Person)-[:LIKES]->(c:Person)";
+        for (key, degrees) in [("b.id", 2), ("a.id", 1), ("c.id", 1)] {
+            let query = format!("{pattern} RETURN {key}, count(*)");
+            let plan = engine.explain(&query, HashMap::new()).await.unwrap();
+            let hops: Vec<_> = plan
+                .lines()
+                .filter(|l| l.contains("CsrExpandExec:"))
+                .collect();
+            assert_eq!(hops.len(), 2, "{plan}");
+            assert_eq!(
+                hops.iter().filter(|l| l.contains("degrees=")).count(),
+                degrees,
+                "{plan}"
+            );
+        }
+        for suffix in [
+            "RETURN b.id, count(DISTINCT c)",
+            "RETURN a.id, count(c.age)",
+            "RETURN a.id, sum(c.age)",
+            "RETURN b.id, count(*), sum(c.age)",
+            "RETURN a.id, b.id, count(*)",
+            "RETURN b.age + 1, count(*)",
+            "WHERE a.age < c.age RETURN a.id, count(*)",
+        ] {
+            let query = format!("{pattern} {suffix}");
+            let plan = engine.explain(&query, HashMap::new()).await.unwrap();
+            assert!(!plan.contains("__paths"), "{query}: {plan}");
+        }
+        let query = "MATCH (a:Person)-[:FOLLOWS]->(b:Person) \
+            OPTIONAL MATCH (b)-[:LIKES]->(c:Person) RETURN a.id, count(*)";
+        assert!(!engine
+            .explain(query, HashMap::new())
+            .await
+            .unwrap()
+            .contains("__paths"));
     }
 
     #[tokio::test]

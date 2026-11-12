@@ -21,6 +21,80 @@ CONFIG = (
     .build()
 )
 
+
+@pytest.mark.parametrize("lazy", [False, True])
+def test_grouped_two_hop_counts(tmp_path, lazy):
+    config = (
+        GraphConfig.builder()
+        .node_table("Person", "id")
+        .rel_table("R", "Person", "Person", "src", "dst")
+        .rel_table("S", "Person", "Person", "src", "dst")
+        .build()
+    )
+    people = pa.table({"id": list(range(12)), "Name": [None, "shared", "shared"] * 4})
+    pairs = [(a, b) for a in range(12) for b in range(12)] + [(0, 1)] * 3
+    edges = pa.table(
+        {
+            "src": [a for a, _ in pairs] + [99],
+            "dst": [b for _, b in pairs] + [0],
+            "since": [2000 + (a + b) % 3 for a, b in pairs] + [2000],
+        }
+    )
+    datasets = {"Person": people, "R": edges, "S": edges}
+    if lazy:
+        datasets = {
+            name: lance.write_dataset(table, tmp_path / name, max_rows_per_file=40)
+            for name, table in datasets.items()
+        }
+        for name in ["R", "S"]:
+            datasets[name].delete("since = 2001")
+            datasets[name] = lance.dataset(tmp_path / name)
+    csr = CypherEngine(config, datasets, use_csr=True)
+    join = CypherEngine(config, datasets)
+    for pattern in [
+        "(a:Person)-[:R]->(b:Person)-[:S]->(c:Person)",
+        "(a:Person)-[:R]->(b:Person)-[:R]->(c:Person)",
+        "(a:Person)-[:R]->(b:Person)<-[:R]-(c:Person)",
+        "(a:Person)-[:R]-(b:Person)-[:R]-(c:Person)",
+        "(b:Person)-[:R]->(a:Person), (b)-[:S]->(c:Person)",
+        "(a:Person)-[r:R]->(b:Person)-[s:S]->(c:Person) "
+        "WHERE r.since > 2000 AND s.since > 2000",
+    ]:
+        for group in [
+            "a.id",
+            "b.id",
+            "c.id",
+            "a.name",
+            "b.name",
+            "c.name",
+            "b.id, b.name",
+        ]:
+            query = f"MATCH {pattern} RETURN {group}, count(*) AS n, count(c.id) AS nc"
+            reference = query.replace("count(*)", "(count(*) + 0)").replace(
+                "count(c.id)", "(count(c.id) + 0)"
+            )
+            assert "__paths" in csr.explain(query), query
+            assert "__paths" not in csr.explain(reference), reference
+            assert "degrees=" not in csr.explain(reference), reference
+            expected = rows(join.execute(reference))
+            assert rows(csr.execute(query)) == expected, query
+            assert rows(csr.execute(reference)) == expected, query
+
+
+def test_grouped_count_with_duplicate_middle_ids():
+    people = pa.table({"id": [1, 2, 2, 3], "name": ["a", "b", "other", "c"]})
+    edges = pa.table({"src": [1, 2] * 20, "dst": [2, 3] * 20})
+    query = (
+        "MATCH (a:Person)-[:KNOWS]->(b:Person)-[:KNOWS]->(c:Person) "
+        "RETURN b.name, count(*) AS n"
+    )
+    datasets = {"Person": people, "KNOWS": edges}
+    csr = CypherEngine(CONFIG, datasets, use_csr=True)
+    join = CypherEngine(CONFIG, datasets)
+    assert "__paths" not in csr.explain(query)
+    assert rows(csr.execute(query)) == rows(join.execute(query))
+
+
 PEOPLE = pa.table(
     {
         "id": [1, 2, 3, 4, 5, 6],

@@ -193,6 +193,54 @@ ProjectionExec: expr=[CASE WHEN __paths@0 IS NOT NULL THEN __paths@0 ELSE 0 END 
                       DataSourceExec: partitions=10, partition_sizes=[2, 2, 2, 1, 1, 1, 1, 1, 1, 1]
 ```
 
+### Grouped two-hop counts
+
+The two-hop count rewrite also accepts plain row counts grouped by direct properties of one node.
+It requires a node index proving that the middle node's integer ids are unique; re-rooting both sides
+at a middle table with duplicate ids would multiply its rows. Without that proof it retains the existing
+plan, including when CSR indexing is disabled. It uses the same fan-out gate and hop-local predicate
+checks as the scalar count. Eligibility is checked before consuming relationship instances.
+
+For middle-node grouping, the rewrite retains `n1(b) * n2(b)` minus the existing exclusion correction as
+`__paths` per middle id. A `NodeLookup` fetches requested grouping properties, and a final aggregate sums
+the weights by those properties. Equal property values from several nodes merge, and null remains a group
+key. Same-far-end corrections retain the `(middle, far end)` aggregates used by the scalar rewrite.
+
+For outer-node grouping, the grouped side emits one row per first-hop edge. The other side is counted
+per middle node and joined to those rows. A different-type edge receives weight `n2(b)`. A same-type
+directed chain subtracts `s2(b)` when the retained edge is a self-loop. Shared-end and undirected cases
+subtract the opposite hop's count keyed by `(b, a)`, using a left join and zero for a missing correction.
+The final aggregate sums those weights by the retained endpoint's requested properties. Either outer
+endpoint can be retained, independent of the original expansion order.
+
+Both grouped plans remove zero weights before grouping: candidate edges whose every continuation is
+excluded must not create a zero-count group. The scalar count still returns zero over empty input.
+Grouped optional matches, distinct counts, nullable-property counts, mixed aggregates, computed grouping
+expressions and grouping across nodes are not handled by this rewrite.
+
+On twelve nodes with complete directed `R` and `S` relationships (144 edges each), selected physical-plan
+lines from `explain()` show the difference. Intermediate operators are omitted from these excerpts.
+
+```cypher
+MATCH (a:N)-[:R]->(b:N)-[:S]->(c:N) RETURN b.id, count(*) AS n
+```
+
+```text
+AggregateExec: mode=FinalPartitioned, gby=[b__id@0 as b__id], aggr=[sum(__paths) as __agg_0]
+CsrExpandExec: key=b__id, edges=144, take=a[], degrees=[__n1, __s1]
+CsrExpandExec: key=b__id, edges=144, take=c[], degrees=[__n2, __s2]
+```
+
+```cypher
+MATCH (a:N)-[:R]->(b:N)-[:S]->(c:N) RETURN a.id, count(*) AS n
+```
+
+```text
+AggregateExec: mode=FinalPartitioned, gby=[a__id@0 as a__id], aggr=[sum(__paths) as __agg_0]
+CsrExpandExec: key=b__id, edges=144, take=c[], degrees=[__n2, __s2]
+CsrExpandExec: key=b__id, edges=144, take=a[a__id*]
+```
+
 ### Counting the first hop per node
 
 `MATCH (x)-[:R]->(m)-[:S]->(c) RETURN c.name, count(x)` doesn't need `x`'s rows, only how many there are for each
