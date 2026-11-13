@@ -159,8 +159,10 @@ from different labels.
 For `shortestPath` and `allShortestPaths`, a source with one target in an input batch searches from both
 ends using the outgoing and incoming CSR. It expands the smaller frontier and finishes the whole layer
 before joining paths, so it keeps all shortest alternatives. Several targets for the same source share
-one forward search. Undirected searches can use both ends without a persistent CSR too; directed searches
-without a CSR keep their forward search over the adjacency built for that query.
+one forward search, and the forward searches of an input batch run together, up to 64 sources at a time,
+so sources whose searches overlap read each neighbour list once. Undirected searches can use both ends
+without a persistent CSR too; directed searches without a CSR keep their forward searches over the
+adjacency built for that query.
 
 ### Variable-length traversal
 

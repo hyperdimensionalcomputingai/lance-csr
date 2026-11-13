@@ -13,8 +13,9 @@
 //! from it once per query, shared by all partitions.
 //!
 //! A source with one target searches from both ends when reverse adjacency is available,
-//! expanding the smaller complete frontier. Sources with several targets share one
-//! forward search. Predecessors retain every shortest path, including parallel edges.
+//! expanding the smaller complete frontier. The other sources search forward together, up
+//! to 64 at a time, sharing each neighbour read (see [`search_sources`]). Predecessors
+//! retain every shortest path, including parallel edges.
 
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
@@ -43,6 +44,9 @@ use crate::csr_expand::{Adjacency, Neighbors};
 use crate::error::{GraphError, Result};
 
 type FastMap<K, V> = HashMap<K, V, ahash::RandomState>;
+
+/// One source's search: the depth of the nodes it reached, and their predecessors.
+type Search = (FastMap<i64, u32>, FastMap<i64, Vec<i64>>);
 
 /// Which way the search follows edges.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd)]
@@ -394,7 +398,8 @@ async fn build_adjacency(
 
 /// Breadth-first search from `source` until every node in `targets` is reached (or the
 /// frontier empties, or `max_hops`). Returns each reached node's depth and, for every node
-/// at depth d > 0, its predecessors at depth d - 1.
+/// at depth d > 0, its predecessors at depth d - 1. The reference for [`search_sources`].
+#[cfg(test)]
 async fn search(
     adjacency: &Neighbors,
     source: i64,
@@ -417,6 +422,153 @@ async fn search(
         frontier = next;
     }
     (depth, parents)
+}
+
+/// Sources per [`search_sources`] call: one bit of a machine word each.
+const LANES: usize = 64;
+
+/// What the searches of one [`search_sources`] call know about a node. Bit `i` of a mask
+/// stands for the search from the call's `i`th source.
+#[derive(Default)]
+struct Reached {
+    /// Searches that reached the node at an earlier level.
+    seen: u64,
+    /// Searches reaching it at the level being expanded.
+    next: u64,
+    /// One `(predecessor, searches it is a shortest-path predecessor for)` per edge that
+    /// reached the node, so parallel edges and ties stay distinct.
+    parents: Vec<(i64, u64)>,
+}
+
+/// Forward breadth-first searches from up to [`LANES`] distinct sources at once, each until
+/// its own targets are reached (or its frontier empties, or `max_hops`).
+///
+/// The searches advance level by level together. A node's neighbours are read once per
+/// level for all the searches whose frontier holds it, and the state kept per node is
+/// shared: two masks and one predecessor record per edge, whatever the number of sources.
+/// Searching the sources one at a time repeats the neighbour reads and keeps a depth and a
+/// predecessor list per source for every node reached, which dominated the cost when
+/// searches overlapped.
+///
+/// Returns, per source, the depth of the source and of each target reached, and the
+/// predecessors of every node on a shortest path to one of those targets: the part of a
+/// single search's result that [`paths_to`] reads.
+async fn search_sources(
+    adjacency: &Neighbors,
+    requests: &[(i64, &HashSet<i64>)],
+    max_hops: u32,
+) -> Vec<Search> {
+    assert!(requests.len() <= LANES);
+    let mut results: Vec<Search> = requests.iter().map(|_| Default::default()).collect();
+    let mut remaining: Vec<Vec<i64>> = requests
+        .iter()
+        .map(|(s, ts)| ts.iter().copied().filter(|t| t != s).collect())
+        .collect();
+    let mut reached: FastMap<i64, Reached> = FastMap::default();
+    let mut frontier: Vec<(i64, u64)> = Vec::new();
+    let mut active = 0_u64;
+    for (i, (source, _)) in requests.iter().enumerate() {
+        results[i].0.insert(*source, 0);
+        let seen = &mut reached.entry(*source).or_default().seen;
+        debug_assert_eq!(*seen, 0, "sources are distinct");
+        *seen = 1 << i;
+        if !remaining[i].is_empty() {
+            active |= 1 << i;
+            frontier.push((*source, 1 << i));
+        }
+    }
+    let mut work = 0_usize;
+    for level in 1..=max_hops {
+        if frontier.is_empty() || active == 0 {
+            break;
+        }
+        let mut touched = Vec::new();
+        for &(node, mask) in &frontier {
+            // Searches that found their last target stop expanding.
+            let mask = mask & active;
+            let previous_work = work;
+            let mut position = crate::csr_expand::NeighborPosition::default();
+            let candidates = (mask != 0)
+                .then(|| adjacency.candidates_from::<false>(node, &mut position))
+                .into_iter()
+                .flatten();
+            for candidate in candidates {
+                work += 1;
+                if work.is_multiple_of(1024) {
+                    crate::csr_expand::cooperative_yield().await;
+                }
+                let Some((n, _)) = candidate else {
+                    continue;
+                };
+                let n = n as i64;
+                let state = reached.entry(n).or_default();
+                // `seen` changes only after the level, so every shortest path is recorded.
+                let lanes = mask & !state.seen;
+                if lanes == 0 {
+                    continue;
+                }
+                if state.next == 0 {
+                    touched.push(n);
+                }
+                state.next |= lanes;
+                state.parents.push((node, lanes));
+            }
+            if work == previous_work {
+                work += 1;
+                if work.is_multiple_of(1024) {
+                    crate::csr_expand::cooperative_yield().await;
+                }
+            }
+        }
+        frontier.clear();
+        for node in touched {
+            let state = reached.get_mut(&node).expect("touched");
+            state.seen |= state.next;
+            frontier.push((node, std::mem::take(&mut state.next)));
+        }
+        for (i, targets) in remaining.iter_mut().enumerate() {
+            let bit = 1_u64 << i;
+            if active & bit == 0 {
+                continue;
+            }
+            targets.retain(|t| {
+                let found = reached.get(t).is_some_and(|state| state.seen & bit != 0);
+                if found {
+                    results[i].0.insert(*t, level);
+                }
+                !found
+            });
+            if targets.is_empty() {
+                active &= !bit;
+            }
+        }
+    }
+    // Each search's own predecessors, walking back from the targets it reached.
+    for (i, (depth, parents)) in results.iter_mut().enumerate() {
+        let bit = 1_u64 << i;
+        let mut pending: Vec<i64> = depth.keys().copied().collect();
+        while let Some(node) = pending.pop() {
+            work += 1;
+            if work.is_multiple_of(1024) {
+                crate::csr_expand::cooperative_yield().await;
+            }
+            if parents.contains_key(&node) {
+                continue;
+            }
+            let own: Vec<i64> = reached[&node]
+                .parents
+                .iter()
+                .filter(|(_, lanes)| lanes & bit != 0)
+                .map(|(parent, _)| *parent)
+                .collect();
+            // The source has none, and `paths_to` ends a path at a node without an entry.
+            if !own.is_empty() {
+                pending.extend(&own);
+                parents.insert(node, own);
+            }
+        }
+    }
+    results
 }
 
 /// Finish the whole level so parallel edges and alternative shortest paths survive.
@@ -586,21 +738,21 @@ async fn search_batch(
         }
     }
     let mut searches = FastMap::default();
+    let mut forward = Vec::new();
     for (&source, targets) in &by_source {
-        let result = match reverse_adjacency.filter(|_| targets.len() == 1) {
+        match reverse_adjacency.filter(|_| targets.len() == 1) {
             Some(reverse) => {
-                search_bidirectional(
-                    adjacency,
-                    reverse,
-                    source,
-                    *targets.iter().next().unwrap(),
-                    spec.max_hops,
-                )
-                .await
+                let target = *targets.iter().next().unwrap();
+                let result =
+                    search_bidirectional(adjacency, reverse, source, target, spec.max_hops).await;
+                searches.insert(source, result);
             }
-            None => search(adjacency, source, targets, spec.max_hops).await,
-        };
-        searches.insert(source, result);
+            None => forward.push((source, targets)),
+        }
+    }
+    for sources in forward.chunks(LANES) {
+        let results = search_sources(adjacency, sources, spec.max_hops).await;
+        searches.extend(sources.iter().map(|(source, _)| *source).zip(results));
     }
     let mut rows = Vec::new();
     let mut lengths = Vec::new();
@@ -820,6 +972,114 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[tokio::test]
+    async fn batched_search_matches_one_search_per_source() {
+        // All directed graphs on three nodes; every other one adds a parallel edge and a
+        // self-loop. Each source asks for every node and one that does not exist.
+        let edges = [(0, 1), (0, 2), (1, 0), (1, 2), (2, 0), (2, 1)];
+        let targets = HashSet::from([0, 1, 2, 99]);
+        for mask in 0..(1 << edges.len()) {
+            let mut selected: Vec<_> = edges
+                .iter()
+                .enumerate()
+                .filter_map(|(bit, &edge)| (mask & (1 << bit) != 0).then_some(edge))
+                .collect();
+            if mask % 2 == 1 {
+                selected.extend([(0, 1), (1, 1)]);
+            }
+            let (out, inc) = adjacencies(&selected).await;
+            let directed = Neighbors::directed(out.clone());
+            let undirected = Neighbors::undirected(out, inc);
+            for adjacency in [&directed, &undirected] {
+                for max_hops in 0..=3 {
+                    let requests: Vec<_> = (0..3).map(|source| (source, &targets)).collect();
+                    let batched = search_sources(adjacency, &requests, max_hops).await;
+                    for ((source, _), (depth, parents)) in requests.iter().zip(&batched) {
+                        let (expected_depth, expected_parents) =
+                            search(adjacency, *source, &targets, max_hops).await;
+                        for target in &targets {
+                            let context =
+                                format!("graph {mask}, {source}->{target}, max {max_hops}");
+                            assert_eq!(depth.get(target), expected_depth.get(target), "{context}");
+                            if depth.contains_key(target) {
+                                let mut expected = paths_to(*target, &expected_parents, true).await;
+                                let mut actual = paths_to(*target, parents, true).await;
+                                expected.sort();
+                                actual.sort();
+                                assert_eq!(actual, expected, "{context}");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn sources_beyond_one_batch_of_lanes_keep_their_own_paths() {
+        // 150 sources need three batches. Steps of one and two give ties: two shortest
+        // paths to the node three ahead, three to the node five ahead.
+        let n = 150_i64;
+        let edges: Vec<_> = (0..n)
+            .flat_map(|i| [(i, (i + 1) % n), (i, (i + 2) % n)])
+            .collect();
+        let (out, _) = adjacencies(&edges).await;
+        let adjacency = Neighbors::directed(out);
+        let rows: Vec<_> = (0..n)
+            .flat_map(|s| [(s, (s + 3) % n), (s, (s + 5) % n)])
+            .collect();
+        let ids = |f: fn(&(i64, i64)) -> i64| {
+            Arc::new(Int64Array::from(rows.iter().map(f).collect::<Vec<_>>())) as ArrayRef
+        };
+        let batch = RecordBatch::try_from_iter([("s", ids(|r| r.0)), ("t", ids(|r| r.1))]).unwrap();
+        let spec = ShortestPathSpec {
+            source_column: "s".into(),
+            target_column: "t".into(),
+            direction: SearchDirection::Outgoing,
+            min_hops: 1,
+            max_hops: 10,
+            all: true,
+            length_column: "length".into(),
+            nodes_column: "nodes".into(),
+            edge_source: "src".into(),
+            edge_target: "dst".into(),
+        };
+        let mut fields: Vec<_> = batch.schema().fields().iter().cloned().collect();
+        fields.push(Arc::new(Field::new("length", DataType::Int64, true)));
+        let item = Arc::new(Field::new("item", DataType::Int64, true));
+        fields.push(Arc::new(Field::new("nodes", DataType::List(item), true)));
+        let schema = Arc::new(Schema::new(fields));
+        let found = search_batch(&batch, 0, 1, &adjacency, None, &spec, &schema)
+            .await
+            .unwrap();
+        let nodes = found.column(3).as_list::<i32>();
+        let mut actual: Vec<Vec<i64>> = (0..found.num_rows())
+            .map(|i| nodes.value(i).as_primitive::<Int64Type>().values().to_vec())
+            .collect();
+        let mut expected = Vec::new();
+        for &(source, target) in &rows {
+            let (_, parents) = search(&adjacency, source, &HashSet::from([target]), 10).await;
+            expected.extend(paths_to(target, &parents, true).await);
+        }
+        assert_eq!(expected.len(), 150 * (2 + 3));
+        actual.sort();
+        expected.sort();
+        assert_eq!(actual, expected);
+    }
+
+    #[tokio::test]
+    async fn batched_search_yields_within_a_wide_level() {
+        let edges: Vec<_> = (1..=3000).map(|i| (0, i)).collect();
+        let (out, _) = adjacencies(&edges).await;
+        let adjacency = Neighbors::directed(out);
+        let targets = HashSet::from([3000]);
+        let requests = [(0, &targets)];
+        let mut search = Box::pin(search_sources(&adjacency, &requests, 4));
+        // Dropping the pending search here is how a cancelled query stops it.
+        assert!(futures::poll!(search.as_mut()).is_pending());
+        assert_eq!(search.await[0].0[&3000], 1);
     }
 
     #[tokio::test]

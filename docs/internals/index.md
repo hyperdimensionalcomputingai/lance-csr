@@ -113,7 +113,7 @@ All paths are under
 | `csr_expand/node_lookup.rs` | `NodeLookupNode` and `NodeLookupExec` | lance-csr |
 | `csr_index.rs` | The compact CSR neighbour store | [lance-graph](https://github.com/lance-format/lance-graph); edge rows and the delta added in lance-csr, unused traversal helpers removed |
 | `csr_traversal.rs` | Resumable, typed variable-length walks | lance-csr |
-| `shortest_path.rs` | `ShortestPathNode` and `ShortestPathExec`, bidirectional breadth-first search | lance-csr |
+| `shortest_path.rs` | `ShortestPathNode` and `ShortestPathExec`, bidirectional and batched forward breadth-first search | lance-csr |
 | `path_match.rs`, `path_inventory.rs`, `path_value.rs` | Named paths, the edge inventory, Arrow path values | lance-csr |
 | `apply.rs` | `ApplyNode` and `ApplyExec` for CALL subqueries | lance-csr |
 | `key_statistics.rs` | `KeyStatisticsProvider` and `KeyStatisticsExec` | lance-csr |

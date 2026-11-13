@@ -357,7 +357,7 @@ RETURN length(p), nodes(p)
   when several have the same minimum length; `allShortestPaths` returns every shortest path, including
   duplicate node sequences that use different parallel edges. A single source-target pair searches from
   both ends when reverse adjacency is available. Several targets for the same source in an input batch
-  share one forward search.
+  share one forward search, and those forward searches run together, up to 64 sources at a time.
 - **Named paths** (`p = (a)-[:R]->(b)`) retain the ordered node and relationship records. Named
   variable-length paths use each relationship at most once, including self-loops and parallel edges.
   Use `relationships(p)` for variable-length relationship lists; binding a relationship variable inside
