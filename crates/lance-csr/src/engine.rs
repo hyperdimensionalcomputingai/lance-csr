@@ -857,6 +857,19 @@ async fn build_key_statistics(
     Ok(entries)
 }
 
+/// Most stored CSRs decoding at once; below this, one per core.
+///
+/// Why a cap: the decoded CSRs are kept either way, but each load in flight also holds its
+/// compressed file and decode buffers until it finishes. Uncapped, peak memory would grow with the
+/// core count, so a many-core machine loading a large graph with little memory to spare could run
+/// out where a smaller one would not.
+///
+/// Why 10: on GDC SF1 (23 types, Apple M5 with 10 cores), 10 at once cut the start that loads
+/// every stored CSR from 0.46 s to 0.11 s for about 0.15 GiB more peak memory, with the 10 largest
+/// files holding most of the 134 MiB stored. Higher caps were not measured. With the cap, the extra
+/// memory stays within about 10 times the largest file plus its decode buffers.
+const MAX_CONCURRENT_CSR_LOADS: usize = 10;
+
 /// Build (or reuse) CSR adjacencies for every relationship type with integer endpoints.
 ///
 /// An entry from `previous` is reused when its relationship dataset is the same
@@ -964,7 +977,8 @@ async fn build_csr_entries(
             )))
         })
         .collect();
-    let parallelism = std::thread::available_parallelism().map_or(1, |n| n.get());
+    let parallelism =
+        std::thread::available_parallelism().map_or(1, |n| n.get().min(MAX_CONCURRENT_CSR_LOADS));
     let entries: Vec<_> = futures::stream::iter(entries)
         .buffer_unordered(parallelism)
         .try_collect()

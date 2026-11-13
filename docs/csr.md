@@ -481,7 +481,7 @@ print(open_engine().delete_stored_csr())  # 1
 
     The file holds the CSR's arrays as they sit in memory, compressed with zstd: on SF1 about 8 bytes per edge,
     134 MiB in all. A load decompresses them and rebuilds only the map from key to position. Relationship
-    types load in parallel, up to one per core, while node indexes are built from their node tables. On the GDC
+    types load in parallel, up to one per core and at most 10 at once, while node indexes are built from their node tables. On the GDC
     SF1 graph read lazily (17.3 million edges over 23 relationship types), measured on an Apple M5:
 
     | | Engine start | Peak memory |
