@@ -240,6 +240,13 @@ query, shared by all partitions.
 - After the last level, each source's predecessors are collected by walking back from the targets it reached, so
   only nodes on a shortest path to a requested target get per-source state.
 - Predecessors retain every shortest path, including parallel edges.
+
+The batched search follows multi-source breadth-first search, from
+[The More the Merrier: Efficient Multi-Source Graph Traversal](https://www.vldb.org/pvldb/vol8/p449-then.pdf) (Then
+et al., VLDB 2015), which [DuckPGQ](https://vldb.org/cidrdb/papers/2023/p66-wolde.pdf) uses for shortest paths
+between sets of bound endpoints. Both index dense arrays of bitsets by vertex number. lance-csr's CSR stores raw
+neighbour keys, so it keeps the masks in a hash map, and it shares predecessor records across searches because it
+returns every shortest path, not one.
 - The operator appends `<path>__length` and `<path>__nodes` to each input row, once per path. Rows with no path are
   dropped for MATCH, and kept with nulls through a left join for OPTIONAL MATCH.
 
