@@ -230,7 +230,15 @@ query, shared by all partitions.
 
 - A source with one target searches from both ends using the outgoing and incoming adjacency. It expands the smaller
   frontier and finishes each layer before joining paths, so it keeps every shortest alternative.
-- Several targets for the same source share one forward search.
+- Several targets for the same source share one forward search. So does a single target when there is no incoming
+  adjacency to search from.
+- The forward searches of an input batch run together, up to 64 sources at a time. Each source owns one bit of a
+  64-bit mask. A node reached by any of them keeps two masks (the searches that reached it earlier, and those
+  reaching it at the current level) and one `(predecessor, mask)` record per edge that reached it. A node's
+  neighbours are read once per level for all the searches whose frontier holds it, and the per-node state doesn't
+  grow with the number of sources. A search stops expanding when its last target is reached; the rest continue.
+- After the last level, each source's predecessors are collected by walking back from the targets it reached, so
+  only nodes on a shortest path to a requested target get per-source state.
 - Predecessors retain every shortest path, including parallel edges.
 - The operator appends `<path>__length` and `<path>__nodes` to each input row, once per path. Rows with no path are
   dropped for MATCH, and kept with nulls through a left join for OPTIONAL MATCH.
