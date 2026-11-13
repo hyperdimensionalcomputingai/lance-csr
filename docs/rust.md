@@ -132,13 +132,6 @@ The deadline applies only to work inside the call; it isn't stored in the engine
 
 ## Graph mappings and pinned snapshots
 
-Relationship mappings may omit `key`: the engine uses their source and target
-columns. A supplied key is checked for existence and scalar type. Node keys remain
-required. In Rust, relationship keys use `Option<String>`; wrap existing keys in
-`Some(...)`. Applications decide how keyless relationships are identified and how
-parallel records are presented.
-
-
 An application that keeps a graph as plain Lance tables, one per node label and relationship type, has to
 record which table plays which role and which version of each table it read. The `mapping` module holds
 both, in a JSON format that applications can store next to their tables or in a publication manifest:
@@ -149,6 +142,11 @@ both, in a JSON format that applications can store next to their tables or in a 
   and unique ignoring case, and one graph role per table.
 - `GraphSnapshot` pins each table, by `name`, to a `path` and Lance `version`, and carries the mapping.
   It ignores fields it doesn't know, so it reads a manifest that also lists row counts or schemas.
+
+A relationship's `key` is optional (`Option<String>` in Rust). The engine reads only the source and target
+columns, so leave `key` out when a relationship table has no ID column of its own. A key that is given must
+name a scalar column. Node keys stay required. Applications decide how to identify relationships that have
+no key and how to present parallel records.
 
 `GraphSnapshot::open` opens each mapped table at its pinned version and returns the `GraphConfig` and
 sources that `CypherEngine::new` takes. Building the configuration also checks the tables themselves: the

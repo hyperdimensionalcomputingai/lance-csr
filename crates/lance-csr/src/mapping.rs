@@ -15,6 +15,9 @@
 //! }
 //! ```
 //!
+//! A relationship's `key` is optional: graph queries read only `source` and `target`, so a
+//! table with no ID column of its own leaves it out.
+//!
 //! A snapshot adds `tables`, each a `name`, `path` and `version`. It ignores other fields, so
 //! it reads a publication manifest that carries row counts or schemas as well.
 //!
@@ -526,6 +529,10 @@ mod tests {
             .unwrap()
             .value(0);
         assert_eq!(n, 2);
+
+        let mut keyless = snapshot.clone();
+        keyless.mapping.as_mut().unwrap().edges[0].key = None;
+        keyless.open(&HashMap::new()).await.unwrap();
 
         let mut missing = snapshot.clone();
         missing.tables.pop();
