@@ -301,7 +301,7 @@ print(engine.csr_stats()["KNOWS"])
 | `update` | How the last build, `checkout_latest()` or [`optimize_csr()`](#rebuilding-the-csr) produced it: `build` (first), `rebuild` (full), `loaded` (from a [stored file](#storing-the-csr), with any changes since applied as a delta), `delta` (changes applied) or `reused` (no edge change). |
 | `version` | The relationship dataset's Lance version, or `None` for PyArrow input. |
 | `base_version` | The version of the last full build, or `None` for PyArrow input. It trails `version` while deltas apply. |
-| `build_ms` | Wall time of that build or delta, both directions. |
+| `build_ms` | Wall time of that build or delta, both directions. Stored files load in parallel, so their times overlap. |
 
 A relationship type missing from `csr_stats()` has no CSR (its endpoints aren't integers) and always joins.
 
@@ -480,17 +480,19 @@ print(open_engine().delete_stored_csr())  # 1
 !!! note "Cost"
 
     The file holds the CSR's arrays as they sit in memory, compressed with zstd: on SF1 about 8 bytes per edge,
-    134 MiB in all. A load decompresses them and rebuilds only the map from key to position; node indexes are
-    still built at start-up. On the GDC SF1 graph read lazily (17.3 million edges over 23 relationship types),
-    measured on an Apple M5:
+    134 MiB in all. A load decompresses them and rebuilds only the map from key to position. Relationship
+    types load in parallel, up to one per core, while node indexes are built from their node tables. On the GDC
+    SF1 graph read lazily (17.3 million edges over 23 relationship types), measured on an Apple M5:
 
     | | Engine start | Peak memory |
     | --- | ---: | ---: |
-    | Without `persist_csr` | 1.7 s | 1.37 to 1.42 GiB |
-    | First start, building and storing 134 MiB | 2.6 s | 1.25 to 1.46 GiB |
-    | Later starts, loading | 0.46 s | 1.06 to 1.12 GiB |
+    | Without `persist_csr` | 1.7 s | 1.59 to 1.66 GiB |
+    | First start, building and storing 134 MiB | 2.6 s | 1.51 to 1.68 GiB |
+    | Later starts, loading | 0.11 s | 1.21 to 1.30 GiB |
 
-    Compressing adds about 0.9 s to the first start; decompression takes most of a load. Query times don't
+    Compressing adds about 0.9 s to the first start. Loading in parallel takes a quarter of the time of loading
+    one type at a time, for about 0.15 GiB more peak memory; building node indexes alongside the CSR adds about
+    as much to a start that builds. Query times don't
     change. `python/benchmarks/csr_persist.py` measures the same cases on a synthetic graph, including a load
     with a delta.
 

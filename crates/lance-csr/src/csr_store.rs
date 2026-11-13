@@ -110,7 +110,13 @@ pub(crate) async fn load(ds: &Dataset, src: &str, dst: &str) -> Option<StoredCsr
         .max()?;
     let store = ds.object_store(None).await.ok()?;
     let bytes = store.read_one_all(&file_path(ds, version)).await.ok()?;
-    match decode(Buffer::from(bytes), src, dst) {
+    // CPU-bound (zstd and the key map): off the async task, so several types decode at once.
+    let (src, dst) = (src.to_owned(), dst.to_owned());
+    let decoded = tokio::task::spawn_blocking(move || decode(Buffer::from(bytes), &src, &dst));
+    match decoded
+        .await
+        .unwrap_or_else(|e| std::panic::resume_unwind(e.into_panic()))
+    {
         Ok(stored) if stored.version == version => Some(stored),
         Ok(_) => None,
         Err(e) => {
