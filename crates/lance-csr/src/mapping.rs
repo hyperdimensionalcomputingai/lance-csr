@@ -15,6 +15,9 @@
 //! }
 //! ```
 //!
+//! A relationship's `key` is optional: graph queries read only `source` and `target`, so a
+//! table with no ID column of its own leaves it out.
+//!
 //! A snapshot adds `tables`, each a `name`, `path` and `version`. It ignores other fields, so
 //! it reads a publication manifest that carries row counts or schemas as well.
 //!
@@ -58,13 +61,15 @@ pub struct NodeTableMapping {
 }
 
 /// A relationship type backed by one table. `source` and `target` hold keys of the
-/// `source_type` and `target_type` node labels.
+/// `source_type` and `target_type` node labels. The optional `key` identifies
+/// individual records for consumers; graph queries need only the endpoints.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EdgeTableMapping {
     pub label: String,
     pub table: String,
-    pub key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
     pub source: String,
     pub target: String,
     pub source_type: String,
@@ -246,7 +251,9 @@ impl GraphMapping {
         }
         for edge in &self.edges {
             let s = schema(&edge.table)?;
-            key(s, &edge.table, &edge.key)?;
+            if let Some(name) = &edge.key {
+                key(s, &edge.table, name)?;
+            }
             for (end, end_type) in [
                 (&edge.source, &edge.source_type),
                 (&edge.target, &edge.target_type),
@@ -329,6 +336,19 @@ mod tests {
         "edges": [{"label": "KNOWS", "table": "knows", "key": "edge_id", "source": "src",
                    "target": "dst", "sourceType": "Person", "targetType": "Person"}]
     }"#;
+
+    #[test]
+    fn relationships_without_keys_round_trip_and_build() {
+        let mut value: serde_json::Value = serde_json::from_str(DESCRIPTOR).unwrap();
+        value["edges"][0].as_object_mut().unwrap().remove("key");
+        let m: GraphMapping = serde_json::from_value(value).unwrap();
+        m.validate().unwrap();
+        m.graph_config(&schemas(DataType::Int64)).unwrap();
+        assert!(m.edges[0].key.is_none());
+        assert!(serde_json::to_value(&m).unwrap()["edges"][0]
+            .get("key")
+            .is_none());
+    }
 
     fn mapping() -> GraphMapping {
         serde_json::from_str(DESCRIPTOR).unwrap()
@@ -509,6 +529,10 @@ mod tests {
             .unwrap()
             .value(0);
         assert_eq!(n, 2);
+
+        let mut keyless = snapshot.clone();
+        keyless.mapping.as_mut().unwrap().edges[0].key = None;
+        keyless.open(&HashMap::new()).await.unwrap();
 
         let mut missing = snapshot.clone();
         missing.tables.pop();

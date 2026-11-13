@@ -143,6 +143,11 @@ both, in a JSON format that applications can store next to their tables or in a 
 - `GraphSnapshot` pins each table, by `name`, to a `path` and Lance `version`, and carries the mapping.
   It ignores fields it doesn't know, so it reads a manifest that also lists row counts or schemas.
 
+A relationship's `key` is optional (`Option<String>` in Rust). The engine reads only the source and target
+columns, so leave `key` out when a relationship table has no ID column of its own. A key that is given must
+name a scalar column. Node keys stay required. Applications decide how to identify relationships that have
+no key and how to present parallel records.
+
 `GraphSnapshot::open` opens each mapped table at its pinned version and returns the `GraphConfig` and
 sources that `CypherEngine::new` takes. Building the configuration also checks the tables themselves: the
 key, display and endpoint columns exist, keys are scalar, and each endpoint column has the type of the node
