@@ -247,7 +247,7 @@ jobs:
           esac
           # A fresh environment with the wheel and test tools; --no-build refuses any sdist.
           run=(uv run --isolated --no-project --no-build --python ${{ matrix.python }}
-               --with "$wheel" --with pytest --with pandas)
+               --with "$wheel" --with pytest --with pandas --with pylance)
           "${run[@]}" python -I ci/check_wheel.py
           cp -r python/python/tests "$RUNNER_TEMP/tests"
           cd "$RUNNER_TEMP"

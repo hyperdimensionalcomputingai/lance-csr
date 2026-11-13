@@ -3,7 +3,6 @@ name = "lance-csr"
 version = "0.10.0"
 dependencies = [
     "pyarrow>=14",
-    "pylance>=13.0.0,<14",
 ]
 description = "Cypher graph queries over Lance datasets, built on DataFusion with a CSR adjacency index (a fork of lance-graph)"
 authors = [{ name = "The lance-csr Authors" }]
@@ -55,6 +54,7 @@ dev = [
     "pyright",
     "pyarrow-stubs>=20.0.0.20260819",
     "pytest-xdist>=3.8.0",
+    "pylance>=13.0.0",
 ]
 
 [tool.ruff]

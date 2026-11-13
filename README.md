@@ -65,6 +65,10 @@ case needs distributed graph queries or graph algorithms, that's the kind of eng
 uv add lance-csr
 ```
 
+To write Lance datasets or query them on disk, also add `pylance` (`uv add lance-csr pylance`). lance-csr reads
+Lance with its own built-in Lance library, so any `pylance` version that writes a file format Lance 13 reads
+works; see [Lance datasets](https://lance-csr.hdclabs.ai/lance/).
+
 Prebuilt wheels cover Linux x86-64 and aarch64, native Apple Silicon and Windows x86-64 (CPython 3.12+), so no
 Rust toolchain is needed. On Windows, the same command installs the native Windows wheel; you don't need WSL2,
 though lance-csr works there too, with the Linux wheel. From Rust, run `cargo add lance-csr` and see the
