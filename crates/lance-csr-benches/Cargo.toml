@@ -19,3 +19,10 @@ tokio = { version = "1.37", features = ["macros", "rt-multi-thread"] }
 [[bench]]
 name = "graph_execution"
 harness = false
+
+[[example]]
+name = "multi_source_bfs"
+required-features = ["experimental-msbfs"]
+
+[features]
+experimental-msbfs = ["lance-csr/experimental-msbfs"]

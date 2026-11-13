@@ -42,6 +42,10 @@ use futures::StreamExt;
 use crate::csr_expand::{Adjacency, Neighbors};
 use crate::error::{GraphError, Result};
 
+#[cfg(feature = "experimental-msbfs")]
+#[doc(hidden)]
+pub mod experiment;
+
 type FastMap<K, V> = HashMap<K, V, ahash::RandomState>;
 
 /// Which way the search follows edges.
@@ -430,6 +434,8 @@ async fn expand_level(
     let mut next = Vec::new();
     let mut work = 0_usize;
     for &node in frontier {
+        #[cfg(feature = "experimental-msbfs")]
+        experiment::record_scan(adjacency, node);
         let previous_work = work;
         let mut position = crate::csr_expand::NeighborPosition::default();
         for candidate in adjacency.candidates_from::<false>(node, &mut position) {
