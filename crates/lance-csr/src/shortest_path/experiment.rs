@@ -38,8 +38,15 @@ pub async fn run(
 ) -> Vec<SearchResult> {
     assert!(matches!(
         mode,
-        "forward" | "current" | "batched" | "parallel"
+        "forward" | "current" | "batched" | "masked" | "parallel"
     ));
+    if mode == "masked" {
+        let mut results = Vec::new();
+        for batch in requests.chunks(64) {
+            results.extend(masked(adjacency, batch, max_hops).await);
+        }
+        return results;
+    }
     if mode == "batched" {
         let mut results = Vec::new();
         for batch in requests.chunks(64) {
@@ -166,6 +173,125 @@ async fn batched(adjacency: &Neighbors, requests: &[Request], max_hops: u32) -> 
             }
         }
         frontier = next;
+    }
+    results
+}
+
+#[derive(Default)]
+struct Shared {
+    seen: u64,
+    next: u64,
+    /// `(predecessor, lanes it is a shortest-path predecessor for)`, one entry per edge.
+    parents: Vec<(i64, u64)>,
+}
+
+/// Control for `batched`: traversal state is one lane mask per vertex and one
+/// `(predecessor, mask)` per useful edge, shared by all lanes. Per-source maps are
+/// built afterwards, and only for vertices on a shortest path to a requested target.
+async fn masked(adjacency: &Neighbors, requests: &[Request], max_hops: u32) -> Vec<SearchResult> {
+    assert!(requests.len() <= 64);
+    let mut results: Vec<SearchResult> = requests.iter().map(|_| Default::default()).collect();
+    let mut remaining: Vec<Vec<i64>> = requests
+        .iter()
+        .map(|(s, ts)| ts.iter().copied().filter(|t| t != s).collect())
+        .collect();
+    let mut state: FastMap<i64, Shared> = FastMap::default();
+    let mut frontier: Vec<(i64, u64)> = Vec::new();
+    let mut active = 0_u64;
+    for (i, (source, _)) in requests.iter().enumerate() {
+        results[i].0.insert(*source, 0);
+        state.entry(*source).or_default().seen |= 1 << i;
+        if !remaining[i].is_empty() {
+            active |= 1 << i;
+        }
+    }
+    for (i, (source, _)) in requests.iter().enumerate() {
+        // Repeated sources share one frontier entry.
+        if active & (1 << i) != 0 && !frontier.iter().any(|(n, _)| n == source) {
+            frontier.push((*source, state[source].seen & active));
+        }
+    }
+    let mut work = 0_usize;
+    for level in 1..=max_hops {
+        if frontier.is_empty() || active == 0 {
+            break;
+        }
+        let mut touched = Vec::new();
+        for &(node, mask) in &frontier {
+            let mask = mask & active;
+            if mask == 0 {
+                continue;
+            }
+            record_scan(adjacency, node);
+            let mut position = crate::csr_expand::NeighborPosition::default();
+            for candidate in adjacency.candidates_from::<false>(node, &mut position) {
+                work += 1;
+                if work.is_multiple_of(1024) {
+                    crate::csr_expand::cooperative_yield().await;
+                }
+                let Some((neighbor, _)) = candidate else {
+                    continue;
+                };
+                let neighbor = neighbor as i64;
+                let shared = state.entry(neighbor).or_default();
+                // `seen` changes only after the level, so ties and parallel edges are kept.
+                let lanes = mask & !shared.seen;
+                if lanes == 0 {
+                    continue;
+                }
+                if shared.next == 0 {
+                    touched.push(neighbor);
+                }
+                shared.next |= lanes;
+                shared.parents.push((node, lanes));
+            }
+        }
+        frontier.clear();
+        for node in touched {
+            let shared = state.get_mut(&node).expect("touched");
+            shared.seen |= shared.next;
+            frontier.push((node, std::mem::take(&mut shared.next)));
+        }
+        for (i, targets) in remaining.iter_mut().enumerate() {
+            let bit = 1_u64 << i;
+            if active & bit == 0 {
+                continue;
+            }
+            targets.retain(|t| {
+                let found = state.get(t).is_some_and(|s| s.seen & bit != 0);
+                if found {
+                    results[i].0.insert(*t, level);
+                }
+                !found
+            });
+            if targets.is_empty() {
+                active &= !bit;
+            }
+        }
+    }
+    for (i, (depth, parents)) in results.iter_mut().enumerate() {
+        let bit = 1_u64 << i;
+        let mut stack: Vec<i64> = depth.keys().copied().collect();
+        while let Some(node) = stack.pop() {
+            work += 1;
+            if work.is_multiple_of(1024) {
+                crate::csr_expand::cooperative_yield().await;
+            }
+            if parents.contains_key(&node) {
+                continue;
+            }
+            let own: Vec<i64> = state[&node]
+                .parents
+                .iter()
+                .filter(|(_, lanes)| lanes & bit != 0)
+                .map(|(parent, _)| *parent)
+                .collect();
+            // The source has none; an empty entry would hide the path's start.
+            if !own.is_empty() {
+                stack.extend(&own);
+                parents.insert(node, own);
+            }
+        }
     }
     results
 }

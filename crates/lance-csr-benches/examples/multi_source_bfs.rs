@@ -90,6 +90,11 @@ async fn check() {
                         experiment::paths(&expected, &requests, true).await,
                         experiment::paths(&actual, &requests, true).await
                     );
+                    let masked = experiment::run(&adj, &rev, &requests, max, "masked").await;
+                    assert_eq!(
+                        experiment::paths(&expected, &requests, true).await,
+                        experiment::paths(&masked, &requests, true).await
+                    );
                     let pairs: Vec<Request> = requests
                         .iter()
                         .map(|(s, _)| (*s, HashSet::from([(*s + 3) % 8])))
@@ -114,11 +119,13 @@ async fn check() {
         (0, HashSet::new()),
     ];
     let expected = experiment::run(&adj, &rev, &requests, 8, "forward").await;
-    let actual = experiment::run(&adj, &rev, &requests, 8, "batched").await;
-    assert_eq!(
-        experiment::paths(&expected, &requests, true).await,
-        experiment::paths(&actual, &requests, true).await
-    );
+    for mode in ["batched", "masked"] {
+        let actual = experiment::run(&adj, &rev, &requests, 8, mode).await;
+        assert_eq!(
+            experiment::paths(&expected, &requests, true).await,
+            experiment::paths(&actual, &requests, true).await
+        );
+    }
     // Raw keys need not be dense, positive, or fit in 32 bits.
     let key = |n: i64| {
         if n % 2 == 0 {
@@ -134,7 +141,7 @@ async fn check() {
         (key(1), HashSet::from([key(2)])),
     ];
     let expected = experiment::run(&adj, &rev, &requests, 8, "current").await;
-    for mode in ["batched", "parallel"] {
+    for mode in ["batched", "masked", "parallel"] {
         let actual = experiment::run(&adj, &rev, &requests, 8, mode).await;
         assert_eq!(
             experiment::paths(&expected, &requests, true).await,
@@ -222,7 +229,7 @@ async fn main() {
         check().await;
         return;
     }
-    assert_eq!(args.len(), 5, "usage: multi_source_bfs <hub|uniform|chain|tree|tree_near|disconnected|layered> <sources> <targets/source> <current|forward|batched|parallel>");
+    assert_eq!(args.len(), 5, "usage: multi_source_bfs <hub|uniform|chain|tree|tree_near|disconnected|layered> <sources> <targets/source> <current|forward|batched|masked|parallel>");
     let count = args[2].parse().unwrap();
     let targets = args[3].parse().unwrap();
     let mode = &args[4];

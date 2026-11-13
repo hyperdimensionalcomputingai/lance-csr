@@ -35,14 +35,63 @@ Times are milliseconds, reported as the median of two process medians. Each proc
 
 `tree` searches distant leaves with no path inside the 16-hop bound; `tree_near` searches reachable leaves. Disconnected targets are unreachable. All other scenarios return paths. The larger layered graph increases total graph size, but the selected sources still visit similarly sized local regions; it is not a larger explored-frontier test.
 
+## Mask-only control
+
+`batched` shares each neighbour read, but then writes a depth entry and a predecessor list for every (vertex, source) pair it reaches. Its state therefore grows with sources × reached vertices, exactly as in the unbatched searches, and only the adjacency scan is saved. Multi-source BFS as published, and as DuckPGQ implements it, keeps one lane bitset per vertex during traversal and nothing per source.
+
+`masked` tests that design under lance-csr's constraints (raw 64-bit keys, every shortest path kept):
+
+- Each reached vertex has one `seen` and one `next` 64-lane mask, in a hash map keyed by raw id.
+- Each edge that discovers a vertex for at least one lane adds one `(predecessor, lane mask)` record, shared by all lanes. A lane's predecessors of a vertex are the records with its bit set, so ties and parallel edges survive.
+- Target distances are read from `seen` after each level.
+- Per-source depth and predecessor maps are built after the search, only for vertices on a shortest path to a requested target, so the production reconstruction routine runs unchanged. This step is inside the measured search time.
+
+The table is a second run of all five modes with the same runner and method ([raw_with_masked.csv](results/raw_with_masked.csv)). The other tables in this file come from the first, four-mode run, so their `Current`, `Batched` and `Parallel` values differ slightly. Peak MiB is the mean of two whole-process peaks.
+
+| Graph | Vertices | Sources | Targets/source | Current | Batched | Masked | Parallel | Masked/current | Peak MiB: current / batched / masked |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| hub | 4096 | 64 | 1 | 0.026 | 15.230 | 0.171 | 0.127 | 6.65× | 12.5 / 56.3 / 13.1 |
+| hub | 4096 | 64 | 3 | 11.453 | 19.469 | 0.189 | 3.623 | 0.02× | 43.6 / 64.3 / 13.1 |
+| uniform | 4096 | 64 | 1 | 0.811 | 16.258 | 1.605 | 0.574 | 1.98× | 15.1 / 40.2 / 18.0 |
+| uniform | 4096 | 64 | 3 | 25.883 | 28.536 | 1.754 | 7.649 | 0.07× | 46.1 / 52.9 / 18.3 |
+| chain | 4096 | 64 | 1 | 0.050 | 0.057 | 0.058 | 0.188 | 1.17× | 11.9 / 11.9 / 12.1 |
+| chain | 4096 | 64 | 3 | 0.058 | 0.069 | 0.079 | 0.212 | 1.36× | 12.0 / 12.0 / 12.2 |
+| tree | 4096 | 64 | 1 | 0.389 | 1.918 | 0.082 | 0.407 | 0.21× | 12.0 / 20.8 / 11.9 |
+| tree | 4096 | 64 | 3 | 2.561 | 2.137 | 0.109 | 1.082 | 0.04× | 16.5 / 21.0 / 11.9 |
+| tree_near | 4096 | 64 | 1 | 0.292 | 1.009 | 0.112 | 0.384 | 0.38× | 12.2 / 16.4 / 12.2 |
+| tree_near | 4096 | 64 | 3 | 2.585 | 2.025 | 0.170 | 1.112 | 0.07× | 16.7 / 21.2 / 12.5 |
+| disconnected | 4096 | 64 | 1 | 0.415 | 0.672 | 0.290 | 0.414 | 0.70× | 13.3 / 13.6 / 13.0 |
+| disconnected | 4096 | 64 | 3 | 0.407 | 0.637 | 0.327 | 0.485 | 0.80× | 13.2 / 13.6 / 13.0 |
+| layered | 4096 | 64 | 1 | 1.018 | 1.765 | 0.100 | 0.714 | 0.10× | 14.4 / 16.0 / 13.9 |
+| layered | 4096 | 64 | 3 | 1.896 | 1.803 | 0.534 | 0.997 | 0.28× | 15.6 / 16.0 / 14.7 |
+| hub | 4096 | 1 | 3 | 0.175 | 0.303 | 0.156 | 0.194 | 0.89× | 12.6 / 12.5 / 12.9 |
+| hub | 4096 | 8 | 3 | 1.401 | 1.565 | 0.156 | 0.389 | 0.11× | 16.0 / 17.7 / 13.0 |
+| hub | 4096 | 65 | 3 | 11.590 | 15.333 | 0.338 | 3.378 | 0.03× | 47.0 / 56.6 / 13.3 |
+| hub | 4096 | 256 | 3 | 46.119 | 64.675 | 0.740 | 11.866 | 0.02× | 135.7 / 168.8 / 13.9 |
+| hub | 32768 | 64 | 1 | 0.025 | 171.583 | 1.278 | 0.131 | 51.07× | 23.8 / 392.4 / 29.1 |
+| hub | 32768 | 64 | 3 | 90.610 | 162.648 | 1.226 | 20.462 | 0.01× | 269.0 / 393.4 / 29.2 |
+| uniform | 32768 | 64 | 1 | 2.148 | 215.548 | 19.398 | 0.948 | 9.03× | 46.5 / 235.7 / 73.1 |
+| uniform | 32768 | 64 | 3 | 164.013 | 270.933 | 20.302 | 49.811 | 0.12× | 225.1 / 274.8 / 73.8 |
+| layered | 32768 | 64 | 1 | 1.025 | 1.749 | 0.109 | 0.582 | 0.11× | 38.0 / 39.4 / 37.5 |
+| layered | 32768 | 64 | 3 | 1.929 | 1.776 | 0.534 | 0.812 | 0.28× | 39.0 / 39.6 / 38.2 |
+
+- **Several targets per source.** `masked` is 3.6× to 74× faster than current selection on hub, uniform, tree and layered graphs, and about 1.2× faster on disconnected components. It runs on one thread and still beats the eight-worker `parallel` mode in every three-target case.
+- **Chains.** With no overlap to share, `masked` is 1.2× to 1.4× slower than current selection, about 0.02 ms here.
+- **One target per source.** Bidirectional search stays far ahead on hub (6.7× and 51×) and uniform (2× and 9×) graphs, where the reverse frontier is tiny. `masked` is ahead on tree (4.7×), reachable tree (2.6×), layered (10×) and disconnected (1.4×) graphs.
+- **Memory.** Whole-process peak is below current selection, or within 0.3 MiB of it, in every multi-target case (32K hub: 269.0 MiB to 29.2 MiB). It is higher where bidirectional search touches little (32K uniform, one target: 46.5 MiB to 73.1 MiB).
+
+`masked` is still an experiment. It has 64 lanes where DuckPGQ uses 512, and hash maps where DuckPGQ indexes dense arrays (the CSR stores raw neighbour ids, so there is no dense id to index by). The per-source maps grow with the shortest-path subgraph to the requested targets; large all-shortest-paths output is not benchmarked. It has no memory accounting and is not reachable from a query.
+
 ## What we learn
+
+The bullets below describe `batched`. The control above shows that their cost comes from per-source state, not from batching.
 
 **Do not integrate this batched implementation as a default or broadly selected replacement.** It demonstrates correct sharing of neighbour reads across independent searches, but it does not establish a general performance win.
 
 - **Preserve bidirectional search.** Every single-target case is slower with batching than with current selection. The 32K hub is an extreme example: current search touches 256 edge occurrences across all 64 requests, while batched forward search builds source-specific state across the wide layer. This is a different search strategy, not evidence that sharing reads itself costs thousands of times more.
 - **The benefit is case-dependent even with several targets.** The two 4K tree cases reduce search time by about 21–24%; layered cases improve by roughly 8–9%. The 4K uniform result is essentially a tie. Chains and disconnected components get slower. Larger hub and uniform graphs make the prototype 1.81× and 1.55× slower respectively.
 - **Read sharing does not remove source-specific state.** On the 4K three-target hub, edge visits drop from 262,336 to 4,351, but both forward methods retain 262,144 predecessor entries. The batched method still updates per-source hash maps and predecessor vectors; shared scans alone do not guarantee lower elapsed time. On the 32K hub, whole-process peak RSS rises from 268.5 MiB to 392.8 MiB.
-- **Bounded source parallelism is the stronger next experiment.** At 64 sources and three targets, it is about 2–4.6× faster than current selection for the tree, layered, hub and uniform cases, including the larger graphs. It preserves the bidirectional/forward choice. It loses on tiny chain/disconnected searches and uses more CPU; these are throughput/latency trade-offs, not equal-resource algorithmic speedups.
+- **Bounded source parallelism helps, but less than `masked`.** At 64 sources and three targets, it is about 2–4.6× faster than current selection for the tree, layered, hub and uniform cases, including the larger graphs. It preserves the bidirectional/forward choice. It loses on tiny chain/disconnected searches and uses more CPU; these are throughput/latency trade-offs, not equal-resource algorithmic speedups.
 - **Single-path reconstruction can matter for small searches.** In the three-target chain it costs more than the search. Kernel-only improvements therefore do not translate directly into the same query-level improvement. Large all-shortest-path output is not benchmarked.
 
 ## Repeat variability
@@ -143,6 +192,7 @@ These counters come from separate untimed passes. Retained state counts the retu
 - Release build succeeded with the opt-in `experimental-msbfs` feature.
 - Self-check passed: 160 graph/direction/delta/depth combinations with 65 requests each, comparing complete depth maps, predecessor multiplicities and all shortest paths. Additional checks cover early stopping across lanes, empty target sets and sparse negative/large raw keys.
 - All 24 workloads × four modes matched the current implementation on every requested target distance in separate verification processes.
+- `masked` passes the same self-check on all shortest paths (against forward and bidirectional search) and the same distance verification on all 24 workloads; its 48 measured runs matched the other modes' output lengths and checksums.
 - All 192 measured process runs passed path-edge/start/end checks and matched aggregate output lengths/checksums across methods and repetitions.
 - Six existing shortest-path-related Rust regression tests passed, including cancellation and bidirectional equivalence.
 - `mbx fmt --all --check`, Ruff format/check for the runner, and `uvx typos@1.51.1 .` passed.
@@ -154,9 +204,14 @@ Regression command: `mbx test -p lance-csr shortest_path --lib --release --featu
 
 Keep issue #76 general-purpose and optional. This prototype preserves independent source identities and all predecessor ties; it is not nearest-source BFS and makes no social-graph-specific assumptions. It still needs shared adjacency/direction/filter semantics and unweighted shortest-path searches. Its 64-source cap bounds mask width, **not memory consumption**.
 
-If continuing implementation work, first test bounded source-level concurrency inside the existing `search_batch`, with a small-work fallback and explicit memory/cancellation handling. Measure end-to-end Cypher input grouping, path reconstruction and output before adopting it. Concurrency must coordinate with DataFusion partition parallelism to avoid oversubscription. This report does not justify a production threshold.
+If continuing implementation work, build on `masked`, not on `batched`. The evidence still missing before any adoption:
 
-Further MSBFS work would need evidence that predecessor/state handling can be made cheaper, or a workload where shared expansion clearly dominates that cost. Do not narrow lance-csr to those graph shapes, remove bidirectional search, or infer an automatic cost gate from this small matrix.
+- end-to-end Cypher timings through `search_batch`, including input grouping, reconstruction and output;
+- all-shortest-paths output on large graphs, and memory accounting for the shared state;
+- a selection rule. These measurements suggest keeping bidirectional search for sources with one target when reverse adjacency is available, and expect a small overhead where searches do not overlap;
+- lanes wider than 64.
+
+Source parallelism is a separate lever: it could run 64-source batches concurrently, and must coordinate with DataFusion partition parallelism to avoid oversubscription. Do not narrow lance-csr to the favourable graph shapes, remove bidirectional search, or infer an automatic cost gate from this small matrix.
 
 ## Reproduction and limits
 

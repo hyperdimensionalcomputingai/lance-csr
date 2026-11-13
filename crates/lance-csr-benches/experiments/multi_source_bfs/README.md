@@ -20,6 +20,9 @@ The executable can run on other platforms; the RSS wrapper is macOS-specific.
 - `forward`: the actual existing forward search, to isolate batching from bidirectional search selection; it also models the single-target fallback when reverse adjacency is unavailable.
 - `batched`: up to 64 independent sources sharing neighbour reads, with sparse raw-key bit masks. Each source
   retains its own depth map and every shortest-path predecessor, including parallel-edge multiplicity.
+- `masked`: a control for `batched`. Traversal keeps one lane mask per vertex and one `(predecessor, lane mask)`
+  record per discovering edge, shared by all sources; per-source maps are built afterwards, only for vertices on a
+  shortest path to a requested target.
 - `parallel`: the existing selection with up to eight independent source tasks on an eight-worker Tokio runtime.
 
 All paths use the same real `Adjacency`/`Neighbors` implementation and production path reconstruction routine.

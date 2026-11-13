@@ -30,7 +30,7 @@ cases += [
     for shape in ("hub", "uniform", "layered")
     for targets in (1, 3)
 ]
-modes = ("current", "forward", "batched", "parallel")
+modes = ("current", "forward", "batched", "masked", "parallel")
 fields = [
     "shape",
     "sources",
