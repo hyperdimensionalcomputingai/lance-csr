@@ -25,6 +25,8 @@ use lance::dataset::{Dataset, WriteMode, WriteParams};
 use lance_csr::{CypherQuery, GraphConfig};
 use tempfile::TempDir;
 
+mod grouped_two_hop;
+
 fn create_people_batch() -> RecordBatch {
     let schema = Arc::new(ArrowSchema::new(vec![
         Field::new("person_id", DataType::Int32, false),
@@ -449,6 +451,7 @@ criterion_group!(
     benches,
     bench_cypher_execution,
     bench_query_templates,
-    bench_comprehension_counts
+    bench_comprehension_counts,
+    grouped_two_hop::bench_grouped_two_hop
 );
 criterion_main!(benches);

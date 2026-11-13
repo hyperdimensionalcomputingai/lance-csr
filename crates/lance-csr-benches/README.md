@@ -64,3 +64,24 @@ cargo bench -p lance-csr-benches --bench graph_execution -- comprehension_count 
 
 The count path removes ordered list aggregation. It still numbers and unnests rows, evaluates predicates and
 groups by input row, so these measurements do not establish a general bound on planning or memory use.
+
+## Grouped two-hop counts
+
+`grouped_two_hop` compares grouped count queries with an equivalent `count(*) + 0` query that retains path
+enumeration. Both use the same CSR engine, including its cached planning, and every result is checked before
+timing. It covers middle and outer grouping by ids and repeated property values, balanced and skewed degrees,
+same-type self-loop corrections, selective filters and a low-fan-out control. Inputs are generated deterministically
+in the harness; no external dataset is needed.
+
+```bash
+cargo bench -p lance-csr-benches --bench graph_execution -- grouped_two_hop --warm-up-time 1 --measurement-time 1 --sample-size 10
+```
+
+These operator-focused comparisons supplement the unchanged SF1 suites required by `CONTRIBUTING.md`.
+The reference can be faster on small or selective queries; report all cases rather than only improvements.
+
+The [2026-11-12 comparison](results/grouped-two-hop-2026-11-12.md) records every SF1 query in both modes,
+repeated main/branch runs, focused latency and memory measurements, and the selective-query safeguard.
+The [profiling helper](scripts/grouped_two_hop.py) emits JSON for one generated case, including a separate
+`EXPLAIN ANALYZE` through `GRAPH_TABLE` on the same engine. Its row metrics are rounded by DataFusion;
+peak process RSS is captured before profiling and the reference-answer self-check.

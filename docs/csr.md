@@ -224,6 +224,18 @@ cache across queries or dataset versions.
 
 ### Grouping by a node
 
+Two-hop counts grouped by one node's id or properties can count neighbours before combining the hops.
+For `MATCH (a)-[:R]->(b)-[:S]->(c) RETURN b.id, count(*)`, the engine multiplies each `b`'s counts on the
+two sides. Grouping by `a.id` instead counts the second hop per `b`, follows the first hop, and sums those
+counts per `a`. Both avoid expanding every two-hop path. Grouping by a property such as `b.name` also sums
+the contributions of different nodes with the same value, including null.
+
+This applies to fixed-length inner matches when the middle node has a unique integer id, every condition
+reads at most one hop, and estimated fan-out justifies counting first. Same-type and undirected hops retain
+the usual exclusions for reusing a relationship. A grouped outer node bound to one id keeps its selective
+walk instead of counting across the graph. Groups with no valid paths are omitted. Optional matches,
+distinct counts, counts of nullable properties, and grouping by several nodes keep their existing plans.
+
 `WITH b, count(*) AS n` groups by the node `b`, and `RETURN b.id, b.name, count(*) AS n` by its id and name.
 When `b`'s label has a node index, either grouping can use `b`'s id alone and looks up
 `b`'s other properties afterwards, once per node, by the same row positions. Rows before a grouping can outnumber nodes many times over (an expansion), and carrying a
