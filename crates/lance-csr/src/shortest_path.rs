@@ -592,7 +592,28 @@ async fn search_batch(
         }
     }
     let mut searches = FastMap::default();
+    #[cfg(feature = "experimental-msbfs")]
+    {
+        let mode = experiment::mode();
+        // Mode 1 leaves single-target sources to bidirectional search when it is available.
+        let requests: Vec<experiment::Request> = by_source
+            .iter()
+            .filter(|(_, targets)| {
+                mode == 2 || (mode == 1 && (reverse_adjacency.is_none() || targets.len() > 1))
+            })
+            .map(|(source, targets)| (*source, targets.clone()))
+            .collect();
+        experiment::count(by_source.len(), requests.len());
+        for lanes in requests.chunks(64) {
+            let results = experiment::masked(adjacency, lanes, spec.max_hops).await;
+            searches.extend(lanes.iter().map(|(source, _)| *source).zip(results));
+        }
+    }
     for (&source, targets) in &by_source {
+        #[cfg(feature = "experimental-msbfs")]
+        if searches.contains_key(&source) {
+            continue;
+        }
         let result = match reverse_adjacency.filter(|_| targets.len() == 1) {
             Some(reverse) => {
                 search_bidirectional(

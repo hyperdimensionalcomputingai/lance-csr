@@ -1,16 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The Lance Authors
 
-//! Synthetic traversal experiment, not an end-to-end query benchmark.
-use std::collections::HashSet;
+//! Synthetic traversal experiment. `cypher` runs the same workloads end to end.
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
-use arrow_array::{Int64Array, RecordBatch};
+use arrow_array::cast::AsArray;
+use arrow_array::types::Int64Type;
+use arrow_array::{ArrayRef, Int64Array, RecordBatch};
 use arrow_schema::{DataType, Field, Schema};
 use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
 use lance_csr::csr_expand::{Adjacency, Neighbors, RemovedRows};
 use lance_csr::shortest_path::experiment::{self, Request};
+use lance_csr::{CypherEngine, EngineSource, GraphConfig};
 
 async fn graph(edges: &[(i64, i64)], undirected: bool, delta: bool) -> (Neighbors, Neighbors) {
     let schema = Arc::new(Schema::new(vec![
@@ -222,11 +225,138 @@ fn workload(
     (edges, requests, matches!(name, "tree" | "tree_near"))
 }
 
+/// The workloads as Cypher through `CypherEngine` with a CSR. A `WANTS` relationship binds
+/// each (source, target) request. Search selections alternate within one process and must
+/// return the same rows.
+async fn cypher() {
+    let column = |values: Vec<i64>| Arc::new(Int64Array::from(values)) as ArrayRef;
+    let pairs = |pairs: &[(i64, i64)]| {
+        RecordBatch::try_from_iter([
+            ("src", column(pairs.iter().map(|p| p.0).collect())),
+            ("dst", column(pairs.iter().map(|p| p.1).collect())),
+        ])
+        .unwrap()
+    };
+    // The matrix of `run.py`.
+    let shapes = [
+        "hub",
+        "uniform",
+        "chain",
+        "tree",
+        "tree_near",
+        "disconnected",
+        "layered",
+    ];
+    let mut cases = Vec::new();
+    for shape in shapes {
+        cases.extend([(shape, 64, 1, 4096), (shape, 64, 3, 4096)]);
+    }
+    cases.extend([1, 8, 65, 256].map(|sources| ("hub", sources, 3, 4096)));
+    for shape in ["hub", "uniform", "layered"] {
+        cases.extend([(shape, 64, 1, 32768), (shape, 64, 3, 32768)]);
+    }
+    println!(
+        "shape,vertices,sources,targets,paths,partitions,mode,median_ms,rows,search_batches,sources_searched,sources_masked"
+    );
+    for (shape, count, targets, n) in cases {
+        let (edges, requests, undirected) = workload(shape, count, targets, n);
+        let wants: Vec<(i64, i64)> = requests
+            .iter()
+            .flat_map(|(s, ts)| ts.iter().map(move |t| (*s, *t)))
+            .collect();
+        for partitions in [None, Some(1)] {
+            let config = GraphConfig::builder()
+                .node_table("Person", "id")
+                .rel_table("KNOWS", "Person", "Person", "src", "dst")
+                .rel_table("WANTS", "Person", "Person", "src", "dst")
+                .build()
+                .unwrap();
+            let people = RecordBatch::try_from_iter([("id", column((0..n).collect()))]).unwrap();
+            let sources = HashMap::from([
+                ("Person".to_string(), EngineSource::Arrow(people)),
+                ("KNOWS".to_string(), EngineSource::Arrow(pairs(&edges))),
+                ("WANTS".to_string(), EngineSource::Arrow(pairs(&wants))),
+            ]);
+            let engine = CypherEngine::with_target_partitions(config, sources, true, partitions)
+                .await
+                .unwrap();
+            for all in [false, true] {
+                // Each layered pair has tens of thousands of shortest paths: output, not search.
+                if all && shape == "layered" {
+                    continue;
+                }
+                let query =
+                    format!(
+                    "MATCH (a:Person)-[:WANTS]->(b:Person) MATCH p = {}((a)-[:KNOWS*1..16]-{}(b)) \
+                     RETURN a.id AS a, b.id AS b, length(p) AS l, nodes(p) AS ns",
+                    if all { "allShortestPaths" } else { "shortestPath" },
+                    if undirected { "" } else { ">" },
+                );
+                let mut samples = [vec![], vec![], vec![]];
+                let mut stats = [[0; 3]; 3];
+                let mut answers = Vec::new();
+                // One warm-up, seven measured executions per selection.
+                for repeat in 0..8 {
+                    for mode in 0..3 {
+                        experiment::select_masked(mode as u8);
+                        experiment::take_stats();
+                        let start = Instant::now();
+                        let batch = engine.execute(&query, HashMap::new()).await.unwrap();
+                        let elapsed = start.elapsed().as_secs_f64() * 1000.0;
+                        stats[mode] = experiment::take_stats();
+                        if repeat > 0 {
+                            samples[mode].push(elapsed);
+                            continue;
+                        }
+                        let ids = |i: usize| batch.column(i).as_primitive::<Int64Type>().clone();
+                        let (a, b, l, ns) =
+                            (ids(0), ids(1), ids(2), batch.column(3).as_list::<i32>());
+                        let mut rows: Vec<_> = (0..batch.num_rows())
+                            .map(|i| {
+                                let path =
+                                    ns.value(i).as_primitive::<Int64Type>().values().to_vec();
+                                assert_eq!(path.len() as i64, l.value(i) + 1);
+                                assert_eq!(
+                                    (path[0], path[path.len() - 1]),
+                                    (a.value(i), b.value(i))
+                                );
+                                // Any one shortest path is a valid answer, so compare paths only for all.
+                                (a.value(i), b.value(i), l.value(i), all.then_some(path))
+                            })
+                            .collect();
+                        rows.sort();
+                        answers.push(rows);
+                    }
+                }
+                assert!(answers.windows(2).all(|w| w[0] == w[1]), "{shape} {query}");
+                for (mode, name) in ["current", "masked_multi", "masked_all"].iter().enumerate() {
+                    samples[mode].sort_by(f64::total_cmp);
+                    println!(
+                        "{shape},{n},{count},{targets},{},{},{name},{:.6},{},{},{},{}",
+                        if all { "all" } else { "one" },
+                        partitions.map_or("default".to_string(), |p| p.to_string()),
+                        samples[mode][3],
+                        answers[0].len(),
+                        stats[mode][0],
+                        stats[mode][1],
+                        stats[mode][2],
+                    );
+                }
+            }
+        }
+    }
+    experiment::select_masked(0);
+}
+
 #[tokio::main(worker_threads = 8)]
 async fn main() {
     let args: Vec<_> = std::env::args().collect();
     if args.get(1).is_some_and(|s| s == "check") {
         check().await;
+        return;
+    }
+    if args.get(1).is_some_and(|s| s == "cypher") {
+        cypher().await;
         return;
     }
     assert_eq!(args.len(), 5, "usage: multi_source_bfs <hub|uniform|chain|tree|tree_near|disconnected|layered> <sources> <targets/source> <current|forward|batched|masked|parallel>");

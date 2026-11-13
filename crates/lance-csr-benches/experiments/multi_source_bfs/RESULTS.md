@@ -80,7 +80,53 @@ The table is a second run of all five modes with the same runner and method ([ra
 - **One target per source.** Bidirectional search stays far ahead on hub (6.7× and 51×) and uniform (2× and 9×) graphs, where the reverse frontier is tiny. `masked` is ahead on tree (4.7×), reachable tree (2.6×), layered (10×) and disconnected (1.4×) graphs.
 - **Memory.** Whole-process peak is below current selection, or within 0.3 MiB of it, in every multi-target case (32K hub: 269.0 MiB to 29.2 MiB). It is higher where bidirectional search touches little (32K uniform, one target: 46.5 MiB to 73.1 MiB).
 
-`masked` is still an experiment. It has 64 lanes where DuckPGQ uses 512, and hash maps where DuckPGQ indexes dense arrays (the CSR stores raw neighbour ids, so there is no dense id to index by). The per-source maps grow with the shortest-path subgraph to the requested targets; large all-shortest-paths output is not benchmarked. It has no memory accounting and is not reachable from a query.
+`masked` is still an experiment. It has 64 lanes where DuckPGQ uses 512, and hash maps where DuckPGQ indexes dense arrays (the CSR stores raw neighbour ids, so there is no dense id to index by). The per-source maps grow with the shortest-path subgraph to the requested targets; large all-shortest-paths output is not benchmarked. It has no memory accounting, and a query reaches it only through the experiment's toggle (next section).
+
+## End-to-end Cypher
+
+The kernel timings above leave out parsing, planning, the join that binds the endpoints, path reconstruction into Arrow lists and output. To include them, `search_batch` can hand sources to `masked` when the `experimental-msbfs` feature is built and a hidden process-wide toggle is set. The same workloads then run as Cypher through `CypherEngine` with a CSR: a `WANTS` relationship binds each (source, target) request, and the query returns both endpoints, `length(p)` and `nodes(p)`.
+
+Three selections alternate within one process and must return the same rows:
+
+- `Current`: the existing selection.
+- `Masked, multi-target`: `masked` for the sources the forward search would take (several targets, or no reverse adjacency); bidirectional search for the others.
+- `Masked, all`: `masked` for every source.
+
+Times are the median of seven executions after one warm-up, in milliseconds, for `shortestPath` with DataFusion's default partitioning. [cypher.csv](results/cypher.csv) also has `allShortestPaths` and single-partition runs, whose ratios are the same.
+
+| Graph | Vertices | Sources | Targets/source | Current | Masked, multi-target | Masked, all | Multi/current | All/current |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| hub | 4096 | 64 | 1 | 0.399 | 0.378 | 0.548 | 0.95× | 1.37× |
+| hub | 4096 | 64 | 3 | 14.579 | 0.654 | 0.589 | 0.04× | 0.04× |
+| uniform | 4096 | 64 | 1 | 1.240 | 1.255 | 2.332 | 1.01× | 1.88× |
+| uniform | 4096 | 64 | 3 | 33.433 | 2.593 | 2.499 | 0.08× | 0.07× |
+| chain | 4096 | 64 | 1 | 0.468 | 0.443 | 0.457 | 0.95× | 0.98× |
+| chain | 4096 | 64 | 3 | 0.498 | 0.523 | 0.526 | 1.05× | 1.06× |
+| tree | 4096 | 64 | 1 | 0.720 | 0.705 | 0.432 | 0.98× | 0.60× |
+| tree | 4096 | 64 | 3 | 3.127 | 0.452 | 0.455 | 0.14× | 0.15× |
+| tree_near | 4096 | 64 | 1 | 0.726 | 0.727 | 0.541 | 1.00× | 0.75× |
+| tree_near | 4096 | 64 | 3 | 3.302 | 0.705 | 0.707 | 0.21× | 0.21× |
+| disconnected | 4096 | 64 | 1 | 0.792 | 0.790 | 0.717 | 1.00× | 0.90× |
+| disconnected | 4096 | 64 | 3 | 0.810 | 0.713 | 0.706 | 0.88× | 0.87× |
+| layered | 4096 | 64 | 1 | 1.446 | 1.429 | 0.504 | 0.99× | 0.35× |
+| layered | 4096 | 64 | 3 | 2.429 | 1.169 | 1.178 | 0.48× | 0.48× |
+| hub | 4096 | 1 | 3 | 0.548 | 0.501 | 0.499 | 0.92× | 0.91× |
+| hub | 4096 | 8 | 3 | 2.101 | 0.510 | 0.504 | 0.24× | 0.24× |
+| hub | 4096 | 65 | 3 | 15.175 | 0.951 | 0.887 | 0.06× | 0.06× |
+| hub | 4096 | 256 | 3 | 58.015 | 1.474 | 1.351 | 0.03× | 0.02× |
+| hub | 32768 | 64 | 1 | 0.456 | 0.444 | 1.801 | 0.97× | 3.95× |
+| hub | 32768 | 64 | 3 | 118.037 | 2.164 | 1.945 | 0.02× | 0.02× |
+| uniform | 32768 | 64 | 1 | 3.648 | 2.975 | 22.675 | 0.82× | 6.22× |
+| uniform | 32768 | 64 | 3 | 213.319 | 23.539 | 23.072 | 0.11× | 0.11× |
+| layered | 32768 | 64 | 1 | 1.527 | 1.530 | 0.548 | 1.00× | 0.36× |
+| layered | 32768 | 64 | 3 | 2.557 | 1.241 | 1.260 | 0.49× | 0.49× |
+
+- **Several targets per source.** `masked` is 2× to 55× faster on hub, uniform, tree and layered graphs and 1.1× faster on disconnected components. Chains are 5% slower, about 0.02 ms.
+- **One target per source.** The multi-target selection leaves these to bidirectional search, so it should be unchanged. It is within 5% except on the 32K uniform graph, where two selections running the same code differ by 18%; treat differences of that size as order bias. Sending every source to `masked` is 1.4× to 6× slower on hub and uniform graphs, and 1.1× to 2.9× faster on tree, layered and disconnected graphs.
+- **Fixed cost.** About 0.3 to 0.4 ms of every query is parsing, planning and the join, which is why small cases show smaller ratios than the kernel table.
+- **Batching reach.** Every query's requests arrived at the operator as one batch, so all of a query's sources could share lanes. Inputs large enough to split across batches or partitions would share less; that is not measured.
+
+Three consecutive runs of this matrix agreed within 25% on every multi-target cell, far less than the ratios above. Memory is not measured here: all selections share one process.
 
 ## What we learn
 
@@ -206,7 +252,7 @@ Keep issue #76 general-purpose and optional. This prototype preserves independen
 
 If continuing implementation work, build on `masked`, not on `batched`. The evidence still missing before any adoption:
 
-- end-to-end Cypher timings through `search_batch`, including input grouping, reconstruction and output;
+- inputs large enough to split across batches and partitions, and Lance-backed data, end to end;
 - all-shortest-paths output on large graphs, and memory accounting for the shared state;
 - a selection rule. These measurements suggest keeping bidirectional search for sources with one target when reverse adjacency is available, and expect a small overhead where searches do not overlap;
 - lanes wider than 64.
@@ -219,4 +265,4 @@ Host: Apple M5, Mac17,2, 10 cores, 24 GiB RAM, macOS 26.6.2 (25G83). Compiler: r
 
 See [README.md](README.md) for exact commands and workload construction, [run.py](run.py) for the runner, and [raw.csv](results/raw.csv) for all unrounded measurements. The normal build compiles out the experimental adapter and instrumentation. Timed experimental builds check a disabled profiling flag once per expanded vertex for both existing and batched searches; this overhead is not independently calibrated.
 
-Not checked: full main-versus-branch SF1 suites, Python bindings, production planner integration, memory-pool enforcement, prototype cancellation/deadline integration, source-specific filters, weighted paths or large all-shortest-path materialization. No end-to-end engine speedup is claimed. Both unchanged SF1 suites in memory/lazy modes and dedicated end-to-end shortest-path tests remain prerequisites for any production performance PR, following `CONTRIBUTING.md`.
+Not checked: full main-versus-branch SF1 suites, Python bindings, production planner integration, memory-pool enforcement, prototype cancellation/deadline integration, source-specific filters, weighted paths or large all-shortest-path materialization. No main-versus-branch engine speedup is claimed. Both unchanged SF1 suites in memory/lazy modes and dedicated end-to-end shortest-path tests remain prerequisites for any production performance PR, following `CONTRIBUTING.md`.

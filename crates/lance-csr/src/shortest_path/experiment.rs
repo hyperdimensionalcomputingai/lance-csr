@@ -5,9 +5,34 @@
 
 use super::*;
 use std::cell::Cell;
+use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering::Relaxed};
 
 pub type SearchResult = (FastMap<i64, u32>, FastMap<i64, Vec<i64>>);
 pub type Request = (i64, HashSet<i64>);
+
+static MODE: AtomicU8 = AtomicU8::new(0);
+static STATS: [AtomicUsize; 3] = [const { AtomicUsize::new(0) }; 3];
+
+/// Which sources `search_batch` hands to `masked`, process-wide: 0 none (the default),
+/// 1 those the forward search would take, 2 every source.
+pub fn select_masked(mode: u8) {
+    MODE.store(mode, Relaxed);
+}
+
+pub(super) fn mode() -> u8 {
+    MODE.load(Relaxed)
+}
+
+pub(super) fn count(sources: usize, masked: usize) {
+    for (stat, n) in STATS.iter().zip([1, sources, masked]) {
+        stat.fetch_add(n, Relaxed);
+    }
+}
+
+/// `search_batch` calls, sources searched and sources given to `masked` since the last call.
+pub fn take_stats() -> [usize; 3] {
+    [0, 1, 2].map(|i| STATS[i].swap(0, Relaxed))
+}
 
 thread_local! {
     static COUNTERS: Cell<Option<(usize, usize)>> = const { Cell::new(None) };
@@ -188,7 +213,11 @@ struct Shared {
 /// Control for `batched`: traversal state is one lane mask per vertex and one
 /// `(predecessor, mask)` per useful edge, shared by all lanes. Per-source maps are
 /// built afterwards, and only for vertices on a shortest path to a requested target.
-async fn masked(adjacency: &Neighbors, requests: &[Request], max_hops: u32) -> Vec<SearchResult> {
+pub(super) async fn masked(
+    adjacency: &Neighbors,
+    requests: &[Request],
+    max_hops: u32,
+) -> Vec<SearchResult> {
     assert!(requests.len() <= 64);
     let mut results: Vec<SearchResult> = requests.iter().map(|_| Default::default()).collect();
     let mut remaining: Vec<Vec<i64>> = requests

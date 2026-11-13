@@ -1,7 +1,8 @@
 # Multi-source BFS experiment (#76)
 
 Base: `c4ab747a62c79291820c181c5f5043983e232dcd` (latest main when fetched on November 13, 2026).
-This is a search-kernel experiment. No planner, query API or normal execution path selects the prototype.
+This is an experiment behind the `experimental-msbfs` feature. Normal builds are unchanged, and no planner or
+query API selects the prototype; only the `cypher` run switches it on, through a hidden process-wide toggle.
 
 ## Reproduce
 
@@ -9,6 +10,7 @@ This is a search-kernel experiment. No planner, query API or normal execution pa
 mbx build -p lance-csr-benches --example multi_source_bfs --features experimental-msbfs --release --locked
 ./target/release/examples/multi_source_bfs check
 python3 crates/lance-csr-benches/experiments/multi_source_bfs/run.py ./target/release/examples/multi_source_bfs /tmp/msbfs-results
+./target/release/examples/multi_source_bfs cypher > /tmp/msbfs-results/cypher.csv
 ```
 
 The runner uses the Python standard library and macOS `/usr/bin/time -l`. Keep the machine otherwise idle.
@@ -34,6 +36,23 @@ The potential integration point is `shortest_path.rs::search_batch`, after its e
 by source. The current operator already searches repeated source bindings once per input batch; this
 experiment asks whether different sources should share expansion work. Normal selection remains in that
 function, with bidirectional search only when reverse adjacency is available and a source has one target.
+
+## End-to-end run
+
+`multi_source_bfs cypher` runs the same workloads as Cypher through `CypherEngine` with a CSR, in memory. A `WANTS`
+relationship binds each (source, target) request, and the query returns both endpoints, `length(p)` and `nodes(p)`,
+so parsing, planning, the join, path reconstruction and list output are inside the timing. Three selections
+alternate within one process (one warm-up and seven timed executions each) and must return the same rows:
+
+- `current`: the existing selection.
+- `masked_multi`: `masked` for the sources the forward search would take (several targets, or no reverse
+  adjacency); bidirectional search for the others.
+- `masked_all`: `masked` for every source.
+
+Each case runs with `shortestPath` and `allShortestPaths`, and with DataFusion's default partitioning and one
+target partition. Layered graphs skip `allShortestPaths`: each pair has tens of thousands of shortest paths, which
+measures output, not search. The CSV also reports how many `search_batch` calls ran and how many sources went to
+`masked`.
 
 ## Inputs and checks
 
@@ -67,8 +86,8 @@ whole-process peak, including graph construction, runtime and allocator retentio
 memory or a memory bound. Validation of target distances occurs in separate processes. Reporting separate
 search/reconstruction medians does not make their sum a directly measured end-to-end median.
 
-No parsing, planning, Arrow input/output batching, Lance I/O, end-to-end Cypher execution or production
-memory-pool integration is measured. Weighted paths and source-specific filters are outside the experiment.
+The kernel modes measure no parsing, planning, Arrow input/output batching or Cypher execution; the end-to-end
+run below does. Neither measures Lance I/O or production memory-pool integration. Weighted paths and source-specific filters are outside the experiment.
 All-shortest-path correctness is checked on small graphs; large workloads materialize one path per target.
 Cancellation points are retained in the prototype, but cancellation and execution deadlines need dedicated
 integration tests before any adoption.
