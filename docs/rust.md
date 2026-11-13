@@ -132,6 +132,13 @@ The deadline applies only to work inside the call; it isn't stored in the engine
 
 ## Graph mappings and pinned snapshots
 
+Relationship mappings may omit `key`: the engine uses their source and target
+columns. A supplied key is checked for existence and scalar type. Node keys remain
+required. In Rust, relationship keys use `Option<String>`; wrap existing keys in
+`Some(...)`. Applications decide how keyless relationships are identified and how
+parallel records are presented.
+
+
 An application that keeps a graph as plain Lance tables, one per node label and relationship type, has to
 record which table plays which role and which version of each table it read. The `mapping` module holds
 both, in a JSON format that applications can store next to their tables or in a publication manifest:
