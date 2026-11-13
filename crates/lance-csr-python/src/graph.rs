@@ -771,7 +771,7 @@ fn normalize_record_batch(batch: RecordBatch) -> PyResult<RecordBatch> {
 
 /// True for `lance.LanceDataset` and its subclasses.
 fn is_lance_dataset(value: &Bound<'_, PyAny>) -> PyResult<bool> {
-    // pylance is a hard dependency, so a failed import only happens in a broken install.
+    // pylance is optional: without it the caller can't hold a LanceDataset to pass in.
     match value.py().import("lance") {
         Ok(lance) => value.is_instance(&lance.getattr("LanceDataset")?),
         Err(_) => Ok(false),

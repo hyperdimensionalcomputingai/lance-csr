@@ -30,7 +30,8 @@ Prebuilt wheels cover **Linux x86-64 and aarch64** (glibc 2.28+: RHEL 8, Ubuntu 
 toolchain. On Windows you can also use lance-csr inside WSL2, where it installs the Linux wheel. Other platforms
 build from the source distribution, which needs Rust and `protoc` (see [Contributing](contributing.md)).
 
-The package depends on `pyarrow>=14` and `pylance` 13.x, which uv installs for you.
+The package depends only on `pyarrow>=14`, which uv installs for you. To write Lance datasets or query them on
+disk, also add `pylance` (`uv add lance-csr pylance`); see [Lance datasets](lance.md).
 
 !!! tip "Using Rust?"
 

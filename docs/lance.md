@@ -4,6 +4,18 @@
 fast random access and vector indexes. lance-csr can query Lance datasets on disk without loading them into
 memory first.
 
+lance-csr reads Lance with its own built-in copy of the Lance Rust library, version 13, so it doesn't depend on
+[`pylance`](https://pypi.org/project/pylance/), Lance's Python package. You still need `pylance` to write datasets
+and to open the `lance.dataset(...)` handles you pass in, so add it next to lance-csr:
+
+```bash
+uv add lance-csr pylance
+```
+
+Any `pylance` version works as long as it writes a file format Lance 13 can read. Lance reads datasets written
+by older versions, and `pylance` 13 and 14 both write file format 2.2 by default, which Lance 13 reads. A dataset
+written in a newer format than Lance 13 knows fails to open with an error.
+
 ## Lazy, version-pinned reads
 
 Pass `lance.dataset(...)` handles to `CypherEngine` and the engine reads them **lazily**: nothing is scanned at
@@ -42,11 +54,6 @@ stay invisible until you call `checkout_latest()`. That gives every query a stab
 
     Each dataset is pinned separately. The versions across tables are not a transactional multi-table
     snapshot; if a writer updates `Person` and `KNOWS` one after the other, call `checkout_latest()` after both commits.
-
-!!! warning "Use pylance 13.x to write"
-
-    The engine is built against Lance 13. Datasets written by an older or newer major version of `pylance`
-    may use a file format it can't read. Installing `lance-csr` pins a compatible `pylance` for you.
 
 ## `checkout_latest()` { #checkout-latest }
 

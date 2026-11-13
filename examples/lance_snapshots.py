@@ -1,8 +1,8 @@
 """
 Disk-backed CypherEngine: pinned snapshots, checkout_latest(), and streamed results.
 
-Requirements: an installed lance-csr wheel (or `maturin develop` in python/), which
-pulls in a compatible pylance 13.x.
+Requirements: an installed lance-csr wheel (or `maturin develop` in python/) and pylance,
+which writes and opens the datasets.
 
 Run:
   python examples/lance_snapshots.py

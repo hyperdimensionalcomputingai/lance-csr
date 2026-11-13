@@ -136,8 +136,10 @@ with an in-memory CSR adjacency, and fetches target rows by position instead of 
 rebuilt on `checkout_latest()` when the relationship table changes, and the per-label id index when its node
 table changes. Results are identical; peak memory grows by about 95 bytes per edge while the CSR is built (both directions).
 
-Write Lance data with `pylance` 13.x: the engine is built against Lance 13 and older or newer
-majors may write files it cannot read.
+lance-csr reads Lance through its own built-in Lance 13 library, so it doesn't depend on `pylance`.
+Install `pylance` yourself to write datasets and open the `lance.dataset(...)` handles you pass in.
+Any version that writes a file format Lance 13 reads works; `pylance` 13 and 14 write format 2.2
+by default.
 
 ### 4. Tables created with LanceDB
 
@@ -208,7 +210,7 @@ r2 = engine.execute(
 ## Requirements
 
 - Python 3.12 or newer (3.12, 3.13 and 3.14 tested); macOS arm64, Linux x86-64 or aarch64, or Windows x86-64 (natively or in WSL2)
-- `pylance` 13.x for writing Lance datasets
+- `pylance`, installed separately, to write Lance datasets or open them on disk
 
 ## Contributing
 
