@@ -588,7 +588,7 @@ async fn build_engine_state(
         session_config = session_config.with_target_partitions(partitions);
     }
     // The CSR planner only changes plans that contain CSR nodes, so install it always.
-    let ctx = SessionContext::new_with_state(
+    let ctx = SessionContext::new_with_state(crate::cross_join_order::install(
         SessionStateBuilder::new()
             .with_default_features()
             .with_config(session_config)
@@ -599,7 +599,7 @@ async fn build_engine_state(
             .with_optimizer_rule(Arc::new(CountCsrDegrees))
             .with_optimizer_rule(Arc::new(PruneCsrTargetColumns))
             .build(),
-    );
+    ));
     let mut schemas = HashMap::new();
     let mut providers: HashMap<String, Arc<dyn TableProvider>> = HashMap::new();
 

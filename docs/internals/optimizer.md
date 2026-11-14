@@ -295,3 +295,16 @@ graph join chain, that turns a multi-million-row intermediate into an estimate o
 `KeyStatisticsProvider` wraps each table and reports distinct counts for its node-id and edge-endpoint columns, taken
 from the CSR when there is one and otherwise from one scan of the endpoint columns. Every other statistic comes from
 the inner table. The counts are cached per dataset version, so a `checkout_latest()` with no changes costs nothing.
+
+### Cross joins build on the side with fewer rows
+
+DataFusion's join selection picks a cross join's build side by `total_byte_size` when both inputs report one, and
+falls back to row counts only when either doesn't. Lance scans report byte sizes since lance 14. That matters because
+`CrossJoinExec` emits one output batch per build row: with a narrow many-row input on the build side and a wide
+single row on the other, one batch becomes thousands of one-row batches, and every operator above the join pays its
+per-batch cost thousands of times. IC3 does this when it joins the cities against its one-row `WITH ... LIMIT 1`
+result: 1,340 one-row batches instead of one, and the query ran 14% slower in lazy mode.
+
+The physical rule `CrossJoinBuildRows` (`cross_join_build_rows`) runs right after join selection, before distribution
+enforcement, and swaps a cross join back when its build side has more estimated rows than its probe side. Hash and
+nested-loop joins keep DataFusion's choice.

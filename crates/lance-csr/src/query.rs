@@ -923,12 +923,12 @@ impl CypherQuery {
         }
 
         // Create session context and catalog
-        let ctx = SessionContext::new_with_state(
+        let ctx = SessionContext::new_with_state(crate::cross_join_order::install(
             datafusion::execution::session_state::SessionStateBuilder::new()
                 .with_default_features()
                 .with_query_planner(Arc::new(crate::csr_expand::CsrQueryPlanner))
                 .build(),
-        );
+        ));
         let mut catalog = InMemoryCatalog::new();
 
         // Register all datasets as tables
@@ -1008,12 +1008,12 @@ impl CypherQuery {
             });
         }
 
-        let ctx = SessionContext::new_with_state(
+        let ctx = SessionContext::new_with_state(crate::cross_join_order::install(
             datafusion::execution::session_state::SessionStateBuilder::new()
                 .with_default_features()
                 .with_query_planner(Arc::new(crate::csr_expand::CsrQueryPlanner))
                 .build(),
-        );
+        ));
         let mut catalog = InMemoryCatalog::new();
         let mut providers: HashMap<String, Arc<dyn TableProvider>> = HashMap::new();
 
