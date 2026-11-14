@@ -1,3 +1,9 @@
+## Summary
+
+The key takeaway, in a few sentences or bullets: what this pull request changes and the result a reviewer
+should remember, with the headline numbers for a performance change. Someone who reads only this section
+should know what merging it does.
+
 ## Problem and why it matters
 
 What problem does this solve, who runs into it, and what shows it on `main` (a reproducer, a profile or a
