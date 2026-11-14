@@ -75,7 +75,7 @@ dev = [
     { name = "maturin", extras = ["patchelf"], specifier = ">=1.9,<2" },
     { name = "pandas" },
     { name = "pyarrow-stubs", specifier = ">=20.0.0.20260819" },
-    { name = "pylance", specifier = ">=13.0.0" },
+    { name = "pylance", specifier = ">=14.0.2" },
     { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-xdist", specifier = ">=3.8.0" },
