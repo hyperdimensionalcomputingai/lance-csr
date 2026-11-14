@@ -2090,7 +2090,10 @@ mod tests {
             let line = plan.lines().find(|l| l.contains("CsrExpandExec")).unwrap();
             line.to_string()
         };
-        let plan = engine.explain_analyze(cypher, HashMap::new()).await.unwrap();
+        let plan = engine
+            .explain_analyze(cypher, HashMap::new())
+            .await
+            .unwrap();
         assert!(plan.contains("physical_plan_with_metrics"), "{plan}");
         assert!(expand(&plan).contains("output_rows=10"), "{plan}");
         assert!(expand(&plan).contains("elapsed_compute="), "{plan}");
