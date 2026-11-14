@@ -189,6 +189,16 @@ stays on the CSR. Each neighbour carries the row its edge came from, so the expa
 `explain()` shows them as `edge=k[k__since]` on the `CsrExpand` line. Parallel edges between the same two
 nodes are separate rows, each with its own properties, as on the join path.
 
+On a Lance dataset, a hop that fetches more than two batches of edges (16,384 by default) doesn't fetch `k`'s
+columns by position. It reads them once, in order, and serves the hop from memory. Lance stores a narrow
+column in compressed chunks and decodes a whole chunk to return one value, so a batch of scattered rows costs
+between a third and two thirds of reading the whole column. When no condition drops edges after the
+expansion, the hop counts its start nodes' edges first, so a large hop reads the columns before fetching
+anything and a small one never reads them. Only fixed-width columns (numbers, dates and timestamps) are read
+this way, and only when they fit in 256 MiB. Strings, lists, embeddings and other variable-width columns are
+always fetched by position, because Lance stores wide values for direct access and a whole column of them may
+not fit in memory. In-memory PyArrow tables always gather by position too.
+
 A `WHERE` condition that reads only `k`'s own columns, such as `k.since > 2020`, moves into the expansion
 (`edge_filter=` in `explain()`), so failing edges are dropped before anything else is fetched. A small hop
 fetches just the filter's columns for each batch of expanded edges. On a Lance dataset, once a hop has

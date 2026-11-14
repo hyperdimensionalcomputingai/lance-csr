@@ -298,6 +298,11 @@ impl Adjacency {
             .map_or(0..0, |&v| self.base.csr.range(v))
     }
 
+    /// `key`'s edges, counting removed ones: an upper bound that costs two lookups.
+    fn degree_bound(&self, key: i64) -> usize {
+        self.base_range(key).len() + self.added.get(&key).map_or(0, Vec::len)
+    }
+
     /// Resume at an occurrence offset, borrowing all neighbour and deletion storage.
     #[inline(always)]
     fn neighbors_from<'a>(
@@ -1079,6 +1084,70 @@ impl EdgeRows {
         }
         Ok(mask)
     }
+
+    /// `columns` (schema indices) of every row, from one sequential read. `None` when
+    /// gathering per chunk is the better plan: an in-memory table, a column that is
+    /// not fixed-width, or a read over [`EDGE_SCAN_BYTES`].
+    async fn scan_columns(&self, columns: &[usize]) -> Result<Option<EdgeColumns>> {
+        let TableData::Lance(dataset) = &self.data else {
+            return Ok(None);
+        };
+        let scan_error = |e: lance::Error| exec_error(format!("Failed to scan edges: {}", e));
+        let fields = columns.iter().map(|&c| self.schema.field(c));
+        let Some(width) = fields
+            .map(|f| f.data_type().primitive_width())
+            .sum::<Option<usize>>()
+        else {
+            return Ok(None);
+        };
+        let rows = dataset.count_rows(None).await.map_err(scan_error)?;
+        if (rows as u64).saturating_mul(width as u64) > EDGE_SCAN_BYTES {
+            return Ok(None);
+        }
+        let names: Vec<&str> = columns
+            .iter()
+            .map(|&c| self.schema.field(c).name().as_str())
+            .collect();
+        let mut scanner = dataset.scan();
+        scanner.project(&names).map_err(scan_error)?;
+        scanner.with_row_address();
+        let mut stream = scanner.try_into_stream().await.map_err(scan_error)?;
+        let mut read = EdgeColumns::default();
+        let mut parts: Vec<Vec<ArrayRef>> = vec![Vec::new(); columns.len()];
+        let mut position = 0_u32;
+        while let Some(batch) = stream.next().await {
+            let batch = batch.map_err(scan_error)?;
+            let addresses = batch
+                .column_by_name(ROW_ADDR)
+                .ok_or_else(|| exec_error("Edge scan returned no row addresses".into()))?
+                .as_primitive::<arrow::datatypes::UInt64Type>();
+            // Within the byte budget, so positions fit `u32`.
+            read.extend(addresses.values(), position);
+            position += batch.num_rows() as u32;
+            for (part, name) in parts.iter_mut().zip(&names) {
+                part.push(
+                    batch
+                        .column_by_name(name)
+                        .cloned()
+                        .ok_or_else(|| exec_error("Edge scan lost a column".into()))?,
+                );
+            }
+            cooperative_yield().await;
+        }
+        read.columns = parts
+            .iter()
+            .zip(columns)
+            .map(|(part, &c)| {
+                let part: Vec<&dyn Array> = part.iter().map(|a| a.as_ref()).collect();
+                if part.is_empty() {
+                    Ok(new_empty_array(self.schema.field(c).data_type()))
+                } else {
+                    arrow::compute::concat(&part).map_err(|e| exec_error(e.to_string()))
+                }
+            })
+            .collect::<Result<_>>()?;
+        Ok(Some(read))
+    }
 }
 
 /// The edge rows that pass a relationship filter: one bitset per fragment id, indexed
@@ -1138,6 +1207,107 @@ impl fmt::Debug for EdgeFilterState {
 /// the switch costs about one full read. In-memory tables never switch.
 // shortcut: fixed share, measured on IC5 (half of a 1.6M-edge table) and IC11; tune if hops in between regress.
 const EDGE_MASK_FRACTION: u64 = 256;
+
+/// A named relationship's output columns read once, sequentially, for a hop that
+/// fetches many of its edges; later chunks gather from memory instead of taking
+/// scattered rows. Indexed like [`EdgeMask`], by fragment id then row offset.
+#[derive(Default)]
+struct EdgeColumns {
+    /// Per fragment id, by row offset: the row's position in `columns`' arrays
+    /// (`u32::MAX` for an offset with no row).
+    fragments: Vec<Vec<u32>>,
+    /// The read columns, in the order they were asked for.
+    columns: Vec<ArrayRef>,
+}
+
+impl EdgeColumns {
+    /// Record `addresses` as rows `first..` of the read.
+    fn extend(&mut self, addresses: &[u64], first: u32) {
+        for (&address, position) in addresses.iter().zip(first..) {
+            let (fragment, offset) = ((address >> 32) as usize, address as u32 as usize);
+            if self.fragments.len() <= fragment {
+                self.fragments.resize_with(fragment + 1, Vec::new);
+            }
+            let positions = &mut self.fragments[fragment];
+            if positions.len() <= offset {
+                positions.resize(offset + 1, u32::MAX);
+            }
+            positions[offset] = position;
+        }
+    }
+
+    /// Same contract as [`EdgeRows::take`], for every column of the read.
+    fn take(&self, rows: &[u64]) -> Result<Vec<ArrayRef>> {
+        let indices = rows
+            .iter()
+            .map(|&row| {
+                self.fragments
+                    .get((row >> 32) as usize)
+                    .and_then(|positions| positions.get(row as u32 as usize))
+                    .copied()
+                    .filter(|&position| position != u32::MAX)
+            })
+            .collect::<Option<Vec<u32>>>()
+            .ok_or_else(|| exec_error("Edge row missing from its own snapshot".into()))?;
+        let indices = arrow::array::UInt32Array::from(indices);
+        self.columns
+            .iter()
+            .map(|array| {
+                take(array.as_ref(), &indices, None)
+                    .map_err(|e| exec_error(format!("Failed to take rows: {}", e)))
+            })
+            .collect()
+    }
+}
+
+/// Shared by an operator's partitions: edges whose columns were fetched so far, and
+/// those columns once that count made one read worthwhile. `None` once set means
+/// [`EdgeRows::scan_columns`] declined, and chunks keep fetching their own rows.
+#[derive(Default)]
+struct EdgeScanState {
+    fetched: std::sync::atomic::AtomicU64,
+    columns: std::sync::OnceLock<Option<Arc<EdgeColumns>>>,
+    building: futures::lock::Mutex<()>,
+}
+
+impl EdgeScanState {
+    /// Count `fetched` more edges of `edge`, read its output columns whole once the count
+    /// reaches `scan_after`, and return that read when there is one. The fetch that
+    /// crosses the threshold already uses the read.
+    async fn read_once(
+        &self,
+        edge: &EdgeLookup,
+        fetched: u64,
+        scan_after: u64,
+    ) -> Result<Option<Arc<EdgeColumns>>> {
+        use std::sync::atomic::Ordering::Relaxed;
+        if self.columns.get().is_none()
+            && !edge.columns.is_empty()
+            && self.fetched.fetch_add(fetched, Relaxed) + fetched >= scan_after
+        {
+            let _building = self.building.lock().await;
+            if self.columns.get().is_none() {
+                let columns = edge.rows.scan_columns(&edge.columns).await?;
+                let _ = self.columns.set(columns.map(Arc::new));
+            }
+        }
+        Ok(self.columns.get().cloned().flatten())
+    }
+}
+
+impl fmt::Debug for EdgeScanState {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("EdgeScanState")
+            .field("scanned", &self.columns.get().is_some_and(Option::is_some))
+            .finish()
+    }
+}
+
+/// The most a read-once of relationship columns may hold in memory. Only fixed-width
+/// columns are read whole: a wide value (a string, an embedding, an image) is stored for
+/// direct access, where a take is the right read and a whole column may not fit.
+// shortcut: fixed budget (the engine sets no DataFusion memory pool); past it every chunk takes its own rows, so read per fragment if hops over larger tables need this.
+const EDGE_SCAN_BYTES: u64 = 256 << 20;
 
 // Summary only, for the same reason as `Adjacency`.
 impl fmt::Debug for EdgeRows {
@@ -1474,6 +1644,12 @@ impl Neighbors {
                 .flatten()
                 .map(move |candidate| candidate.filter(|&(n, _)| n as i64 != key)),
         )
+    }
+
+    /// An upper bound on the edges a hop from `key` visits.
+    fn degree_bound(&self, key: i64) -> usize {
+        let reverse = self.reverse.as_ref().map_or(0, |r| r.degree_bound(key));
+        self.forward.degree_bound(key) + reverse
     }
 
     /// Edges visited over all keys (self-loops count once per direction in this estimate).
@@ -1968,6 +2144,8 @@ pub struct CsrExpandExec {
     edge_state: Arc<EdgeFilterState>,
     /// Target rows fetched so far, and the target columns once read whole.
     target_state: Arc<TargetScanState>,
+    /// The same, for the named relationship's output columns.
+    edge_columns_state: Arc<EdgeScanState>,
     closing_column: Option<String>,
     traversal: Option<Arc<crate::csr_traversal::Traversal>>,
     /// Count each input row's neighbours instead of emitting them.
@@ -2010,6 +2188,7 @@ impl CsrExpandExec {
             edge_filter,
             edge_state: Arc::default(),
             target_state: Arc::default(),
+            edge_columns_state: Arc::default(),
             closing_column,
             traversal,
             degrees,
@@ -2283,6 +2462,7 @@ async fn materialize(
     target: Option<&TargetLookup>,
     scanned: Option<&TargetColumns>,
     edge: Option<&EdgeLookup>,
+    (edge_state, edge_scan_after): (&EdgeScanState, u64),
     target_filter: Option<&CompiledFilter>,
     edge_filter: Option<&CompiledFilter>,
     schema: &SchemaRef,
@@ -2346,11 +2526,14 @@ async fn materialize(
         }
     }
     if let Some(edge) = edge {
-        let fetched = edge
-            .rows
-            .take(&edge_rows, &edge.columns)
-            .await
-            .map_err(|e| datafusion::common::DataFusionError::External(Box::new(e)))?;
+        // Counted here, after the filters, so only edges that are fetched count.
+        let read = edge_state.read_once(edge, edge_rows.len() as u64, edge_scan_after);
+        let fetched = match read.await {
+            Ok(Some(scanned)) => scanned.take(&edge_rows),
+            Ok(None) => edge.rows.take(&edge_rows, &edge.columns).await,
+            Err(e) => Err(e),
+        }
+        .map_err(|e| datafusion::common::DataFusionError::External(Box::new(e)))?;
         columns.extend(fetched);
     }
     Ok(RecordBatch::try_new(schema.clone(), columns)?)
@@ -2570,6 +2753,21 @@ impl ExecutionPlan for CsrExpandExec {
             .target
             .as_ref()
             .map_or(1, |t| read_once_after(&t.rows, batch_size));
+        let edge_columns_state = self.edge_columns_state.clone();
+        // A hop reads its named relationship's output columns whole once it fetches more
+        // than two chunks of them. Lance stores a narrow column in compressed chunks and
+        // decodes a whole chunk to return one value, so a chunk of scattered rows costs
+        // 0.3 to 0.6 of reading the column (measured on tables of 180K to 20M edges).
+        // shortcut: no table-size term; on a 2M-edge table of random rows a read cost about three takes, so a hop just over two chunks there gains nothing. Add one if such hops matter.
+        let edge_scan_after = 2 * batch_size as u64 + 1;
+        // With nothing to drop edges after expansion, an input batch's degrees say how
+        // many it fetches, so a large hop reads the columns before its first take.
+        let edges_known = self.edge.as_ref().is_some_and(|e| !e.columns.is_empty())
+            && self.target_filter.is_none()
+            && self.edge_filter.is_none()
+            && self.closing_column.is_none()
+            && self.traversal.is_none()
+            && !self.degrees;
         let schema = self.schema.clone();
         let out_schema = schema.clone();
         let traversal = self.traversal.clone();
@@ -2587,6 +2785,7 @@ impl ExecutionPlan for CsrExpandExec {
             );
             let (edge_filter, edge_state) = (edge_filter.clone(), edge_state.clone());
             let (target_state, scan_columns) = (target_state.clone(), scan_columns.clone());
+            let edge_columns_state = edge_columns_state.clone();
             let traversal = traversal.clone();
             async move {
                 loop {
@@ -2600,6 +2799,18 @@ impl ExecutionPlan for CsrExpandExec {
                         let rows = expansion.keys.len();
                         expansion.degrees = degrees.then(|| (vec![0; rows], vec![0; rows]));
                         expansion.matched = outer.then(|| vec![false; rows]);
+                        let undecided = edges_known && edge_columns_state.columns.get().is_none();
+                        if let Some(edge) = edge.as_deref().filter(|_| undecided) {
+                            let keys = expansion.keys.iter().flatten();
+                            let expected: u64 =
+                                keys.map(|key| adjacency.degree_bound(key) as u64).sum();
+                            edge_columns_state
+                                .read_once(edge, 0, edge_scan_after.saturating_sub(expected))
+                                .await
+                                .map_err(|e| {
+                                    datafusion::common::DataFusionError::External(Box::new(e))
+                                })?;
+                        }
                         pending = Some(expansion);
                     }
                     let expansion = pending.as_mut().expect("input batch just set");
@@ -2701,6 +2912,7 @@ impl ExecutionPlan for CsrExpandExec {
                         target.as_deref(),
                         scanned.as_deref(),
                         edge.as_deref(),
+                        (&edge_columns_state, edge_scan_after),
                         target_filter.as_deref(),
                         filter,
                         &schema,
@@ -3475,9 +3687,19 @@ mod tests {
         let adj = Neighbors::directed(Arc::new(adj));
         let mut expansion = BatchExpansion::try_new(input.clone(), 0, None).unwrap();
         let chunk = expansion.next_chunk(&adj, None, 8192).await;
-        let out = materialize(&input, chunk, None, None, None, None, None, &out_schema)
-            .await
-            .unwrap();
+        let out = materialize(
+            &input,
+            chunk,
+            None,
+            None,
+            None,
+            (&EdgeScanState::default(), u64::MAX),
+            None,
+            None,
+            &out_schema,
+        )
+        .await
+        .unwrap();
         assert_eq!(out.num_rows(), 2);
         let dst = out.column(2).as_primitive::<arrow::datatypes::Int32Type>();
         assert_eq!(dst.values().to_vec(), vec![2, 3]);
@@ -3843,6 +4065,7 @@ mod tests {
                         Some(&target),
                         None,
                         None,
+                        (&EdgeScanState::default(), u64::MAX),
                         Some(&filter),
                         None,
                         &schema,
@@ -3957,6 +4180,7 @@ mod tests {
             None,
             None,
             Some(&edge),
+            (&EdgeScanState::default(), u64::MAX),
             None,
             Some(&filter),
             &schema,
@@ -3973,9 +4197,19 @@ mod tests {
         expansion.edge_mask = Some(mask);
         let chunk = expansion.next_chunk(&adjacency, None, 8192).await;
         assert_eq!(chunk.edge_rows, vec![1, 2]);
-        let out = materialize(&input, chunk, None, None, Some(&edge), None, None, &schema)
-            .await
-            .unwrap();
+        let out = materialize(
+            &input,
+            chunk,
+            None,
+            None,
+            Some(&edge),
+            (&EdgeScanState::default(), u64::MAX),
+            None,
+            None,
+            &schema,
+        )
+        .await
+        .unwrap();
         assert_eq!(since(&out), vec![20, 30]);
 
         // From Lance, across fragments: the mask holds exactly the passing row addresses.
@@ -4064,5 +4298,120 @@ mod tests {
             }
             assert!(scanned.take(&[u64::MAX], &[2]).is_err());
         }
+    }
+
+    #[tokio::test]
+    async fn edge_columns_read_once_match_fetches_by_row_address() {
+        use arrow::array::{RecordBatchIterator, StringArray};
+
+        let ints = |values: Vec<i64>| Arc::new(Int64Array::from(values)) as ArrayRef;
+        let edges = RecordBatch::try_from_iter([
+            ("src", ints((0..7).collect())),
+            ("dst", ints((10..17).collect())),
+            (
+                "since",
+                Arc::new(Int64Array::from(vec![
+                    Some(70),
+                    Some(71),
+                    None,
+                    Some(73),
+                    Some(74),
+                    Some(75),
+                    Some(76),
+                ])) as ArrayRef,
+            ),
+            ("weight", ints((80..87).collect())),
+            (
+                "note",
+                Arc::new(StringArray::from(vec!["a", "b", "c", "d", "e", "f", "g"])) as ArrayRef,
+            ),
+        ])
+        .unwrap();
+        let in_memory = EdgeRows::from_batch(edges.clone());
+        assert!(in_memory.scan_columns(&[2]).await.unwrap().is_none());
+        // Three fragments and a deletion, so row addresses are neither dense nor row numbers.
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("edges.lance");
+        let reader = RecordBatchIterator::new(vec![Ok(edges.clone())], edges.schema());
+        let params = lance::dataset::WriteParams {
+            max_rows_per_file: 3,
+            ..Default::default()
+        };
+        let mut dataset = Dataset::write(reader, path.to_str().unwrap(), Some(params))
+            .await
+            .unwrap();
+        dataset.delete("src = 1").await.unwrap();
+        let rows = EdgeRows::from_lance(Arc::new(dataset));
+        // A string is not fixed-width: it stays on per-chunk takes, alone or with others.
+        assert!(rows.scan_columns(&[4]).await.unwrap().is_none());
+        assert!(rows.scan_columns(&[2, 4]).await.unwrap().is_none());
+        let scanned = rows.scan_columns(&[2, 3]).await.unwrap().unwrap();
+        // src 6, 0, 4, 6, 3, as (fragment, offset) addresses.
+        let addresses = [2 << 32, 0, (1 << 32) | 1, 2 << 32, 1 << 32];
+        let expected = rows.take(&addresses, &[2, 3]).await.unwrap();
+        let got = scanned.take(&addresses).unwrap();
+        assert_eq!(got.len(), 2);
+        for (got, expected) in got.iter().zip(&expected) {
+            assert_eq!(got.to_data(), expected.to_data());
+        }
+        assert_eq!(
+            got[1].as_primitive::<Int64Type>().values(),
+            &[86, 80, 84, 86, 83]
+        );
+        // The deleted row, a missing offset and a missing fragment.
+        for missing in [1, 7, 9 << 32] {
+            assert!(scanned.take(&[missing]).is_err());
+        }
+
+        // The switch: fetches below the threshold take their own rows, the fetch that
+        // reaches it reads the columns, and a string column never does.
+        let rows = Arc::new(rows);
+        let edge = |names: &[&str]| EdgeLookup::new("r", rows.clone(), names, ["src", "dst"]);
+        let (numbers, text) = (
+            edge(&["since", "weight"]).unwrap(),
+            edge(&["note"]).unwrap(),
+        );
+        let state = EdgeScanState::default();
+        assert!(state.read_once(&numbers, 2, 5).await.unwrap().is_none());
+        let read = state.read_once(&numbers, 3, 5).await.unwrap().unwrap();
+        assert_eq!(
+            read.take(&addresses).unwrap()[1].to_data(),
+            got[1].to_data()
+        );
+        assert!(state
+            .read_once(&numbers, 0, u64::MAX)
+            .await
+            .unwrap()
+            .is_some());
+        let state = EdgeScanState::default();
+        assert!(state.read_once(&text, 9, 5).await.unwrap().is_none());
+        assert!(state.read_once(&text, 9, 5).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn degree_bound_counts_base_and_appended_edges_in_both_directions() {
+        let ints = |values: Vec<i64>| Arc::new(Int64Array::from(values)) as ArrayRef;
+        let edges = RecordBatch::try_from_iter([
+            ("src", ints(vec![1, 1, 2])),
+            ("dst", ints(vec![2, 3, 1])),
+        ])
+        .unwrap();
+        let stream = || {
+            Box::pin(RecordBatchStreamAdapter::new(
+                edges.schema(),
+                futures::stream::iter(vec![Ok(edges.clone())]),
+            ))
+        };
+        let forward = Arc::new(Adjacency::build(stream(), "src", "dst").await.unwrap());
+        let reverse = Arc::new(Adjacency::build(stream(), "dst", "src").await.unwrap());
+        assert_eq!(forward.degree_bound(1), 2);
+        assert_eq!(forward.degree_bound(3), 0);
+        let directed = Neighbors::directed(forward.clone());
+        assert_eq!([1, 2, 9].map(|key| directed.degree_bound(key)), [2, 1, 0]);
+        let undirected = Neighbors {
+            forward,
+            reverse: Some(reverse),
+        };
+        assert_eq!([1, 2, 3].map(|key| undirected.degree_bound(key)), [3, 2, 1]);
     }
 }

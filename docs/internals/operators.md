@@ -115,7 +115,14 @@ ProjectionExec: expr=[b__name@3 as b.name]
 - **Adaptive reads of lazy Lance tables.** A batch of scattered rows from a large Lance table touches most of a
   column's pages. Once a relationship filter has seen more than 1/256 of the relationship's edges, the operator reads
   the filter's columns once, in order, builds a bitset per fragment, and checks edges against it from then on.
-  Target-column fetches switch to one sequential read the same way. In-memory Arrow tables always gather directly.
+  Target-column fetches switch to one sequential read the same way. A named relationship's output columns switch
+  once a hop fetches more than two chunks of them: one take of a chunk of scattered rows costs 0.3 to 0.6 of reading
+  the column (measured on tables of 180K to 20M edges). Edges are counted where they are fetched, after the filters.
+  When the operator has no filter, closing column or path walk, each input batch's keys give an upper bound on its
+  edges (their CSR degrees), so the operator adds that bound to the count when the batch arrives and a large hop
+  reads the columns before its first take. The read keeps one position per row, indexed by fragment and row offset
+  like the filter's bitset, and covers only fixed-width columns up to 256 MiB in total; variable-width columns stay
+  on takes. In-memory Arrow tables always gather directly.
 - **Bounded memory per partition.** Each partition holds one input batch and at most one output chunk of neighbour
   positions, sized by DataFusion's batch size, before it fetches properties. It yields partway through a high-degree
   node's neighbour list.
