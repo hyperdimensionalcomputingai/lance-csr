@@ -216,12 +216,54 @@ numbering and the same order of edges within a source. Their indexes were not co
 any other IC query except IC12 (6% to 10%). IC14 is therefore sensitive to something in a build other than
 the index, and its 10% to 11% gain on the branch is not claimed.
 
+## A source index addressed by node row
+
+A further idea was measured after the work above: address each direction's sources by the row of the node in
+its node table, so that the per-direction hash map becomes a plain array of offsets. It comes in two forms,
+and only the second is worth building.
+
+**Keep ids between hops, and find the row through the node index.** A lookup probes the label's node index
+(id to row), then reads two offsets. In a [debug microbenchmark](csr-memory-79-node-row.csv) on 250,000 to 4
+million nodes with dense and random ids (two runs; ratios to the ranges layout, only their direction is
+reliable):
+
+| Share of the label's nodes that are sources | Lookup time | Size |
+| --- | --- | --- |
+| All | 1.02 to 1.35 | 0.11 |
+| A quarter | 1.11 to 3.26 | 0.45 |
+| 3% | 1.15 to 4.02 | 3.6 |
+
+It is slower everywhere, because the node index is at least as large as the per-direction map and a node that
+is not a source still costs a full probe. Where the words layout applies it is 1.6 to 2.9 times slower than
+words. On SF1 it would save 13 MiB of the 417 if used for every direction, and 29 MiB if chosen per
+direction. This form was dropped.
+
+**Carry rows between hops.** If a hop receives node rows instead of ids, a lookup is two array reads: 0.07 to
+0.26 times the ranges layout's lookup time in the same microbenchmark. Neighbours could then be stored as
+32-bit rows instead of 64-bit ids. Worked out from the SF1 counts, not measured:
+
+| Storage, both directions | Branch (MiB) | Rows throughout (MiB) |
+| --- | ---: | ---: |
+| Source index | 92.6 | 80.0 |
+| Neighbours | 263.3 | 131.7 |
+| Packed edge rows | 61.2 | 61.2 |
+| Total | 417.1 | 272.9 |
+
+Lazy mode would also need each label's ids by row, 24 MiB on SF1. The size no longer depends on how the ids
+are distributed, so the three layouts of this branch would go, and so would the probe of the target's node
+index that a hop does today.
+
+It was not built. It changes what flows between operators, the stored format, the deltas, shortest paths and
+the public `CsrIndex::neighbors`, and it ties a CSR to its node tables' rows, so a node table that changes
+would invalidate it. None of the gain has been measured end to end.
+
 ## Known limits
 
 - **Stored CSR files from 0.10 are not read.** A load could never choose the words layout for them, so the
   stored format number was raised and the next full build replaces them.
 - **Table order is not always scan order.** Numbering follows the edge table, which helps a scan only when
-  the node table is in the same order. Numbering by the node table's row order was not tried.
+  the node table is in the same order. Numbering by node row would need the node index before the CSR build,
+  and the two are built concurrently today; it was not tried on its own.
 - **IC14** moves by up to 39% between builds for a reason not pinned down.
 - **Synthetic graphs are uniform.** They have no skewed degrees and no string properties. Timestamp-style ids
   were not run end to end; the rule treats them as it treats random ids.
