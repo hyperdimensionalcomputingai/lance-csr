@@ -137,5 +137,9 @@ threshold. Rebuilds after start-up (from `checkout_latest()` or `optimize_csr()`
 is the one the engine already holds, but they do store the new one.
 
 Every batch is compressed with zstd, Arrow IPC's own buffer compression, on top of the packing. A load decompresses
-the arrays, checks them, and rebuilds only the source-key map, one insert per source. Writes go through the dataset's object store with `put_if_absent`, which
+the arrays, checks them, and rebuilds only the source-key map, one insert per source. That work is CPU-bound, so
+each load decodes on Tokio's blocking pool and relationship types load concurrently, up to one per core, while the
+node indexes scan on the engine's task. At most 10 load at once: each holds its compressed file and decode buffers
+until it finishes, so peak memory would otherwise grow with the core count. Deltas and full builds gain nothing from overlapping there, so they still run
+one type at a time, and each `build_ms` measures one build. Writes go through the dataset's object store with `put_if_absent`, which
 publishes the whole file at once on local disk and object storage; the compressed file is encoded in memory first.

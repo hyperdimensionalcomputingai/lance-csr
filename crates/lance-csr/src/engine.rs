@@ -39,7 +39,7 @@ use datafusion::datasource::{DefaultTableSource, MemTable, TableProvider};
 use datafusion::execution::context::{SessionConfig, SessionContext};
 use datafusion::execution::session_state::SessionStateBuilder;
 use datafusion::execution::SendableRecordBatchStream;
-use futures::StreamExt;
+use futures::{StreamExt, TryStreamExt};
 use lance::datafusion::LanceTableProvider;
 use lance::dataset::builder::DatasetBuilder;
 use lance::dataset::Dataset;
@@ -614,7 +614,8 @@ async fn build_engine_state(
 
     validate_sources(config, &schemas)?;
     let (csr, node_index) = if options.use_csr {
-        (
+        // Node indexes scan while stored CSRs decode on the blocking pool.
+        futures::try_join!(
             build_csr_entries(
                 config,
                 &sources,
@@ -622,10 +623,9 @@ async fn build_engine_state(
                 previous,
                 rebuild_deltas,
                 options.persist_csr,
-            )
-            .await?,
-            build_node_index(config, &sources, previous).await?,
-        )
+            ),
+            build_node_index(config, &sources, previous),
+        )?
     } else {
         (HashMap::new(), HashMap::new())
     };
@@ -857,6 +857,19 @@ async fn build_key_statistics(
     Ok(entries)
 }
 
+/// Most stored CSRs decoding at once; below this, one per core.
+///
+/// Why a cap: the decoded CSRs are kept either way, but each load in flight also holds its
+/// compressed file and decode buffers until it finishes. Uncapped, peak memory would grow with the
+/// core count, so a many-core machine loading a large graph with little memory to spare could run
+/// out where a smaller one would not.
+///
+/// Why 10: on GDC SF1 (23 types, Apple M5 with 10 cores), 10 at once cut the start that loads
+/// every stored CSR from 0.46 s to 0.11 s for about 0.15 GiB more peak memory, with the 10 largest
+/// files holding most of the 134 MiB stored. Higher caps were not measured. With the cap, the extra
+/// memory stays within about 10 times the largest file plus its decode buffers.
+const MAX_CONCURRENT_CSR_LOADS: usize = 10;
+
 /// Build (or reuse) CSR adjacencies for every relationship type with integer endpoints.
 ///
 /// An entry from `previous` is reused when its relationship dataset is the same
@@ -876,88 +889,101 @@ async fn build_csr_entries(
     rebuild_deltas: bool,
     persist: bool,
 ) -> Result<HashMap<String, CsrEntry>> {
-    let mut entries = HashMap::new();
-    for (_, mapping) in config.iter_relationship_mappings() {
-        let rel_type = &mapping.relationship_type;
-        let Some((name, source)) = sources
-            .iter()
-            .find(|(name, _)| name.eq_ignore_ascii_case(rel_type))
-        else {
-            continue;
-        };
-        if let Some(old) = previous.and_then(|p| p.csr.get(rel_type)) {
-            let delta = old.outgoing.delta_edges() + old.outgoing.tombstones() > 0;
-            if old.source.same_data(source) && !(rebuild_deltas && delta) {
-                entries.insert(rel_type.clone(), old.clone());
-                continue;
-            }
-        }
-        let field = |column: &str| {
-            schemas[name]
-                .fields()
+    // Types run concurrently so stored loads, which decode on the blocking pool, overlap.
+    // Deltas and builds run on this task, where overlapping gains nothing and would blur
+    // each one's `build_ms`, so they take turns.
+    let one_at_a_time = futures::lock::Mutex::new(());
+    let one_at_a_time = &one_at_a_time;
+    // Collected first: a lazy `map` closure over borrows makes `checkout_latest()` lose `Send`.
+    let entries: Vec<_> = config
+        .iter_relationship_mappings()
+        .map(|(_, mapping)| async move {
+            let rel_type = &mapping.relationship_type;
+            let Some((name, source)) = sources
                 .iter()
-                .find(|f| f.name().eq_ignore_ascii_case(column))
-                .cloned()
-        };
-        let (Some(src), Some(dst)) = (
-            field(&mapping.source_id_field),
-            field(&mapping.target_id_field),
-        ) else {
-            continue;
-        };
-        if !is_supported_id_type(src.data_type()) || !is_supported_id_type(dst.data_type()) {
-            continue;
-        }
-
-        let previous_entry = previous.and_then(|p| p.csr.get(rel_type));
-        if let Some(old) = previous_entry.filter(|_| !rebuild_deltas) {
-            if let Some(entry) = try_apply_csr_delta(old, source, src.name(), dst.name()).await {
-                entries.insert(rel_type.clone(), entry);
-                continue;
+                .find(|(name, _)| name.eq_ignore_ascii_case(rel_type))
+            else {
+                return Ok(None);
+            };
+            if let Some(old) = previous.and_then(|p| p.csr.get(rel_type)) {
+                let delta = old.outgoing.delta_edges() + old.outgoing.tombstones() > 0;
+                if old.source.same_data(source) && !(rebuild_deltas && delta) {
+                    return Ok(Some((rel_type.clone(), old.clone())));
+                }
             }
-        }
-
-        if persist && previous_entry.is_none() {
-            if let Some(entry) = load_stored_csr(source, src.name(), dst.name()).await {
-                entries.insert(rel_type.clone(), entry);
-                continue;
+            let field = |column: &str| {
+                schemas[name]
+                    .fields()
+                    .iter()
+                    .find(|f| f.name().eq_ignore_ascii_case(column))
+                    .cloned()
+            };
+            let (Some(src), Some(dst)) = (
+                field(&mapping.source_id_field),
+                field(&mapping.target_id_field),
+            ) else {
+                return Ok(None);
+            };
+            if !is_supported_id_type(src.data_type()) || !is_supported_id_type(dst.data_type()) {
+                return Ok(None);
             }
-        }
 
-        // The one full build: the first, a `checkout_latest()` whose delta would pass the threshold,
-        // and optimize_csr() (`rebuild_deltas`) all end here.
-        let started = std::time::Instant::now();
-        // Two projected scans of the endpoint columns, one per direction.
-        let scan = || source.edge_stream(src.name(), dst.name());
-        let outgoing = Adjacency::build(scan().await?, src.name(), dst.name()).await?;
-        let incoming = Adjacency::build(scan().await?, dst.name(), src.name()).await?;
-        let build_ms = started.elapsed().as_secs_f64() * 1e3;
-        if let (true, EngineSource::Lance { dataset, .. }) = (persist, source) {
-            // A failed write (read-only dataset or credentials) only costs the next start a build.
-            if let Err(e) =
-                csr_store::save(dataset, src.name(), dst.name(), &outgoing, &incoming).await
-            {
-                log::warn!("Could not store the CSR of {rel_type}: {e}");
+            let previous_entry = previous.and_then(|p| p.csr.get(rel_type));
+            if persist && previous_entry.is_none() {
+                if let Some(entry) = load_stored_csr(source, src.name(), dst.name()).await {
+                    return Ok(Some((rel_type.clone(), entry)));
+                }
             }
-        }
-        entries.insert(
-            rel_type.clone(),
-            CsrEntry {
-                source: source.clone(),
-                outgoing: Arc::new(outgoing),
-                incoming: Arc::new(incoming),
-                edges: source.edge_rows(),
-                base_version: source.lance_version(),
-                build_ms,
-                update: if previous_entry.is_some() {
-                    "rebuild"
-                } else {
-                    "build"
+
+            let _turn = one_at_a_time.lock().await;
+            if let Some(old) = previous_entry.filter(|_| !rebuild_deltas) {
+                if let Some(entry) = try_apply_csr_delta(old, source, src.name(), dst.name()).await
+                {
+                    return Ok(Some((rel_type.clone(), entry)));
+                }
+            }
+
+            // The one full build: the first, a `checkout_latest()` whose delta would pass the threshold,
+            // and optimize_csr() (`rebuild_deltas`) all end here.
+            let started = std::time::Instant::now();
+            // Two projected scans of the endpoint columns, one per direction.
+            let scan = || source.edge_stream(src.name(), dst.name());
+            let outgoing = Adjacency::build(scan().await?, src.name(), dst.name()).await?;
+            let incoming = Adjacency::build(scan().await?, dst.name(), src.name()).await?;
+            let build_ms = started.elapsed().as_secs_f64() * 1e3;
+            if let (true, EngineSource::Lance { dataset, .. }) = (persist, source) {
+                // A failed write (read-only dataset or credentials) only costs the next start a build.
+                if let Err(e) =
+                    csr_store::save(dataset, src.name(), dst.name(), &outgoing, &incoming).await
+                {
+                    log::warn!("Could not store the CSR of {rel_type}: {e}");
+                }
+            }
+            Ok::<_, GraphError>(Some((
+                rel_type.clone(),
+                CsrEntry {
+                    source: source.clone(),
+                    outgoing: Arc::new(outgoing),
+                    incoming: Arc::new(incoming),
+                    edges: source.edge_rows(),
+                    base_version: source.lance_version(),
+                    build_ms,
+                    update: if previous_entry.is_some() {
+                        "rebuild"
+                    } else {
+                        "build"
+                    },
                 },
-            },
-        );
-    }
-    Ok(entries)
+            )))
+        })
+        .collect();
+    let parallelism =
+        std::thread::available_parallelism().map_or(1, |n| n.get().min(MAX_CONCURRENT_CSR_LOADS));
+    let entries: Vec<_> = futures::stream::iter(entries)
+        .buffer_unordered(parallelism)
+        .try_collect()
+        .await?;
+    Ok(entries.into_iter().flatten().collect())
 }
 
 /// Cypher query engine with a cached catalog for efficient multi-query execution.
