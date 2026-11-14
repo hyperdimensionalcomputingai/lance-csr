@@ -324,18 +324,39 @@ impl Adjacency {
             }
             position += batch.num_rows() as u64;
         }
-        // Sources are numbered in key order, which `Sources::Words` needs.
-        edges.sort_unstable_by_key(|&(key, _, _)| key);
-        let (mut keys, mut offsets) = (Vec::new(), Vec::new());
-        for (i, &(key, _, _)) in edges.iter().enumerate() {
+        // Grouped by source, each source's edges in table order.
+        edges.sort_unstable_by_key(|&(key, _, row)| (key, row));
+        // Each source's first row and where its edges start, in key order.
+        let (mut keys, mut sources) = (Vec::new(), Vec::new());
+        for (i, &(key, _, row)) in edges.iter().enumerate() {
             if keys.last() != Some(&key) {
                 keys.push(key);
-                offsets.push(i as u64);
+                sources.push((row, i));
             }
         }
-        offsets.push(edges.len() as u64);
-        let neighbors: Vec<u64> = edges.iter().map(|&(_, to, _)| to).collect();
-        let rows: Vec<u64> = edges.iter().map(|&(_, _, row)| row).collect();
+        // `Sources::Words` needs sources numbered in key order. Any other base numbers
+        // them in the order the table first lists them: a scan of the source nodes
+        // usually follows that order and then reads the neighbours in sequence. Key
+        // order made a whole-relationship scan of 4M random ids 28% slower.
+        let words =
+            keys.len() == edges.len() && u32::try_from(edges.len()).is_ok() && wants_words(&keys);
+        if !words {
+            sources.sort_unstable_by_key(|&(first_row, _)| first_row);
+        }
+        let mut offsets = Vec::with_capacity(sources.len() + 1);
+        let mut neighbors: Vec<u64> = Vec::with_capacity(edges.len());
+        let mut rows: Vec<u64> = Vec::with_capacity(edges.len());
+        for (slot, &(_, start)) in sources.iter().enumerate() {
+            let key = edges[start].0;
+            keys[slot] = key;
+            offsets.push(neighbors.len() as u64);
+            for &(_, to, row) in edges[start..].iter().take_while(|e| e.0 == key) {
+                neighbors.push(to);
+                rows.push(row);
+            }
+        }
+        offsets.push(neighbors.len() as u64);
+        drop(sources);
         // Freed before packing, so the peak holds the unpacked rows or the edges, not both.
         drop(edges);
         let csr = CsrIndex::from_packed(offsets.into(), neighbors.into(), PackedU64::pack(&rows))
@@ -3711,7 +3732,7 @@ mod tests {
         let one_each: Vec<i64> = vec![-129, -65, -64, -1, 0, 5, 63, 64, 127, 128, 1 << 45];
         for (keys, offsets, neighbours) in [
             (vec![], vec![0], vec![]),
-            // Unsorted, as a stored file from before sources were numbered by key.
+            // Unsorted, as a base numbered in table order.
             (
                 vec![i64::MIN, 7, i64::MAX, -9],
                 vec![0, 0, 2, 2, 3],
@@ -3830,16 +3851,36 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn build_numbers_sources_in_key_order() {
+    async fn build_numbers_sources_in_table_order() {
         let stream = edge_stream(
             vec![Some(70), Some(-3), Some(70), Some(i64::MIN), Some(5)],
             vec![Some(1), Some(2), Some(3), Some(4), Some(5)],
         );
         let adj = Adjacency::build(stream, "src", "dst").await.unwrap();
         let (keys, csr) = adj.base_parts();
-        assert_eq!(keys, vec![i64::MIN, -3, 5, 70]);
-        assert_eq!(csr.neighbors(3), &[1, 3]);
-        assert_eq!(csr.edge_rows(3).collect::<Vec<_>>(), vec![0, 2]);
+        assert_eq!(keys, vec![70, -3, i64::MIN, 5]);
+        assert_eq!(csr.neighbors(0), &[1, 3]);
+        assert_eq!(csr.edge_rows(0).collect::<Vec<_>>(), vec![0, 2]);
+    }
+
+    #[tokio::test]
+    async fn build_numbers_sources_in_key_order_for_words() {
+        // One edge per source, enough clustered keys for words, listed in descending order.
+        let n = WORDS_MIN_SOURCES as i64;
+        let src: Vec<_> = (0..n).rev().map(Some).collect();
+        let dst: Vec<_> = (0..n).rev().map(|key| Some(key + 7)).collect();
+        let adj = Adjacency::build(edge_stream(src, dst), "src", "dst")
+            .await
+            .unwrap();
+        assert!(matches!(adj.base.sources, Sources::Words(_)));
+        for key in [0, 1, 63, 64, n / 2, n - 1] {
+            let mut found = Vec::new();
+            adj.for_each_neighbor(key, |to| found.push(to as i64));
+            assert_eq!(found, vec![key + 7]);
+        }
+        let mut missing = 0;
+        adj.for_each_neighbor(n, |_| missing += 1);
+        assert_eq!(missing, 0);
     }
 
     #[tokio::test]

@@ -46,8 +46,7 @@ join the CSR replaces.
 ### Source layouts
 
 A hop starts by finding a source key's neighbours, so each adjacency holds an index from source key to a range
-of the neighbour array. A full build sorts the edges by source key, so sources are numbered in key order, and
-then picks one of three layouts for that direction:
+of the neighbour array. A full build picks one of three layouts for that direction:
 
 | Layout | Holds | Chosen when |
 | --- | --- | --- |
@@ -65,6 +64,12 @@ per-source entry. It only pays off once the per-source map is too large to stay 
 small directions keep ranges. Keys with one or two sources per run of 64, such as random or timestamp-based ids,
 would make it larger than ranges, so they keep ranges too. The choice is made from each direction's own keys,
 not from the numeric range of the node keys, and negative keys work in every layout.
+
+Sources are numbered, and their neighbours laid out, in the order the edge table first lists them. The words
+layout is the exception: it needs key order. A query that reads a whole relationship scans the source nodes in
+table order, and an edge table is often written in that same order, so the scan then reads the neighbours in
+sequence. Numbering every direction by key instead made such a scan 28% slower on a synthetic graph with 4M
+random ids, whose tables don't follow key order.
 
 Deltas still hold appended edges and tombstones separately; rebuilding chooses the layout again. The public Rust
 `CsrIndex` continues to expose ordinary offsets.
@@ -165,9 +170,10 @@ is the one the engine already holds, but they do store the new one.
 
 Every batch is compressed with zstd, Arrow IPC's own buffer compression, on top of the packing. A load decompresses
 the arrays, checks them, and rebuilds the [source layout](#source-layouts), then releases the offsets. The file
-holds the source keys in ascending order, which the words layout needs. Files written by 0.10 or earlier hold
-them in another order and carry an older format number, so they are ignored and the next full build replaces
-them. That work is CPU-bound, so
+holds the source keys in the order they are numbered, so a words direction's keys are ascending and a load
+chooses words again. Files written by 0.10 or earlier hold every direction's keys in table order, so a load
+could never choose words for them. They carry an older format number, are ignored, and the next full build
+replaces them. That work is CPU-bound, so
 each load decodes on Tokio's blocking pool and relationship types load concurrently, up to one per core, while the
 node indexes scan on the engine's task. At most 10 load at once: each holds its compressed file and decode buffers
 until it finishes, so peak memory would otherwise grow with the core count. Deltas and full builds gain nothing from overlapping there, so they still run
