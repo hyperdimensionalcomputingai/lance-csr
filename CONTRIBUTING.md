@@ -226,7 +226,7 @@ improvement, describe the use case and how the change would help users.
 
 - Keep it focused on one change, and follow the commit style in the history (`feat(graph):`, `fix(cypher):`,
   `docs:`, `refactor(query):`), with an imperative subject of at most 72 characters.
-- Fill in the [pull request template](.github/pull_request_template.md): the problem and why the change is
-  needed, the checks you ran, the benchmark tables, and the effect on users.
+- Fill in the [pull request template](.github/pull_request_template.md): a summary of the key takeaway, the
+  problem and why the change is needed, the checks you ran, the benchmark tables, and the effect on users.
 - Agent-assisted pull requests are held to the same standard. Review the code and the numbers yourself
   before you submit.
