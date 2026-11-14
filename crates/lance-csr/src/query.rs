@@ -107,6 +107,31 @@ pub(crate) fn normalize_record_batch(batch: &RecordBatch) -> Result<RecordBatch>
     })
 }
 
+/// Run `df` under DataFusion's `EXPLAIN ANALYZE` and return the physical plan annotated with
+/// each operator's metrics (rows, elapsed compute time and so on).
+pub(crate) async fn analyze_dataframe(df: datafusion::dataframe::DataFrame) -> Result<String> {
+    let error = |e: datafusion::error::DataFusionError| GraphError::ExecutionError {
+        message: format!("Failed to analyze query: {e}"),
+        location: snafu::Location::new(file!(), line!(), column!()),
+    };
+    let batches = df
+        .explain(false, true)
+        .map_err(error)?
+        .collect()
+        .await
+        .map_err(error)?;
+    // One row per plan type, ("Plan with Metrics", plan text); keep the text.
+    let mut plan = String::new();
+    for batch in &batches {
+        for row in 0..batch.num_rows() {
+            let text = arrow::util::display::array_value_to_string(batch.column(1), row)
+                .map_err(|e| error(e.into()))?;
+            plan.push_str(&text);
+        }
+    }
+    Ok(plan)
+}
+
 /// Build a query-local frame without unsafe distinct-count statistics shortcuts.
 fn query_dataframe(
     ctx: &datafusion::execution::context::SessionContext,
@@ -853,6 +878,23 @@ impl CypherQuery {
         self.explain_internal(catalog, ctx).await
     }
 
+    /// Run the query and return its plans, with DataFusion's per-operator metrics in place of
+    /// the plain physical plan (`EXPLAIN ANALYZE`). The rows are discarded.
+    pub async fn explain_analyze_with_catalog_and_context(
+        &self,
+        catalog: std::sync::Arc<dyn crate::GraphSourceCatalog>,
+        ctx: datafusion::execution::context::SessionContext,
+    ) -> Result<String> {
+        let (logical_plan, df_logical_plan) = self.create_logical_plans(catalog)?;
+        let ctx = deadline::context(ctx);
+        let metrics = analyze_dataframe(query_dataframe(&ctx, df_logical_plan.clone())).await?;
+        self.format_explain_output(
+            &logical_plan,
+            &df_logical_plan,
+            ("physical_plan_with_metrics", metrics),
+        )
+    }
+
     /// Plan the query (phases 1-3) and hand it to DataFusion (phase 4) without executing.
     async fn dataframe_with_catalog_and_context(
         &self,
@@ -1122,8 +1164,10 @@ impl CypherQuery {
         let (logical_plan, df_logical_plan, physical_plan) =
             self.create_plans(catalog, &ctx).await?;
 
-        // Format the explain output
-        self.format_explain_output(&logical_plan, &df_logical_plan, physical_plan.as_ref())
+        let physical = datafusion::physical_plan::displayable(physical_plan.as_ref())
+            .indent(true)
+            .to_string();
+        self.format_explain_output(&logical_plan, &df_logical_plan, ("physical_plan", physical))
     }
 
     /// Helper to create logical plans (graph logical, DataFusion logical)
@@ -1244,7 +1288,7 @@ impl CypherQuery {
         &self,
         logical_plan: &crate::logical_plan::LogicalOperator,
         df_logical_plan: &datafusion::logical_expr::LogicalPlan,
-        physical_plan: &dyn datafusion::physical_plan::ExecutionPlan,
+        (physical_type, physical_plan): (&'static str, String),
     ) -> Result<String> {
         // Format output with query first, then table
         let mut output = String::new();
@@ -1264,12 +1308,8 @@ impl CypherQuery {
         let df_logical_str = format!("{}", df_logical_plan.display_indent());
         rows.push(("logical_plan", df_logical_str));
 
-        // Row 3: DataFusion Physical Plan
-        let df_physical_str = format!(
-            "{}",
-            datafusion::physical_plan::displayable(physical_plan).indent(true)
-        );
-        rows.push(("physical_plan", df_physical_str));
+        // Row 3: DataFusion Physical Plan, with metrics after EXPLAIN ANALYZE
+        rows.push((physical_type, physical_plan));
 
         // Calculate column widths. Lines wider than MAX_PLAN_WIDTH (long parameter
         // values, such as a large `IN` list or a query vector) run past the right border

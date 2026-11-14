@@ -234,6 +234,8 @@ impl UserDefinedLogicalNodeCore for NodeLookupNode {
 /// memory, like the hop's.
 #[derive(Debug)]
 pub struct NodeLookupExec {
+    /// Per-partition metrics for `EXPLAIN ANALYZE`.
+    metrics: datafusion::physical_plan::metrics::ExecutionPlanMetricsSet,
     input: Arc<dyn ExecutionPlan>,
     key_column: String,
     variable: String,
@@ -255,6 +257,7 @@ impl NodeLookupExec {
             Boundedness::Bounded,
         ));
         Self {
+            metrics: Default::default(),
             input,
             key_column: node.key_column.clone(),
             variable: node.variable.clone(),
@@ -335,6 +338,10 @@ impl ExecutionPlan for NodeLookupExec {
         "NodeLookupExec"
     }
 
+    fn metrics(&self) -> Option<datafusion::physical_plan::metrics::MetricsSet> {
+        Some(self.metrics.clone_inner())
+    }
+
     fn properties(&self) -> &Arc<PlanProperties> {
         &self.properties
     }
@@ -358,6 +365,7 @@ impl ExecutionPlan for NodeLookupExec {
             Boundedness::Bounded,
         ));
         Ok(Arc::new(Self {
+            metrics: Default::default(),
             input,
             key_column: self.key_column.clone(),
             variable: self.variable.clone(),
@@ -375,7 +383,8 @@ impl ExecutionPlan for NodeLookupExec {
         context: Arc<TaskContext>,
     ) -> datafusion::common::Result<SendableRecordBatchStream> {
         let scan_after = read_once_after(&self.rows, context.session_config().batch_size());
-        let input = self.input.execute(partition, context)?;
+        let (input, input_time) =
+            crate::exec_metrics::time_input(self.input.execute(partition, context)?);
         let (rows, columns, schema) =
             (self.rows.clone(), self.columns.clone(), self.schema.clone());
         let (key_column, scan_state) = (self.key_column.clone(), self.scan_state.clone());
@@ -396,10 +405,14 @@ impl ExecutionPlan for NodeLookupExec {
                 .await
             }
         });
-        Ok(Box::pin(RecordBatchStreamAdapter::new(
-            self.schema.clone(),
-            stream,
-        )))
+        let output: SendableRecordBatchStream =
+            Box::pin(RecordBatchStreamAdapter::new(self.schema.clone(), stream));
+        Ok(crate::exec_metrics::measure(
+            output,
+            &self.metrics,
+            partition,
+            input_time,
+        ))
     }
 }
 

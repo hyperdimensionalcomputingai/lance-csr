@@ -78,6 +78,7 @@ The other query methods take the same arguments:
 | `execute(query, params)` | `RecordBatch`, the whole result |
 | `execute_stream(query, params)` | DataFusion `SendableRecordBatchStream`, computed as you poll it; see [streaming](lance.md#streaming-large-results) |
 | `explain(query, params)` | `String`, the logical and physical plans |
+| `explain_analyze(query, params)` | `String`, the plans after running the query, with each physical operator's metrics; `SqlEngine` has it too |
 | `execute_with_vector_rerank(query, &vector_search)` | `RecordBatch`, reranked by a [`VectorSearch`](vector-search.md) |
 
 Each query runs on the snapshot that was current when it started.
