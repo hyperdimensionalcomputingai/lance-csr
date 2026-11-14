@@ -92,9 +92,13 @@ Node index
     Expect about **95 bytes per edge** of extra peak memory while the CSR is built, for both directions
     together (measured at 10M edges with `python/benchmarks/csr_expand.py`). Afterwards, each direction keeps
     8 bytes per edge for the neighbour key and about 2 for the edge's row, which is stored
-    [packed](internals/indexes.md#packed-edge-rows), plus about 37 bytes per source node for its offset and its
-    entry in the map from key to position. On the GDC SF1 graph that's 732 MiB for 17.3 million edges, both
-    directions. The index lives in memory even when the tables are read lazily from Lance.
+    [packed](internals/indexes.md#packed-edge-rows), plus an index from each source node's key to its
+    neighbours. That index is normally a hash-map entry per source node. A direction where every source
+    node has exactly one edge, with a million or more source nodes whose keys sit close together (as
+    sequentially assigned ids do), keeps one entry for every 64 consecutive key values instead, which is
+    several times smaller.
+    [Source layouts](internals/indexes.md#source-layouts) gives the rule. The index lives in memory even when
+    the tables are read lazily from Lance.
 
     During query execution, each CSR expansion partition keeps one input batch and collects at most one
     output chunk of neighbour positions before fetching properties. It yields that chunk before visiting

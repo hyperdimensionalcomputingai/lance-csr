@@ -9,8 +9,9 @@
 //! index, deletion and transaction files, temporary manifests), so it leaves this
 //! folder alone.
 //!
-//! The file holds the CSR as it sits in memory, so a load neither builds nor packs
-//! anything. The schema has one `UInt64` column, `values`, and the file is a
+//! The file preserves the neighbour and packed edge-row arrays. The offsets are
+//! rebuilt from the source layout when saving and released after a load builds it.
+//! The schema has one `UInt64` column, `values`, and the file is a
 //! sequence of [`ARRAYS`]-many record batches of different lengths, one array each,
 //! for the outgoing then the incoming direction: the source keys (`i64` bit-cast)
 //! in CSR position order, the offsets, the neighbours, then the bases, block headers
@@ -45,7 +46,7 @@ use crate::error::{GraphError, Result};
 /// Folder at the dataset root that holds the files.
 const DIR: &str = "_lance_csr";
 /// Bumped whenever the layout changes; files of another format are ignored.
-const FORMAT: &str = "2";
+const FORMAT: &str = "3";
 /// Arrays per direction: keys, offsets, neighbours, then the bases, headers and words
 /// of the packed edge rows.
 const ARRAYS: usize = 6;

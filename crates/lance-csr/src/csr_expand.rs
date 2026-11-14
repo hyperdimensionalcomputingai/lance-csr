@@ -16,7 +16,8 @@
 //! would drop them. Otherwise the target join is planned as before.
 //!
 //! The adjacency is built from the relationship table alone:
-//! - source endpoint values are mapped to dense CSR vertex positions in a hash map;
+//! - source endpoint values map to neighbour ranges through one of three layouts
+//!   (`Sources`), chosen per direction from the number and spread of its keys;
 //! - neighbours store the raw target endpoint values (`i64` bit-cast to `u64`), so
 //!   no node-table scan or second map is needed, and node-table writes never
 //!   invalidate it. Rebuild only when the relationship table changes.
@@ -35,6 +36,7 @@ use std::sync::Arc;
 use arrow::array::{
     new_empty_array, Array, ArrayRef, AsArray, Int64Array, RecordBatch, UInt32Array, UInt64Array,
 };
+use arrow::buffer::ScalarBuffer;
 use arrow::compute::{cast, filter as filter_array, take};
 use arrow::datatypes::{DataType, Field, Int64Type, Schema, SchemaRef};
 use async_trait::async_trait;
@@ -90,7 +92,10 @@ use crate::case_insensitive::qualify_column;
 /// (SipHash), hashing dominated CSR expansion time (profiled on LDBC Q30); ahash is
 /// what Arrow and DataFusion use for their own hash tables.
 type FastMap<K, V> = HashMap<K, V, ahash::RandomState>;
-use crate::csr_index::{CsrIndex, CsrIndexBuilder};
+#[cfg(test)]
+#[path = "csr_memory_probe.rs"]
+mod csr_memory_probe;
+use crate::csr_index::{CsrIndex, PackedU64};
 use crate::error::{GraphError, Result};
 
 /// Neighbour lookup for one relationship type in one direction.
@@ -140,9 +145,154 @@ pub struct Adjacency {
 }
 
 struct CsrBase {
-    /// Source endpoint value -> dense CSR vertex position.
-    dense: FastMap<i64, u64>,
-    csr: CsrIndex,
+    sources: Sources,
+    neighbors: ScalarBuffer<u64>,
+    edge_rows: PackedU64,
+}
+
+/// Source key -> its neighbours' positions in the base.
+enum Sources {
+    /// One entry per source: the start and end, 32 bits each.
+    Ranges(FastMap<i64, u64>),
+    /// One entry per source: its vertex position. For bases too large for `Ranges`.
+    Wide {
+        positions: FastMap<i64, u64>,
+        offsets: ScalarBuffer<u64>,
+    },
+    /// One entry per run of 64 consecutive key values that holds a source
+    /// (`key >> 6`): a 64-bit bitmap with one bit per key in the run, set for each
+    /// source, and the vertex position of the first source. A key's position is
+    /// that plus the number of set bits below the key's own, so
+    /// positions must follow key order. Only for bases where every source has
+    /// exactly one edge: a source's position is then its neighbour's.
+    Bitmap(FastMap<i64, (u64, u32)>),
+}
+
+/// `Bitmap` is chosen from this many sources. Below it the per-source map fits in
+/// cache and was 1.1 to 1.4 times faster in lookups (SF1 keys, 8K to 440K sources).
+const BITMAP_MIN_SOURCES: usize = 1_000_000;
+/// `Bitmap` needs this many sources per occupied run of 64. At one (random or
+/// timestamp keys) it is larger than `Ranges` and slower; from four it was under half
+/// the size and about as fast or faster on synthetic keys at 1M and 4M sources.
+const BITMAP_MIN_FILL: usize = 4;
+
+/// Whether `keys`, ascending, are numerous and clustered enough for [`Sources::Bitmap`].
+fn wants_bitmap(keys: &[i64]) -> bool {
+    keys.len() >= BITMAP_MIN_SOURCES && {
+        let runs = 1 + keys.windows(2).filter(|w| w[0] >> 6 != w[1] >> 6).count();
+        keys.len() >= BITMAP_MIN_FILL * runs
+    }
+}
+
+impl CsrBase {
+    /// `keys` are the source keys in vertex position order. `None` if a key repeats.
+    fn new(keys: &[i64], csr: CsrIndex) -> Option<Self> {
+        let ascending = keys.windows(2).all(|w| w[0] < w[1]);
+        Self::with_layout(keys, csr, ascending && wants_bitmap(keys))
+    }
+
+    /// As [`Self::new`], with `bitmap` asking for [`Sources::Bitmap`] where the base
+    /// allows it: ascending keys, one edge per source, and positions that fit in 32
+    /// bits. Sources with several edges would need an offset each, and that second
+    /// read made lookups up to 1.6 times slower than `Ranges` on synthetic keys.
+    fn with_layout(keys: &[i64], csr: CsrIndex, bitmap: bool) -> Option<Self> {
+        let (offsets, neighbors, edge_rows) = csr.packed();
+        if keys.len() + 1 != offsets.len() {
+            return None;
+        }
+        let compact = csr.num_edges() <= u64::from(u32::MAX);
+        let allowed =
+            || keys.windows(2).all(|w| w[0] < w[1]) && offsets.windows(2).all(|w| w[1] - w[0] == 1);
+        let sources = if bitmap && compact && allowed() {
+            let mut bitmaps: FastMap<i64, (u64, u32)> = FastMap::default();
+            for (position, &key) in keys.iter().enumerate() {
+                bitmaps.entry(key >> 6).or_insert((0, position as u32)).0 |= 1 << (key & 63);
+            }
+            bitmaps.shrink_to_fit();
+            Sources::Bitmap(bitmaps)
+        } else {
+            let mut positions = FastMap::with_capacity_and_hasher(keys.len(), Default::default());
+            positions.extend(keys.iter().enumerate().map(|(i, &k)| (k, i as u64)));
+            if positions.len() != keys.len() {
+                return None;
+            }
+            if compact {
+                for position in positions.values_mut() {
+                    let v = *position as usize;
+                    *position = (offsets[v] << 32) | offsets[v + 1];
+                }
+                Sources::Ranges(positions)
+            } else {
+                Sources::Wide {
+                    positions,
+                    offsets: offsets.clone(),
+                }
+            }
+        };
+        Some(Self {
+            sources,
+            neighbors: neighbors.clone(),
+            edge_rows: edge_rows.clone(),
+        })
+    }
+
+    /// Positions of `key`'s neighbours; empty if it has none.
+    #[inline(always)]
+    fn range(&self, key: i64) -> std::ops::Range<usize> {
+        match &self.sources {
+            Sources::Ranges(ranges) => ranges
+                .get(&key)
+                .map_or(0..0, |&v| (v >> 32) as usize..(v as u32) as usize),
+            Sources::Wide { positions, offsets } => positions.get(&key).map_or(0..0, |&v| {
+                offsets[v as usize] as usize..offsets[v as usize + 1] as usize
+            }),
+            Sources::Bitmap(bitmaps) => {
+                let Some(&(bits, first)) = bitmaps.get(&(key >> 6)) else {
+                    return 0..0;
+                };
+                let bit = 1u64 << (key & 63);
+                let position = first as usize + (bits & (bit - 1)).count_ones() as usize;
+                // No branch on whether the key exists: a missing key gets an empty
+                // range at a position that is still in bounds.
+                position..position + usize::from(bits & bit != 0)
+            }
+        }
+    }
+
+    fn num_sources(&self) -> usize {
+        match &self.sources {
+            Sources::Ranges(map) | Sources::Wide { positions: map, .. } => map.len(),
+            Sources::Bitmap(_) => self.neighbors.len(),
+        }
+    }
+
+    /// Every source key with its neighbours' positions, in no particular order.
+    fn entries(&self) -> Box<dyn Iterator<Item = (i64, std::ops::Range<usize>)> + '_> {
+        match &self.sources {
+            Sources::Ranges(ranges) => Box::new(
+                ranges
+                    .iter()
+                    .map(|(&k, &v)| (k, (v >> 32) as usize..(v as u32) as usize)),
+            ),
+            Sources::Wide { positions, offsets } => Box::new(positions.iter().map(|(&k, &v)| {
+                (
+                    k,
+                    offsets[v as usize] as usize..offsets[v as usize + 1] as usize,
+                )
+            })),
+            Sources::Bitmap(bitmaps) => {
+                Box::new(bitmaps.iter().flat_map(|(&block, &(bits, first))| {
+                    (0..64)
+                        .filter(move |i| (bits >> i) & 1 == 1)
+                        .enumerate()
+                        .map(move |(nth, i)| {
+                            let position = first as usize + nth;
+                            ((block << 6) | i, position..position + 1)
+                        })
+                }))
+            }
+        }
+    }
 }
 
 impl Adjacency {
@@ -157,8 +307,7 @@ impl Adjacency {
         from: &str,
         to: &str,
     ) -> Result<Self> {
-        let mut dense: FastMap<i64, u64> = FastMap::default();
-        let mut builder = CsrIndexBuilder::new();
+        let mut edges: Vec<(i64, u64, u64)> = Vec::new();
         let mut position = 0u64;
         while let Some(batch) = stream.next().await {
             let batch = batch.map_err(|e| exec_error(format!("Failed to read edges: {}", e)))?;
@@ -174,23 +323,48 @@ impl Adjacency {
                 let row = addresses
                     .as_ref()
                     .map_or(position + i as u64, |a| a.value(i));
-                let next = dense.len() as u64;
-                let src = *dense.entry(from_col.value(i)).or_insert(next);
-                builder = builder.add_edge(src, to_col.value(i) as u64, row);
+                edges.push((from_col.value(i), to_col.value(i) as u64, row));
             }
             position += batch.num_rows() as u64;
         }
-        // Explicit vertex count: neighbours are raw ids, not positions, so the
-        // builder must not size its offsets from them.
-        let csr = builder.with_num_vertices(dense.len() as u64).build();
-        Ok(Self {
-            base: Arc::new(CsrBase { dense, csr }),
-            added: FastMap::default(),
-            removed: FastMap::default(),
-            added_count: 0,
-            removed_count: 0,
-            removed_added_count: 0,
-        })
+        // Grouped by source, each source's edges in table order.
+        edges.sort_unstable_by_key(|&(key, _, row)| (key, row));
+        // Each source's first row and where its edges start, in key order.
+        let (mut keys, mut sources) = (Vec::new(), Vec::new());
+        for (i, &(key, _, row)) in edges.iter().enumerate() {
+            if keys.last() != Some(&key) {
+                keys.push(key);
+                sources.push((row, i));
+            }
+        }
+        // `Sources::Bitmap` needs sources numbered in key order. Any other base numbers
+        // them in the order the table first lists them: a scan of the source nodes
+        // usually follows that order and then reads the neighbours in sequence. Key
+        // order made a whole-relationship scan of 4M random ids 28% slower.
+        let bitmap =
+            keys.len() == edges.len() && u32::try_from(edges.len()).is_ok() && wants_bitmap(&keys);
+        if !bitmap {
+            sources.sort_unstable_by_key(|&(first_row, _)| first_row);
+        }
+        let mut offsets = Vec::with_capacity(sources.len() + 1);
+        let mut neighbors: Vec<u64> = Vec::with_capacity(edges.len());
+        let mut rows: Vec<u64> = Vec::with_capacity(edges.len());
+        for (slot, &(_, start)) in sources.iter().enumerate() {
+            let key = edges[start].0;
+            keys[slot] = key;
+            offsets.push(neighbors.len() as u64);
+            for &(_, to, row) in edges[start..].iter().take_while(|e| e.0 == key) {
+                neighbors.push(to);
+                rows.push(row);
+            }
+        }
+        offsets.push(neighbors.len() as u64);
+        drop(sources);
+        // Freed before packing, so the peak holds the unpacked rows or the edges, not both.
+        drop(edges);
+        let csr = CsrIndex::from_packed(offsets.into(), neighbors.into(), PackedU64::pack(&rows))
+            .expect("offsets built from the sorted edges");
+        Ok(Self::from_base(&keys, csr).expect("keys are distinct"))
     }
 
     /// A new adjacency sharing this base, with `removed` edge rows tombstoned and
@@ -212,16 +386,15 @@ impl Adjacency {
         };
         if !removed.is_empty() {
             // A row doesn't say which source holds it, so every live slot is checked.
-            let base = self.base.dense.iter().map(|(&key, &v)| (key, v));
+            // A source with no base edges has nothing to remove unless edges were
+            // appended to it.
+            let base = self.base.entries().filter(|(_, range)| !range.is_empty());
             let added_only = self
                 .added
                 .keys()
-                .filter(|k| !self.base.dense.contains_key(*k));
-            for (key, vertex) in base
-                .map(|(k, v)| (k, Some(v)))
-                .chain(added_only.map(|&k| (k, None)))
-            {
-                let base_range = vertex.map_or(0..0, |v| self.base.csr.range(v));
+                .filter(|&&k| self.base.range(k).is_empty())
+                .map(|&k| (k, 0..0));
+            for (key, base_range) in base.chain(added_only) {
                 let base_len = base_range.len();
                 let added_rows = self.added.get(&key).map_or(&[][..], Vec::as_slice);
                 let prior = self.removed.get(&key).map_or(&[][..], Vec::as_slice);
@@ -229,8 +402,8 @@ impl Adjacency {
                 let mut positions = Vec::new();
                 let rows = self
                     .base
-                    .csr
-                    .edge_rows_at(base_range)
+                    .edge_rows
+                    .iter(base_range)
                     .chain(added_rows.iter().map(|&(_, r)| r));
                 for (position, row) in rows.enumerate() {
                     if prior.peek() == Some(&position) {
@@ -259,29 +432,44 @@ impl Adjacency {
     /// CSR position order, as [`Self::base_parts`] returns them. `None` if a key
     /// repeats.
     pub(crate) fn from_base(keys: &[i64], csr: CsrIndex) -> Option<Self> {
-        let mut dense = FastMap::with_capacity_and_hasher(keys.len(), Default::default());
-        dense.extend(keys.iter().enumerate().map(|(i, &k)| (k, i as u64)));
-        if dense.len() != keys.len() {
-            return None;
-        }
-        Some(Self {
-            base: Arc::new(CsrBase { dense, csr }),
+        CsrBase::new(keys, csr).map(Self::over)
+    }
+
+    fn over(base: CsrBase) -> Self {
+        Self {
+            base: Arc::new(base),
             added: FastMap::default(),
             removed: FastMap::default(),
             added_count: 0,
             removed_count: 0,
             removed_added_count: 0,
-        })
+        }
     }
 
     /// The base CSR: its source keys in CSR position order, and the index over them.
-    /// The delta is not included.
-    pub(crate) fn base_parts(&self) -> (Vec<i64>, &CsrIndex) {
-        let mut keys = vec![0; self.base.dense.len()];
-        for (&key, &position) in &self.base.dense {
-            keys[position as usize] = key;
-        }
-        (keys, &self.base.csr)
+    /// The delta is not included. The offsets are rebuilt, as the base doesn't keep them.
+    pub(crate) fn base_parts(&self) -> (Vec<i64>, CsrIndex) {
+        // Position order: by start, an empty range before the one that starts where
+        // it does, and equal ranges by key, as `Sources::Bitmap` numbers them.
+        let mut entries: Vec<_> = self
+            .base
+            .entries()
+            .map(|(key, range)| (range.start, range.end, key))
+            .collect();
+        entries.sort_unstable();
+        let offsets: Vec<u64> = entries
+            .iter()
+            .map(|&(start, _, _)| start as u64)
+            .chain(std::iter::once(self.base.neighbors.len() as u64))
+            .collect();
+        let keys = entries.into_iter().map(|(_, _, key)| key).collect();
+        let csr = CsrIndex::from_packed(
+            offsets.into(),
+            self.base.neighbors.clone(),
+            self.base.edge_rows.clone(),
+        )
+        .expect("base ranges partition the neighbour array");
+        (keys, csr)
     }
 
     /// Call `f` for each target endpoint value reachable from `key`, duplicates included.
@@ -292,10 +480,7 @@ impl Adjacency {
     /// Positions of `key`'s neighbours in the base.
     #[inline(always)]
     fn base_range(&self, key: i64) -> std::ops::Range<usize> {
-        self.base
-            .dense
-            .get(&key)
-            .map_or(0..0, |&v| self.base.csr.range(v))
+        self.base.range(key)
     }
 
     /// `key`'s edges, counting removed ones: an upper bound that costs two lookups.
@@ -330,10 +515,10 @@ impl Adjacency {
         let mut removed = &removed[removed.partition_point(|&position| position < *offset)..];
         let added_offset = offset.saturating_sub(base.len());
         let rest = base.start + (*offset).min(base.len())..base.end;
-        let csr = &self.base.csr;
+        let base = &self.base;
         // Never advanced without `ROWS`, so plain hops don't unpack edge rows.
-        let mut base_rows = csr.edge_rows_at(if ROWS { rest.clone() } else { 0..0 });
-        csr.neighbors_at(rest)
+        let mut base_rows = base.edge_rows.iter(if ROWS { rest.clone() } else { 0..0 });
+        base.neighbors[rest]
             .iter()
             .map(move |&n| {
                 (
@@ -366,16 +551,16 @@ impl Adjacency {
 
     /// Live edges: base + appended - removed.
     pub fn num_edges(&self) -> u64 {
-        self.base.csr.num_edges() + self.added_count - self.removed_count
+        self.base_edges() + self.added_count - self.removed_count
     }
 
     pub fn base_edges(&self) -> u64 {
-        self.base.csr.num_edges()
+        self.base.neighbors.len() as u64
     }
 
     /// Distinct source endpoints in the base (deltas excluded): an estimate for planning.
     pub fn num_sources(&self) -> usize {
-        self.base.dense.len()
+        self.base.num_sources()
     }
 
     /// Appended edges held outside the base.
@@ -399,7 +584,7 @@ impl Adjacency {
 impl fmt::Debug for Adjacency {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("Adjacency")
-            .field("sources", &self.base.dense.len())
+            .field("sources", &self.base.num_sources())
             .field("edges", &self.num_edges())
             .field("delta_edges", &self.added_count)
             .field("tombstones", &self.removed_count)
@@ -3502,6 +3687,203 @@ mod tests {
         assert_eq!(neighbors(&adj, big), vec![1, 1]);
         assert_eq!(neighbors(&adj, 7), vec![-3]);
         assert!(neighbors(&adj, 42).is_empty());
+    }
+
+    /// The same base in each source layout it allows: per-source ranges, vertex
+    /// positions with offsets, and 64-key bitmaps for ascending keys with one edge each.
+    fn layouts(keys: &[i64], offsets: &[u64], neighbours: &[u64]) -> Vec<Adjacency> {
+        let rows = PackedU64::pack(&(0..neighbours.len() as u64).collect::<Vec<_>>());
+        let csr = || {
+            CsrIndex::from_packed(
+                offsets.to_vec().into(),
+                neighbours.to_vec().into(),
+                rows.clone(),
+            )
+            .unwrap()
+        };
+        let ranges = CsrBase::with_layout(keys, csr(), false).unwrap();
+        assert!(matches!(ranges.sources, Sources::Ranges(_)));
+        // The layout for over four billion edges, without allocating them.
+        let wide = CsrBase {
+            sources: Sources::Wide {
+                positions: keys
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &k)| (k, i as u64))
+                    .collect(),
+                offsets: offsets.to_vec().into(),
+            },
+            neighbors: neighbours.to_vec().into(),
+            edge_rows: rows.clone(),
+        };
+        let bitmaps = CsrBase::with_layout(keys, csr(), true).unwrap();
+        let allowed =
+            keys.windows(2).all(|w| w[0] < w[1]) && offsets.windows(2).all(|w| w[1] - w[0] == 1);
+        assert_eq!(
+            matches!(bitmaps.sources, Sources::Bitmap(_)),
+            allowed,
+            "bitmaps need ascending keys with one edge each"
+        );
+        [ranges, wide, bitmaps]
+            .into_iter()
+            .map(Adjacency::over)
+            .collect()
+    }
+
+    #[test]
+    fn source_layouts_agree_and_round_trip() {
+        let one_each: Vec<i64> = vec![-129, -65, -64, -1, 0, 5, 63, 64, 127, 128, 1 << 45];
+        for (keys, offsets, neighbours) in [
+            (vec![], vec![0], vec![]),
+            // Unsorted, as a base numbered in table order.
+            (
+                vec![i64::MIN, 7, i64::MAX, -9],
+                vec![0, 0, 2, 2, 3],
+                vec![u64::MAX, u64::MAX, 7],
+            ),
+            // Ascending, but with empty sources and duplicate edges: no bitmaps.
+            (
+                vec![i64::MIN, -9, 7, 63, 64, 65, i64::MAX],
+                vec![0, 0, 2, 2, 3, 3, 4, 6],
+                vec![u64::MAX, u64::MAX, 7, 1, 2, 3],
+            ),
+            (
+                one_each.clone(),
+                (0..=one_each.len() as u64).collect(),
+                (100..100 + one_each.len() as u64).collect(),
+            ),
+        ] {
+            let all = layouts(&keys, &offsets, &neighbours);
+            assert_eq!(
+                matches!(all[2].base.sources, Sources::Bitmap(_)),
+                keys.is_empty() || keys == one_each
+            );
+            let probes: Vec<i64> = keys
+                .iter()
+                .flat_map(|&k| [k, k.wrapping_add(1), k.wrapping_sub(1), k ^ 64])
+                .chain([42, 0, -1])
+                .collect();
+            // Remove every third edge and append to an existing and a new source.
+            let removed = rows((0..neighbours.len() as u64).step_by(3));
+            let added: Vec<(i64, i64, u64)> = keys
+                .first()
+                .map(|&k| (k, 11, 1000))
+                .into_iter()
+                .chain([(4242, 12, 1001)])
+                .collect();
+            let expected = &all[0];
+            let expected_changed = expected.with_changes(&added, &removed);
+            for original in &all {
+                assert_eq!(original.num_sources(), keys.len());
+                let (stored_keys, stored) = original.base_parts();
+                let restored = Adjacency::from_base(&stored_keys, stored).unwrap();
+                let changed = original.with_changes(&added, &removed);
+                assert_eq!(changed.num_edges(), expected_changed.num_edges());
+                for &key in probes.iter().chain([&4242]) {
+                    assert_eq!(neighbors(original, key), neighbors(expected, key));
+                    assert_eq!(neighbors(&restored, key), neighbors(expected, key));
+                    assert_eq!(neighbors(&changed, key), neighbors(&expected_changed, key));
+                    assert_eq!(
+                        original
+                            .base
+                            .edge_rows
+                            .iter(original.base_range(key))
+                            .collect::<Vec<_>>(),
+                        restored
+                            .base
+                            .edge_rows
+                            .iter(restored.base_range(key))
+                            .collect::<Vec<_>>()
+                    );
+                }
+            }
+            // Bitmap bases save their keys in ascending order, so a load can choose bitmaps again.
+            if matches!(all[2].base.sources, Sources::Bitmap(_)) {
+                assert_eq!(all[2].base_parts().0, keys);
+            }
+        }
+    }
+
+    #[test]
+    fn bitmaps_are_chosen_only_for_many_clustered_keys() {
+        let n = BITMAP_MIN_SOURCES as i64;
+        let dense: Vec<i64> = (0..n).collect();
+        assert!(wants_bitmap(&dense));
+        assert!(!wants_bitmap(&dense[1..]), "too few sources");
+        // One key per run of 64, as random or timestamp keys give.
+        assert!(!wants_bitmap(&(0..n).map(|i| i * 64).collect::<Vec<_>>()));
+        // Runs of eight keys with gaps between, as clustered ids give.
+        let clustered: Vec<i64> = (0..n).map(|i| (i / 8) * 1024 + i % 8).collect();
+        assert!(wants_bitmap(&clustered));
+        let offsets: Vec<u64> = (0..=n as u64).collect();
+        let csr = CsrIndex::from_packed(
+            offsets.into(),
+            vec![0; n as usize].into(),
+            PackedU64::pack(&vec![0; n as usize]),
+        )
+        .unwrap();
+        let adjacency = Adjacency::from_base(&clustered, csr).unwrap();
+        assert!(matches!(adjacency.base.sources, Sources::Bitmap(_)));
+        // The same keys with two edges each keep a range per source.
+        let offsets: Vec<u64> = (0..=n as u64).map(|i| i * 2).collect();
+        let csr = CsrIndex::from_packed(
+            offsets.into(),
+            vec![0; 2 * n as usize].into(),
+            PackedU64::pack(&vec![0; 2 * n as usize]),
+        )
+        .unwrap();
+        let adjacency = Adjacency::from_base(&clustered, csr).unwrap();
+        assert!(matches!(adjacency.base.sources, Sources::Ranges(_)));
+    }
+
+    #[test]
+    fn packed_ranges_preserve_the_full_u32_boundary() {
+        let end = u64::from(u32::MAX);
+        let base = CsrBase {
+            sources: Sources::Ranges(
+                [(1, ((end - 1) << 32) | end), (2, end), (3, 0)]
+                    .into_iter()
+                    .collect(),
+            ),
+            neighbors: Vec::new().into(),
+            edge_rows: PackedU64::pack(&[]),
+        };
+        assert_eq!(base.range(1), (end - 1) as usize..end as usize);
+        assert_eq!(base.range(2), 0..end as usize);
+        assert_eq!(base.range(3), 0..0);
+    }
+
+    #[tokio::test]
+    async fn build_numbers_sources_in_table_order() {
+        let stream = edge_stream(
+            vec![Some(70), Some(-3), Some(70), Some(i64::MIN), Some(5)],
+            vec![Some(1), Some(2), Some(3), Some(4), Some(5)],
+        );
+        let adj = Adjacency::build(stream, "src", "dst").await.unwrap();
+        let (keys, csr) = adj.base_parts();
+        assert_eq!(keys, vec![70, -3, i64::MIN, 5]);
+        assert_eq!(csr.neighbors(0), &[1, 3]);
+        assert_eq!(csr.edge_rows(0).collect::<Vec<_>>(), vec![0, 2]);
+    }
+
+    #[tokio::test]
+    async fn build_numbers_sources_in_key_order_for_bitmaps() {
+        // One edge per source, enough clustered keys for bitmaps, listed in descending order.
+        let n = BITMAP_MIN_SOURCES as i64;
+        let src: Vec<_> = (0..n).rev().map(Some).collect();
+        let dst: Vec<_> = (0..n).rev().map(|key| Some(key + 7)).collect();
+        let adj = Adjacency::build(edge_stream(src, dst), "src", "dst")
+            .await
+            .unwrap();
+        assert!(matches!(adj.base.sources, Sources::Bitmap(_)));
+        for key in [0, 1, 63, 64, n / 2, n - 1] {
+            let mut found = Vec::new();
+            adj.for_each_neighbor(key, |to| found.push(to as i64));
+            assert_eq!(found, vec![key + 7]);
+        }
+        let mut missing = 0;
+        adj.for_each_neighbor(n, |_| missing += 1);
+        assert_eq!(missing, 0);
     }
 
     #[tokio::test]

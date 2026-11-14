@@ -1,0 +1,109 @@
+run,nodes,ids,sources,bytes,pattern,row,known,bitmap
+1,250000,dense,100%,0.11,uniform over sources,1.12,0.15,-
+1,250000,dense,100%,0.11,uniform over all nodes,1.13,0.15,-
+1,250000,dense,100%,0.11,all nodes in table order,1.02,0.13,-
+1,250000,dense,25%,0.45,uniform over sources,1.11,0.14,-
+1,250000,dense,25%,0.45,uniform over all nodes,1.58,0.22,-
+1,250000,dense,25%,0.45,all nodes in table order,1.45,0.20,-
+1,250000,dense,3%,3.59,uniform over sources,1.15,0.14,-
+1,250000,dense,3%,3.59,uniform over all nodes,1.77,0.21,-
+1,250000,dense,3%,3.59,all nodes in table order,1.81,0.21,-
+1,250000,random,100%,0.11,uniform over sources,1.08,0.14,-
+1,250000,random,100%,0.11,uniform over all nodes,1.11,0.15,-
+1,250000,random,100%,0.11,all nodes in table order,1.08,0.13,-
+1,250000,random,25%,0.45,uniform over sources,1.17,0.16,-
+1,250000,random,25%,0.45,uniform over all nodes,1.57,0.22,-
+1,250000,random,25%,0.45,all nodes in table order,1.40,0.20,-
+1,250000,random,3%,3.59,uniform over sources,1.16,0.15,-
+1,250000,random,3%,3.59,uniform over all nodes,1.70,0.21,-
+1,250000,random,3%,3.59,all nodes in table order,1.63,0.20,-
+1,1000000,dense,100%,0.11,uniform over sources,1.21,0.12,0.70
+1,1000000,dense,100%,0.11,uniform over all nodes,1.21,0.11,0.70
+1,1000000,dense,100%,0.11,all nodes in table order,1.06,0.10,0.66
+1,1000000,dense,25%,0.45,uniform over sources,1.32,0.16,-
+1,1000000,dense,25%,0.45,uniform over all nodes,2.01,0.21,-
+1,1000000,dense,25%,0.45,all nodes in table order,1.76,0.19,-
+1,1000000,dense,3%,3.59,uniform over sources,1.22,0.16,-
+1,1000000,dense,3%,3.59,uniform over all nodes,2.27,0.21,-
+1,1000000,dense,3%,3.59,all nodes in table order,2.13,0.20,-
+1,1000000,random,100%,0.11,uniform over sources,1.17,0.11,-
+1,1000000,random,100%,0.11,uniform over all nodes,1.21,0.12,-
+1,1000000,random,100%,0.11,all nodes in table order,1.08,0.10,-
+1,1000000,random,25%,0.45,uniform over sources,1.35,0.16,-
+1,1000000,random,25%,0.45,uniform over all nodes,2.01,0.22,-
+1,1000000,random,25%,0.45,all nodes in table order,1.75,0.19,-
+1,1000000,random,3%,3.59,uniform over sources,1.22,0.16,-
+1,1000000,random,3%,3.59,uniform over all nodes,2.27,0.23,-
+1,1000000,random,3%,3.59,all nodes in table order,2.11,0.20,-
+1,4000000,dense,100%,0.11,uniform over sources,1.33,0.22,0.48
+1,4000000,dense,100%,0.11,uniform over all nodes,1.35,0.22,0.48
+1,4000000,dense,100%,0.11,all nodes in table order,1.06,0.07,0.47
+1,4000000,dense,25%,0.45,uniform over sources,2.03,0.17,0.71
+1,4000000,dense,25%,0.45,uniform over all nodes,3.26,0.26,1.20
+1,4000000,dense,25%,0.45,all nodes in table order,1.62,0.10,0.71
+1,4000000,dense,3%,3.59,uniform over sources,2.05,0.18,-
+1,4000000,dense,3%,3.59,uniform over all nodes,4.02,0.24,-
+1,4000000,dense,3%,3.59,all nodes in table order,3.13,0.20,-
+1,4000000,random,100%,0.11,uniform over sources,1.33,0.21,-
+1,4000000,random,100%,0.11,uniform over all nodes,1.34,0.21,-
+1,4000000,random,100%,0.11,all nodes in table order,1.04,0.07,-
+1,4000000,random,25%,0.45,uniform over sources,2.01,0.16,-
+1,4000000,random,25%,0.45,uniform over all nodes,3.19,0.26,-
+1,4000000,random,25%,0.45,all nodes in table order,1.61,0.10,-
+1,4000000,random,3%,3.59,uniform over sources,2.07,0.17,-
+1,4000000,random,3%,3.59,uniform over all nodes,4.02,0.24,-
+1,4000000,random,3%,3.59,all nodes in table order,3.13,0.20,-
+2,250000,dense,100%,0.11,uniform over sources,1.11,0.16,-
+2,250000,dense,100%,0.11,uniform over all nodes,1.11,0.15,-
+2,250000,dense,100%,0.11,all nodes in table order,1.07,0.13,-
+2,250000,dense,25%,0.45,uniform over sources,1.16,0.15,-
+2,250000,dense,25%,0.45,uniform over all nodes,1.54,0.22,-
+2,250000,dense,25%,0.45,all nodes in table order,1.39,0.19,-
+2,250000,dense,3%,3.59,uniform over sources,1.15,0.15,-
+2,250000,dense,3%,3.59,uniform over all nodes,1.73,0.21,-
+2,250000,dense,3%,3.59,all nodes in table order,1.64,0.20,-
+2,250000,random,100%,0.11,uniform over sources,1.10,0.16,-
+2,250000,random,100%,0.11,uniform over all nodes,1.11,0.16,-
+2,250000,random,100%,0.11,all nodes in table order,1.08,0.13,-
+2,250000,random,25%,0.45,uniform over sources,1.16,0.16,-
+2,250000,random,25%,0.45,uniform over all nodes,1.56,0.23,-
+2,250000,random,25%,0.45,all nodes in table order,1.40,0.19,-
+2,250000,random,3%,3.59,uniform over sources,1.16,0.15,-
+2,250000,random,3%,3.59,uniform over all nodes,1.73,0.20,-
+2,250000,random,3%,3.59,all nodes in table order,1.65,0.21,-
+2,1000000,dense,100%,0.11,uniform over sources,1.20,0.12,0.69
+2,1000000,dense,100%,0.11,uniform over all nodes,1.22,0.12,0.70
+2,1000000,dense,100%,0.11,all nodes in table order,1.08,0.10,0.66
+2,1000000,dense,25%,0.45,uniform over sources,1.30,0.16,-
+2,1000000,dense,25%,0.45,uniform over all nodes,2.00,0.23,-
+2,1000000,dense,25%,0.45,all nodes in table order,1.75,0.20,-
+2,1000000,dense,3%,3.59,uniform over sources,1.22,0.16,-
+2,1000000,dense,3%,3.59,uniform over all nodes,2.25,0.23,-
+2,1000000,dense,3%,3.59,all nodes in table order,2.10,0.20,-
+2,1000000,random,100%,0.11,uniform over sources,1.17,0.11,-
+2,1000000,random,100%,0.11,uniform over all nodes,1.19,0.12,-
+2,1000000,random,100%,0.11,all nodes in table order,1.08,0.11,-
+2,1000000,random,25%,0.45,uniform over sources,1.31,0.16,-
+2,1000000,random,25%,0.45,uniform over all nodes,2.00,0.23,-
+2,1000000,random,25%,0.45,all nodes in table order,1.75,0.20,-
+2,1000000,random,3%,3.59,uniform over sources,1.22,0.16,-
+2,1000000,random,3%,3.59,uniform over all nodes,2.27,0.23,-
+2,1000000,random,3%,3.59,all nodes in table order,2.10,0.21,-
+2,4000000,dense,100%,0.11,uniform over sources,1.33,0.21,0.48
+2,4000000,dense,100%,0.11,uniform over all nodes,1.33,0.22,0.47
+2,4000000,dense,100%,0.11,all nodes in table order,1.05,0.07,0.46
+2,4000000,dense,25%,0.45,uniform over sources,2.03,0.17,0.71
+2,4000000,dense,25%,0.45,uniform over all nodes,3.19,0.26,1.18
+2,4000000,dense,25%,0.45,all nodes in table order,1.60,0.10,0.71
+2,4000000,dense,3%,3.59,uniform over sources,2.04,0.17,-
+2,4000000,dense,3%,3.59,uniform over all nodes,4.00,0.25,-
+2,4000000,dense,3%,3.59,all nodes in table order,3.12,0.20,-
+2,4000000,random,100%,0.11,uniform over sources,1.32,0.21,-
+2,4000000,random,100%,0.11,uniform over all nodes,1.33,0.21,-
+2,4000000,random,100%,0.11,all nodes in table order,1.05,0.07,-
+2,4000000,random,25%,0.45,uniform over sources,2.04,0.17,-
+2,4000000,random,25%,0.45,uniform over all nodes,3.19,0.26,-
+2,4000000,random,25%,0.45,all nodes in table order,1.60,0.10,-
+2,4000000,random,3%,3.59,uniform over sources,2.02,0.18,-
+2,4000000,random,3%,3.59,uniform over all nodes,3.99,0.25,-
+2,4000000,random,3%,3.59,all nodes in table order,3.11,0.20,-
