@@ -1,7 +1,7 @@
 # Suite results for the CSR memory experiment (issue #79)
 
 Mean latency per query, averaged over two rounds per wheel with the wheels alternated. `main` is
-`cbad7b8`; control is the branch with the words layout switched off; branch is the working tree of
+`cbad7b8`; control is the branch with the bitmap layout switched off; branch is the working tree of
 `perf/csr-memory-79` on 2026-11-14. Every run passed its answer checks. See
 [the report](csr-memory-2026-11-14.md) for how to read them.
 

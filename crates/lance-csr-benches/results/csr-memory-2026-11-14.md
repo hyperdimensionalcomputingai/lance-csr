@@ -22,7 +22,7 @@ reading `src`, `dst` and `_rowaddr`: 17,256,038 edges and 11,361,156 source entr
 | Total | 776.9 | 417.1 |
 
 The total is 46.3% smaller. Map figures are allocator-requested bytes worked out from each map's capacity
-(17 bytes per bucket for a per-source entry, 25 for a 64-key word). They exclude allocator rounding, node
+(17 bytes per bucket for a per-source entry, 25 for a 64-key bitmap). They exclude allocator rounding, node
 indexes, tables, deltas and query working memory. This is not process memory.
 
 Per direction: [`main`](csr-memory-79-baseline.csv), [branch](csr-memory-79-branch.csv).
@@ -35,13 +35,13 @@ vertex position plus an offsets array. The branch picks one of three layouts per
 
 1. **Ranges.** The map value holds the start and end of the range, so the offsets array is dropped. This is the
    default, and it accounts for 86.7 MiB of the saving.
-2. **Words.** One map entry per run of 64 consecutive key values that contains a source: a bitmap of which keys
+2. **Bitmap.** One map entry per run of 64 consecutive key values that contains a source: a bitmap of which keys
    exist and the position of the first. Used only when every source has exactly one edge, the direction has at
    least a million sources, and there are at least four sources per occupied run of 64. Seven SF1 directions
    qualify, and they shrink from 375.9 MiB to 40.6 MiB.
 3. **Wide.** The `main` layout, kept for directions with more than `u32::MAX` edges.
 
-Sources are numbered in the order the edge table first lists them, as on `main`. The words layout needs key
+Sources are numbered in the order the edge table first lists them, as on `main`. The bitmap layout needs key
 order, so the directions that use it are numbered by key instead. The first version of this work numbered
 every direction by key, and that made one kind of scan 28% slower; see
 [Source numbering](#source-numbering).
@@ -58,11 +58,11 @@ hash map, and only the direction of each result should be relied on.
 
 On real SF1 keys (two runs):
 
-- Every key set up to 440,000 sources was 1.1 to 1.4 times slower with words. The per-source map still fits in
+- Every key set up to 440,000 sources was 1.1 to 1.4 times slower with the bitmap layout. The per-source map still fits in
   the CPU cache at that size. This is why small directions keep ranges.
-- From a million sources, words were 0.5 to 0.85 times the lookup time when every source has one edge.
+- From a million sources, the bitmap layout was 0.5 to 0.85 times the lookup time when every source has one edge.
 - A hop that touches a small hot subset of a large map (a person's liked comments: 63,000 distinct keys of
-  2.05 million) was 1.05 to 1.3 times slower with words.
+  2.05 million) was 1.05 to 1.3 times slower with the bitmap layout.
 
 On [synthetic keys](csr-memory-79-shape-sweep.csv) at 250,000, 1 million and 4 million sources (two runs),
 for the directions the rule would switch:
@@ -81,8 +81,8 @@ therefore restricted to one edge per source, and the offsets were removed from i
 
 Release wheels, on one machine (Apple M5, 24 GB, macOS 26.6.2, AC power), following `CONTRIBUTING.md`: two rounds per wheel
 per suite and mode, wheels alternated, load average between 2.5 and 6.5. Three wheels were built: `main` at
-`cbad7b8`, the branch, and a control that is the branch with the words layout switched off by one constant.
-Branch against control isolates the words layout; control against `main` shows the ranges layout and the new
+`cbad7b8`, the branch, and a control that is the branch with the bitmap layout switched off by one constant.
+Branch against control isolates the bitmap layout; control against `main` shows the ranges layout and the new
 build, plus whatever two builds differ by anyway. Every run passed its answer checks.
 [Every query](csr-memory-79-suites.md) is listed separately.
 
@@ -99,11 +99,11 @@ These are geometric means of the per-query change in mean latency. What stands b
 - **Custom query 30 runs in half the time:** 40.6 ms on `main`, 40.0 ms on the control and 19.0 ms on the
   branch in memory mode, and 41.1, 40.2 and 19.5 ms in lazy mode. It follows three many-to-one
   relationships (a comment's creator, the post it replies to, that post's creator) for every comment, so it
-  does little but look up sources in the three largest directions the words layout applies to. It is this
+  does little but look up sources in the three largest directions the bitmap layout applies to. It is this
   layout's best case and accounts for the whole of the first two rows' gain: without it, the 29 other custom
   queries average +0.8% against `main` in memory mode and -0.4% in lazy mode.
 - **IC14 is 10% to 11% faster than `main`, and the gain is not claimed:** 273 ms on `main`, 244 ms on the
-  control, 242 ms on the branch in memory mode. The control shares it, so it is not the words layout, and
+  control, 242 ms on the branch in memory mode. The control shares it, so it is not the bitmap layout, and
   this query has moved by up to 39% between builds whose indexes hold the same contents; see
   [IC14](#ic14).
 - **The sub-millisecond custom queries are up to 2.8% slower than `main` in memory mode,** at most 0.02 ms
@@ -143,14 +143,14 @@ median latency of the branch:
 
 | Graph | Query | vs `main` | vs control |
 | --- | --- | ---: | ---: |
-| Dense ids, tables in id order (words) | two hops through all 4M sources, uniform | -43.8% | -30.2% |
+| Dense ids, tables in id order (bitmap) | two hops through all 4M sources, uniform | -43.8% | -30.2% |
 | | two hops through a 3% hot subset of them | -45.5% | -30.2% |
 | | two hops from 1% of persons | -44.0% | -26.4% |
 | | two hops where half the lookups find nothing | -32.1% | -19.9% |
 | | the whole relationship | -68.7% | -67.2% |
 | | reverse direction, 1% of parents | -3.0% | -0.9% |
 | | one source | +1.6% | +2.0% |
-| Dense ids, tables in random order (words) | two hops, uniform | -43.3% | -30.7% |
+| Dense ids, tables in random order (bitmap) | two hops, uniform | -43.3% | -30.7% |
 | | two hops, hot subset | -45.9% | -30.7% |
 | | two hops from 1% of persons | -48.0% | -31.9% |
 | | the whole relationship | -31.4% | -28.4% |
@@ -189,7 +189,7 @@ array. A wheel with the ranges layout and `main`'s numbering confirmed it: 43.6 
 SF1 hid this. The four large many-to-one edge tables checked follow their node tables exactly, and the
 comment and post tables are 97% and 90% in id order, so the three orders nearly coincide there.
 
-The branch now numbers sources in table order, and that scan is 4.0% faster than `main`. Words directions
+The branch now numbers sources in table order, and that scan is 4.0% faster than `main`. Bitmap directions
 keep key order. The second graph in the table above covers the case where that could cost: dense ids whose
 tables are in random order. Its whole-relationship scan is still 31% faster than `main`, though less than the
 69% of the graph whose tables are in id order.
@@ -209,7 +209,7 @@ latency in memory mode, each wheel within 1.5% of itself across rounds:
 | First version of the control | ranges | key order | 235 |
 | A second control built from it | ranges | table order | 339 |
 | Control | ranges | table order | 244 |
-| Branch | ranges and words | table order, key order for words | 242 |
+| Branch | ranges and bitmap | table order, key order for bitmap | 242 |
 
 The second control and the final control are written to build the same index: the same layout, the same
 numbering and the same order of edges within a source. Their indexes were not compared byte for byte. They differ by 39% on this query and by no more than a few percent on
@@ -234,8 +234,8 @@ reliable):
 | 3% | 1.15 to 4.02 | 3.6 |
 
 It is slower everywhere, because the node index is at least as large as the per-direction map and a node that
-is not a source still costs a full probe. Where the words layout applies it is 1.6 to 2.9 times slower than
-words. On SF1 it would save 13 MiB of the 417 if used for every direction, and 29 MiB if chosen per
+is not a source still costs a full probe. Where the bitmap layout applies it is 1.6 to 2.9 times slower than
+the bitmap layout. On SF1 it would save 13 MiB of the 417 if used for every direction, and 29 MiB if chosen per
 direction. This form was dropped.
 
 **Carry rows between hops.** If a hop receives node rows instead of ids, a lookup is two array reads: 0.07 to
@@ -259,7 +259,7 @@ would invalidate it. None of the gain has been measured end to end.
 
 ## Known limits
 
-- **Stored CSR files from 0.10 are not read.** A load could never choose the words layout for them, so the
+- **Stored CSR files from 0.10 are not read.** A load could never choose the bitmap layout for them, so the
   stored format number was raised and the next full build replaces them.
 - **Table order is not always scan order.** Numbering follows the edge table, which helps a scan only when
   the node table is in the same order. Numbering by node row would need the node index before the CSR build,
@@ -267,10 +267,10 @@ would invalidate it. None of the gain has been measured end to end.
 - **IC14** moves by up to 39% between builds for a reason not pinned down.
 - **Synthetic graphs are uniform.** They have no skewed degrees and no string properties. Timestamp-style ids
   were not run end to end; the rule treats them as it treats random ids.
-- **Words between 1M and 4M sources** were measured end to end only on SF1, and otherwise in the debug
+- **The bitmap layout between 1M and 4M sources** was measured end to end only on SF1, and otherwise in the debug
   microbenchmark sweep.
 - **The custom suite** (`graph-benchmark`) has no direction above 100,000 sources, so it exercises ranges and
-  the new build, not words.
+  the new build, not the bitmap layout.
 
 ## Validation
 

@@ -1,7 +1,7 @@
 # CSR memory: build cost and synthetic graphs, 2026-11-14
 
 Every figure behind "Shapes no suite has", the build cost and the IC14 table in `csr-memory-2026-11-14.md`.
-Wheels: `main` at `cbad7b8`; `control` is the branch with the words layout off; `branch` is the branch.
+Wheels: `main` at `cbad7b8`; `control` is the branch with the bitmap layout off; `branch` is the branch.
 
 ## Build cost on SF1 (custom suite's engine, mean of 3 processes)
 

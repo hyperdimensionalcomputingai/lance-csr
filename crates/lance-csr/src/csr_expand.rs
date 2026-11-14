@@ -160,26 +160,27 @@ enum Sources {
         offsets: ScalarBuffer<u64>,
     },
     /// One entry per run of 64 consecutive key values that holds a source
-    /// (`key >> 6`): which of the 64 exist, and the vertex position of the first.
-    /// A key's position is that plus the number of existing keys below it, so
+    /// (`key >> 6`): a 64-bit bitmap with one bit per key in the run, set for each
+    /// source, and the vertex position of the first source. A key's position is
+    /// that plus the number of set bits below the key's own, so
     /// positions must follow key order. Only for bases where every source has
     /// exactly one edge: a source's position is then its neighbour's.
-    Words(FastMap<i64, (u64, u32)>),
+    Bitmap(FastMap<i64, (u64, u32)>),
 }
 
-/// `Words` is chosen from this many sources. Below it the per-source map fits in
+/// `Bitmap` is chosen from this many sources. Below it the per-source map fits in
 /// cache and was 1.1 to 1.4 times faster in lookups (SF1 keys, 8K to 440K sources).
-const WORDS_MIN_SOURCES: usize = 1_000_000;
-/// `Words` needs this many sources per occupied run of 64. At one (random or
+const BITMAP_MIN_SOURCES: usize = 1_000_000;
+/// `Bitmap` needs this many sources per occupied run of 64. At one (random or
 /// timestamp keys) it is larger than `Ranges` and slower; from four it was under half
 /// the size and about as fast or faster on synthetic keys at 1M and 4M sources.
-const WORDS_MIN_FILL: usize = 4;
+const BITMAP_MIN_FILL: usize = 4;
 
-/// Whether `keys`, ascending, are numerous and clustered enough for [`Sources::Words`].
-fn wants_words(keys: &[i64]) -> bool {
-    keys.len() >= WORDS_MIN_SOURCES && {
+/// Whether `keys`, ascending, are numerous and clustered enough for [`Sources::Bitmap`].
+fn wants_bitmap(keys: &[i64]) -> bool {
+    keys.len() >= BITMAP_MIN_SOURCES && {
         let runs = 1 + keys.windows(2).filter(|w| w[0] >> 6 != w[1] >> 6).count();
-        keys.len() >= WORDS_MIN_FILL * runs
+        keys.len() >= BITMAP_MIN_FILL * runs
     }
 }
 
@@ -187,14 +188,14 @@ impl CsrBase {
     /// `keys` are the source keys in vertex position order. `None` if a key repeats.
     fn new(keys: &[i64], csr: CsrIndex) -> Option<Self> {
         let ascending = keys.windows(2).all(|w| w[0] < w[1]);
-        Self::with_layout(keys, csr, ascending && wants_words(keys))
+        Self::with_layout(keys, csr, ascending && wants_bitmap(keys))
     }
 
-    /// As [`Self::new`], with `words` asking for [`Sources::Words`] where the base
+    /// As [`Self::new`], with `bitmap` asking for [`Sources::Bitmap`] where the base
     /// allows it: ascending keys, one edge per source, and positions that fit in 32
     /// bits. Sources with several edges would need an offset each, and that second
     /// read made lookups up to 1.6 times slower than `Ranges` on synthetic keys.
-    fn with_layout(keys: &[i64], csr: CsrIndex, words: bool) -> Option<Self> {
+    fn with_layout(keys: &[i64], csr: CsrIndex, bitmap: bool) -> Option<Self> {
         let (offsets, neighbors, edge_rows) = csr.packed();
         if keys.len() + 1 != offsets.len() {
             return None;
@@ -202,13 +203,13 @@ impl CsrBase {
         let compact = csr.num_edges() <= u64::from(u32::MAX);
         let allowed =
             || keys.windows(2).all(|w| w[0] < w[1]) && offsets.windows(2).all(|w| w[1] - w[0] == 1);
-        let sources = if words && compact && allowed() {
-            let mut words: FastMap<i64, (u64, u32)> = FastMap::default();
+        let sources = if bitmap && compact && allowed() {
+            let mut bitmaps: FastMap<i64, (u64, u32)> = FastMap::default();
             for (position, &key) in keys.iter().enumerate() {
-                words.entry(key >> 6).or_insert((0, position as u32)).0 |= 1 << (key & 63);
+                bitmaps.entry(key >> 6).or_insert((0, position as u32)).0 |= 1 << (key & 63);
             }
-            words.shrink_to_fit();
-            Sources::Words(words)
+            bitmaps.shrink_to_fit();
+            Sources::Bitmap(bitmaps)
         } else {
             let mut positions = FastMap::with_capacity_and_hasher(keys.len(), Default::default());
             positions.extend(keys.iter().enumerate().map(|(i, &k)| (k, i as u64)));
@@ -245,8 +246,8 @@ impl CsrBase {
             Sources::Wide { positions, offsets } => positions.get(&key).map_or(0..0, |&v| {
                 offsets[v as usize] as usize..offsets[v as usize + 1] as usize
             }),
-            Sources::Words(words) => {
-                let Some(&(bits, first)) = words.get(&(key >> 6)) else {
+            Sources::Bitmap(bitmaps) => {
+                let Some(&(bits, first)) = bitmaps.get(&(key >> 6)) else {
                     return 0..0;
                 };
                 let bit = 1u64 << (key & 63);
@@ -261,7 +262,7 @@ impl CsrBase {
     fn num_sources(&self) -> usize {
         match &self.sources {
             Sources::Ranges(map) | Sources::Wide { positions: map, .. } => map.len(),
-            Sources::Words(_) => self.neighbors.len(),
+            Sources::Bitmap(_) => self.neighbors.len(),
         }
     }
 
@@ -279,15 +280,17 @@ impl CsrBase {
                     offsets[v as usize] as usize..offsets[v as usize + 1] as usize,
                 )
             })),
-            Sources::Words(words) => Box::new(words.iter().flat_map(|(&word, &(bits, first))| {
-                (0..64)
-                    .filter(move |i| (bits >> i) & 1 == 1)
-                    .enumerate()
-                    .map(move |(nth, i)| {
-                        let position = first as usize + nth;
-                        ((word << 6) | i, position..position + 1)
-                    })
-            })),
+            Sources::Bitmap(bitmaps) => {
+                Box::new(bitmaps.iter().flat_map(|(&block, &(bits, first))| {
+                    (0..64)
+                        .filter(move |i| (bits >> i) & 1 == 1)
+                        .enumerate()
+                        .map(move |(nth, i)| {
+                            let position = first as usize + nth;
+                            ((block << 6) | i, position..position + 1)
+                        })
+                }))
+            }
         }
     }
 }
@@ -334,13 +337,13 @@ impl Adjacency {
                 sources.push((row, i));
             }
         }
-        // `Sources::Words` needs sources numbered in key order. Any other base numbers
+        // `Sources::Bitmap` needs sources numbered in key order. Any other base numbers
         // them in the order the table first lists them: a scan of the source nodes
         // usually follows that order and then reads the neighbours in sequence. Key
         // order made a whole-relationship scan of 4M random ids 28% slower.
-        let words =
-            keys.len() == edges.len() && u32::try_from(edges.len()).is_ok() && wants_words(&keys);
-        if !words {
+        let bitmap =
+            keys.len() == edges.len() && u32::try_from(edges.len()).is_ok() && wants_bitmap(&keys);
+        if !bitmap {
             sources.sort_unstable_by_key(|&(first_row, _)| first_row);
         }
         let mut offsets = Vec::with_capacity(sources.len() + 1);
@@ -447,7 +450,7 @@ impl Adjacency {
     /// The delta is not included. The offsets are rebuilt, as the base doesn't keep them.
     pub(crate) fn base_parts(&self) -> (Vec<i64>, CsrIndex) {
         // Position order: by start, an empty range before the one that starts where
-        // it does, and equal ranges by key, as `Sources::Words` numbers them.
+        // it does, and equal ranges by key, as `Sources::Bitmap` numbers them.
         let mut entries: Vec<_> = self
             .base
             .entries()
@@ -3687,7 +3690,7 @@ mod tests {
     }
 
     /// The same base in each source layout it allows: per-source ranges, vertex
-    /// positions with offsets, and 64-key words for ascending keys with one edge each.
+    /// positions with offsets, and 64-key bitmaps for ascending keys with one edge each.
     fn layouts(keys: &[i64], offsets: &[u64], neighbours: &[u64]) -> Vec<Adjacency> {
         let rows = PackedU64::pack(&(0..neighbours.len() as u64).collect::<Vec<_>>());
         let csr = || {
@@ -3713,15 +3716,15 @@ mod tests {
             neighbors: neighbours.to_vec().into(),
             edge_rows: rows.clone(),
         };
-        let words = CsrBase::with_layout(keys, csr(), true).unwrap();
+        let bitmaps = CsrBase::with_layout(keys, csr(), true).unwrap();
         let allowed =
             keys.windows(2).all(|w| w[0] < w[1]) && offsets.windows(2).all(|w| w[1] - w[0] == 1);
         assert_eq!(
-            matches!(words.sources, Sources::Words(_)),
+            matches!(bitmaps.sources, Sources::Bitmap(_)),
             allowed,
-            "words need ascending keys with one edge each"
+            "bitmaps need ascending keys with one edge each"
         );
-        [ranges, wide, words]
+        [ranges, wide, bitmaps]
             .into_iter()
             .map(Adjacency::over)
             .collect()
@@ -3738,7 +3741,7 @@ mod tests {
                 vec![0, 0, 2, 2, 3],
                 vec![u64::MAX, u64::MAX, 7],
             ),
-            // Ascending, but with empty sources and duplicate edges: no words.
+            // Ascending, but with empty sources and duplicate edges: no bitmaps.
             (
                 vec![i64::MIN, -9, 7, 63, 64, 65, i64::MAX],
                 vec![0, 0, 2, 2, 3, 3, 4, 6],
@@ -3752,7 +3755,7 @@ mod tests {
         ] {
             let all = layouts(&keys, &offsets, &neighbours);
             assert_eq!(
-                matches!(all[2].base.sources, Sources::Words(_)),
+                matches!(all[2].base.sources, Sources::Bitmap(_)),
                 keys.is_empty() || keys == one_each
             );
             let probes: Vec<i64> = keys
@@ -3794,24 +3797,24 @@ mod tests {
                     );
                 }
             }
-            // Words save their keys in ascending order, so a load can choose words again.
-            if matches!(all[2].base.sources, Sources::Words(_)) {
+            // Bitmap bases save their keys in ascending order, so a load can choose bitmaps again.
+            if matches!(all[2].base.sources, Sources::Bitmap(_)) {
                 assert_eq!(all[2].base_parts().0, keys);
             }
         }
     }
 
     #[test]
-    fn words_are_chosen_only_for_many_clustered_keys() {
-        let n = WORDS_MIN_SOURCES as i64;
+    fn bitmaps_are_chosen_only_for_many_clustered_keys() {
+        let n = BITMAP_MIN_SOURCES as i64;
         let dense: Vec<i64> = (0..n).collect();
-        assert!(wants_words(&dense));
-        assert!(!wants_words(&dense[1..]), "too few sources");
+        assert!(wants_bitmap(&dense));
+        assert!(!wants_bitmap(&dense[1..]), "too few sources");
         // One key per run of 64, as random or timestamp keys give.
-        assert!(!wants_words(&(0..n).map(|i| i * 64).collect::<Vec<_>>()));
+        assert!(!wants_bitmap(&(0..n).map(|i| i * 64).collect::<Vec<_>>()));
         // Runs of eight keys with gaps between, as clustered ids give.
         let clustered: Vec<i64> = (0..n).map(|i| (i / 8) * 1024 + i % 8).collect();
-        assert!(wants_words(&clustered));
+        assert!(wants_bitmap(&clustered));
         let offsets: Vec<u64> = (0..=n as u64).collect();
         let csr = CsrIndex::from_packed(
             offsets.into(),
@@ -3820,7 +3823,7 @@ mod tests {
         )
         .unwrap();
         let adjacency = Adjacency::from_base(&clustered, csr).unwrap();
-        assert!(matches!(adjacency.base.sources, Sources::Words(_)));
+        assert!(matches!(adjacency.base.sources, Sources::Bitmap(_)));
         // The same keys with two edges each keep a range per source.
         let offsets: Vec<u64> = (0..=n as u64).map(|i| i * 2).collect();
         let csr = CsrIndex::from_packed(
@@ -3864,15 +3867,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn build_numbers_sources_in_key_order_for_words() {
-        // One edge per source, enough clustered keys for words, listed in descending order.
-        let n = WORDS_MIN_SOURCES as i64;
+    async fn build_numbers_sources_in_key_order_for_bitmaps() {
+        // One edge per source, enough clustered keys for bitmaps, listed in descending order.
+        let n = BITMAP_MIN_SOURCES as i64;
         let src: Vec<_> = (0..n).rev().map(Some).collect();
         let dst: Vec<_> = (0..n).rev().map(|key| Some(key + 7)).collect();
         let adj = Adjacency::build(edge_stream(src, dst), "src", "dst")
             .await
             .unwrap();
-        assert!(matches!(adj.base.sources, Sources::Words(_)));
+        assert!(matches!(adj.base.sources, Sources::Bitmap(_)));
         for key in [0, 1, 63, 64, n / 2, n - 1] {
             let mut found = Vec::new();
             adj.for_each_neighbor(key, |to| found.push(to as i64));

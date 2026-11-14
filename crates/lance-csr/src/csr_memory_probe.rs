@@ -22,7 +22,7 @@ async fn sf1_memory_ledger() {
                 .await
                 .unwrap();
             // Allocated bytes of the source layout: 17 per hash bucket for a
-            // per-source entry, 25 for a 64-key word, plus the wide layout's offsets.
+            // per-source entry, 25 for a 64-key bitmap, plus the wide layout's offsets.
             let buckets = |capacity: usize| capacity / 7 * 8;
             let (layout, source_bytes) = match &adj.base.sources {
                 Sources::Ranges(map) => ("ranges", buckets(map.capacity()) * 17),
@@ -30,7 +30,7 @@ async fn sf1_memory_ledger() {
                     "wide",
                     buckets(positions.capacity()) * 17 + offsets.len() * 8,
                 ),
-                Sources::Words(words) => ("words", buckets(words.capacity()) * 25),
+                Sources::Bitmap(bitmaps) => ("bitmap", buckets(bitmaps.capacity()) * 25),
             };
             println!(
                 "LEDGER,{},{},{},{},{},{},{}",

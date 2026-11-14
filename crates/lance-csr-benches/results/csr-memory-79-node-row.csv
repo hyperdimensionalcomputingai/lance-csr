@@ -1,4 +1,4 @@
-run,nodes,ids,sources,bytes,pattern,row,known,words
+run,nodes,ids,sources,bytes,pattern,row,known,bitmap
 1,250000,dense,100%,0.11,uniform over sources,1.12,0.15,-
 1,250000,dense,100%,0.11,uniform over all nodes,1.13,0.15,-
 1,250000,dense,100%,0.11,all nodes in table order,1.02,0.13,-

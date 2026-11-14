@@ -51,21 +51,21 @@ of the neighbour array. A full build picks one of three layouts for that directi
 | Layout | Holds | Chosen when |
 | --- | --- | --- |
 | Ranges | A hash-map entry per source: the start and end of its range, 32 bits each. No offset array is kept. | By default. |
-| Words | A hash-map entry per run of 64 consecutive key values that contains a source (`key >> 6`): a 64-bit map of which of those keys exist, and the position of the first. A key's position is that plus the number of existing keys below it. | Every source has exactly one edge, and the direction has at least a million sources and at least four sources per occupied run of 64. |
+| Bitmap | A hash-map entry per run of 64 consecutive key values that contains a source (`key >> 6`): a 64-bit bitmap with one bit per key in the run, set for each source, and the position of the first source. A key's position is that plus the number of set bits below its own. | Every source has exactly one edge, and the direction has at least a million sources and at least four sources per occupied run of 64. |
 | Wide | A hash-map entry per source holding its position, plus 64-bit offsets. | The direction has more than `u32::MAX` edges. |
 
-The words layout keeps nothing per source: with one edge each, a source's position is also its neighbour's.
+The bitmap layout keeps nothing per source: with one edge each, a source's position is also its neighbour's.
 That is the shape of a many-to-one relationship read from the "many" side, such as a comment's creator, where a
 per-source entry is the largest part of the index. Sources with several edges would each need an offset as well,
 and reading it made lookups up to 1.6 times slower than ranges on synthetic keys, so those directions keep ranges.
 
-The words layout is smaller because clustered keys share an entry, but each lookup does more work than a
+The bitmap layout is smaller because clustered keys share an entry, but each lookup does more work than a
 per-source entry. It only pays off once the per-source map is too large to stay in the CPU cache, which is why
 small directions keep ranges. Keys with one or two sources per run of 64, such as random or timestamp-based ids,
 would make it larger than ranges, so they keep ranges too. The choice is made from each direction's own keys,
 not from the numeric range of the node keys, and negative keys work in every layout.
 
-Sources are numbered, and their neighbours laid out, in the order the edge table first lists them. The words
+Sources are numbered, and their neighbours laid out, in the order the edge table first lists them. The bitmap
 layout is the exception: it needs key order. A query that reads a whole relationship scans the source nodes in
 table order, and an edge table is often written in that same order, so the scan then reads the neighbours in
 sequence. Numbering every direction by key instead made such a scan 28% slower on a synthetic graph with 4M
@@ -170,9 +170,9 @@ is the one the engine already holds, but they do store the new one.
 
 Every batch is compressed with zstd, Arrow IPC's own buffer compression, on top of the packing. A load decompresses
 the arrays, checks them, and rebuilds the [source layout](#source-layouts), then releases the offsets. The file
-holds the source keys in the order they are numbered, so a words direction's keys are ascending and a load
-chooses words again. Files written by 0.10 or earlier hold every direction's keys in table order, so a load
-could never choose words for them. They carry an older format number, are ignored, and the next full build
+holds the source keys in the order they are numbered, so a bitmap direction's keys are ascending and a load
+chooses the bitmap layout again. Files written by 0.10 or earlier hold every direction's keys in table order, so a load
+could never choose the bitmap layout for them. They carry an older format number, are ignored, and the next full build
 replaces them. That work is CPU-bound, so
 each load decodes on Tokio's blocking pool and relationship types load concurrently, up to one per core, while the
 node indexes scan on the engine's task. At most 10 load at once: each holds its compressed file and decode buffers
