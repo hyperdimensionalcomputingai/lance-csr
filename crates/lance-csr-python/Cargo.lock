@@ -3814,7 +3814,7 @@ dependencies = [
 
 [[package]]
 name = "lance-csr"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "ahash",
  "arrow",
@@ -3842,7 +3842,7 @@ dependencies = [
 
 [[package]]
 name = "lance-csr-python"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "arrow",
  "arrow-array",
