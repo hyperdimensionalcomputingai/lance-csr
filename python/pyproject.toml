@@ -54,7 +54,7 @@ dev = [
     "pyright",
     "pyarrow-stubs>=20.0.0.20260819",
     "pytest-xdist>=3.8.0",
-    "pylance>=13.0.0",
+    "pylance>=14.0.2",
 ]
 
 [tool.ruff]

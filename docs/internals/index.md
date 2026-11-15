@@ -85,7 +85,7 @@ DataFusion logical plan and the physical plan, and every custom operator shows u
 | `ExtensionPlanner` | `CsrExtensionPlanner` | Lowers each graph node to its `ExecutionPlan` |
 | `QueryPlanner` | `CsrQueryPlanner` | Installs the extension planner on the session |
 | `OptimizerRule` | `PushCsrTargetFilters`, `CountCsrDegrees`, `PruneCsrTargetColumns` | Filter pushdown into extension nodes, per-node counts on the CSR, and column pruning |
-| `PhysicalOptimizerRule` | `DeadlineJoins` (`query_deadline_joins`) | Cooperative deadlines in nested-loop and cross joins |
+| `PhysicalOptimizerRule` | `DeadlineJoins` (`query_deadline_joins`), `CrossJoinBuildRows` (`cross_join_build_rows`) | Cooperative deadlines in nested-loop and cross joins; cross joins build on the input with fewer rows |
 | `TableFunctionImpl` | `GraphTableFunction` (`graph_table`) | A Cypher pattern inside SQL: its plan, returned as a view that DataFusion inlines into the SQL plan |
 | `TableProvider` | `KeyStatisticsProvider` | Reports distinct counts of join keys so DataFusion sizes graph joins correctly |
 | `ScalarUDFImpl` | `cypher_list`, `cypher_field`, Cypher math and scalar functions; vector distance and similarity functions (from [lance-graph](https://github.com/lance-format/lance-graph)) | Cypher semantics that DataFusion's built-ins don't match |
@@ -116,6 +116,7 @@ All paths are under
 | `shortest_path.rs` | `ShortestPathNode` and `ShortestPathExec`, bidirectional and batched forward breadth-first search | lance-csr |
 | `path_match.rs`, `path_inventory.rs`, `path_value.rs` | Named paths, the edge inventory, Arrow path values | lance-csr |
 | `apply.rs` | `ApplyNode` and `ApplyExec` for CALL subqueries | lance-csr |
+| `cross_join_order.rs` | `CrossJoinBuildRows` | lance-csr |
 | `key_statistics.rs` | `KeyStatisticsProvider` and `KeyStatisticsExec` | lance-csr |
 | `pattern_order.rs`, `pattern_alternatives.rs` | Re-rooting, predicates implied by an `OR`, alternation and multi-label branching | lance-csr |
 | `logical_plan.rs` | Graph logical operators | [lance-graph](https://github.com/lance-format/lance-graph), extended in lance-csr |

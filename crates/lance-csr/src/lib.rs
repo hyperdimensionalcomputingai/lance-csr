@@ -47,6 +47,7 @@ mod apply;
 pub mod ast;
 pub mod case_insensitive;
 pub mod config;
+mod cross_join_order;
 pub mod csr_expand;
 pub mod csr_index;
 mod csr_store;

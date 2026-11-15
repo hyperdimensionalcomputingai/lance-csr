@@ -12,6 +12,21 @@ release wheels a second time.
 - Everything going into the release is merged to `main`, and `main`'s CI is green.
 - Performance claims in the merged PRs already have the benchmark evidence `CONTRIBUTING.md` asks for. A release
   doesn't rerun the benchmark suites.
+- `lance-csr` is on the newest lance release, and its arrow, datafusion and object_store requirements are the
+  ones that lance release's workspace `Cargo.toml` uses. A Rust project that depends on both lance and `lance-csr`
+  otherwise builds two copies of lance (or arrow, or datafusion), and their types can't be passed between them.
+  0.11.0 shipped on lance 13, almost three weeks after lance 14.0.0 came out. Compare:
+
+  ```bash
+  cargo search lance --limit 1
+  gh api 'repos/lance-format/lance/contents/Cargo.toml?ref=vX.Y.Z' -q .content | base64 -d \
+    | grep -E '^(arrow|datafusion|object_store)[a-z-]* ='
+  git grep -n -E '^(lance|arrow|datafusion|object_store)[a-z-]* =' -- 'crates/*/Cargo.toml'
+  ```
+
+  If lance has a newer release, upgrade to it in its own PR and merge that before the version bump. Copy lance's
+  requirement strings as they are (`"58.0.0"`, a caret range, not `"=58.0.0"`). A new lance major is a breaking
+  change for Rust users, so it bumps our minor version.
 - Decide the version. Until 1.0, a change that breaks the Python or Rust API (a `!` in the commit type, such as
   `refactor(config)!:`) bumps the minor version (0.4.0 → 0.5.0). Anything else bumps the patch version.
 

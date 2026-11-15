@@ -12,3 +12,22 @@ updates:
       github-actions:
         patterns:
           - "*"
+  # Flag new lance majors, which we follow (see RELEASE.md); RELEASE.md's checklist catches minors and patches.
+  # arrow and datafusion move with lance, by hand.
+  - package-ecosystem: cargo
+    directories:
+      - /
+      - /crates/lance-csr-python
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    allow:
+      - dependency-name: "lance*"
+    ignore:
+      - dependency-name: "lance*"
+        update-types: ["version-update:semver-minor", "version-update:semver-patch"]
+    groups:
+      lance:
+        patterns:
+          - "lance*"
