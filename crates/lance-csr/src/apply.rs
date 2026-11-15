@@ -105,6 +105,8 @@ impl UserDefinedLogicalNodeCore for ApplyNode {
 }
 
 pub(crate) struct ApplyExec {
+    /// Per-partition metrics for `EXPLAIN ANALYZE`.
+    metrics: datafusion::physical_plan::metrics::ExecutionPlanMetricsSet,
     input: Arc<dyn ExecutionPlan>,
     inner: LogicalPlan,
     imports: Vec<(String, String)>,
@@ -136,6 +138,7 @@ impl ApplyExec {
             input.boundedness(),
         ));
         Self {
+            metrics: Default::default(),
             input,
             inner,
             imports,
@@ -160,6 +163,10 @@ impl ExecutionPlan for ApplyExec {
     fn name(&self) -> &str {
         "ApplyExec"
     }
+
+    fn metrics(&self) -> Option<datafusion::physical_plan::metrics::MetricsSet> {
+        Some(self.metrics.clone_inner())
+    }
     fn properties(&self) -> &Arc<PlanProperties> {
         &self.properties
     }
@@ -183,7 +190,8 @@ impl ExecutionPlan for ApplyExec {
         partition: usize,
         context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream> {
-        let input = self.input.execute(partition, context.clone())?;
+        let (input, input_time) =
+            crate::exec_metrics::time_input(self.input.execute(partition, context.clone())?);
         let indices = self
             .imports
             .iter()
@@ -262,10 +270,14 @@ impl ExecutionPlan for ApplyExec {
                 state.child = Some(execute_stream(physical, state.context.clone())?);
             }
         });
-        Ok(Box::pin(RecordBatchStreamAdapter::new(
-            self.schema.clone(),
-            stream,
-        )))
+        let output: SendableRecordBatchStream =
+            Box::pin(RecordBatchStreamAdapter::new(self.schema.clone(), stream));
+        Ok(crate::exec_metrics::measure(
+            output,
+            &self.metrics,
+            partition,
+            input_time,
+        ))
     }
 }
 

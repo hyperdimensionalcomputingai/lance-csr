@@ -220,6 +220,8 @@ impl UserDefinedLogicalNodeCore for ShortestPathNode {
 /// Physical operator for [`ShortestPathNode`].
 #[derive(Debug)]
 pub struct ShortestPathExec {
+    /// Per-partition metrics for `EXPLAIN ANALYZE`.
+    metrics: datafusion::physical_plan::metrics::ExecutionPlanMetricsSet,
     input: Arc<dyn ExecutionPlan>,
     /// Single-partition edge scan, when there is no CSR.
     edges: Option<Arc<dyn ExecutionPlan>>,
@@ -247,6 +249,7 @@ impl ShortestPathExec {
             Boundedness::Bounded,
         ));
         Self {
+            metrics: Default::default(),
             input,
             edges,
             adjacency: Arc::new(Mutex::new(adjacency)),
@@ -277,6 +280,10 @@ impl DisplayAs for ShortestPathExec {
 impl ExecutionPlan for ShortestPathExec {
     fn name(&self) -> &str {
         "ShortestPathExec"
+    }
+
+    fn metrics(&self) -> Option<datafusion::physical_plan::metrics::MetricsSet> {
+        Some(self.metrics.clone_inner())
     }
 
     fn properties(&self) -> &Arc<PlanProperties> {
@@ -322,7 +329,8 @@ impl ExecutionPlan for ShortestPathExec {
         partition: usize,
         context: Arc<TaskContext>,
     ) -> datafusion::common::Result<SendableRecordBatchStream> {
-        let input = self.input.execute(partition, context.clone())?;
+        let (input, input_time) =
+            crate::exec_metrics::time_input(self.input.execute(partition, context.clone())?);
         let source_index = input.schema().index_of(&self.spec.source_column)?;
         let target_index = input.schema().index_of(&self.spec.target_column)?;
         let (cell, edges, spec, schema) = (
@@ -364,7 +372,14 @@ impl ExecutionPlan for ShortestPathExec {
                 .await
             }
         });
-        Ok(Box::pin(RecordBatchStreamAdapter::new(out_schema, stream)))
+        let output: SendableRecordBatchStream =
+            Box::pin(RecordBatchStreamAdapter::new(out_schema, stream));
+        Ok(crate::exec_metrics::measure(
+            output,
+            &self.metrics,
+            partition,
+            input_time,
+        ))
     }
 }
 

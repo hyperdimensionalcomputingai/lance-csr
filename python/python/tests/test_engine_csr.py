@@ -248,6 +248,17 @@ def test_csr_operator_used_only_for_supported_shapes(datasets):
     assert "CsrExpand" not in csr.explain(inline)
 
 
+def test_explain_analyze_reports_csr_metrics(datasets):
+    csr = CypherEngine(CONFIG, datasets, use_csr=True)
+    query = "MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN b.id"
+    plan = csr.explain(query, analyze=True)
+    assert "physical_plan_with_metrics" in plan
+    expand = next(line for line in plan.splitlines() if "CsrExpandExec" in line)
+    assert f"output_rows={csr.execute(query).num_rows}" in expand
+    assert "elapsed_compute=" in expand
+    assert "output_rows=" not in csr.explain(query)
+
+
 @pytest.mark.parametrize("lazy", [False, True])
 def test_relationship_filter_over_many_batches(tmp_path, lazy):
     # Many small input batches. From Lance, the expansion passes the point where it

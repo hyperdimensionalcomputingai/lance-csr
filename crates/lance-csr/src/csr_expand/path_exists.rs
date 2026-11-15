@@ -191,6 +191,8 @@ impl UserDefinedLogicalNodeCore for PathExistsNode {
 /// Executes [`PathExistsNode`] one input batch at a time.
 #[derive(Debug)]
 pub struct PathExistsExec {
+    /// Per-partition metrics for `EXPLAIN ANALYZE`.
+    metrics: datafusion::physical_plan::metrics::ExecutionPlanMetricsSet,
     input: Arc<dyn ExecutionPlan>,
     start: String,
     end: Option<String>,
@@ -204,6 +206,7 @@ impl PathExistsExec {
         let schema: SchemaRef = Arc::new(node.schema.as_arrow().clone());
         let properties = Self::properties_for(&schema, &input);
         Self {
+            metrics: Default::default(),
             input,
             start: node.start.clone(),
             end: node.end.clone(),
@@ -270,6 +273,10 @@ impl ExecutionPlan for PathExistsExec {
         "PathExistsExec"
     }
 
+    fn metrics(&self) -> Option<datafusion::physical_plan::metrics::MetricsSet> {
+        Some(self.metrics.clone_inner())
+    }
+
     fn properties(&self) -> &Arc<PlanProperties> {
         &self.properties
     }
@@ -287,6 +294,7 @@ impl ExecutionPlan for PathExistsExec {
             .next()
             .expect("PathExistsExec has one child");
         Ok(Arc::new(Self {
+            metrics: Default::default(),
             properties: Self::properties_for(&self.schema, &input),
             input,
             start: self.start.clone(),
@@ -301,7 +309,8 @@ impl ExecutionPlan for PathExistsExec {
         partition: usize,
         context: Arc<TaskContext>,
     ) -> datafusion::common::Result<SendableRecordBatchStream> {
-        let input = self.input.execute(partition, context)?;
+        let (input, input_time) =
+            crate::exec_metrics::time_input(self.input.execute(partition, context)?);
         let (start, end, hops, schema) = (
             self.start.clone(),
             self.end.clone(),
@@ -312,10 +321,14 @@ impl ExecutionPlan for PathExistsExec {
         // predicates over high-degree hops show up in cancellation latency.
         let stream =
             input.map(move |batch| Self::mark(batch?, &start, end.as_deref(), &hops, &schema));
-        Ok(Box::pin(RecordBatchStreamAdapter::new(
-            self.schema.clone(),
-            stream,
-        )))
+        let output: SendableRecordBatchStream =
+            Box::pin(RecordBatchStreamAdapter::new(self.schema.clone(), stream));
+        Ok(crate::exec_metrics::measure(
+            output,
+            &self.metrics,
+            partition,
+            input_time,
+        ))
     }
 }
 

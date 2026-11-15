@@ -131,7 +131,11 @@ class CypherEngine:
         timeout: float | None = None,
     ) -> RecordBatchReader: ...
     def explain(
-        self, query: str, params: dict[str, _ParameterT] | None = None
+        self,
+        query: str,
+        params: dict[str, _ParameterT] | None = None,
+        *,
+        analyze: bool = False,
     ) -> str: ...
     def checkout_latest(self) -> None: ...
     def optimize_csr(self) -> None: ...
@@ -169,7 +173,11 @@ class SqlEngine:
         timeout: float | None = None,
     ) -> Table: ...
     def explain(
-        self, sql: str, params: dict[str, _ParameterT] | None = None
+        self,
+        sql: str,
+        params: dict[str, _ParameterT] | None = None,
+        *,
+        analyze: bool = False,
     ) -> str: ...
     def checkout_latest(self) -> None: ...
 

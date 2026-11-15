@@ -1196,18 +1196,45 @@ impl CypherEngine {
             .await
     }
 
+    /// Run the query and return its plans with DataFusion's per-operator metrics in place of
+    /// the plain physical plan, like SQL's `EXPLAIN ANALYZE`. The rows are discarded.
+    pub async fn explain_analyze(
+        &self,
+        query: &str,
+        params: HashMap<String, JsonValue>,
+    ) -> Result<String> {
+        let state = self.snapshot();
+        // Plan as `execute` does, template cache included, so the metrics describe its plan.
+        self.parse(query, params, &state, true)?
+            .explain_analyze_with_catalog_and_context(state.catalog.clone(), state.context.clone())
+            .await
+    }
+
     /// Run `sql` on this snapshot; see [`SqlEngine::execute`].
     async fn sql(&self, sql: &str, params: HashMap<String, JsonValue>) -> Result<RecordBatch> {
         crate::query::collect_batch(self.sql_dataframe(sql, params, true).await?).await
     }
 
-    /// See [`SqlEngine::explain`].
-    async fn explain_sql(&self, sql: &str, params: HashMap<String, JsonValue>) -> Result<String> {
-        let df = self.sql_dataframe(sql, params, false).await?;
+    /// See [`SqlEngine::explain`] and [`SqlEngine::explain_analyze`].
+    async fn explain_sql(
+        &self,
+        sql: &str,
+        params: HashMap<String, JsonValue>,
+        analyze: bool,
+    ) -> Result<String> {
+        // Analyze plans as `execute` does, template cache included.
+        let df = self.sql_dataframe(sql, params, analyze).await?;
         let logical = df
             .clone()
             .into_optimized_plan()
             .map_err(|e| plan_error(format!("Failed to optimize SQL plan: {e}")))?;
+        if analyze {
+            return Ok(format!(
+                "== Logical Plan ==\n{}\n\n== Physical Plan with Metrics ==\n{}",
+                logical.display_indent(),
+                crate::query::analyze_dataframe(df).await?,
+            ));
+        }
         let physical = df
             .create_physical_plan()
             .await
@@ -1534,7 +1561,17 @@ impl SqlEngine {
 
     /// The optimized logical and physical plans of a query, always planned afresh.
     pub async fn explain(&self, sql: &str, params: HashMap<String, JsonValue>) -> Result<String> {
-        self.engine.explain_sql(sql, params).await
+        self.engine.explain_sql(sql, params, false).await
+    }
+
+    /// Run the query and return its optimized logical plan and its physical plan with
+    /// DataFusion's per-operator metrics, like SQL's `EXPLAIN ANALYZE`. The rows are discarded.
+    pub async fn explain_analyze(
+        &self,
+        sql: &str,
+        params: HashMap<String, JsonValue>,
+    ) -> Result<String> {
+        self.engine.explain_sql(sql, params, true).await
     }
 
     /// Move to the latest version of every Lance dataset; see [`CypherEngine::checkout_latest`].
@@ -2040,6 +2077,38 @@ mod tests {
                 .num_rows(),
             20
         );
+    }
+
+    /// `explain_analyze` runs the query and shows metrics, ours included, for Cypher and SQL.
+    #[tokio::test]
+    async fn explain_analyze_reports_operator_metrics() {
+        let dir = tempfile::tempdir().unwrap();
+        let engine = Arc::new(lance_graph_engine(dir.path(), true).await);
+        // Person i knows i + 1 and i + 3 (mod 10), so persons 0 to 4 have 10 friends in all.
+        let cypher = "MATCH (a:Person)-[:KNOWS]->(b:Person) WHERE a.id < 5 RETURN b.id AS b";
+        let expand = |plan: &str| {
+            let line = plan.lines().find(|l| l.contains("CsrExpandExec")).unwrap();
+            line.to_string()
+        };
+        let plan = engine
+            .explain_analyze(cypher, HashMap::new())
+            .await
+            .unwrap();
+        assert!(plan.contains("physical_plan_with_metrics"), "{plan}");
+        assert!(expand(&plan).contains("output_rows=10"), "{plan}");
+        assert!(expand(&plan).contains("elapsed_compute="), "{plan}");
+        let plain = engine.explain(cypher, HashMap::new()).await.unwrap();
+        assert!(!plain.contains("output_rows="), "{plain}");
+
+        let sql = "SELECT g.b FROM GRAPH_TABLE (
+                       MATCH (a:Person)-[:KNOWS]->(b:Person) WHERE a.id < 5 COLUMNS (b.id AS b)
+                   ) g";
+        let plan = SqlEngine::from_engine(engine)
+            .explain_analyze(sql, HashMap::new())
+            .await
+            .unwrap();
+        assert!(plan.contains("== Physical Plan with Metrics =="), "{plan}");
+        assert!(expand(&plan).contains("output_rows=10"), "{plan}");
     }
 
     /// Plain SQL scans Lance datasets with pushdown, only reads, and needs no graph.

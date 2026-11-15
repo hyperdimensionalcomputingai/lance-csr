@@ -233,9 +233,13 @@ class CypherEngine:
         return self._inner.execute_batches(query, params, timeout=timeout)
 
     def explain[ParameterT: Parameter](
-        self, query: str, params: dict[str, ParameterT] | None = None
+        self,
+        query: str,
+        params: dict[str, ParameterT] | None = None,
+        *,
+        analyze: bool = False,
     ) -> str:
-        """The plans for a query, without running it.
+        """The plans for a query, without running it unless `analyze` is set.
 
         Parameters
         ----------
@@ -244,19 +248,28 @@ class CypherEngine:
         params : dict[str, Parameter] or None
             Values for `$name` parameters, as for
             [`execute`][lance_csr.CypherEngine.execute].
+        analyze : bool
+            Run the query, like SQL's `EXPLAIN ANALYZE`, and show each physical
+            operator's metrics (output rows, elapsed compute time and more) in place
+            of the plain physical plan. The query is planned as
+            [`execute`][lance_csr.CypherEngine.execute] plans it and runs to
+            completion; its rows are discarded.
 
         Returns
         -------
         str
             The graph logical plan, the DataFusion logical plan and the physical plan,
-            including pushed-down scans.
+            including pushed-down scans. With `analyze`, the physical plan's row is
+            labelled `physical_plan_with_metrics`.
 
         Raises
         ------
         ValueError
             If the query is invalid.
+        RuntimeError
+            If `analyze` is set and the query fails while running.
         """
-        return self._inner.explain(query, params)
+        return self._inner.explain(query, params, analyze=analyze)
 
     def checkout_latest(self) -> None:
         """Move every Lance dataset to its latest version.

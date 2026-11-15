@@ -162,7 +162,7 @@ consuming them. Timed cross joins yield between batches, and nested-loop joins c
 while evaluating candidates, including when no rows match. See the [API reference](api-reference.md) for validation and cooperative cancellation limits.
 From Rust, use `with_execution_deadline`; see [Timeouts](rust.md#timeouts).
 
-### `explain(query, params=None)`
+### `explain(query, params=None, *, analyze=False)`
 
 Returns the plan as text: the graph logical plan, DataFusion's logical plan and the physical plan,
 laid out as a table. Lines longer than 1,000 characters, such as one holding a long list or vector
@@ -173,6 +173,21 @@ whether filters reached the Lance scan:
 plan = engine.explain("MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN b.name")
 print("CsrExpandExec" in plan)  # True
 ```
+
+A plan shows what will run, not where the time goes. `analyze=True` answers that, like SQL's `EXPLAIN ANALYZE`:
+it runs the query to completion, discards the rows, and prints the physical plan with each operator's metrics, in a
+row labelled `physical_plan_with_metrics`. Every operator reports `output_rows` and `elapsed_compute`, its own time
+without the time spent in the operators below it, and DataFusion's operators and Lance scans add their own counters,
+such as a hash join's build time or a scan's bytes read. The query is planned the way `execute` plans it, so the
+metrics describe the plan `execute` runs:
+
+```python
+plan = engine.explain("MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN b.name", analyze=True)
+expand = next(line for line in plan.splitlines() if "CsrExpandExec" in line)
+print("output_rows=" in expand)  # True
+```
+
+A query that fails while running raises `RuntimeError`, as `execute` does.
 
 ### Other methods
 

@@ -245,6 +245,8 @@ struct Ready {
 }
 
 struct PathMatchExec {
+    /// Per-partition metrics for `EXPLAIN ANALYZE`.
+    metrics: datafusion::physical_plan::metrics::ExecutionPlanMetricsSet,
     inputs: Vec<Arc<dyn ExecutionPlan>>,
     spec: Arc<PathSpec>,
     outputs: Vec<Output>,
@@ -302,6 +304,7 @@ pub(crate) fn plan_path_match(
         Boundedness::Bounded,
     ));
     Ok(Arc::new(PathMatchExec {
+        metrics: Default::default(),
         inputs: plans,
         spec: node.spec.clone(),
         outputs: node.outputs.clone(),
@@ -330,6 +333,10 @@ impl ExecutionPlan for PathMatchExec {
     fn name(&self) -> &str {
         "PathMatchExec"
     }
+
+    fn metrics(&self) -> Option<datafusion::physical_plan::metrics::MetricsSet> {
+        Some(self.metrics.clone_inner())
+    }
     fn properties(&self) -> &Arc<PlanProperties> {
         &self.properties
     }
@@ -355,6 +362,7 @@ impl ExecutionPlan for PathMatchExec {
             Boundedness::Bounded,
         ));
         Ok(Arc::new(Self {
+            metrics: Default::default(),
             inputs,
             spec: self.spec.clone(),
             outputs: self.outputs.clone(),
@@ -369,7 +377,8 @@ impl ExecutionPlan for PathMatchExec {
         partition: usize,
         context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream> {
-        let input = self.inputs[0].execute(partition, context.clone())?;
+        let (input, input_time) =
+            crate::exec_metrics::time_input(self.inputs[0].execute(partition, context.clone())?);
         let (cell, plans, spec, outputs, schema, predicates) = (
             self.ready.clone(),
             self.inputs[1..].to_vec(),
@@ -466,7 +475,14 @@ impl ExecutionPlan for PathMatchExec {
                 }
             },
         );
-        Ok(Box::pin(RecordBatchStreamAdapter::new(out_schema, stream)))
+        let output: SendableRecordBatchStream =
+            Box::pin(RecordBatchStreamAdapter::new(out_schema, stream));
+        Ok(crate::exec_metrics::measure(
+            output,
+            &self.metrics,
+            partition,
+            input_time,
+        ))
     }
 }
 

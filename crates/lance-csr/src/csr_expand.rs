@@ -2317,6 +2317,8 @@ impl UserDefinedLogicalNodeCore for CsrExpandNode {
 /// Physical operator for [`CsrExpandNode`]; expands input rows in bounded chunks.
 #[derive(Debug)]
 pub struct CsrExpandExec {
+    /// Per-partition metrics for `EXPLAIN ANALYZE`.
+    metrics: datafusion::physical_plan::metrics::ExecutionPlanMetricsSet,
     input: Arc<dyn ExecutionPlan>,
     key_column: String,
     adjacency: Neighbors,
@@ -2364,6 +2366,7 @@ impl CsrExpandExec {
             Boundedness::Bounded,
         ));
         Self {
+            metrics: Default::default(),
             input,
             key_column,
             adjacency,
@@ -2829,6 +2832,10 @@ impl ExecutionPlan for CsrExpandExec {
         "CsrExpandExec"
     }
 
+    fn metrics(&self) -> Option<datafusion::physical_plan::metrics::MetricsSet> {
+        Some(self.metrics.clone_inner())
+    }
+
     /// Estimated output rows: input rows times the mean degree. Column statistics
     /// are unknown. Feeds DataFusion's join sizing above the expansion.
     fn partition_statistics(
@@ -2893,7 +2900,8 @@ impl ExecutionPlan for CsrExpandExec {
         partition: usize,
         context: Arc<TaskContext>,
     ) -> datafusion::common::Result<SendableRecordBatchStream> {
-        let input = self.input.execute(partition, context.clone())?;
+        let (input, input_time) =
+            crate::exec_metrics::time_input(self.input.execute(partition, context.clone())?);
         // Resolve by name at execution time, so later column pruning cannot shift it.
         let key_index = input.schema().index_of(&self.key_column)?;
         let closing_index = self
@@ -3110,7 +3118,14 @@ impl ExecutionPlan for CsrExpandExec {
                 }
             }
         });
-        Ok(Box::pin(RecordBatchStreamAdapter::new(out_schema, stream)))
+        let output: SendableRecordBatchStream =
+            Box::pin(RecordBatchStreamAdapter::new(out_schema, stream));
+        Ok(crate::exec_metrics::measure(
+            output,
+            &self.metrics,
+            partition,
+            input_time,
+        ))
     }
 }
 

@@ -1107,16 +1107,21 @@ impl CypherEngine {
         Ok(reader.into_pyarrow(py)?.unbind())
     }
 
-    #[pyo3(signature = (query, params = None))]
+    #[pyo3(signature = (query, params = None, *, analyze = false))]
     fn explain(
         &self,
         py: Python,
         query: &str,
         params: Option<&Bound<'_, PyDict>>,
+        analyze: bool,
     ) -> PyResult<String> {
         let params = python_params(params)?;
-        RT.block_on(Some(py), self.inner.explain(query, params))?
-            .map_err(graph_error_to_pyerr)
+        if analyze {
+            RT.block_on(Some(py), self.inner.explain_analyze(query, params))?
+        } else {
+            RT.block_on(Some(py), self.inner.explain(query, params))?
+        }
+        .map_err(graph_error_to_pyerr)
     }
 
     fn checkout_latest(&self, py: Python) -> PyResult<()> {
@@ -1310,16 +1315,21 @@ impl SqlEngine {
         record_batch_to_python_table(py, &result_batch)
     }
 
-    #[pyo3(signature = (sql, params = None))]
+    #[pyo3(signature = (sql, params = None, *, analyze = false))]
     fn explain(
         &self,
         py: Python,
         sql: &str,
         params: Option<&Bound<'_, PyDict>>,
+        analyze: bool,
     ) -> PyResult<String> {
         let params = python_params(params)?;
-        RT.block_on(Some(py), self.inner.explain(sql, params))?
-            .map_err(graph_error_to_pyerr)
+        if analyze {
+            RT.block_on(Some(py), self.inner.explain_analyze(sql, params))?
+        } else {
+            RT.block_on(Some(py), self.inner.explain(sql, params))?
+        }
+        .map_err(graph_error_to_pyerr)
     }
 
     fn checkout_latest(&self, py: Python) -> PyResult<()> {

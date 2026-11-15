@@ -8,6 +8,12 @@ All of these operators were added in lance-csr. [lance-graph](https://github.com
 lance-csr was forked from, has no DataFusion extension nodes: it plans every hop as hash joins, which is the
 `use_csr=False` plan below and the fallback lance-csr keeps for hops the CSR can't take.
 
+Each operator also reports metrics for `explain(..., analyze=True)`. A shared wrapper (`exec_metrics.rs`) times the
+operator's input stream and its output stream, and records `output_rows` and `elapsed_compute`: the time spent in the
+operator's own polls minus the time spent polling its input, which is how DataFusion's operators count it. Work an
+operator hands to another task isn't counted, and the child plans `Apply` and `PathMatch` run themselves count as
+their own time.
+
 The plans below come from a four-person graph: a `Person` table (`id`, `name`, `age`) and a `KNOWS` table (`src`,
 `dst`, `since`) with four edges, in memory, with `use_csr=True`. Plans of real graphs differ in their numbers and
 partitioning, not in their operators.

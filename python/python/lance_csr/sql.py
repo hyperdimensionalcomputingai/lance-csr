@@ -224,12 +224,16 @@ class SqlEngine:
         return self._inner.execute(sql, params, timeout=timeout)
 
     def explain[ParameterT: Parameter](
-        self, sql: str, params: dict[str, ParameterT] | None = None
+        self,
+        sql: str,
+        params: dict[str, ParameterT] | None = None,
+        *,
+        analyze: bool = False,
     ) -> str:
-        """The optimized logical and physical plans for a query, without running it.
+        """The optimized logical and physical plans for a query.
 
         The plans are built afresh, with `params` bound, and show pushed-down Lance
-        scans and CSR operators.
+        scans and CSR operators. The query doesn't run unless `analyze` is set.
 
         Parameters
         ----------
@@ -238,6 +242,12 @@ class SqlEngine:
         params : dict[str, Parameter] or None
             Values for `$name` parameters, as for
             [`execute`][lance_csr.SqlEngine.execute].
+        analyze : bool
+            Run the query, like SQL's `EXPLAIN ANALYZE`, and show each physical
+            operator's metrics (output rows, elapsed compute time and more) under
+            `== Physical Plan with Metrics ==`. The query is planned as
+            [`execute`][lance_csr.SqlEngine.execute] plans it, reusing its cached
+            plan template, and runs to completion; its rows are discarded.
 
         Returns
         -------
@@ -248,8 +258,10 @@ class SqlEngine:
         ------
         ValueError
             If the query is invalid or would write.
+        RuntimeError
+            If `analyze` is set and the query fails while running.
         """
-        return self._inner.explain(sql, params)
+        return self._inner.explain(sql, params, analyze=analyze)
 
     def checkout_latest(self) -> None:
         """Move every Lance dataset to its latest version.

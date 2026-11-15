@@ -138,6 +138,8 @@ fn equality_divisor(filters: &[Expr], distinct: &HashMap<String, usize>) -> usiz
 /// Scan wrapper that overrides `distinct_count` for the configured columns.
 #[derive(Debug)]
 pub struct KeyStatisticsExec {
+    /// Per-partition metrics for `EXPLAIN ANALYZE`.
+    metrics: datafusion::physical_plan::metrics::ExecutionPlanMetricsSet,
     input: Arc<dyn ExecutionPlan>,
     /// Column name -> distinct count; applied by name to whatever the input outputs,
     /// so it stays right when DataFusion prunes or reorders the scan's columns.
@@ -163,6 +165,7 @@ impl KeyStatisticsExec {
             return input;
         }
         Arc::new(Self {
+            metrics: Default::default(),
             input,
             distinct: Arc::new(relevant),
             rows_divisor,
@@ -186,6 +189,10 @@ impl DisplayAs for KeyStatisticsExec {
 impl ExecutionPlan for KeyStatisticsExec {
     fn name(&self) -> &str {
         "KeyStatisticsExec"
+    }
+
+    fn metrics(&self) -> Option<datafusion::physical_plan::metrics::MetricsSet> {
+        Some(self.metrics.clone_inner())
     }
 
     fn properties(&self) -> &Arc<PlanProperties> {
@@ -216,7 +223,14 @@ impl ExecutionPlan for KeyStatisticsExec {
         partition: usize,
         context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream> {
-        self.input.execute(partition, context)
+        let (input, input_time) =
+            crate::exec_metrics::time_input(self.input.execute(partition, context)?);
+        Ok(crate::exec_metrics::measure(
+            input,
+            &self.metrics,
+            partition,
+            input_time,
+        ))
     }
 
     fn partition_statistics(&self, partition: Option<usize>) -> Result<Arc<Statistics>> {

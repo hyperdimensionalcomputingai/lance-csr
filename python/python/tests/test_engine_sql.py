@@ -51,6 +51,17 @@ def datasets(request, tmp_path):
 
 
 @pytest.mark.parametrize("use_csr", [True, False])
+def test_explain_analyze_runs_the_query(datasets, use_csr):
+    engine = SqlEngine(datasets, CONFIG, use_csr=use_csr)
+    params = {"max_age": 40, "min_age": 28}
+    plan = engine.explain(FRIENDS_OF_FRIENDS, params, analyze=True)
+    assert "== Physical Plan with Metrics ==" in plan
+    assert "output_rows=" in plan
+    assert ("CsrExpandExec" in plan) == use_csr
+    assert "output_rows=" not in engine.explain(FRIENDS_OF_FRIENDS, params)
+
+
+@pytest.mark.parametrize("use_csr", [True, False])
 def test_graph_table_with_parameters(datasets, use_csr):
     engine = SqlEngine(datasets, CONFIG, use_csr=use_csr)
     result = engine.execute(FRIENDS_OF_FRIENDS, {"max_age": 40, "MIN_AGE": 28})

@@ -30,7 +30,8 @@ Source paths below are in `crates/lance-csr/src/`.
 6. **Execute.** DataFusion optimizes and runs the physical plan, vectorized and multi-threaded across cores,
    with `CsrExpandExec`, the shortest-path search and `ApplyExec` as extension operators.
 
-`engine.explain(query)` prints the plans from steps 4 to 6.
+`engine.explain(query)` prints the plans from steps 4 to 6, and `engine.explain(query, analyze=True)` runs step 6
+and adds each operator's row counts and time (see [`explain`](cypher.md#explainquery-paramsnone-analyzefalse)).
 
 A CALL body is kept as an unoptimized child template. For each incoming row, `ApplyExec` binds its
 explicit imports, plans the child, and streams that child's batches. Child `LIMIT` and aggregates

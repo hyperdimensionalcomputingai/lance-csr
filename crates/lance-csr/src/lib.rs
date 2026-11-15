@@ -55,6 +55,7 @@ mod csr_traversal;
 pub mod datafusion_planner;
 pub mod engine;
 pub mod error;
+mod exec_metrics;
 pub mod graph_table;
 pub mod key_statistics;
 pub mod lance_vector_search;
