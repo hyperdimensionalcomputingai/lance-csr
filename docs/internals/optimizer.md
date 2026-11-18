@@ -10,7 +10,9 @@ iterative traversal that replaces it when the CSR covers the path.
 
 ## Logical optimizer rules
 
-DataFusion's own optimizer treats extension nodes as opaque, so two `OptimizerRule`s fill the gaps.
+DataFusion's own optimizer treats extension nodes as opaque, so three `OptimizerRule`s fill the gaps. They run
+in the order below. The third, `CountCsrDegrees`, belongs to the [two-hop count](#two-hop-counts-from-degrees)
+rewrite and is described there.
 
 ### `PushCsrTargetFilters`
 
@@ -44,7 +46,8 @@ all inputs of nodes whose column use is implicit, such as `DISTINCT` and `UNION`
 
 ### Why the order matters
 
-`PushCsrTargetFilters` runs first. After a filter moves into the node, the columns only the filter reads are no longer
+`PushCsrTargetFilters` runs first, and `CountCsrDegrees` after it, since counting in place needs the hop's filter
+already inside the node. After a filter moves into the node, the columns only the filter reads are no longer
 referenced above it, so `PruneCsrTargetColumns` can drop them from the output. The logical plan (before the rules) and
 the physical plan (after them) of one hop show both:
 
@@ -293,8 +296,10 @@ graph join chain, that turns a multi-million-row intermediate into an estimate o
 128k-row `CollectLeft` threshold, and DataFusion then builds that intermediate as one single-threaded hash table.
 
 `KeyStatisticsProvider` wraps each table and reports distinct counts for its node-id and edge-endpoint columns, taken
-from the CSR when there is one and otherwise from one scan of the endpoint columns. Every other statistic comes from
-the inner table. The counts are cached per dataset version, so a `checkout_latest()` with no changes costs nothing.
+from the CSR when there is one and otherwise from one scan of the endpoint columns. Lance applies filters pushed into
+its scan exactly, so no `FilterExec` is left to estimate them; for each `column = literal` filter pushed into the
+scan on a column with a known distinct count, the provider divides the row count by that count, as DataFusion
+estimates equality. Every other statistic comes from the inner table. The counts are cached per dataset version, so a `checkout_latest()` with no changes costs nothing.
 
 ### Cross joins build on the side with fewer rows
 

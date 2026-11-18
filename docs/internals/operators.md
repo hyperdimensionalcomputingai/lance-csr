@@ -1,7 +1,8 @@
 # Custom operators
 
 Every graph operator in lance-csr is a DataFusion extension: a logical node that implements
-`UserDefinedLogicalNodeCore`, lowered by `CsrExtensionPlanner` to its own `ExecutionPlan`. This page covers each one,
+`UserDefinedLogicalNodeCore`, lowered by `CsrExtensionPlanner` to its own `ExecutionPlan`. The exception is
+`HopDegreesNode`, which the optimizer replaces (see [two-hop counts](optimizer.md#two-hop-counts-from-degrees)). This page covers each one,
 with the plans `engine.explain(query)` prints for it.
 
 All of these operators were added in lance-csr. [lance-graph](https://github.com/lance-format/lance-graph), which
@@ -121,7 +122,8 @@ ProjectionExec: expr=[b__name@3 as b.name]
 - **Adaptive reads of lazy Lance tables.** A batch of scattered rows from a large Lance table touches most of a
   column's pages. Once a relationship filter has seen more than 1/256 of the relationship's edges, the operator reads
   the filter's columns once, in order, builds a bitset per fragment, and checks edges against it from then on.
-  Target-column fetches switch to one sequential read the same way. A named relationship's output columns switch
+  Target-column fetches switch to one sequential read once the fetched target rows pass 1/8 of the node table and
+  more than one batch. A named relationship's output columns switch
   once a hop fetches more than two chunks of them: one take of a chunk of scattered rows costs 0.3 to 0.6 of reading
   the column (measured on tables of 180K to 20M edges). Edges are counted where they are fetched, after the filters.
   When the operator has no filter, closing column or path walk, each input batch's keys give an upper bound on its
@@ -131,7 +133,8 @@ ProjectionExec: expr=[b__name@3 as b.name]
   on takes. In-memory Arrow tables always gather directly.
 - **Bounded memory per partition.** Each partition holds one input batch and at most one output chunk of neighbour
   positions, sized by DataFusion's batch size, before it fetches properties. It yields partway through a high-degree
-  node's neighbour list.
+  node's neighbour list. The exception is the sequential reads above: once a hop switches to them, the columns it
+  read stay in memory for the rest of the query, shared by its partitions.
 - **Fast hashing on the hot path.** Integer-keyed maps on the per-edge lookup path use `ahash`, as Arrow and
   DataFusion do; with the standard library's SipHash, hashing dominated expansion time in profiles.
 - **A predicate pushdown boundary.** The node lists its own output columns in `prevent_predicate_push_down_columns`,
@@ -293,4 +296,5 @@ holds one outer batch and one child stream per partition, and dropping the resul
 `KeyStatisticsExec` is a transparent wrapper over a table scan that reports distinct counts for join keys (see
 [join statistics](optimizer.md#join-statistics-for-graph-workloads)). Filters, projections, limits and sort pushdown
 pass through to the inner scan unchanged, as with DataFusion's own `CooperativeExec`. It shows in plans as
-`KeyStatisticsExec: distinct=[id=4]`.
+`KeyStatisticsExec: distinct=[id=4]`, with `, rows/N` appended when it divides the row count for equality filters
+pushed into a Lance scan (see [join statistics](optimizer.md#join-statistics-for-graph-workloads)).

@@ -43,8 +43,9 @@ engine = CypherEngine(config, datasets, use_csr=True)
 
 ## `CypherEngine`
 
+<!-- skip-check -->
 ```python
-CypherEngine(config, datasets, use_csr=False, target_partitions=None)
+CypherEngine(config, datasets, use_csr=False, *, target_partitions=None, persist_csr=False)
 ```
 
 The constructor validates the datasets against the config, registers them with a DataFusion session, and,
@@ -139,7 +140,9 @@ print(rows)  # 4
 - Batches are computed as you read them. Scans, filters and projections stream with bounded memory; joins,
   sorts and aggregations may still buffer their inputs.
 - CSR expansion visits neighbours and fetches their properties a chunk at a time, including when one node
-  has many neighbours. See [CSR memory cost](csr.md#turning-it-on) for what it keeps in memory.
+  has many neighbours. A large hop over a Lance relationship may read that relationship's fixed-width columns
+  whole instead (see [Relationship variables](csr.md#relationship-variables)). See
+  [CSR memory cost](csr.md#turning-it-on) for what the CSR keeps in memory.
 - Planning errors (a syntax error, an unknown label) raise immediately. Execution errors raise while reading.
 - The reader keeps its snapshot alive, so a concurrent [`checkout_latest()`](lance.md#checkout-latest) doesn't affect it.
 - Dropping the reader cancels the remaining work.
@@ -197,6 +200,8 @@ A query that fails while running raises `RuntimeError`, as `execute` does.
 | `checkout_latest()` | `None`. Moves every Lance dataset to its latest version. See [Lance datasets](lance.md#checkout-latest). |
 | `dataset_versions()` | `dict[str, int]`: the pinned version of each Lance dataset. |
 | `csr_stats()`, `node_index_stats()` | CSR statistics. See [The CSR index](csr.md#inspecting-the-csr). |
+| `optimize_csr()` | `None`. Rebuilds each CSR that carries a delta. See [Rebuilding the CSR](csr.md#rebuilding-the-csr). |
+| `delete_stored_csr()` | `int`: the number of stored CSR files deleted. See [Storing the CSR](csr.md#storing-the-csr). |
 | `execute_with_vector_rerank(query, vector_search)` | A table reranked by vector similarity. See [Vector search](vector-search.md). |
 
 ## `CypherQuery`
@@ -220,9 +225,9 @@ print(query.execute(datasets).to_pydict())  # {'name': ['Bob', 'David']}
 | `CypherQuery(query_text)` | Parses the query; raises `ValueError` on a syntax error. |
 | `with_config(config)` | Sets the `GraphConfig`. |
 | `with_parameter(key, value)` | Binds one `$key` parameter. |
-| `execute(datasets, strategy=None)` | Runs it and returns a `pyarrow.Table`. |
+| `execute(datasets, strategy=None, *, timeout=None)` | Runs it and returns a `pyarrow.Table`. See [Query deadlines](#query-deadlines). |
 | `execute_with_namespace(namespace, strategy=None)` | Runs it against a [`DirNamespace`](lance.md#directory-namespaces). |
-| `explain(datasets)` | The plan as text. |
+| `explain(datasets)` | The plan as text. For runtime metrics use `CypherEngine.explain(..., analyze=True)`. |
 | `to_sql(datasets, dialect=None)` | The equivalent SQL. See [SQL queries](sql.md#from-cypher-to-sql). |
 | `execute_with_vector_rerank(datasets, vector_search)` | See [Vector search](vector-search.md). |
 | `query_text()`, `parameters()` | The query string and bound parameters. |
@@ -441,10 +446,10 @@ This also applies inside `CALL` and `UNION`, and when equal-label endpoints pass
 | Nulls | `IS NULL`, `IS NOT NULL` |
 | Temporal | `d.year`, `d.month`, `d.day`, `d.hour` and other component access |
 
-!!! note "String-matching operators use SQL `LIKE`"
+!!! note "No regular expressions"
 
-    `STARTS WITH`, `ENDS WITH` and `CONTAINS` need a string literal on the right and compile to `LIKE`, so a
-    `%` or `_` inside that literal acts as a wildcard. Regular expressions (`=~`) are not supported.
+    Regular expressions (`=~`) are not supported. `STARTS WITH`, `ENDS WITH` and `CONTAINS` match literal
+    text; use `LIKE` or `ILIKE` when you need wildcards.
 
 ### Functions
 
@@ -524,7 +529,7 @@ counts retained elements directly. Each duplicate and each retained null element
 an empty or null input list produces zero, as for the existing comprehension. A mapped comprehension
 (`| expression`) or a pattern comprehension keeps the ordinary list-building path. The count path still
 unnests and groups rows; `explain()` shows a filtered count in place of ordered list aggregation. A direct
-count output is marked non-nullable in its Arrow schema; the previous list-size expression was marked nullable.
+count output is marked non-nullable in its Arrow schema.
 
 ### Ordered reduce and list predicates
 
@@ -625,9 +630,11 @@ device_engine.execute(
 
 | Exception | Raised when |
 | --- | --- |
-| `ValueError` | The query doesn't parse, refers to an unknown label, a dataset is missing a configured column, or a comparison/arithmetic expression has incompatible known types. Type errors name the expression and its operand types. Known scalar-function return types are checked through `WITH` and `UNWIND` scopes. |
-| `NotImplementedError` | The query parses but uses an unsupported feature (for example a function that isn't implemented, or more than 20 hops). |
+| `ValueError` | The query doesn't parse, refers to an unknown label, a dataset is missing a configured column, or a comparison/arithmetic expression has incompatible known types, or a function isn't implemented. Type errors name the expression and its operand types. Known scalar-function return types are checked through `WITH` and `UNWIND` scopes. |
+| `NotImplementedError` | The query parses but uses an unsupported feature (for example more than 20 hops). |
 | `RuntimeError` | Execution fails, for example when a Lance dataset can't be read. |
+| `TimeoutError` | A query passes its `timeout`. See [Query deadlines](#query-deadlines). |
+| `TypeError` | The engine gets a config that isn't a `GraphConfig`, an unsupported dataset type, or a non-integer `target_partitions`. |
 
 Known comparison and arithmetic types are checked against the current dataset schemas before planning.
 For example, adding a number to a string property reports the expression and both types in a

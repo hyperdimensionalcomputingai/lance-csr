@@ -40,7 +40,7 @@ explains the uv flags and release builds.
     From `python/`:
 
     ```bash
-    make test   # pytest python/tests
+    make test   # pytest python/tests, plus the docstring examples
     make lint   # ruff check, ruff format --check, pyright
     ```
 

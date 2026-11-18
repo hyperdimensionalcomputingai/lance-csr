@@ -4,7 +4,7 @@
 fast random access and vector indexes. lance-csr can query Lance datasets on disk without loading them into
 memory first.
 
-lance-csr reads Lance with its own built-in copy of the Lance Rust library, version 13, so it doesn't depend on
+lance-csr reads Lance with its own built-in copy of the Lance Rust library, so it doesn't depend on
 [`pylance`](https://pypi.org/project/pylance/), Lance's Python package. You still need `pylance` to write datasets
 and to open the `lance.dataset(...)` handles you pass in, so add it next to lance-csr:
 
@@ -12,9 +12,12 @@ and to open the `lance.dataset(...)` handles you pass in, so add it next to lanc
 uv add lance-csr pylance
 ```
 
-Any `pylance` version works as long as it writes a file format Lance 13 can read. Lance reads datasets written
-by older versions, and `pylance` 13 and 14 both write file format 2.2 by default, which Lance 13 reads. A dataset
-written in a newer format than Lance 13 knows fails to open with an error.
+Any `pylance` version works as long as it writes a file format the built-in Lance can read. lance-csr moves to
+new Lance releases as they come out (its
+[`Cargo.toml`](https://github.com/hyperdimensionalcomputingai/lance-csr/blob/main/crates/lance-csr/Cargo.toml)
+names the version), and Lance reads datasets written by older versions, so a `pylance` whose major version is the
+same as or older than the built-in Lance's is safe. A dataset written in a newer file format than the built-in
+Lance knows fails to open with an error.
 
 ## Lazy, version-pinned reads
 
@@ -101,7 +104,7 @@ rows and results are never cached. Query text and parameter names/types identify
 separate from non-null values. Least recently used templates are evicted at the limit.
 
 Lists, maps and parameterized `SKIP`/`LIMIT` counts use ordinary planning because their shape or value can
-change the plan. Queries whose operators cannot produce a reusable template fall back to ordinary planning. `explain()` plans the current values directly. A successful `checkout_latest()` starts an empty cache for the
+change the plan. Queries whose operators cannot produce a reusable template fall back to ordinary planning. `explain()` plans the current values directly; `explain(..., analyze=True)` plans as `execute()` does, through the cache. A successful `checkout_latest()` starts an empty cache for the
 new snapshot, even when no dataset changed; active readers retain their existing plans.
 These rules apply with and without CSR. They do not promise a speedup for a particular workload.
 
@@ -147,7 +150,7 @@ memory. Joins, sorts and aggregations may still buffer their inputs.
 | --- | --- |
 | Lance dataset rows | On disk; read per query, only the needed columns and rows |
 | PyArrow inputs | In memory for the engine's lifetime, sliced across cores without copying |
-| CSR adjacency (`use_csr=True`) | In memory, about 20 bytes per edge for both directions plus about 37 per source node; see [the CSR's memory cost](csr.md#turning-it-on) |
+| CSR adjacency (`use_csr=True`) | In memory, in proportion to the number of edges, plus an index entry per source node; see [the CSR's memory cost](csr.md#turning-it-on) |
 | Node index (`use_csr=True`) | In memory, one entry per node row |
 | Join-key statistics | In memory, a few numbers per key column |
 | Query results | In memory with `execute()`; streamed with `execute_batches()` |
@@ -182,8 +185,8 @@ engine.checkout_latest()      # the engine sees the new version
 - Reads are lazy and version-pinned exactly as with `lance.dataset(...)`.
 - Passing the LanceDB `Table` object itself raises a `TypeError`. `table.to_arrow()` works, but loads the
   whole table into memory and never sees later versions.
-- Tested with LanceDB 0.40.0 on local tables (Lance file format 2.2). A LanceDB release bundling a newer Lance
-  major may write files this engine can't read.
+- Tested on local LanceDB tables. A LanceDB release that bundles a newer Lance major than lance-csr's may write
+  files this engine can't read.
 
 !!! failure "Not supported"
 

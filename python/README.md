@@ -131,15 +131,15 @@ for batch in engine.execute_batches("MATCH (p:Person) RETURN p.id"):
     ...                                                # pyarrow.RecordBatch, one at a time
 ```
 
-Experimental: `CypherEngine(config, datasets, use_csr=True)` answers single-hop patterns over integer ids
+Experimental: `CypherEngine(config, datasets, use_csr=True)` answers hops over integer ids
 with an in-memory CSR adjacency, and fetches target rows by position instead of joining. The CSR is
 rebuilt on `checkout_latest()` when the relationship table changes, and the per-label id index when its node
-table changes. Results are identical; peak memory grows by about 95 bytes per edge while the CSR is built (both directions).
+table changes. Results are identical; the CSR's memory grows with the number of edges, and building it briefly needs more.
 
-lance-csr reads Lance through its own built-in Lance 13 library, so it doesn't depend on `pylance`.
+lance-csr reads Lance through its own built-in Lance library, so it doesn't depend on `pylance`.
 Install `pylance` yourself to write datasets and open the `lance.dataset(...)` handles you pass in.
-Any version that writes a file format Lance 13 reads works; `pylance` 13 and 14 write format 2.2
-by default.
+Any version that writes a file format the built-in Lance reads works; a `pylance` with the same or an
+older major version is always safe.
 
 ### 4. Tables created with LanceDB
 

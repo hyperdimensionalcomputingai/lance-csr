@@ -986,20 +986,6 @@ async fn build_csr_entries(
     Ok(entries.into_iter().flatten().collect())
 }
 
-/// Cypher query engine with a cached catalog for efficient multi-query execution.
-///
-/// The engine registers each dataset once and reuses the catalog and DataFusion
-/// context across queries.
-///
-/// Lance datasets are read lazily from storage, pinned to the version they were
-/// opened at: writes made later (by this or another process) are not visible until
-/// [`checkout_latest`](Self::checkout_latest). Each dataset is pinned separately; versions across
-/// tables are not a transactional multi-table snapshot. Arrow batches are held in
-/// memory and never change; build a new engine to replace them.
-///
-/// Building the CSR (`use_csr`) is CPU-bound work inside an async function: in an
-/// application with its own async runtime, construct the engine and call `checkout_latest()` on a
-/// blocking thread (for example `tokio::task::spawn_blocking` plus `block_on`).
 /// Options for [`CypherEngine::with_options`].
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct EngineOptions {
@@ -1015,6 +1001,20 @@ pub struct EngineOptions {
     pub persist_csr: bool,
 }
 
+/// Cypher query engine with a cached catalog for efficient multi-query execution.
+///
+/// The engine registers each dataset once and reuses the catalog and DataFusion
+/// context across queries.
+///
+/// Lance datasets are read lazily from storage, pinned to the version they were
+/// opened at: writes made later (by this or another process) are not visible until
+/// [`checkout_latest`](Self::checkout_latest). Each dataset is pinned separately; versions across
+/// tables are not a transactional multi-table snapshot. Arrow batches are held in
+/// memory and never change; build a new engine to replace them.
+///
+/// Building the CSR (`use_csr`) is CPU-bound work inside an async function: in an
+/// application with its own async runtime, construct the engine and call `checkout_latest()` on a
+/// blocking thread (for example `tokio::task::spawn_blocking` plus `block_on`).
 pub struct CypherEngine {
     config: GraphConfig,
     state: RwLock<Arc<EngineState>>,

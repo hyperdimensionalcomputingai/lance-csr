@@ -57,7 +57,8 @@ class CypherEngine:
     names and types of scalar parameters. Values are bound before optimization on every
     call. Container parameters, rich path values, `CALL` subqueries, parameterized
     `SKIP`/`LIMIT` and unsupported template shapes use ordinary planning.
-    [`explain`][lance_csr.CypherEngine.explain] always plans directly, and a successful
+    [`explain`][lance_csr.CypherEngine.explain] plans directly unless `analyze=True`,
+    which plans as `execute` does, through the cache. A successful
     `checkout_latest` clears the cache. See [Repeated
     queries](lance.md#repeated-queries).
 
