@@ -15,20 +15,22 @@ crate, `lance-csr`, is published on crates.io.
 │   ├── pyproject.toml            # The lance-csr package, built with maturin
 │   ├── python/lance_csr/         # Python package that wraps the bindings
 │   ├── python/tests/             # Python tests
-│   └── benchmarks/               # Engine benchmarks (catalog reuse, bounded memory, CSR)
+│   └── benchmarks/               # Engine micro-benchmarks (see Benchmarks)
 ├── examples/                     # Runnable Python examples
 ├── ci/check_wheel.py             # Checks a built wheel in a clean environment, without Rust
 └── docs/                         # Documentation
 ```
 
-A query goes through four stages, all in `crates/lance-csr/src/`:
+A query goes through five stages, all in `crates/lance-csr/src/`:
 
 1. **Parse** (`parser.rs`) the Cypher text into an AST (`ast.rs`).
 2. **Analyze** (`semantic.rs`) variables and scopes, and substitute parameters.
-3. **Plan** (`logical_plan.rs`) graph operators: scans, expansions, variable-length paths, OPTIONAL MATCH,
+3. **Rewrite** (`pattern_order.rs`, `pattern_alternatives.rs`) each pattern to start at its most selective node,
+   and split alternations and multi-label nodes into branches.
+4. **Plan** (`logical_plan.rs`) graph operators: scans, expansions, variable-length paths, OPTIONAL MATCH,
    comprehensions and shortest paths.
-4. **Build** (`datafusion_planner/`) a DataFusion plan from them, with CSR expansions (`csr_expand.rs`) and the
-   shortest-path search (`shortest_path.rs`) as DataFusion extension operators.
+5. **Build** (`datafusion_planner/`) a DataFusion plan from them, with graph operators such as CSR expansions
+   (`csr_expand.rs`) and the shortest-path search (`shortest_path.rs`) as DataFusion extension operators.
 
 [DataFusion internals](internals/index.md) describes each extension operator, optimizer rule and graph rewrite, with
 a map of the source files.

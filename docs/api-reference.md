@@ -51,8 +51,8 @@ print(result.to_pylist())  # [{'p.id': 1}, {'p.id': 2}]
 Methods that take `datasets` take a `dict[str, object]` mapping each node label or relationship type (or SQL
 table name) to one of:
 
-- `lance.LanceDataset`: read lazily and version-pinned by `CypherEngine`; read into memory by the other
-  classes;
+- `lance.LanceDataset`: read lazily and version-pinned by `CypherEngine` and `SqlEngine`; read into memory for
+  each call by `CypherQuery` and `SqlQuery`;
 - `pyarrow.Table`, `pyarrow.RecordBatch`, `pyarrow.RecordBatchReader`, or any object exporting the Arrow C
   stream interface (`__arrow_c_stream__`).
 

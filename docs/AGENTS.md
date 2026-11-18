@@ -13,8 +13,23 @@ The one exception is `internals/`, the collapsed "DataFusion internals" section 
 contributors and the few readers who want the technical detail: how lance-csr extends DataFusion (extension nodes,
 optimizer rules, graph rewrites, statistics) and how the indexes are maintained. Keep user-facing behaviour on the
 guide pages and link to it from there rather than repeating it. Its plans are `explain()` output pasted as `text`
-blocks; when an operator's display or the planner changes, re-run those queries against a local build and update
-them.
+blocks, often trimmed to the lines that matter, so `check_snippets.py` can't check them. `explain_plans.py` prints
+every one of them, and the whole-relationship plan in `csr.md`, from a local build, each under the page and section
+it belongs to. Whenever you change an operator or its display, an optimizer rule, a rewrite or the planner, or
+touch a page that shows a plan:
+
+1. Rebuild the extension (`cd python && make install`).
+2. Run the script. The 100,000-person plans need a checkout of
+   [graph-benchmark](https://github.com/hyperdimensionalcomputingai/graph-benchmark) with its Lance datasets built
+   (`lance_csr/build_graph.py`); without `--graph-benchmark` the script skips them and says so.
+
+    ```bash
+    cd python && uv run --no-sync python ../docs/explain_plans.py --graph-benchmark ../../graph-benchmark
+    ```
+
+3. Compare each section's plan with the page, line by line, and update the page where they differ, keeping its
+   trimming (`...`, `, ...`). If the prose around a plan describes an operator or a line that changed, update it too.
+4. When you add a plan to a page, add its query and graph to `explain_plans.py` under that page's name.
 
 ## How the site is built
 
@@ -29,7 +44,7 @@ them.
   `lance-csr` Pages project) through its native GitHub integration. `site_url` in `zensical.toml` must match
   it, because it sets the canonical and social-preview URLs. Pushes to `main` automatically deploy when automatic production deployments are enabled.
   Build from the repository root with the locked build command above and publish `site/`.
-- Files that aren't pages (this file, `check_snippets.py`, `sync_benchmarks.py`, the uv project, `overrides/`, the
+- Files that aren't pages (this file, `check_snippets.py`, `explain_plans.py`, `sync_benchmarks.py`, the uv project, `overrides/`, the
   brand README and previews) are listed under `exclude_docs` in `zensical.toml`. Add new non-page files there.
 - Benchmark tables between `<!-- bench:... -->` markers in `benchmarks.md` are
   generated; never edit them by hand. The runners and results live in graph-benchmark-ldbc-complex and

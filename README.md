@@ -56,8 +56,8 @@ case needs distributed graph queries or graph algorithms, that's the kind of eng
 - **Broader openCypher support**, enough to run the Graph Data Council's Interactive complex queries:
   `OPTIONAL MATCH`, pattern predicates, chained `WITH`, `UNWIND`, list and pattern comprehensions,
   `shortestPath`, `$parameters` and more.
-- **Correctness fixes** to behaviour inherited from lance-graph, each with a regression test, and current
-  dependencies (Lance 13, DataFusion 54, Arrow 58).
+- **Correctness fixes** to behaviour inherited from lance-graph, each with a regression test, and dependencies
+  kept current with Lance, DataFusion and Arrow releases.
 
 ## Install
 
@@ -66,7 +66,7 @@ uv add lance-csr
 ```
 
 To write Lance datasets or query them on disk, also add `pylance` (`uv add lance-csr pylance`). lance-csr reads
-Lance with its own built-in Lance library, so any `pylance` version that writes a file format Lance 13 reads
+Lance with its own built-in Lance library, so any `pylance` version that writes a file format that library reads
 works; see [Lance datasets](https://lance-csr.hdclabs.ai/lance/).
 
 Prebuilt wheels cover Linux x86-64 and aarch64, native Apple Silicon and Windows x86-64 (CPython 3.12+), so no

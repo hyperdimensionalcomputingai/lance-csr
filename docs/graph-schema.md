@@ -167,9 +167,10 @@ integer** node keys. If your keys are strings or UUIDs, queries still return the
 uses hash joins over whole tables instead of the CSR, without a warning. Add an integer id column if traversal
 speed matters; the ids don't have to be consecutive.
 
-## Removed builder methods
+## Older builder names { #removed-builder-methods }
 
-The 0.1 names, deprecated since 0.2.0, were removed in 0.5.0. Replace them as follows:
+Code written for early releases of lance-csr, or for lance-graph, may use `with_node_label` and
+`with_relationship`. Those names no longer exist; replace them as follows:
 
 | Removed | Replacement |
 | --- | --- |

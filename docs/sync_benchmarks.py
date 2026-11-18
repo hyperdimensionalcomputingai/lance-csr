@@ -32,31 +32,31 @@ TARGETS = [ROOT / "docs" / "benchmarks.md"]
 BENCHMARKS = {
     "ic": {
         "repo": "hyperdimensionalcomputingai/graph-benchmark-ldbc-complex",
-        "ref": "f3e63fd2b7239a1364a864458f3e7ae07f0d833f",
+        "ref": "a332324f2d4660b03d1d429d8ef99767af3981e5",
         # When lance-csr was re-run alone; omit when every engine ran together.
-        "others_measured": "2026-10-24",
+        "others_measured": "between 2026-10-24 and 2026-11-01",
         "label": "IC{n}",
         "engines": [
-            ("lance-csr-0.3.1-memory", "lance-csr 0.3.1, in memory"),
-            ("lance-csr-0.3.1-lazy", "lance-csr 0.3.1, lazy"),
-            ("neo4j-2026.09.0", "Neo4j 2026.09.0"),
-            ("kuzu-0.11.3", "Kuzu 0.11.3"),
-            ("ladybug-0.21.2", "Ladybug 0.21.2"),
+            ("lance-csr-0.12.0-memory", "lance-csr, in memory"),
+            ("lance-csr-0.12.0-lazy", "lance-csr, lazy"),
+            ("neo4j-2026.09.0", "Neo4j"),
+            ("kuzu-0.11.3", "Kuzu"),
+            ("ladybug-0.22.1", "Ladybug"),
         ],
     },
     "q30": {
         "repo": "hyperdimensionalcomputingai/graph-benchmark-ldbc",
-        "ref": "b649bc166cb5a04a542882fc070d9c4d83507c65",
+        "ref": "199852076ba8dceb345e18eeb2f8ac04c73f3ea1",
         # When lance-csr was re-run alone; omit when every engine ran together.
-        "others_measured": "2026-10-24",
+        "others_measured": "between 2026-10-24 and 2026-11-01",
         "label": "Q{n}",
         "engines": [
-            ("lance-csr-0.3.1-memory", "lance-csr 0.3.1, in memory"),
-            ("lance-csr-0.3.1-lazy", "lance-csr 0.3.1, lazy"),
-            ("neo4j-2026.09.0", "Neo4j 2026.09.0"),
-            ("kuzu-0.11.3", "Kuzu 0.11.3"),
-            ("ladybug-0.21.2", "Ladybug 0.21.2"),
-            ("lance-graph-0.5.4", "lance-graph 0.5.4"),
+            ("lance-csr-0.12.0-memory", "lance-csr, in memory"),
+            ("lance-csr-0.12.0-lazy", "lance-csr, lazy"),
+            ("neo4j-2026.09.0", "Neo4j"),
+            ("kuzu-0.11.3", "Kuzu"),
+            ("ladybug-0.22.1", "Ladybug"),
+            ("lance-graph-0.5.4", "lance-graph"),
         ],
     },
 }
@@ -107,11 +107,13 @@ def geomean_ratio(
 
 
 def describe(ratio: float) -> str:
-    return (
-        f"{ratio:.1f}× faster"
-        if ratio >= 1.05
-        else f"{ratio:.2f}× ({'slower' if ratio < 0.95 else 'on par'})"
-    )
+    "A rough ratio: the exact figure moves with every release of every engine."
+    if 0.95 <= ratio < 1.05:
+        return "on par"
+    if ratio < 1:
+        return f"~{1 / ratio:.1f}× slower"
+    # Nearest half from 2× up, one decimal below.
+    return f"~{round(ratio * 2) / 2:g}× faster" if ratio >= 2 else f"~{ratio:.1f}× faster"
 
 
 def render(key: str, spec: dict) -> dict[str, str]:
@@ -147,7 +149,7 @@ def render(key: str, spec: dict) -> dict[str, str]:
     others = engines[2:]
     summary = [
         "| lance-csr mode | "
-        + " | ".join(f"vs {title.rsplit(' ', 1)[0]}" for _, title in others)
+        + " | ".join(f"vs {title}" for _, title in others)
         + " |",
         "| --- |" + " ---: |" * len(others),
     ]
@@ -162,7 +164,7 @@ def render(key: str, spec: dict) -> dict[str, str]:
     # Battery power can throttle the CPU, so say when a run used it.
     power = " on battery power" if env.get("power") == "Battery Power" else ""
     when = (
-        f"lance-csr was measured on {env['date']}{power} and the other engines on {spec['others_measured']}, "
+        f"lance-csr was measured on {env['date']}{power} and the other engines {spec['others_measured']}, "
         "on the same machine, with"
         if "others_measured" in spec
         else f"Measured on {env['date']}{power}. Every engine ran one after another with"
@@ -171,7 +173,7 @@ def render(key: str, spec: dict) -> dict[str, str]:
         (
             f"- Run on {env['machine']}, {env['os']}, from the benchmark repository at commit "
             f"[`{spec['ref'][:7]}`]({commit}). {when} the repository's `run_benchmarks.sh` settings; see its "
-            "README to reproduce the runs."
+            "README to reproduce the runs. The engine versions measured are recorded there too."
         ),
         "- Ratios are geometric means of the per-query ratios, over the queries both engines answered correctly.",
     ]

@@ -171,7 +171,7 @@ is the one the engine already holds, but they do store the new one.
 Every batch is compressed with zstd, Arrow IPC's own buffer compression, on top of the packing. A load decompresses
 the arrays, checks them, and rebuilds the [source layout](#source-layouts), then releases the offsets. The file
 holds the source keys in the order they are numbered, so a bitmap direction's keys are ascending and a load
-chooses the bitmap layout again. Files written by 0.10 or earlier hold every direction's keys in table order, so a load
+chooses the bitmap layout again. Files in an older format (before format 3) hold every direction's keys in table order, so a load
 could never choose the bitmap layout for them. They carry an older format number, are ignored, and the next full build
 replaces them. That work is CPU-bound, so
 each load decodes on Tokio's blocking pool and relationship types load concurrently, up to one per core, while the

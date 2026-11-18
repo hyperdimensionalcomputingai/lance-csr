@@ -9,7 +9,7 @@ different: installing the crate, the async API, and the Rust types.
 
     Every public Rust type and function is documented on docs.rs under
     [`lance-csr`](https://docs.rs/lance-csr), including `DirNamespace` and the catalog types, which
-    lived in a separate `lance-csr-catalog` crate up to 0.7.1.
+    used to live in a separate `lance-csr-catalog` crate.
 
 Every Rust snippet on this page comes from
 [`examples/embedded_query.rs`](https://github.com/hyperdimensionalcomputingai/lance-csr/blob/main/crates/lance-csr/examples/embedded_query.rs),
@@ -33,8 +33,10 @@ Building it needs `protoc`, the Protocol Buffers compiler, for Lance's dependenc
 
 !!! warning "Use the same Lance, DataFusion and Arrow versions"
 
-    lance-csr 0.3 builds on `lance` 13, `datafusion` 54 and `arrow` 58. If your program also uses those crates,
-    for example to open datasets or read results, depend on the same major versions. Otherwise their types
+    lance-csr builds on specific major versions of `lance`, `datafusion` and `arrow`, listed in its
+    [`Cargo.toml`](https://github.com/hyperdimensionalcomputingai/lance-csr/blob/main/crates/lance-csr/Cargo.toml)
+    and moved forward as those projects release. If your program also uses those crates, for example to open
+    datasets or read results, depend on the same major versions. Otherwise their types
     (`Dataset`, `RecordBatch`) won't match lance-csr's.
 
 ## Build an engine
@@ -60,7 +62,9 @@ The third argument of `CypherEngine::new` is `use_csr`. With `true`, relationshi
 get [CSR adjacencies](csr.md) and node labels with unique integer ids get a node index, exactly as with
 `use_csr=True` in Python. `CypherEngine::with_target_partitions(config, sources, use_csr, Some(n))` also sets
 DataFusion's query partition target (1 to 1024), like `target_partitions=` in Python; see
-[Query parallelism](lance.md#query-parallelism).
+[Query parallelism](lance.md#query-parallelism). `CypherEngine::with_options(config, sources, options)` takes every
+setting at once as an `EngineOptions` (in `lance_csr::engine`), including `persist_csr`, which
+[stores the CSR](csr.md#storing-the-csr) as in Python.
 
 ## Run queries
 
@@ -111,9 +115,9 @@ different exception depending on the variant:
 
 ## Async runtimes and cancellation
 
-- Building the CSR in `new()` and `checkout_latest()` is CPU-heavy work inside an async function, so it holds a
-  runtime worker thread until it finishes. In an application with its own runtime (a desktop or web backend),
-  run those two calls with `tokio::task::spawn_blocking` so other tasks keep running.
+- Building the CSR in the constructors, `checkout_latest()` and `optimize_csr()` is CPU-heavy work inside an
+  async function, so it holds a runtime worker thread until it finishes. In an application with its own runtime
+  (a desktop or web backend), run those calls with `tokio::task::spawn_blocking` so other tasks keep running.
 - Dropping a query's future, or the stream from `execute_stream`, cancels the rest of that query.
 
 ## Timeouts
@@ -139,8 +143,8 @@ both, in a JSON format that applications can store next to their tables or in a 
 
 - `GraphMapping` is the graph descriptor: per label, its table and key column, and per relationship type,
   its source and target columns and the node labels they point to. `validate()` checks what needs no
-  table data: version 1, at least one node label, at most 64 labels, labels that are ASCII identifiers
-  and unique ignoring case, and one graph role per table.
+  table data: version 1, at least one node label, at most 64 node labels and relationship types
+  together, labels that are ASCII identifiers of at most 80 bytes and unique ignoring case, and one graph role per table.
 - `GraphSnapshot` pins each table, by `name`, to a `path` and Lance `version`, and carries the mapping.
   It ignores fields it doesn't know, so it reads a manifest that also lists row counts or schemas.
 
@@ -183,8 +187,11 @@ case for `DirNamespace`.
 | `engine.execute_batches(...)` → `RecordBatchReader` | `engine.execute_stream(...).await` → stream |
 | `engine.checkout_latest()` | `engine.checkout_latest().await` |
 | `engine.optimize_csr()` | `engine.optimize_csr().await` |
+| `engine.delete_stored_csr()` → `int` | `engine.delete_stored_csr().await` → `usize` |
+| `engine.explain(query, analyze=True)` | `engine.explain_analyze(query, params).await` |
 | `engine.execute(query, timeout=2.0)` | `timeout_at(deadline, with_execution_deadline(Some(deadline), engine.execute(...)))` |
 | `CypherEngine(..., target_partitions=4)` | `CypherEngine::with_target_partitions(config, sources, use_csr, Some(4)).await` |
+| `CypherEngine(..., persist_csr=True)` | `CypherEngine::with_options(config, sources, EngineOptions { use_csr: true, persist_csr: true, ..Default::default() }).await` |
 | `engine.csr_stats()` → `dict` | `engine.csr_stats()` → `HashMap<String, CsrStats>` |
 | `ValueError`, `RuntimeError`, ... | `GraphError` variants |
 

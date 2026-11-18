@@ -112,8 +112,11 @@ print(reranked.select(["d.title", "score"]).to_pylist())
 
 ### Using a Lance ANN index
 
-When the datasets are Lance datasets with a vector index, `.use_lance_index(True)` changes the order of work:
-the engine asks the Lance index for the top-k nearest rows first, then runs the Cypher query on just those.
+When the datasets are Lance datasets with a vector index, `.use_lance_index(True)` changes the order of work
+for `CypherQuery.execute_with_vector_rerank`: it asks the Lance index for the top-k nearest rows first, then runs
+the Cypher query on just those, and returns its rows as the query produced them, without a distance column or
+ordering by distance. `CypherEngine.execute_with_vector_rerank` ignores the flag and always reranks exactly.
+A query with a `WHERE` or `WITH` clause also takes the exact path, so its filters see every row.
 
 <!-- skip-check -->
 ```python
@@ -129,6 +132,7 @@ results = query.execute_with_vector_rerank({"Document": lance.dataset("docs.lanc
 
 !!! danger "This can change results"
 
-    With the index path, the Cypher query only sees the top-k vectors. If the query also filters (by topic,
-    say), it may return fewer than k rows, or miss rows that rank lower overall but pass the filter. Use it
+    With the index path, the Cypher query only sees the top-k vectors. If its pattern also filters, for example
+    with an inline property map such as `(d:Document {topic: 'graphs'})`, it may return fewer than k rows, or
+    miss rows that rank lower overall but pass the filter. Use it
     when the vector condition is the main selector and speed on large datasets matters.

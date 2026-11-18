@@ -39,9 +39,7 @@ disk, also add `pylance` (`uv add lance-csr pylance`); see [Lance datasets](lanc
 
 !!! note "Docs track the `main` branch"
 
-    These pages describe the code on `main`. The `node_table` and `rel_table` builder methods arrived in
-    0.2.0; on 0.1.0 use `with_node_label` and `with_relationship`, which were removed in 0.5.0 (see
-    [Graph schema](graph-schema.md#removed-builder-methods)).
+    These pages describe the code on `main`, which can be ahead of the latest release on PyPI.
 
 Check the install:
 
@@ -227,7 +225,7 @@ than one query against the same data.
 ## Next steps
 
 - [Graph schema](graph-schema.md): every option of `GraphConfig`.
-- [Querying with Cypher](cypher.md): parameters, streaming, `explain()` and the supported Cypher.
+- [Querying with Cypher](cypher.md): parameters, streaming, `explain()` (with runtime metrics) and the supported Cypher.
 - [Lance datasets](lance.md): query data on disk without loading it, and pick up new writes with `checkout_latest()`.
 - [Using from Rust](rust.md): the same engine as a Rust library.
 - The [`examples/`](https://github.com/hyperdimensionalcomputingai/lance-csr/tree/main/examples) directory has

@@ -89,9 +89,10 @@ Node index
 
 !!! info "Memory cost"
 
-    Expect about **95 bytes per edge** of extra peak memory while the CSR is built, for both directions
-    together (measured at 10M edges with `python/benchmarks/csr_expand.py`). Afterwards, each direction keeps
-    8 bytes per edge for the neighbour key and about 2 for the edge's row, which is stored
+    The CSR costs memory in proportion to the number of edges, and building it needs several times more,
+    briefly, than it keeps afterwards. The exact figures change as the layout improves, so measure your own
+    data: `python/benchmarks/csr_expand.py` reports build time and peak memory per edge count. Once built,
+    each direction keeps every edge's neighbour key and its row, which is stored
     [packed](internals/indexes.md#packed-edge-rows), plus an index from each source node's key to its
     neighbours. That index is normally a hash-map entry per source node. A direction where every source
     node has exactly one edge, with a million or more source nodes whose keys sit close together (as
@@ -384,7 +385,7 @@ add or remove a few edges, so `checkout_latest()` doesn't rebuild the CSR every 
 keeps the added edges in a short list next to the CSR, called the *delta*, and marks deleted edges so that lookups
 skip them. Every lookup checks the delta as well as the CSR, so the new edges show up in answers straight away.
 
-The delta can't grow forever. Once it reaches 25% of the CSR's size, `checkout_latest()` rebuilds the CSR
+The delta can't grow forever. Once the delta and the deleted edges together pass 25% of the CSR's size, `checkout_latest()` rebuilds the CSR
 from scratch instead, which empties the delta. You don't have to manage any of this. To see what a call did, look
 at `update` in [`csr_stats()`](#csr_stats): `reused` (nothing changed), `delta` (new edges went into the delta) or
 `rebuild` (the CSR was rebuilt), as in the example above.
@@ -394,8 +395,8 @@ at `update` in [`csr_stats()`](#csr_stats): `reused` (nothing changed), `delta` 
     ```mermaid
     flowchart LR
         R["checkout_latest()"] -- "no edge changes" --> U["reused"]
-        R -- "delta under 25% of the CSR" --> DL["delta"]
-        R -- "25% or more, overwritten, or new endpoint columns" --> RB["rebuild"]
+        R -- "changes up to 25% of the CSR" --> DL["delta"]
+        R -- "over 25%, overwritten, or new endpoint columns" --> RB["rebuild"]
     ```
 
     - Compaction and `cleanup_old_versions()` don't force a rebuild: deleted rows are matched by the edge row each
@@ -405,7 +406,7 @@ at `update` in [`csr_stats()`](#csr_stats): `reused` (nothing changed), `delta` 
 
 ### Optional: rebuilding early with `optimize_csr()` { #rebuilding-the-csr }
 
-Most applications never need this method. `checkout_latest()` only rebuilds the CSR once the delta reaches 25%
+Most applications never need this method. `checkout_latest()` only rebuilds the CSR once pending changes pass 25%
 of the CSR's size, and until then the delta stays in place. In some situations, however, it's worth rebuilding
 sooner than that:
 
@@ -493,22 +494,15 @@ print(open_engine().delete_stored_csr())  # 1
 
 !!! note "Cost"
 
-    The file holds the CSR's arrays as they sit in memory, compressed with zstd: on SF1 about 8 bytes per edge,
-    134 MiB in all. A load decompresses them and rebuilds only the map from key to position. Relationship
-    types load in parallel, up to one per core and at most 10 at once, while node indexes are built from their node tables. On the GDC
-    SF1 graph read lazily (17.3 million edges over 23 relationship types), measured on an Apple M5:
+    The file holds the CSR's arrays as they sit in memory, compressed with zstd. A load decompresses them and rebuilds only the map from key to position.
+    Relationship types load in parallel, up to one per core and at most 10 at once, while node indexes are built
+    from their node tables.
 
-    | | Engine start | Peak memory |
-    | --- | ---: | ---: |
-    | Without `persist_csr` | 1.7 s | 1.59 to 1.66 GiB |
-    | First start, building and storing 134 MiB | 2.6 s | 1.51 to 1.68 GiB |
-    | Later starts, loading | 0.11 s | 1.21 to 1.30 GiB |
-
-    Compressing adds about 0.9 s to the first start. Loading in parallel takes a quarter of the time of loading
-    one type at a time, for about 0.15 GiB more peak memory; building node indexes alongside the CSR adds about
-    as much to a start that builds. Query times don't
-    change. `python/benchmarks/csr_persist.py` measures the same cases on a synthetic graph, including a load
-    with a delta.
+    On the GDC SF1 graph (17 million edges over 23 relationship types), a start that loads the stored CSR takes
+    a small fraction of the time of one that builds it, and peaks lower in memory. The first start pays for the
+    build plus compressing and writing the file, so it is somewhat slower than a start without `persist_csr`.
+    Query times don't change. `python/benchmarks/csr_persist.py` measures these cases, including a load with a
+    delta, so you can check them on a graph like yours.
 
 ## When it helps
 
@@ -551,6 +545,10 @@ CsrExpandExec: key=follower__id, edges=2417738, take=person[person__name]
       DataSourceExec: partitions=10, partition_sizes=[2, 2, 2, 1, 1, 1, 1, 1, 1, 1]
 ```
 
+To see how many rows a hop actually produced, run `explain(query, analyze=True)`: each operator's line then
+carries its runtime metrics, such as `output_rows=` and `elapsed_compute=` (see
+[`explain`](cypher.md#explainquery-paramsnone-analyzefalse)).
+
 If such a hop isn't counted in place and the query is slower with `use_csr=True`, the join path is doing the
 same work with less overhead. The planner won't switch that hop to a join for you: the fallback covers hops the
 CSR can't take, not slower ones. Narrow the hop's input (a filter on its start node) where the query allows
@@ -567,7 +565,7 @@ every query on the engine.
 | Integer node keys and edge endpoints | **Turn it on**. This is the fast case: each hop reads only its start nodes' neighbours, and each neighbour's properties are read straight from its row instead of through a second join ([the fused target lookup](#the-fused-target-lookup)) |
 | String or UUID keys | Little benefit: the CSR can't index them, so every hop still joins whole tables. Add an integer id column if traversal matters |
 | Only node lookups and aggregations, no hops | Leave it off; it costs build time and memory for nothing |
-| Very large edge tables and tight memory | Budget ~95 bytes per edge of peak memory before turning it on |
+| Very large edge tables and tight memory | Measure the build's peak memory on your data first ([memory cost](#turning-it-on)) |
 
 The [benchmarks](benchmarks.md) were all run with `use_csr=True`, on GDC SNB data whose node keys and edge
 endpoints are integers.
