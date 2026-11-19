@@ -11,7 +11,7 @@ title: Home
 
 **lance-csr** is an open source [openCypher](https://opencypher.org/) query engine for graphs stored as
 [Lance](https://lancedb.github.io/lance/) datasets or Arrow tables. It is written in Rust on
-[Apache DataFusion](https://datafusion.apache.org/), ships as a Python package and a Rust crate, and runs on one machine with
+[Apache DataFusion](https://datafusion.apache.org/), ships as a Python package, a Rust crate and an npm package, and runs on one machine with
 no server to operate. Its distinguishing feature is a **compressed sparse row (CSR) adjacency index** that turns
 each relationship hop from a hash join into an array lookup, which is what makes multi-hop traversals fast.
 
@@ -46,6 +46,12 @@ each relationship hop from a hash join into an array lookup, which is what makes
 
     ```rust
     --8<-- "crates/lance-csr/examples/embedded_query.rs:quickstart"
+    ```
+
+=== "TypeScript"
+
+    ```typescript
+    --8<-- "nodejs/examples/home.ts:quickstart"
     ```
 
 <div class="grid cards" markdown>
@@ -87,8 +93,8 @@ each relationship hop from a hash join into an array lookup, which is what makes
 ## Why lance-csr?
 
 ### Fast and portable
-:   An openCypher engine that runs inside your Python process on a single machine. Install a wheel and
-    query; there is no database server, cluster or JVM.
+:   An openCypher engine that runs inside your Python or Node.js process on a single machine. Install the
+    package and query; there is no database server, cluster or JVM.
 
 ### Supports multimodal data alongside knowledge graphs
 :   Lance stores images, audio, video and embeddings next to structured columns. lance-csr runs path
@@ -153,9 +159,10 @@ engine we're building at HDC Labs. [Reach out to us](https://hyperdimensionalcom
 more about that work.
 
 lance-csr is in **alpha**. The CSR (`use_csr=True`) is marked experimental: results are identical with and
-without it, but the API around it may change. Prebuilt wheels cover Linux x86-64 and aarch64, Apple Silicon and Windows x86-64 for
-CPython 3.12 and newer.
+without it, but the API around it may change. Prebuilt wheels and npm binaries cover Linux x86-64 and aarch64, Apple Silicon and Windows
+x86-64, for CPython 3.12 and newer and Node.js 22 and newer.
 
 [:fontawesome-brands-github: GitHub](https://github.com/hyperdimensionalcomputingai/lance-csr){ .md-button }
 [:fontawesome-brands-python: PyPI](https://pypi.org/project/lance-csr/){ .md-button }
 [:fontawesome-brands-rust: crates.io](https://crates.io/crates/lance-csr){ .md-button }
+[:fontawesome-brands-npm: npm](https://www.npmjs.com/package/lance-csr){ .md-button }

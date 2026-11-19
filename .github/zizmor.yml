@@ -1,0 +1,6 @@
+rules:
+  adhoc-packages:
+    ignore:
+      # The npm package check installs the packed tarballs into a fresh project, as a user
+      # would, with apache-arrow pinned: a lockfile can't name tarballs built in the same run.
+      - nodejs-publish.yml

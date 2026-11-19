@@ -1,0 +1,25 @@
+# Cargo reads this when it runs from nodejs/, as `npm run build:native` and the release
+# builds do. It matches python/.cargo/config.toml, so the npm and PyPI binaries are built alike.
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+[target.'cfg(all())']
+rustflags = [
+    "-Wclippy::all",
+    "-Wclippy::fallible_impl_from",
+    "-Wclippy::manual_let_else",
+    "-Wclippy::string_add_assign",
+    "-Wclippy::string_add",
+    "-Wclippy::string_lit_as_bytes",
+    "-Wclippy::use_self",
+]
+
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "target-cpu=haswell", "-C", "target-feature=+avx2,+fma,+f16c"]
+
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-cpu=haswell", "-C", "target-feature=+avx2,+fma,+f16c"]
+
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "target-cpu=apple-m1", "-C", "target-feature=+neon,+fp16"]

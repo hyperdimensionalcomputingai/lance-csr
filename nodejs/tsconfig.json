@@ -1,0 +1,19 @@
+{
+  // Type-checks the sources and tests; `tsconfig.build.json` emits the published files.
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["esnext"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "types": ["node"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    // The tests run the TypeScript sources directly with Node's type stripping.
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "rewriteRelativeImportExtensions": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["src", "test", "examples"]
+}

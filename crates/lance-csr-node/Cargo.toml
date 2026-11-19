@@ -1,0 +1,27 @@
+[package]
+name = "lance-csr-node"
+version = "0.12.0"
+edition = "2021"
+authors = ["The lance-csr Authors"]
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+arrow-array = "58.0.0"
+arrow-cast = "58.0.0"
+arrow-ipc = "58.0.0"
+arrow-schema = "58.0.0"
+arrow-select = "58.0.0"
+datafusion = { version = "54.0.0", default-features = false }
+futures = "0.3"
+lance = "14.0.2"
+lance-csr = { path = "../lance-csr" }
+napi = { version = "3.16.2", default-features = false, features = ["napi8", "async", "tokio_rt"] }
+napi-derive = "3.7.1"
+serde_json = "1"
+tokio = { version = "1.37", features = ["rt-multi-thread", "sync", "time"] }
+
+[build-dependencies]
+napi-build = "2.6.0"

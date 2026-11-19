@@ -11,14 +11,16 @@
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue?style=for-the-badge)](LICENSE)
 [![Rust tests](https://img.shields.io/github/actions/workflow/status/hyperdimensionalcomputingai/lance-csr/rust-test.yml?branch=main&label=rust%20tests&logo=rust&style=for-the-badge)](https://github.com/hyperdimensionalcomputingai/lance-csr/actions/workflows/rust-test.yml)
 [![Python tests](https://img.shields.io/github/actions/workflow/status/hyperdimensionalcomputingai/lance-csr/python-test.yml?branch=main&label=python%20tests&logo=python&logoColor=white&style=for-the-badge)](https://github.com/hyperdimensionalcomputingai/lance-csr/actions/workflows/python-test.yml)
+[![Node.js tests](https://img.shields.io/github/actions/workflow/status/hyperdimensionalcomputingai/lance-csr/nodejs-test.yml?branch=main&label=node.js%20tests&logo=nodedotjs&logoColor=white&style=for-the-badge)](https://github.com/hyperdimensionalcomputingai/lance-csr/actions/workflows/nodejs-test.yml)
 [![crates.io](https://img.shields.io/crates/v/lance-csr?logo=rust&style=for-the-badge)](https://crates.io/crates/lance-csr)
 [![PyPI](https://img.shields.io/pypi/v/lance-csr?logo=pypi&logoColor=white&style=for-the-badge)](https://pypi.org/project/lance-csr/)
+[![npm](https://img.shields.io/npm/v/lance-csr?logo=npm&logoColor=white&style=for-the-badge)](https://www.npmjs.com/package/lance-csr)
 
 [Documentation](https://lance-csr.hdclabs.ai/) · [Examples](examples/README.md) ·
 [Releases](https://github.com/hyperdimensionalcomputingai/lance-csr/releases) · [Contributing](CONTRIBUTING.md)
 
 lance-csr is a fast graph query engine over [Lance](https://lancedb.github.io/lance/) datasets, built in Rust on
-Apache DataFusion, with Python bindings. It is a fork of [lance-graph](https://github.com/lance-format/lance-graph)
+Apache DataFusion, with Python and Node.js bindings. It is a fork of [lance-graph](https://github.com/lance-format/lance-graph)
 and a research test bed: it pushes the limits of CSR indexes and DataFusion on top of the Lance format, with the
 goal of making multi-hop path traversal fast.
 
@@ -29,7 +31,7 @@ following a relationship is an array lookup instead of a join. Embedded graph da
 relationships this way; lance-csr builds the same structure over relationship tables stored in Lance.
 
 **Documentation:** Visit the [lance-csr documentation site](https://lance-csr.hdclabs.ai/) for getting started,
-Cypher guides, the CSR index, the Python API reference, and benchmarks.
+Cypher guides, the CSR index, the Python API reference, the TypeScript guide, and benchmarks.
 
 ## Goals
 
@@ -72,7 +74,8 @@ can read; see [Lance datasets](https://lance-csr.hdclabs.ai/lance/).
 Prebuilt wheels cover Linux x86-64 and aarch64, native Apple Silicon and Windows x86-64 (CPython 3.12+), so no
 Rust toolchain is needed. On Windows, the same command installs the native Windows wheel; you don't need WSL2,
 though lance-csr works there too, with the Linux wheel. From Rust, run `cargo add lance-csr` and see the
-[Rust guide](https://lance-csr.hdclabs.ai/rust/). To build from source, see
+[Rust guide](https://lance-csr.hdclabs.ai/rust/). From Node.js, run `npm install lance-csr apache-arrow` and see
+the [TypeScript guide](https://lance-csr.hdclabs.ai/typescript/). To build from source, see
 [`python/DEVELOPMENT.md`](python/DEVELOPMENT.md).
 
 ## Example

@@ -19,6 +19,7 @@ updates:
     directories:
       - /
       - /crates/lance-csr-python
+      - /crates/lance-csr-node
     schedule:
       interval: weekly
     cooldown:
@@ -32,3 +33,15 @@ updates:
       lance:
         patterns:
           - "lance*"
+  # The npm package's build and test tools, grouped into one PR. apache-arrow is a peer
+  # dependency, so a new major also means widening the range users can install.
+  - package-ecosystem: npm
+    directory: /nodejs
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      npm:
+        patterns:
+          - "*"

@@ -1,0 +1,90 @@
+name: Node.js Tests
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - nodejs/**
+      - crates/**
+      - Cargo.toml
+      - Cargo.lock
+      - .github/workflows/nodejs-test.yml
+  pull_request:
+    paths:
+      - nodejs/**
+      - crates/**
+      - Cargo.toml
+      - Cargo.lock
+      - .github/workflows/nodejs-test.yml
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-C debuginfo=line-tables-only"
+  CARGO_INCREMENTAL: "0"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
+        with:
+          # The rust-cache step below caches the bindings crate.
+          cache: false
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          shared-key: "lance-csr-node"
+          # The bindings crate sits outside the root workspace. The root workspace is listed
+          # too so the cache key hashes the manifest of lance-csr, which the bindings use by
+          # path. Its target directory is never built here.
+          workspaces: |
+            . -> target
+            crates/lance-csr-node -> target
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y protobuf-compiler
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+      - name: Install locked dependencies
+        working-directory: nodejs
+        run: npm ci
+      - name: Build the native module
+        working-directory: nodejs
+        run: npm run build:native
+      - name: Check the committed loader and types are current
+        run: git diff --exit-code nodejs/native.js nodejs/native.d.ts
+      - name: Run tests
+        working-directory: nodejs
+        run: npm test
+      - name: Build and lint
+        working-directory: nodejs
+        # The examples import the package by name, which resolves to dist/, so build first.
+        run: |
+          npm run build
+          npm run lint
+      # The guide pages include these examples; run them so the documented code works.
+      - name: Run the examples
+        working-directory: nodejs
+        run: |
+          for example in examples/*.ts; do node "$example"; done
+      - name: Check Rust formatting and lints
+        working-directory: nodejs
+        # From nodejs/, so nodejs/.cargo/config.toml applies as it does to the builds. Only
+        # the library: napi registers nothing in the test target, so it all looks unused.
+        run: |
+          cargo fmt --manifest-path ../crates/lance-csr-node/Cargo.toml --check
+          cargo clippy --locked --manifest-path ../crates/lance-csr-node/Cargo.toml -- -D warnings

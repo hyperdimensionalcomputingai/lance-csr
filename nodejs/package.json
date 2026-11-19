@@ -1,0 +1,65 @@
+{
+  "name": "lance-csr",
+  "version": "0.12.0",
+  "description": "Cypher graph queries over Lance datasets, built on DataFusion with a CSR adjacency index",
+  "license": "Apache-2.0",
+  "author": "The lance-csr Authors",
+  "homepage": "https://lance-csr.hdclabs.ai/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hyperdimensionalcomputingai/lance-csr.git",
+    "directory": "nodejs"
+  },
+  "bugs": "https://github.com/hyperdimensionalcomputingai/lance-csr/issues",
+  "keywords": [
+    "graph",
+    "cypher",
+    "lance",
+    "arrow",
+    "datafusion"
+  ],
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "native.js",
+    "native.d.ts"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "napi": {
+    "binaryName": "lance-csr",
+    "targets": [
+      "x86_64-unknown-linux-gnu",
+      "aarch64-unknown-linux-gnu",
+      "aarch64-apple-darwin",
+      "x86_64-pc-windows-msvc"
+    ]
+  },
+  "scripts": {
+    "build:native": "napi build --platform --manifest-path ../crates/lance-csr-node/Cargo.toml --output-dir . --js native.js --dts native.d.ts --esm --no-const-enum",
+    "build:native:release": "npm run build:native -- --release",
+    "build": "tsc -p tsconfig.build.json",
+    "test": "node --test --test-concurrency=4 \"test/*.test.ts\"",
+    "lint": "tsc --noEmit && prettier --check .",
+    "format": "prettier --write ."
+  },
+  "peerDependencies": {
+    "apache-arrow": "^21.0.0"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "3.10.12",
+    "@types/node": "^26.6.6",
+    "apache-arrow": "21.2.0",
+    "prettier": "3.10.1",
+    "typescript": "7.0.2"
+  }
+}

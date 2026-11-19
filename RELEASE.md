@@ -1,8 +1,9 @@
 # Releasing lance-csr
 
-A release publishes the Python package to [PyPI](https://pypi.org/project/lance-csr/) and the
-`lance-csr` crate to [crates.io](https://crates.io/crates/lance-csr). PyPI publishing is
-automated from a GitHub release, and the crates follow once PyPI has the new version.
+A release publishes the Python package to [PyPI](https://pypi.org/project/lance-csr/), the
+`lance-csr` crate to [crates.io](https://crates.io/crates/lance-csr) and the Node.js packages to
+[npm](https://www.npmjs.com/package/lance-csr). PyPI and npm publishing are automated from a GitHub
+release, and the crates follow once PyPI has the new version.
 
 The whole release takes about 65 minutes: the Windows wheel build, then the crates. Don't add steps that build the
 release wheels a second time.
@@ -38,13 +39,16 @@ From a branch off the latest `main`:
 uvx bump-my-version bump minor   # or: patch
 cargo update --workspace
 cargo update --workspace --manifest-path crates/lance-csr-python/Cargo.toml
+cargo update --workspace --manifest-path crates/lance-csr-node/Cargo.toml
 (cd python && uv lock)
+(cd nodejs && npm install --package-lock-only)
 ```
 
-`bump-my-version` updates `.bumpversion.toml`, the three crate `Cargo.toml` files and `python/pyproject.toml`. It
-doesn't update the three lockfiles that also carry the version, which is what the other three commands are for.
-The diff should be 8 files and 11 lines each way, touching only version lines. If `uv lock` or `cargo update`
-moves a dependency, undo that and update only the workspace packages. Add `--allow-dirty` to `bump-my-version` if
+`bump-my-version` updates `.bumpversion.toml`, the four crate `Cargo.toml` files, `python/pyproject.toml`,
+`nodejs/package.json` and the four platform packages' `nodejs/npm/*/package.json`. It doesn't update the five
+lockfiles that also carry the version, which is what the other five commands are for. The diff should be 16 files
+and 21 lines each way, touching only version lines. If `uv lock`, `npm install` or `cargo update` moves a
+dependency, undo that and update only the workspace packages. Add `--allow-dirty` to `bump-my-version` if
 untracked files in your checkout stop it.
 
 Check that no docs or READMEs pin the old version, for example with `git grep -n '0\.4'`.
@@ -75,7 +79,8 @@ Create the release on the bump's squash-merge commit, with a tag that matches th
 gh release create vA.B.C --target <merge commit> --title vA.B.C --notes-file <notes.md> --latest
 ```
 
-Publishing it starts `.github/workflows/python-publish.yml`:
+Publishing it starts `.github/workflows/python-publish.yml` and `.github/workflows/nodejs-publish.yml`, which run
+side by side. `python-publish.yml`:
 
 | Job | Time | What it does |
 | --- | ---: | --- |
@@ -86,25 +91,55 @@ Publishing it starts `.github/workflows/python-publish.yml`:
 | `publish` | seconds | checks the tag matches `python/pyproject.toml`, then uploads through PyPI trusted publishing |
 | `publish-crates` | about 10 to 15 min | after `publish`: packages and verifies `lance-csr`, then uploads it through crates.io trusted publishing |
 
+`nodejs-publish.yml`:
+
+| Job | Time | What it does |
+| --- | ---: | --- |
+| `build-linux`, `build-macos`, `build-windows` | TBD | the native binary for each platform, built as the wheels are (zig for glibc 2.28 on Linux) |
+| `pack` | a few minutes | `lance-csr` and the four platform packages, as the tarballs the later jobs install and publish |
+| `test` | a few minutes each | the whole Node.js test suite against each platform's release binary, then the installed tarballs, on Node.js 22, 24 and 26 |
+| `publish` | seconds | checks the tag matches `nodejs/package.json`, then publishes the platform packages and `lance-csr` through npm trusted publishing |
+
 The build jobs run in parallel and restore no caches (no sccache, no uv cache), so nothing a pull request's run left
 behind can end up in a release wheel. Nothing reaches PyPI unless every build and test job passes, and nothing
-reaches crates.io unless PyPI publishing succeeds. The `pypi` and `crates-io` environments only accept `v*`
+reaches crates.io unless PyPI publishing succeeds. The `pypi`, `crates-io` and `npm` environments only accept `v*`
 tags. The PyPI trusted publisher is registered for workflow `python-publish.yml` and environment `pypi`, and
-the crates.io trusted publisher for `lance-csr` for the same workflow and environment `crates-io`, so don't
-rename any of them.
+the crates.io trusted publisher for `lance-csr` for the same workflow and environment `crates-io`, and the npm
+trusted publisher for each of the five npm packages for workflow `nodejs-publish.yml` and environment `npm`, so
+don't rename any of them.
+
+npm can only register a trusted publisher for a package that already exists, so the first npm release needs a
+one-time bootstrap. Run `nodejs-publish.yml` with `mode=dry_run`, download its `npm-packages` artifact, and
+publish the five tarballs from your own npm account, the platform packages first:
+
+```bash
+npm publish --access public lance-csr-darwin-arm64-A.B.C.tgz   # and the other three platforms
+npm publish --access public lance-csr-A.B.C.tgz
+```
+
+Then, on npmjs.com, add the trusted publisher (this repository, `nodejs-publish.yml`, environment `npm`) to each
+of the five packages, and create the `npm` environment in the repository settings, limited to `v*` tags. Later
+releases publish from the workflow alone.
 
 **Don't run a separate `mode=dry_run` before a release.** The release run builds and tests the same wheels
 before it publishes, so a dry run only doubles the wait. Changes to how wheels are built (this workflow,
-`ci/check_wheel.py`, `python/.cargo/`) already build and test the release wheels in their own PR.
+`ci/check_wheel.py`, `python/.cargo/`) already build and test the release wheels in their own PR, and changes to
+how the npm packages are built (`nodejs-publish.yml`, `ci/check_npm_package.mjs`, `nodejs/.cargo/`,
+`nodejs/npm/`) do the same for the npm packages.
 
 ### If the release run fails
 
-If a build or test job failed, nothing has been published, so nothing needs undoing on PyPI.
+If a build or test job failed, that workflow has published nothing, so nothing needs undoing on PyPI or npm.
 
 - **A flaky test or a runner problem** (for example a GitHub runner image outage): rerun the failed jobs with
   `gh run rerun <run id> --failed`.
 - **A real bug:** fix it on `main` through a normal PR, then release the next patch version. Don't move or reuse
   a tag that has already been released.
+
+### If only the npm `publish` job fails
+
+The workflow skips any package version npm already has, so rerun the failed job with
+`gh run rerun <run id> --failed`; the binaries aren't rebuilt.
 
 ### If only `publish-crates` fails
 
@@ -118,6 +153,7 @@ in a separate `lance-csr-catalog` crate; it is no longer published.
 
 ```bash
 uv run --no-project --with lance-csr==A.B.C python -c "import lance_csr, importlib.metadata as m; print(m.version('lance-csr'))"
+npm view lance-csr@A.B.C version
 ```
 
 Then close any milestone or tracker issues the release completes.

@@ -3,6 +3,6 @@ members = [
     "crates/lance-csr",
     "crates/lance-csr-benches",
 ]
-# Python package needs to be built by maturin.
-exclude = ["crates/lance-csr-python"]
+# The Python and Node bindings are built by maturin and napi.
+exclude = ["crates/lance-csr-python", "crates/lance-csr-node"]
 resolver = "2"
