@@ -14,8 +14,8 @@ The same engine ships as the `lance-csr` Python package and Rust crate.
 npm install lance-csr apache-arrow
 ```
 
-Prebuilt binaries cover Linux x86-64 and aarch64 (glibc 2.28+), Apple Silicon (macOS 11+) and Windows x86-64,
-on Node.js 22 or newer. The x86-64 binaries need a CPU with AVX2. `apache-arrow` 21 is a peer dependency.
+Prebuilt binaries cover Linux x86-64 and aarch64 (glibc 2.28+) and Apple Silicon (macOS 11+), on Node.js 22 or
+newer. The x86-64 binaries need a CPU with AVX2. On Windows, use WSL2, where the Linux binary installs. `apache-arrow` 21 is a peer dependency.
 
 ## Example
 

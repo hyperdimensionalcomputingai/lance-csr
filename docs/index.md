@@ -159,8 +159,8 @@ engine we're building at HDC Labs. [Reach out to us](https://hyperdimensionalcom
 more about that work.
 
 lance-csr is in **alpha**. The CSR (`use_csr=True`) is marked experimental: results are identical with and
-without it, but the API around it may change. Prebuilt wheels and npm binaries cover Linux x86-64 and aarch64, Apple Silicon and Windows
-x86-64, for CPython 3.12 and newer and Node.js 22 and newer.
+without it, but the API around it may change. Prebuilt wheels cover Linux x86-64 and aarch64, Apple Silicon and Windows x86-64, for CPython 3.12
+and newer; npm binaries cover the same platforms except Windows, for Node.js 22 and newer.
 
 [:fontawesome-brands-github: GitHub](https://github.com/hyperdimensionalcomputingai/lance-csr){ .md-button }
 [:fontawesome-brands-python: PyPI](https://pypi.org/project/lance-csr/){ .md-button }

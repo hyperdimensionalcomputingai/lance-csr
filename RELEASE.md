@@ -45,9 +45,9 @@ cargo update --workspace --manifest-path crates/lance-csr-node/Cargo.toml
 ```
 
 `bump-my-version` updates `.bumpversion.toml`, the four crate `Cargo.toml` files, `python/pyproject.toml`,
-`nodejs/package.json` and the four platform packages' `nodejs/npm/*/package.json`. It doesn't update the five
-lockfiles that also carry the version, which is what the other five commands are for. The diff should be 16 files
-and 21 lines each way, touching only version lines. If `uv lock`, `npm install` or `cargo update` moves a
+`nodejs/package.json` and the three platform packages' `nodejs/npm/*/package.json`. It doesn't update the five
+lockfiles that also carry the version, which is what the other five commands are for. The diff should be 15 files
+and 20 lines each way, touching only version lines. If `uv lock`, `npm install` or `cargo update` moves a
 dependency, undo that and update only the workspace packages. Add `--allow-dirty` to `bump-my-version` if
 untracked files in your checkout stop it.
 
@@ -95,8 +95,8 @@ side by side. `python-publish.yml`:
 
 | Job | Time | What it does |
 | --- | ---: | --- |
-| `build-linux`, `build-macos`, `build-windows` | TBD | the native binary for each platform, built as the wheels are (zig for glibc 2.28 on Linux) |
-| `pack` | a few minutes | `lance-csr` and the four platform packages, as the tarballs the later jobs install and publish |
+| `build-linux`, `build-macos` | TBD | the native binary for each platform, built as the wheels are (zig for glibc 2.28 on Linux); there is no Windows package |
+| `pack` | a few minutes | `lance-csr` and the three platform packages, as the tarballs the later jobs install and publish |
 | `test` | a few minutes each | the whole Node.js test suite against each platform's release binary, then the installed tarballs, on Node.js 22, 24 and 26 |
 | `publish` | seconds | checks the tag matches `nodejs/package.json`, then publishes the platform packages and `lance-csr` through npm trusted publishing |
 
@@ -105,21 +105,14 @@ behind can end up in a release wheel. Nothing reaches PyPI unless every build an
 reaches crates.io unless PyPI publishing succeeds. The `pypi`, `crates-io` and `npm` environments only accept `v*`
 tags. The PyPI trusted publisher is registered for workflow `python-publish.yml` and environment `pypi`, and
 the crates.io trusted publisher for `lance-csr` for the same workflow and environment `crates-io`, and the npm
-trusted publisher for each of the five npm packages for workflow `nodejs-publish.yml` and environment `npm`, so
+trusted publisher for each of the four npm packages for workflow `nodejs-publish.yml` and environment `npm`, so
 don't rename any of them.
 
-npm can only register a trusted publisher for a package that already exists, so the first npm release needs a
-one-time bootstrap. Run `nodejs-publish.yml` with `mode=dry_run`, download its `npm-packages` artifact, and
-publish the five tarballs from your own npm account, the platform packages first:
-
-```bash
-npm publish --access public lance-csr-darwin-arm64-A.B.C.tgz   # and the other three platforms
-npm publish --access public lance-csr-A.B.C.tgz
-```
-
-Then, on npmjs.com, add the trusted publisher (this repository, `nodejs-publish.yml`, environment `npm`) to each
-of the five packages, and create the `npm` environment in the repository settings, limited to `v*` tags. Later
-releases publish from the workflow alone.
+npm can only register a trusted publisher for a package that already exists, so each of the four npm packages
+was first published by hand as an empty `0.0.0` placeholder. Each has a trusted publisher (this repository,
+`nodejs-publish.yml`, environment `npm`) that may run `npm publish`, and requires two-factor authentication with
+no bypass tokens, so the workflow publishes every release, the first included. A new platform package needs the
+same: publish a placeholder, then add its trusted publisher, before the release that ships it.
 
 **Don't run a separate `mode=dry_run` before a release.** The release run builds and tests the same wheels
 before it publishes, so a dry run only doubles the wait. Changes to how wheels are built (this workflow,

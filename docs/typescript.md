@@ -29,11 +29,11 @@ which CI runs, except the one that writes data with LanceDB.
     pnpm add lance-csr apache-arrow
     ```
 
-The package ships prebuilt binaries for the same platforms as the Python wheels: **Linux x86-64 and
-aarch64** (glibc 2.28+: RHEL 8, Ubuntu 20.04 and later), **Apple Silicon** (macOS 11+) and **Windows x86-64**,
-on **Node.js 22 or newer**. The x86-64 binaries need a CPU with AVX2. npm installs only the binary for your
-platform, and no Rust toolchain is needed. Other platforms build from a checkout (see
-[Contributing](contributing.md)).
+The package ships prebuilt binaries for **Linux x86-64 and aarch64** (glibc 2.28+: RHEL 8, Ubuntu 20.04 and
+later) and **Apple Silicon** (macOS 11+), on **Node.js 22 or newer**. The x86-64 binaries need a CPU with AVX2.
+npm installs only the binary for your platform, and no Rust toolchain is needed. Unlike the Python package, there
+is no Windows binary; on Windows, use WSL2, where the Linux binary installs. Other platforms build from a
+checkout (see [Contributing](contributing.md)).
 
 `apache-arrow` (version 21) is a peer dependency: you install it, and lance-csr uses your copy, so the tables
 you pass in and the results you get back are the same `Table` class your code imports.

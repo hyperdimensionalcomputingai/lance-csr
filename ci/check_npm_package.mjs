@@ -27,7 +27,7 @@ const SHORTEST =
 for (const tool of ["cargo", "rustc"]) {
   let found = true;
   try {
-    execFileSync(process.platform === "win32" ? "where" : "which", [tool], { stdio: "ignore" });
+    execFileSync("which", [tool], { stdio: "ignore" });
   } catch {
     found = false;
   }
