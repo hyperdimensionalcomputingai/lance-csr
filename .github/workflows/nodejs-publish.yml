@@ -4,9 +4,10 @@
 # there is no Windows package: npm's spam check blocks its name. Windows users can use WSL2.
 #
 # Pull requests that change how the packages are built (this workflow, the package check,
-# nodejs/.cargo/, the platform packages) build and test them without publishing. A release
-# builds and tests every package before publishing, so it needs no separate dry run; see
-# RELEASE.md. A published GitHub release (tag vX.Y.Z) publishes to npm after every build and
+# nodejs/.cargo/) build and test them without publishing. The platform packages in nodejs/npm/
+# aren't listed: every version bump edits them, and a bump shouldn't build release binaries.
+# A release builds and tests every package before publishing, so it needs no separate dry
+# run; see RELEASE.md. A published GitHub release (tag vX.Y.Z) publishes to npm after every build and
 # test passes, through npm trusted publishing and the protected `npm` environment; so does
 # a manual run with mode=release. mode=dry_run builds and tests only. This runs alongside
 # python-publish.yml, from the same release.
@@ -21,7 +22,6 @@ on:
       - .github/workflows/nodejs-publish.yml
       - ci/check_npm_package.mjs
       - nodejs/.cargo/**
-      - nodejs/npm/**
   workflow_dispatch:
     inputs:
       mode:

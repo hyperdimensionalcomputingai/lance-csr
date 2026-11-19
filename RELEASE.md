@@ -117,8 +117,8 @@ same: publish a placeholder, then add its trusted publisher, before the release 
 **Don't run a separate `mode=dry_run` before a release.** The release run builds and tests the same wheels
 before it publishes, so a dry run only doubles the wait. Changes to how wheels are built (this workflow,
 `ci/check_wheel.py`, `python/.cargo/`) already build and test the release wheels in their own PR, and changes to
-how the npm packages are built (`nodejs-publish.yml`, `ci/check_npm_package.mjs`, `nodejs/.cargo/`,
-`nodejs/npm/`) do the same for the npm packages.
+how the npm packages are built (`nodejs-publish.yml`, `ci/check_npm_package.mjs`, `nodejs/.cargo/`) do the same
+for the npm packages. A version bump builds neither.
 
 ### If the release run fails
 
