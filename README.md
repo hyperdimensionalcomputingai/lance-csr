@@ -52,7 +52,7 @@ case needs distributed graph queries or graph algorithms, that's the kind of eng
 - **CSR traversal** (`use_csr=True`): relationship hops and variable-length paths become array lookups instead of
   joins, updated incrementally as the Lance datasets change. See [the CSR index](https://lance-csr.hdclabs.ai/csr/).
 - **A Lance-native engine** that reads each table lazily from a pinned Lance snapshot or holds it in memory, and
-  `checkout_latest()`es to new versions.
+  moves to new dataset versions with `checkout_latest()`.
 - **Broader openCypher support**, enough to run the Graph Data Council's Interactive complex queries:
   `OPTIONAL MATCH`, pattern predicates, chained `WITH`, `UNWIND`, list and pattern comprehensions,
   `shortestPath`, `$parameters` and more.
@@ -66,8 +66,8 @@ uv add lance-csr
 ```
 
 To write Lance datasets or query them on disk, also add `pylance` (`uv add lance-csr pylance`). lance-csr reads
-Lance with its own built-in Lance library, so any `pylance` version that writes a file format that library reads
-works; see [Lance datasets](https://lance-csr.hdclabs.ai/lance/).
+Lance with its own built-in Lance library, so it works with any `pylance` version whose file format that library
+can read; see [Lance datasets](https://lance-csr.hdclabs.ai/lance/).
 
 Prebuilt wheels cover Linux x86-64 and aarch64, native Apple Silicon and Windows x86-64 (CPython 3.12+), so no
 Rust toolchain is needed. On Windows, the same command installs the native Windows wheel; you don't need WSL2,
