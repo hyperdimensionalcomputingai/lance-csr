@@ -160,6 +160,10 @@ impl ScalarUDFImpl for CypherField {
                     return exec_err!("cypher_field: no field {name}");
                 };
                 let column = base.as_struct().column(i).clone();
+                // A Null-typed key (`{a: null}`) is null on every row and can't take a null bitmask.
+                if *column.data_type() == DataType::Null {
+                    return Ok(ColumnarValue::Array(column));
+                }
                 // A null map gives null keys, whatever its child arrays hold.
                 let nulls = arrow::buffer::NullBuffer::union(
                     arrow::buffer::NullBuffer::union(
@@ -193,4 +197,30 @@ static CYPHER_FIELD: LazyLock<Arc<ScalarUDF>> = LazyLock::new(|| {
 /// `base.name` on a map or temporal value.
 pub(crate) fn field(base: Expr, name: &str) -> Expr {
     CYPHER_FIELD.call(vec![base, lit(name.to_string())])
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::datafusion_planner::test_fixtures::person_config;
+    use arrow_array::{Int64Array, RecordBatch};
+    use datafusion::execution::context::SessionContext;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn field_of_null_map_key_is_null() {
+        let ctx = SessionContext::new();
+        let person =
+            RecordBatch::try_from_iter(vec![("id", Arc::new(Int64Array::from(vec![1])) as _)])
+                .unwrap();
+        ctx.register_batch("person", person).unwrap();
+        let result = crate::query::CypherQuery::new("RETURN $m.a AS a")
+            .unwrap()
+            .with_config(person_config())
+            .with_parameter("m", serde_json::json!({"a": null}))
+            .execute_with_context(ctx)
+            .await
+            .unwrap();
+        assert_eq!(result.num_rows(), 1);
+        assert_eq!(result.column(0).logical_null_count(), 1);
+    }
 }
