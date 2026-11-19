@@ -68,6 +68,9 @@ def test_map_field_and_comprehension(engine):
         "WITH $value AS m RETURN m.name AS name, m.ids AS ids",
         {"value": {"name": "a", "ids": [BIG]}},
     ).to_pylist() == [{"name": "a", "ids": [BIG]}]
+    assert engine.execute("RETURN $m.a AS a", {"m": {"a": None}}).to_pylist() == [
+        {"a": None}
+    ]
     assert engine.execute(
         "RETURN [x IN $ids WHERE x > 1 | x] AS ids", {"ids": [1, BIG]}
     ).to_pylist() == [{"ids": [BIG]}]
