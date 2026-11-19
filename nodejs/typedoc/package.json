@@ -1,0 +1,10 @@
+{
+  "name": "lance-csr-typedoc",
+  "private": true,
+  "description": "Generates the TypeScript API reference page; run `npm run docs:api` from nodejs/.",
+  "devDependencies": {
+    "typedoc": "0.28.20",
+    "typedoc-plugin-markdown": "4.14.1",
+    "typescript": "6.0.3"
+  }
+}

@@ -47,6 +47,7 @@
     "build:native": "napi build --platform --manifest-path ../crates/lance-csr-node/Cargo.toml --output-dir . --js native.js --dts native.d.ts --esm --no-const-enum",
     "build:native:release": "npm run build:native -- --release",
     "build": "tsc -p tsconfig.build.json",
+    "docs:api": "npm --prefix typedoc exec -- typedoc --options typedoc/typedoc.json",
     "test": "node --test --test-concurrency=4 \"test/*.test.ts\"",
     "lint": "tsc --noEmit && prettier --check .",
     "format": "prettier --write ."

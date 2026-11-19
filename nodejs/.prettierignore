@@ -3,3 +3,4 @@ native.js
 native.d.ts
 npm
 package-lock.json
+typedoc/api.md

@@ -50,6 +50,7 @@ nav = [
   ] },
   { "API reference" = [
     { "Python" = "api-reference.md" },
+    { "TypeScript" = "typescript-api.md" },
     { "Rust (docs.rs)" = "https://docs.rs/lance-csr" },
   ] },
   { "Contributing" = [
@@ -118,6 +119,9 @@ footnotes = {}
 md_in_html = {}
 tables = {}
 toc.permalink = true
+# Level-6 headings are the Parameters/Returns labels in the generated TypeScript API reference; no other page
+# uses them, and listing them made that page's table of contents unreadable.
+toc.toc_depth = 5
 pymdownx.betterem = {}
 pymdownx.details = {}
 pymdownx.emoji.emoji_generator = "zensical.extensions.emoji.to_svg"

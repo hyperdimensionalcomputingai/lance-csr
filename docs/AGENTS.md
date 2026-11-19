@@ -83,7 +83,8 @@ touch a page that shows a plan:
   that teaches it and the docstring of the Python class in `python/python/lance_csr/`, in the same pull request
   as the code. `api-reference.md` renders those docstrings with mkdocstrings (NumPy style); its prose sections
   (type checking, datasets, exceptions, timeouts, path values) are still written by hand. Docstring examples
-  run as doctests in `make test`.
+  run as doctests in `make test`. `typescript-api.md` includes `nodejs/typedoc/api.md`, which TypeDoc generates
+  from the TSDoc comments in `nodejs/src/`: regenerate it with `npm run docs:api` from `nodejs/` and commit it.
 - State limits plainly. Don't claim a property ("constant memory", "never materializes") unless code and
   benchmarks show it. Performance numbers come from `benchmarks.md` sources only, with their methodology.
 - Keep scope in mind: lance-csr is single-machine. Don't document distributed execution or proprietary HDC

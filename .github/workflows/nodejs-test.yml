@@ -74,6 +74,13 @@ jobs:
         run: npm run build:native
       - name: Check the committed loader and types are current
         run: git diff --exit-code nodejs/native.js nodejs/native.d.ts
+      - name: Check the committed TypeScript API reference is current
+        working-directory: nodejs
+        # TypeDoc and the TypeScript 6 it needs are pinned in typedoc/, apart from the package's TypeScript 7.
+        run: |
+          npm ci --prefix typedoc
+          npm run docs:api
+          git diff --exit-code typedoc/api.md
       - name: Run tests
         working-directory: nodejs
         run: npm test

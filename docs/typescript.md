@@ -4,7 +4,8 @@ The `lance-csr` npm package runs the same Rust engine as the Python package, ins
 classes and methods mirror the Python API one for one, with camel-case names, `async` methods and Arrow
 tables from [apache-arrow](https://arrow.apache.org/docs/js/). Everything on the other pages (the
 [graph schema](graph-schema.md), the [supported Cypher](cypher.md#supported-cypher), the
-[CSR index](csr.md) and [version pinning](lance.md)) applies here too. This page covers what's different.
+[CSR index](csr.md) and [version pinning](lance.md)) applies here too. This page covers what's different, and the
+[TypeScript API reference](typescript-api.md) lists every class, method and option.
 
 The package is for server-side JavaScript: an API server, an agent backend, or the server half of a web UI.
 It doesn't run in a browser. The engine is native code that reads Lance datasets from disk or object
