@@ -351,7 +351,9 @@ impl DataFusionPlanner {
                 ..
             } = first.op
             else {
-                unreachable!("Hop::of matched an Expand")
+                return Err(crate::error::GraphError::internal(
+                    "Hop::of matched an Expand",
+                ));
             };
             (target_label, target_properties)
         } else {
@@ -448,7 +450,9 @@ impl DataFusionPlanner {
                     right,
                 } = predicate
                 {
-                    let id = self.id_column(ctx, group).unwrap();
+                    let id = self.id_column(ctx, group).ok_or_else(|| {
+                        crate::error::GraphError::internal("grouped variable has an id column")
+                    })?;
                     let is_id = |value: &ValueExpression| {
                         matches!(value,
                         ValueExpression::Property(p) if qualify_column(&p.variable, &p.property) == id)
@@ -532,7 +536,9 @@ impl DataFusionPlanner {
                 ..
             } = hop.op
             else {
-                unreachable!("Hop::of matched an Expand")
+                return Err(crate::error::GraphError::internal(
+                    "Hop::of matched an Expand",
+                ));
             };
             let (other_label, other_properties, direction) = if hop.source == middle {
                 (target_label, target_properties, direction.clone())
@@ -561,11 +567,11 @@ impl DataFusionPlanner {
                 properties: properties.clone(),
                 target_properties: other_properties.clone(),
             };
-            filtered(expand, predicates)
+            Ok(filtered(expand, predicates))
         };
         // Built in the original order, so each hop takes the same relationship instance.
-        let first_plan = self.build_operator(ctx, &from_middle(&first, first_filter))?;
-        let second_plan = self.build_operator(ctx, &from_middle(&second, second_filter))?;
+        let first_plan = self.build_operator(ctx, &from_middle(&first, first_filter)?)?;
+        let second_plan = self.build_operator(ctx, &from_middle(&second, second_filter)?)?;
         let column = |name: &str| col(Column::new_unqualified(name));
         if let Some(group) = group.filter(|g| *g != middle) {
             let hops = if group == first.other(middle) {
@@ -770,9 +776,8 @@ impl DataFusionPlanner {
         let rows = self
             .adjacency
             .as_ref()
-            .unwrap()
-            .nodes(label)
-            .unwrap()
+            .and_then(|adjacency| adjacency.nodes(label))
+            .ok_or_else(|| crate::error::GraphError::internal("eligibility required a node index"))?
             .clone();
         let mut wanted: Vec<(String, String)> = Vec::new();
         for item in projections {
@@ -1017,7 +1022,9 @@ impl DataFusionPlanner {
             ..
         } = first.op
         else {
-            unreachable!("Hop::of matched an Expand")
+            return Err(crate::error::GraphError::internal(
+                "Hop::of matched an Expand",
+            ));
         };
         let scan = LogicalOperator::ScanByLabel {
             variable: m.to_string(),

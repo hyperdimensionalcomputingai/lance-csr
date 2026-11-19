@@ -215,7 +215,9 @@ impl UserDefinedLogicalNodeCore for NodeLookupNode {
         _exprs: Vec<Expr>,
         inputs: Vec<LogicalPlan>,
     ) -> datafusion::common::Result<Self> {
-        let input = inputs.into_iter().next().expect("NodeLookup has one input");
+        let input = inputs.into_iter().next().ok_or_else(|| {
+            datafusion::common::internal_datafusion_err!("NodeLookup has one input")
+        })?;
         Self::with_fields(
             input,
             self.key_column.clone(),
@@ -354,10 +356,9 @@ impl ExecutionPlan for NodeLookupExec {
         self: Arc<Self>,
         children: Vec<Arc<dyn ExecutionPlan>>,
     ) -> datafusion::common::Result<Arc<dyn ExecutionPlan>> {
-        let input = children
-            .into_iter()
-            .next()
-            .expect("NodeLookupExec has one child");
+        let input = children.into_iter().next().ok_or_else(|| {
+            datafusion::common::internal_datafusion_err!("NodeLookupExec has one child")
+        })?;
         let properties = Arc::new(PlanProperties::new(
             EquivalenceProperties::new(self.schema.clone()),
             input.output_partitioning().clone(),

@@ -79,7 +79,7 @@ impl ScalarUDFImpl for CypherMath {
             "floor" => math::floor(),
             "ceil" => math::ceil(),
             "sqrt" => math::sqrt(),
-            _ => unreachable!("validated math function"),
+            other => return datafusion::common::exec_err!("unknown math function {other}"),
         };
         args.args = vec![ColumnarValue::Array(input)];
         args.arg_fields = vec![Arc::new(Field::new("arg", output_type, true))];

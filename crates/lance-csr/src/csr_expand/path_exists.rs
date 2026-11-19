@@ -176,7 +176,9 @@ impl UserDefinedLogicalNodeCore for PathExistsNode {
         _exprs: Vec<Expr>,
         inputs: Vec<LogicalPlan>,
     ) -> datafusion::common::Result<Self> {
-        let input = inputs.into_iter().next().expect("PathExists has one input");
+        let input = inputs.into_iter().next().ok_or_else(|| {
+            datafusion::common::internal_datafusion_err!("PathExists has one input")
+        })?;
         Self::try_new(
             input,
             self.start.clone(),
@@ -289,10 +291,9 @@ impl ExecutionPlan for PathExistsExec {
         self: Arc<Self>,
         children: Vec<Arc<dyn ExecutionPlan>>,
     ) -> datafusion::common::Result<Arc<dyn ExecutionPlan>> {
-        let input = children
-            .into_iter()
-            .next()
-            .expect("PathExistsExec has one child");
+        let input = children.into_iter().next().ok_or_else(|| {
+            datafusion::common::internal_datafusion_err!("PathExistsExec has one child")
+        })?;
         Ok(Arc::new(Self {
             metrics: Default::default(),
             properties: Self::properties_for(&self.schema, &input),

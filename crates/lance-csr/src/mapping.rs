@@ -258,7 +258,9 @@ impl GraphMapping {
                 (&edge.source, &edge.source_type),
                 (&edge.target, &edge.target_type),
             ] {
-                let node = self.node(end_type).expect("validated endpoint");
+                let node = self
+                    .node(end_type)
+                    .ok_or_else(|| GraphError::internal("validated endpoint"))?;
                 let expected = key(schema(&node.table)?, &node.table, &node.key)?;
                 let actual = key(s, &edge.table, end)?;
                 if actual != expected {

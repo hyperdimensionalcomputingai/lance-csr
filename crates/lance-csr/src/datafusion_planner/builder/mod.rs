@@ -154,11 +154,13 @@ impl DataFusionPlanner {
                 mark,
                 fallback,
             } => self.build_path_exists(ctx, input, start, hops, end.as_deref(), mark, fallback),
-            LogicalOperator::ComprehensionElement => Ok(ctx
-                .comprehension_elements
-                .last()
-                .expect("element rows are built inside their comprehension")
-                .clone()),
+            LogicalOperator::ComprehensionElement => {
+                ctx.comprehension_elements.last().cloned().ok_or_else(|| {
+                    crate::error::GraphError::internal(
+                        "element rows are built inside their comprehension",
+                    )
+                })
+            }
             LogicalOperator::OptionalMatch {
                 input,
                 optional,

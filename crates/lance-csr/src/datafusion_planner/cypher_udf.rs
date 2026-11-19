@@ -117,7 +117,7 @@ impl ScalarUDFImpl for CypherField {
     }
 
     fn return_type(&self, _arg_types: &[DataType]) -> Result<DataType> {
-        unreachable!("return_field_from_args decides the type")
+        datafusion::common::internal_err!("return_field_from_args decides the type")
     }
 
     fn return_field_from_args(&self, args: ReturnFieldArgs) -> Result<FieldRef> {
@@ -156,7 +156,9 @@ impl ScalarUDFImpl for CypherField {
         };
         let result = match base.data_type() {
             DataType::Struct(fields) => {
-                let i = struct_field(fields, name).expect("checked when planning");
+                let Some(i) = struct_field(fields, name) else {
+                    return exec_err!("cypher_field: no field {name}");
+                };
                 let column = base.as_struct().column(i).clone();
                 // A null map gives null keys, whatever its child arrays hold.
                 let nulls = arrow::buffer::NullBuffer::union(
@@ -172,7 +174,9 @@ impl ScalarUDFImpl for CypherField {
             }
             DataType::Null => base,
             _ => {
-                let part = temporal_part(name).expect("checked when planning");
+                let Some(part) = temporal_part(name) else {
+                    return exec_err!("cypher_field: no temporal part {name}");
+                };
                 cast(&date_part(&base, part)?, &DataType::Int64)?
             }
         };

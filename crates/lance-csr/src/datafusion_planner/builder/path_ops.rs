@@ -101,16 +101,17 @@ impl DataFusionPlanner {
                     )));
                 }
             }
+            // node_labels was deduplicated ignoring case, so look endpoints up the same way.
+            let endpoint = |label: &Option<String>| {
+                node_labels
+                    .iter()
+                    .position(|l| label.as_ref().is_some_and(|s| l.eq_ignore_ascii_case(s)))
+                    .ok_or_else(|| error(format!("missing endpoint label for {label:?}")))
+            };
             edges.push(EdgeSource {
                 label: mapping.relationship_type.clone(),
-                source_label: node_labels
-                    .iter()
-                    .position(|l| Some(l) == mapping.source_label.as_ref())
-                    .unwrap(),
-                target_label: node_labels
-                    .iter()
-                    .position(|l| Some(l) == mapping.target_label.as_ref())
-                    .unwrap(),
+                source_label: endpoint(&mapping.source_label)?,
+                target_label: endpoint(&mapping.target_label)?,
                 source_id: mapping.source_id_field.clone(),
                 target_id: mapping.target_id_field.clone(),
                 schema,
@@ -179,9 +180,9 @@ impl DataFusionPlanner {
                         edge_labels
                             .iter()
                             .position(|l| l.eq_ignore_ascii_case(t))
-                            .unwrap()
+                            .ok_or_else(|| error(format!("unknown relationship type {t}")))
                     })
-                    .collect(),
+                    .collect::<Result<_>>()?,
                 direction: rel.direction.clone(),
                 min,
                 max,

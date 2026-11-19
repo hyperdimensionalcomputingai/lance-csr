@@ -86,7 +86,7 @@ impl HigherOrderUDFImpl for CypherFold {
         };
         let normalized = list_type(list.data_type())?;
         let (DataType::List(element) | DataType::LargeList(element)) = normalized else {
-            unreachable!()
+            return plan_err!("expected list, got {normalized}");
         };
         if self.name != "reduce" {
             return Ok(LambdaParametersProgress::Complete(vec![vec![element]]));
@@ -184,7 +184,7 @@ impl HigherOrderUDFImpl for CypherFold {
             let values = match list.data_type() {
                 DataType::List(_) => list.as_list::<i32>().values(),
                 DataType::LargeList(_) => list.as_list::<i64>().values(),
-                _ => unreachable!(),
+                other => return exec_err!("expected list, got {other}"),
             };
             let mut output: Vec<ArrayRef> = Vec::with_capacity(list.len());
             for (row, (start, end)) in ranges.into_iter().enumerate() {
@@ -247,14 +247,14 @@ impl HigherOrderUDFImpl for CypherFold {
                 .windows(2)
                 .map(|w| (w[0] as usize, w[1] as usize))
                 .collect(),
-            _ => unreachable!(),
+            other => return exec_err!("expected list, got {other}"),
         };
         let mut output = BooleanBuilder::with_capacity(list.len());
         for (row, (start, end)) in ranges.into_iter().enumerate() {
             output.append_option(if list.is_null(row) {
                 None
             } else {
-                predicate_result(&self.name, predicate, start, end)
+                predicate_result(&self.name, predicate, start, end)?
             });
         }
         Ok(ColumnarValue::Array(Arc::new(output.finish())))
@@ -266,7 +266,7 @@ pub(super) fn predicate_result(
     values: &BooleanArray,
     start: usize,
     end: usize,
-) -> Option<bool> {
+) -> Result<Option<bool>> {
     let mut trues = 0;
     let mut falses = 0;
     let mut nulls = 0;
@@ -279,7 +279,7 @@ pub(super) fn predicate_result(
             falses += 1;
         }
     }
-    match kind {
+    Ok(match kind {
         "all" if falses > 0 => Some(false),
         "any" if trues > 0 => Some(true),
         "none" if trues > 0 => Some(false),
@@ -288,8 +288,8 @@ pub(super) fn predicate_result(
         "all" | "none" => Some(true),
         "any" => Some(false),
         "single" => Some(trues == 1),
-        _ => unreachable!(),
-    }
+        _ => return exec_err!("unknown list predicate {kind}"),
+    })
 }
 
 #[cfg(test)]
@@ -318,7 +318,7 @@ mod tests {
             let values = BooleanArray::from(values);
             for (kind, want) in ["all", "any", "none", "single"].iter().zip(expected) {
                 assert_eq!(
-                    predicate_result(kind, &values, 0, values.len()),
+                    predicate_result(kind, &values, 0, values.len()).unwrap(),
                     want,
                     "{kind}: {values:?}"
                 );

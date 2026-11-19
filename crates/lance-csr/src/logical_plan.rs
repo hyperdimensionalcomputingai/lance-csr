@@ -958,17 +958,16 @@ impl<'a> LogicalPlanner<'a> {
                         .as_deref()
                         .is_some_and(|v| self.variables.contains_key(v));
 
-                    match (already_bound, plan.as_ref()) {
-                        (true, _) => { /* no-op */ }
-                        (false, None) => plan = Some(self.plan_node_scan(node)?),
-                        (false, Some(_)) => {
-                            let right = self.plan_node_scan(node)?;
-                            plan = Some(LogicalOperator::Join {
-                                left: Box::new(plan.unwrap()),
+                    if !already_bound {
+                        let right = self.plan_node_scan(node)?;
+                        plan = Some(match plan.take() {
+                            None => right,
+                            Some(left) => LogicalOperator::Join {
+                                left: Box::new(left),
                                 right: Box::new(right),
                                 join_type: JoinType::Cross, // TODO: infer better join type based on shared vars
-                            });
-                        }
+                            },
+                        });
                     }
                 }
                 GraphPattern::Path(path) if path.variable.is_some() => {
@@ -1017,17 +1016,15 @@ impl<'a> LogicalPlanner<'a> {
                 })
                 .flat_map(|path| path.segments.iter_mut())
                 .map(|s| &mut s.relationship)
-                .filter(|r| r.variable.is_some())
                 .collect()
         }
         let mut patterns = patterns.to_vec();
         // Whether each variable seen in this clause was variable-length.
         let mut seen: HashMap<String, bool> = HashMap::new();
         for rel in relationships(&mut patterns) {
-            let var = rel
-                .variable
-                .as_ref()
-                .expect("filtered to named relationships");
+            let Some(var) = rel.variable.as_ref() else {
+                continue;
+            };
             let variable_length = rel.length.is_some();
             if let Some(earlier_variable_length) = seen.insert(var.clone(), variable_length) {
                 if variable_length || earlier_variable_length {
@@ -1041,19 +1038,19 @@ impl<'a> LogicalPlanner<'a> {
             }
         }
         for rel in relationships(&mut patterns) {
-            if !rel.types.is_empty() {
-                let var = rel
-                    .variable
-                    .clone()
-                    .expect("filtered to named relationships");
+            if let Some(var) = rel.variable.as_ref().filter(|_| !rel.types.is_empty()) {
                 self.relationship_types
-                    .entry(var)
+                    .entry(var.clone())
                     .or_insert_with(|| rel.types.clone());
             }
         }
         for rel in relationships(&mut patterns) {
             if rel.types.is_empty() {
-                if let Some(types) = self.relationship_types.get(rel.variable.as_ref().unwrap()) {
+                if let Some(types) = rel
+                    .variable
+                    .as_ref()
+                    .and_then(|v| self.relationship_types.get(v))
+                {
                     rel.types = types.clone();
                 }
             }
@@ -1234,7 +1231,9 @@ impl<'a> LogicalPlanner<'a> {
                     keys,
                 } = planned?
                 else {
-                    unreachable!("plan_optional_match returns an OptionalMatch")
+                    return Err(GraphError::internal(
+                        "plan_optional_match returns an OptionalMatch",
+                    ));
                 };
                 let shared: Vec<String> = keys
                     .iter()
@@ -1395,7 +1394,9 @@ impl<'a> LogicalPlanner<'a> {
             {
                 let mut lowered = self.rewrite_exists_in_value(input, &mut args[0])?;
                 let LogicalOperator::ListComprehension { count_only, .. } = &mut lowered else {
-                    unreachable!("a list comprehension lowers to its own operator")
+                    return Err(GraphError::internal(
+                        "a list comprehension lowers to its own operator",
+                    ));
                 };
                 *count_only = true;
                 *expr = args.remove(0);
@@ -1521,7 +1522,9 @@ impl<'a> LogicalPlanner<'a> {
                         keys,
                     } = planned
                     else {
-                        unreachable!("plan_optional_match returns an OptionalMatch")
+                        return Err(GraphError::internal(
+                            "plan_optional_match returns an OptionalMatch",
+                        ));
                     };
                     let saved = self.seed_source.replace((*optional).clone());
                     let optional = self.rewrite_exists_in_value(*optional, &mut value);
@@ -1648,7 +1651,10 @@ impl<'a> LogicalPlanner<'a> {
         base: Option<LogicalOperator>,
         path: &PathPattern,
     ) -> Result<LogicalOperator> {
-        let spec = path.shortest.as_ref().expect("a shortest-path pattern");
+        let spec = path
+            .shortest
+            .as_ref()
+            .ok_or_else(|| GraphError::internal("a shortest-path pattern"))?;
         let unsupported = |what: &str| GraphError::UnsupportedFeature {
             feature: format!("shortestPath {what}"),
             location: Location::new(file!(), line!(), column!()),
@@ -1695,13 +1701,13 @@ impl<'a> LogicalPlanner<'a> {
         let length = rel.length.as_ref();
         if self.rich_paths {
             return Ok(LogicalOperator::PathMatch {
-                input: Box::new(plan.expect("both ends planned")),
+                input: Box::new(plan.ok_or_else(|| GraphError::internal("both ends planned"))?),
                 path: path.clone(),
                 node_values: self.wildcard_relationships,
             });
         }
         Ok(LogicalOperator::ShortestPath {
-            input: Box::new(plan.expect("both end nodes are planned")),
+            input: Box::new(plan.ok_or_else(|| GraphError::internal("both ends planned"))?),
             source_variable: ends[0].clone(),
             target_variable: ends[1].clone(),
             relationship_type: rel_type.clone(),
@@ -1851,10 +1857,9 @@ impl<'a> LogicalPlanner<'a> {
             .into_iter()
             .map(|(var, labels)| (var, labels.join("|")))
             .collect();
-        Ok(if inputs.len() == 1 {
-            inputs.pop().expect("one branch")
-        } else {
-            LogicalOperator::Union { inputs }
+        Ok(match <[_; 1]>::try_from(inputs) {
+            Ok([only]) => only,
+            Err(inputs) => LogicalOperator::Union { inputs },
         })
     }
 
@@ -1925,7 +1930,7 @@ impl<'a> LogicalPlanner<'a> {
                     .start_node
                     .variable
                     .clone()
-                    .expect("bound start is named");
+                    .ok_or_else(|| GraphError::internal("bound start is named"))?;
                 (p, var)
             }
             base => {
@@ -2026,12 +2031,13 @@ impl<'a> LogicalPlanner<'a> {
         path: &PathPattern,
     ) -> Result<LogicalOperator> {
         let mut path = path.clone();
-        if path.start_node.variable.is_none() {
-            path.start_node.variable = Some(format!("_path_node_{}", self.variables.len()));
-        }
-        let start = path.start_node.variable.as_ref().unwrap();
-        let base = if self.variables.contains_key(start) {
-            base.expect("bound variables have input rows")
+        let start = path
+            .start_node
+            .variable
+            .get_or_insert_with(|| format!("_path_node_{}", self.variables.len()))
+            .clone();
+        let base = if self.variables.contains_key(&start) {
+            base.ok_or_else(|| GraphError::internal("bound variables have input rows"))?
         } else {
             let scan = self.plan_node_scan(&path.start_node)?;
             match base {
@@ -2044,10 +2050,10 @@ impl<'a> LogicalPlanner<'a> {
             }
         };
         for segment in &mut path.segments {
-            if segment.end_node.variable.is_none() {
-                segment.end_node.variable = Some(format!("_path_node_{}", self.variables.len()));
-            }
-            let variable = segment.end_node.variable.as_ref().unwrap();
+            let variable: &String = segment
+                .end_node
+                .variable
+                .get_or_insert_with(|| format!("_path_node_{}", self.variables.len()));
             self.validate_variable_label(variable, &segment.end_node.labels)?;
             let label = self
                 .variables
@@ -2060,8 +2066,11 @@ impl<'a> LogicalPlanner<'a> {
                 })?;
             self.variables.insert(variable.clone(), label);
         }
-        self.variables
-            .insert(path.variable.clone().unwrap(), "Path".into());
+        let path_variable = path
+            .variable
+            .clone()
+            .ok_or_else(|| GraphError::internal("a named path has a variable"))?;
+        self.variables.insert(path_variable, "Path".into());
         Ok(LogicalOperator::PathMatch {
             input: Box::new(base),
             path,
@@ -2109,14 +2118,11 @@ impl<'a> LogicalPlanner<'a> {
                 message: "a comprehension's element rows bind no pattern variable".to_string(),
                 location: snafu::Location::new(file!(), line!(), column!()),
             }),
-            LogicalOperator::PathMatch { path, .. } => Ok(path
+            LogicalOperator::PathMatch { path, .. } => path
                 .segments
                 .last()
-                .unwrap()
-                .end_node
-                .variable
-                .clone()
-                .unwrap()),
+                .and_then(|segment| segment.end_node.variable.clone())
+                .ok_or_else(|| GraphError::internal("a path match names its end node")),
             LogicalOperator::ShortestPath {
                 target_variable, ..
             } => Ok(target_variable.clone()),
