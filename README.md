@@ -45,14 +45,14 @@ lance-csr is built for single-machine execution. It aims to:
 
 Distributed execution is **out of scope**, and issues and pull requests that target it will be closed. If your use
 case needs distributed graph queries or graph algorithms, that's the kind of engine we're building at HDC Labs:
-[reach out to us](https://hyperdimensionalcomputing.ai/contact/).
+[reach out to us](https://hyperdimensionalcomputing.ai/contact/) to learn more.
 
 ## What this fork adds
 
 - **CSR traversal** (`use_csr=True`): relationship hops and variable-length paths become array lookups instead of
   joins, updated incrementally as the Lance datasets change. See [the CSR index](https://lance-csr.hdclabs.ai/csr/).
 - **A Lance-native engine** that reads each table lazily from a pinned Lance snapshot or holds it in memory, and
-  `checkout_latest()`es to new versions.
+  moves to new dataset versions with `checkout_latest()`.
 - **Broader openCypher support**, enough to run the Graph Data Council's Interactive complex queries:
   `OPTIONAL MATCH`, pattern predicates, chained `WITH`, `UNWIND`, list and pattern comprehensions,
   `shortestPath`, `$parameters` and more.
@@ -66,8 +66,8 @@ uv add lance-csr
 ```
 
 To write Lance datasets or query them on disk, also add `pylance` (`uv add lance-csr pylance`). lance-csr reads
-Lance with its own built-in Lance library, so any `pylance` version that writes a file format that library reads
-works; see [Lance datasets](https://lance-csr.hdclabs.ai/lance/).
+Lance with its own built-in Lance library, so it works with any `pylance` version whose file format that library
+can read; see [Lance datasets](https://lance-csr.hdclabs.ai/lance/).
 
 Prebuilt wheels cover Linux x86-64 and aarch64, native Apple Silicon and Windows x86-64 (CPython 3.12+), so no
 Rust toolchain is needed. On Windows, the same command installs the native Windows wheel; you don't need WSL2,
@@ -101,12 +101,48 @@ result = query.execute({"Person": people})
 print(result.to_pydict())  # {'name': ['Bob', 'David'], 'age': [34, 42]}
 ```
 
+Lance datasets can be passed in directly, in place of PyArrow tables. A `CypherEngine` reads them lazily, pinned
+to the version you opened, and reuses its catalog and indexes across queries. `use_csr=True` runs relationship hops
+on the CSR index, and `persist_csr=True` (experimental) stores that index inside each relationship dataset's
+directory, so the next engine loads it instead of rebuilding it.
+
+```python
+import lance
+import pyarrow as pa
+from lance_csr import CypherEngine, GraphConfig
+
+lance.write_dataset(
+    pa.table({"person_id": [1, 2, 3, 4], "name": ["Alice", "Bob", "Carol", "David"]}),
+    "person.lance",
+)
+lance.write_dataset(pa.table({"src": [1, 2, 3], "dst": [2, 3, 4]}), "knows.lance")
+
+config = (
+    GraphConfig.builder()
+    .node_table("Person", "person_id")
+    .rel_table("KNOWS", "Person", "Person", "src", "dst")
+    .build()
+)
+engine = CypherEngine(
+    config,
+    {"Person": lance.dataset("person.lance"), "KNOWS": lance.dataset("knows.lance")},
+    use_csr=True,
+    persist_csr=True,
+)
+result = engine.execute(
+    "MATCH (a:Person {name: 'Alice'})-[:KNOWS*2]->(b:Person) RETURN b.name AS name"
+)
+print(result.to_pydict())  # {'name': ['Carol']}
+```
+
+After new writes to the datasets, `engine.checkout_latest()` moves the engine to their latest versions.
+
 More in the [getting started guide](https://lance-csr.hdclabs.ai/getting-started/) and the
 [examples](examples/README.md). For plain SQL over the same datasets, see [SQL queries](https://lance-csr.hdclabs.ai/sql/).
 
 ## Benchmarks
 
-lance-csr is measured against other graph engines on the Graph Data Council's SNB SF1 dataset (3.18M nodes, 17.3M
+lance-csr's performance is regularly measured against other graph engines on the Graph Data Council's SNB SF1 dataset (3.18M nodes, 17.3M
 relationships). The runners, queries, expected answers and results live in two repositories, whose READMEs explain
 how to reproduce the runs:
 
@@ -119,10 +155,10 @@ These are independent, unaudited measurements, not GDC Benchmark Results.
 
 ## Contributing
 
-Contributions within the [project's goals](#goals) are welcome, from people and from their coding agents. Every
+Contributions within the [project's goals](#goals) are welcome, from humans who understand the outputs of their coding agents. Every
 pull request should explain the problem it solves and back it up with evidence: a regression test for a bug fix,
 and results from both benchmark suites for a code change. [`CONTRIBUTING.md`](CONTRIBUTING.md) explains what to
-include and how to measure your branch against `main`. If you're unsure whether an idea fits, open an issue first.
+include and how to measure your branch against `main`. If you're unsure whether an idea is suitable, please open an issue first.
 
 ## Credits
 
