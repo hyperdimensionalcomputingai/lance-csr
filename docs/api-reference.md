@@ -16,8 +16,8 @@ guides link here for exact signatures and link back for examples.
 
 `lance_csr.__version__` is the package version.
 
-This page covers the Python API. Rust users should read [Using from Rust](rust.md) and the
-[Rust API reference on docs.rs](https://docs.rs/lance-csr).
+This page covers the Python API. TypeScript users should read the [TypeScript API reference](typescript-api.md),
+and Rust users [Using from Rust](rust.md) and the [Rust API reference on docs.rs](https://docs.rs/lance-csr).
 
 ## Type checking
 

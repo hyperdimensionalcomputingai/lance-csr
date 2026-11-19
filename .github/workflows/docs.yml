@@ -11,6 +11,8 @@ on:
       # Pages include these examples with --8<--.
       - crates/lance-csr/examples/**
       - nodejs/examples/**
+      # The TypeScript API reference page includes this generated file.
+      - nodejs/typedoc/api.md
       - .github/workflows/docs.yml
   pull_request:
     paths:
@@ -21,6 +23,8 @@ on:
       # Pages include these examples with --8<--.
       - crates/lance-csr/examples/**
       - nodejs/examples/**
+      # The TypeScript API reference page includes this generated file.
+      - nodejs/typedoc/api.md
       - .github/workflows/docs.yml
 
 concurrency:

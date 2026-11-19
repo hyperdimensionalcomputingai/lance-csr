@@ -45,3 +45,18 @@ updates:
       npm:
         patterns:
           - "*"
+  # TypeDoc, which generates the TypeScript API reference. It supports TypeScript up to 6.0, so
+  # TypeScript stays on 6 here until TypeDoc supports 7.
+  - package-ecosystem: npm
+    directory: /nodejs/typedoc
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      typedoc:
+        patterns:
+          - "*"
+    ignore:
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]

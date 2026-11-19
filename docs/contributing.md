@@ -91,9 +91,20 @@ uv run --no-sync python ../docs/check_snippets.py           # every page
 uv run --no-sync python ../docs/check_snippets.py csr.md    # one page
 ```
 
+The [TypeScript API reference](typescript-api.md) is generated with TypeDoc from the TSDoc comments and types in
+`nodejs/src/`, into `nodejs/typedoc/api.md`, which the page includes. TypeDoc and the TypeScript version it
+needs are pinned in `nodejs/typedoc/`, apart from the package's own tools. After changing the TypeScript API or
+its comments, regenerate the page and commit it; CI fails when the committed copy is out of date:
+
+```bash
+cd nodejs
+npm ci --prefix typedoc   # once, and after its lockfile changes
+npm run docs:api
+```
+
 `docs/AGENTS.md` has the writing guidelines. In short: when a pull request changes a user-facing API or
-behaviour, update the guide and the docstrings that generate the [API reference](api-reference.md) in the same pull
-request.
+behaviour, update the guide, and the docstrings and TSDoc comments that generate the [Python](api-reference.md) and
+[TypeScript](typescript-api.md) API references, in the same pull request.
 
 ## Pull requests
 
