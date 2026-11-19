@@ -13,7 +13,8 @@ updates:
         patterns:
           - "*"
   # Flag new lance majors, which we follow (see RELEASE.md); RELEASE.md's checklist catches minors and patches.
-  # arrow and datafusion move with lance, by hand.
+  # arrow and datafusion move with lance, by hand. Since lance 1.0 every datafusion bump has shipped
+  # in a lance major, so this PR is also the signal that a newer datafusion is usable here.
   - package-ecosystem: cargo
     directories:
       - /
