@@ -45,7 +45,7 @@ lance-csr is built for single-machine execution. It aims to:
 
 Distributed execution is **out of scope**, and issues and pull requests that target it will be closed. If your use
 case needs distributed graph queries or graph algorithms, that's the kind of engine we're building at HDC Labs:
-[reach out to us](https://hyperdimensionalcomputing.ai/contact/).
+[reach out to us](https://hyperdimensionalcomputing.ai/contact/) to learn more.
 
 ## What this fork adds
 
