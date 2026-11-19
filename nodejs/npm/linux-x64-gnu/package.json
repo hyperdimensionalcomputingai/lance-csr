@@ -1,0 +1,37 @@
+{
+  "name": "lance-csr-linux-x64-gnu",
+  "version": "0.12.0",
+  "cpu": [
+    "x64"
+  ],
+  "main": "lance-csr.linux-x64-gnu.node",
+  "files": [
+    "lance-csr.linux-x64-gnu.node"
+  ],
+  "description": "Cypher graph queries over Lance datasets, built on DataFusion with a CSR adjacency index",
+  "keywords": [
+    "graph",
+    "cypher",
+    "lance",
+    "arrow",
+    "datafusion"
+  ],
+  "author": "The lance-csr Authors",
+  "homepage": "https://lance-csr.hdclabs.ai/",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hyperdimensionalcomputingai/lance-csr.git",
+    "directory": "nodejs"
+  },
+  "bugs": "https://github.com/hyperdimensionalcomputingai/lance-csr/issues",
+  "os": [
+    "linux"
+  ],
+  "libc": [
+    "glibc"
+  ]
+}

@@ -33,9 +33,11 @@ build from the source distribution, which needs Rust and `protoc` (see [Contribu
 The package depends only on `pyarrow>=14`, which uv installs for you. To write Lance datasets or query them on
 disk, also add `pylance` (`uv add lance-csr pylance`); see [Lance datasets](lance.md).
 
-!!! tip "Using Rust?"
+!!! tip "Using Rust or TypeScript?"
 
-    The same engine is on crates.io: run `cargo add lance-csr` and see [Using from Rust](rust.md).
+    The same engine is on crates.io: run `cargo add lance-csr` and see [Using from Rust](rust.md). For
+    Node.js, run `npm install lance-csr apache-arrow` and see [Using from TypeScript](typescript.md). The
+    TypeScript tabs below show the same steps.
 
 !!! note "Docs track the `main` branch"
 
@@ -78,6 +80,12 @@ knows whom:
     --8<-- "crates/lance-csr/examples/embedded_query.rs:gs_datasets"
     ```
 
+=== "TypeScript"
+
+    ```typescript
+    --8<-- "nodejs/examples/getting_started.ts:gs_datasets"
+    ```
+
 Each key of `datasets` is a node label or relationship type. Now describe how they connect:
 
 === "Python"
@@ -103,6 +111,12 @@ Each key of `datasets` is a node label or relationship type. Now describe how th
 
     ```rust
     --8<-- "crates/lance-csr/examples/embedded_query.rs:gs_config"
+    ```
+
+=== "TypeScript"
+
+    ```typescript
+    --8<-- "nodejs/examples/getting_started.ts:gs_config"
     ```
 
 !!! tip "Use integer keys"
@@ -143,9 +157,15 @@ Each key of `datasets` is a node label or relationship type. Now describe how th
     --8<-- "crates/lance-csr/examples/embedded_query.rs:gs_query"
     ```
 
+=== "TypeScript"
+
+    ```typescript
+    --8<-- "nodejs/examples/getting_started.ts:gs_query"
+    ```
+
 Results come back as a [`pyarrow.Table`](https://arrow.apache.org/docs/python/generated/pyarrow.Table.html),
 so `to_pylist()`, `to_pydict()`, `to_pandas()` and Polars' `pl.from_arrow()` all work. In Rust, `execute`
-returns an Arrow `RecordBatch`.
+returns an Arrow `RecordBatch`, and in TypeScript an [apache-arrow](https://arrow.apache.org/docs/js/) `Table`.
 
 Pass values with `$parameters` instead of formatting them into the query string:
 
@@ -163,6 +183,12 @@ Pass values with `$parameters` instead of formatting them into the query string:
 
     ```rust
     --8<-- "crates/lance-csr/examples/embedded_query.rs:gs_params"
+    ```
+
+=== "TypeScript"
+
+    ```typescript
+    --8<-- "nodejs/examples/getting_started.ts:gs_params"
     ```
 
 ## Go multi-hop with the CSR
@@ -188,6 +214,12 @@ patterns then become array lookups instead of joins:
 
     ```rust
     --8<-- "crates/lance-csr/examples/embedded_query.rs:gs_csr"
+    ```
+
+=== "TypeScript"
+
+    ```typescript
+    --8<-- "nodejs/examples/getting_started.ts:gs_csr"
     ```
 
 !!! tip "When should I turn the CSR on?"
@@ -219,6 +251,12 @@ For a single query you don't plan to repeat, `CypherQuery` skips the engine:
     --8<-- "crates/lance-csr/examples/embedded_query.rs:gs_one_off"
     ```
 
+=== "TypeScript"
+
+    ```typescript
+    --8<-- "nodejs/examples/getting_started.ts:gs_one_off"
+    ```
+
 `CypherQuery` rebuilds its context on every `execute()` call, so prefer `CypherEngine` whenever you run more
 than one query against the same data.
 
@@ -228,5 +266,6 @@ than one query against the same data.
 - [Querying with Cypher](cypher.md): parameters, streaming, `explain()` (with runtime metrics) and the supported Cypher.
 - [Lance datasets](lance.md): query data on disk without loading it, and pick up new writes with `checkout_latest()`.
 - [Using from Rust](rust.md): the same engine as a Rust library.
+- [Using from TypeScript](typescript.md): the same engine in Node.js.
 - The [`examples/`](https://github.com/hyperdimensionalcomputingai/lance-csr/tree/main/examples) directory has
   runnable scripts.

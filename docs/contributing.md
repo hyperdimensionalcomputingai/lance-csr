@@ -23,6 +23,19 @@ make install   # uv sync --locked --no-install-project, then uv run --no-sync ma
 Re-run `make install` after changing Rust code; Python changes apply immediately. `python/DEVELOPMENT.md`
 explains the uv flags and release builds.
 
+For the Node.js package you also need Node.js 22 or newer. Build the native module into `nodejs/`, and the
+TypeScript into `nodejs/dist/`, which the examples import:
+
+```bash
+cd nodejs
+npm ci
+npm run build:native   # a debug build; re-run it after changing Rust code
+npm run build
+```
+
+`build:native` also regenerates `native.js` and `native.d.ts`, the loader and types napi derives from the
+Rust code; commit them when they change.
+
 ## Test and lint
 
 === "Rust"
@@ -44,7 +57,17 @@ explains the uv flags and release builds.
     make lint   # ruff check, ruff format --check, pyright
     ```
 
-Add Rust unit tests next to the code with `#[cfg(test)]`, and Python tests in `python/python/tests/test_*.py`.
+=== "TypeScript"
+
+    From `nodejs/`, after the build above:
+
+    ```bash
+    npm test       # node --test on test/*.test.ts, against the TypeScript sources
+    npm run lint   # tsc --noEmit, prettier --check
+    ```
+
+Add Rust unit tests next to the code with `#[cfg(test)]`, Python tests in `python/python/tests/test_*.py`, and
+Node.js tests for changes to the TypeScript bindings in `nodejs/test/*.test.ts`.
 A CSR change should test that the CSR path returns the same rows as the join path.
 
 ## Documentation
@@ -58,8 +81,9 @@ uv run --project docs --locked zensical serve          # live preview at http://
 uv run --project docs --locked zensical build --strict # what CI runs
 ```
 
-The Python examples in the pages are executable. After changing them, or any API they use, run them against
-your build:
+The Python examples in the pages are executable. The TypeScript ones are included from
+`nodejs/examples/`, which CI runs (`node examples/<file>.ts` from `nodejs/`). After changing them, or any API
+they use, run them against your build:
 
 ```bash
 cd python
@@ -75,8 +99,8 @@ request.
 
 - Follow the commit style in the history: `feat(graph):`, `fix(cypher):`, `docs:`, `refactor(query):`, with
   an imperative subject of at most 72 characters.
-- Describe the scope, list the test commands you ran, and note any impact on the Python bindings, examples or
-  docs.
+- Describe the scope, list the test commands you ran, and note any impact on the Python or Node.js bindings,
+  examples or docs.
 - Explain the problem the change solves and why it's needed. For a code change, include before-and-after
   results from both [benchmark suites](benchmarks.md), measured against `main` with the harness described in
   [`CONTRIBUTING.md`](https://github.com/hyperdimensionalcomputingai/lance-csr/blob/main/CONTRIBUTING.md#build-the-benchmark-harness).

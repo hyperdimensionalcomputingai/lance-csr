@@ -36,6 +36,7 @@ nav = [
     { "SQL queries" = "sql.md" },
   ] },
   { "Using from Rust" = "rust.md" },
+  { "Using from TypeScript" = "typescript.md" },
   { "How it works" = [
     { "Overview" = "execution.md" },
     # A nested section, so the navigation shows it collapsed until a reader opens it.

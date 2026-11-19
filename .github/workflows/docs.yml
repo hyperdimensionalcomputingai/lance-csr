@@ -8,8 +8,9 @@ on:
       - zensical.toml
       # The Python API reference is generated from these docstrings.
       - python/python/lance_csr/**
-      # Pages include this example with --8<--.
+      # Pages include these examples with --8<--.
       - crates/lance-csr/examples/**
+      - nodejs/examples/**
       - .github/workflows/docs.yml
   pull_request:
     paths:
@@ -17,8 +18,9 @@ on:
       - zensical.toml
       # The Python API reference is generated from these docstrings.
       - python/python/lance_csr/**
-      # Pages include this example with --8<--.
+      # Pages include these examples with --8<--.
       - crates/lance-csr/examples/**
+      - nodejs/examples/**
       - .github/workflows/docs.yml
 
 concurrency:

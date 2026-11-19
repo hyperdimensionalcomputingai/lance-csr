@@ -43,8 +43,24 @@ filename = "crates/lance-csr-python/Cargo.toml"
 search = 'version = "{current_version}"'
 replace = 'version = "{new_version}"'
 
+[[tool.bumpversion.files]]
+filename = "crates/lance-csr-node/Cargo.toml"
+search = 'version = "{current_version}"'
+replace = 'version = "{new_version}"'
+
 # Python pyproject.toml
 [[tool.bumpversion.files]]
 filename = "python/pyproject.toml"
 search = 'version = "{current_version}"'
 replace = 'version = "{new_version}"'
+
+# npm package.json files: the main package and one per platform
+[[tool.bumpversion.files]]
+glob = "nodejs/package.json"
+search = '"version": "{current_version}"'
+replace = '"version": "{new_version}"'
+
+[[tool.bumpversion.files]]
+glob = "nodejs/npm/*/package.json"
+search = '"version": "{current_version}"'
+replace = '"version": "{new_version}"'
