@@ -45,11 +45,11 @@ cargo update --workspace --manifest-path crates/lance-csr-node/Cargo.toml
 ```
 
 `bump-my-version` updates `.bumpversion.toml`, the four crate `Cargo.toml` files, `python/pyproject.toml`,
-`nodejs/package.json` and the three platform packages' `nodejs/npm/*/package.json`. It doesn't update the five
-lockfiles that also carry the version, which is what the other five commands are for. The diff should be 15 files
-and 20 lines each way, touching only version lines. If `uv lock`, `npm install` or `cargo update` moves a
-dependency, undo that and update only the workspace packages. Add `--allow-dirty` to `bump-my-version` if
-untracked files in your checkout stop it.
+`nodejs/package.json`, the three platform packages' `nodejs/npm/*/package.json` and the generated napi loader
+`nodejs/native.js`. It doesn't update the five lockfiles that also carry the version, which is what the other
+five commands are for. The diff should be 16 files and 76 lines each way, touching only version lines. If
+`uv lock`, `npm install` or `cargo update` moves a dependency, undo that and update only the workspace packages.
+Add `--allow-dirty` to `bump-my-version` if untracked files in your checkout stop it.
 
 Check that no docs or READMEs pin the old version, for example with `git grep -n '0\.4'`.
 

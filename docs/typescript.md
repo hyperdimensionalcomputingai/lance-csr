@@ -38,10 +38,9 @@ checkout (see [Contributing](contributing.md)).
 `apache-arrow` (version 21) is a peer dependency: you install it, and lance-csr uses your copy, so the tables
 you pass in and the results you get back are the same `Table` class your code imports.
 
-!!! note "New in the release after 0.12.0"
+!!! note "New in 0.13.0"
 
-    The npm package is first published with the release after 0.12.0. These pages describe the code on
-    `main`; until that release, build the package from a checkout as [Contributing](contributing.md) describes.
+    The npm package was first published with lance-csr 0.13.0.
 
 ## Build an engine
 

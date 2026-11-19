@@ -1,12 +1,12 @@
 [package]
 name = "lance-csr-benches"
-version = "0.12.0"
+version = "0.13.0"
 edition = "2021"
 publish = false
 description = "Benchmarks for lance-csr (not published)"
 
 [dependencies]
-lance-csr = { path = "../lance-csr", version = "0.12.0" }
+lance-csr = { path = "../lance-csr", version = "0.13.0" }
 lance = "14.0.3"
 arrow-array = "58.0.0"
 arrow-schema = "58.0.0"

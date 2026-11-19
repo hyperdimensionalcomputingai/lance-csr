@@ -1,6 +1,6 @@
 {
   "name": "lance-csr",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "description": "Cypher graph queries over Lance datasets, built on DataFusion with a CSR adjacency index",
   "license": "Apache-2.0",
   "author": "The lance-csr Authors",
