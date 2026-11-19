@@ -74,8 +74,10 @@ jobs:
           # protoc is needed by Lance's build scripts, not by package users.
           sudo apt-get update
           sudo apt-get install -y protobuf-compiler
-          # cargo-zigbuild's PyPI package brings zig with it.
-          uv tool install cargo-zigbuild
+          # Pinned so release binaries are built with a known toolchain. The ziglang package
+          # ships a zig binary: put its directory on PATH, where cargo-zigbuild looks for it.
+          uv tool install cargo-zigbuild==0.24.1 --with ziglang==0.17.1
+          "$(uv tool dir)/cargo-zigbuild/bin/python" -c "import os, ziglang; print(os.path.dirname(ziglang.__file__))" >> "$GITHUB_PATH"
       - name: Build ${{ matrix.platform }} binary
         working-directory: nodejs
         env:
