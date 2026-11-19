@@ -277,8 +277,9 @@ jobs:
               npm publish --access public "$2"
             fi
           }
-          for tarball in packages/lance-csr-*-"$version".tgz; do
+          # Paths start with ./ because npm reads packages/<name> as a GitHub repository.
+          for tarball in ./packages/lance-csr-*-"$version".tgz; do
             name=$(basename "$tarball" "-$version.tgz")
             publish "$name" "$tarball"
           done
-          publish lance-csr "packages/lance-csr-$version.tgz"
+          publish lance-csr "./packages/lance-csr-$version.tgz"
