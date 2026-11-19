@@ -453,6 +453,51 @@ async fn path_exists_matches_the_join_plan() {
 }
 
 #[tokio::test]
+async fn named_path_endpoint_labels_ignore_case() {
+    let project = RecordBatch::try_from_iter([(
+        "id",
+        Arc::new(Int64Array::from(vec![1])) as arrow_array::ArrayRef,
+    )])
+    .unwrap();
+    // WORKS_ON spells its source label "person" while KNOWS spells it "Person".
+    let cfg = GraphConfig::builder()
+        .node_table("Person", "id")
+        .node_table("Project", "id")
+        .rel_table("KNOWS", "Person", "Person", "src_id", "dst_id")
+        .rel_table("WORKS_ON", "person", "Project", "src_id", "dst_id")
+        .build()
+        .unwrap();
+    for use_csr in [false, true] {
+        let engine = CypherEngine::new(
+            cfg.clone(),
+            HashMap::from([
+                ("Person".into(), EngineSource::Arrow(people())),
+                ("Project".into(), EngineSource::Arrow(project.clone())),
+                ("KNOWS".into(), EngineSource::Arrow(knows(&[(1, 2)]))),
+                ("WORKS_ON".into(), EngineSource::Arrow(knows(&[(2, 1)]))),
+            ]),
+            use_csr,
+        )
+        .await
+        .unwrap();
+        let batch = engine
+            .execute(
+                "MATCH p = (a:Person)-[:KNOWS]->(b:Person)-[:WORKS_ON]->(c:Project) RETURN length(p) AS n",
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+        let n = batch
+            .column_by_name("n")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap();
+        assert_eq!(n.values(), &[2], "use_csr={use_csr}");
+    }
+}
+
+#[tokio::test]
 async fn anonymous_patterns_keep_mixed_label_identity_and_query_semantics() {
     use arrow_array::{cast::AsArray, StructArray};
     for use_csr in [false, true] {
