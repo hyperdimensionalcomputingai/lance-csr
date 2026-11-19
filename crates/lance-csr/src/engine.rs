@@ -31,7 +31,7 @@
 //! ```
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, PoisonError, RwLock};
 
 use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
@@ -219,6 +219,7 @@ pub struct NodeIndexStats {
 struct EngineState {
     sources: HashMap<String, EngineSource>,
     /// Unoptimized plan templates for this snapshot; `checkout_latest()` starts an empty cache.
+    /// These locks only guard cache edits and `Arc` swaps, so a poisoned guard is still safe to use.
     plans: Mutex<VecDeque<CachedQuery>>,
     /// SQL plan templates for this snapshot, under the same rules.
     sql_plans: Mutex<VecDeque<CachedSql>>,
@@ -1100,7 +1101,7 @@ impl CypherEngine {
     fn snapshot(&self) -> Arc<EngineState> {
         self.state
             .read()
-            .expect("engine state lock poisoned")
+            .unwrap_or_else(PoisonError::into_inner)
             .clone()
     }
 
@@ -1119,7 +1120,7 @@ impl CypherEngine {
             .collect();
         let key = use_cache.then(|| parameter_types(&parameters)).flatten();
         if let Some(key) = &key {
-            let mut plans = state.plans.lock().expect("plan cache lock poisoned");
+            let mut plans = state.plans.lock().unwrap_or_else(PoisonError::into_inner);
             if let Some(index) = plans
                 .iter()
                 .position(|entry| entry.text == text && entry.parameter_types == *key)
@@ -1139,7 +1140,7 @@ impl CypherEngine {
                 .prepare_cached_plan(state.catalog.clone())
                 .unwrap_or(false)
             {
-                let mut plans = state.plans.lock().expect("plan cache lock poisoned");
+                let mut plans = state.plans.lock().unwrap_or_else(PoisonError::into_inner);
                 plans
                     .retain(|entry| entry.text != text || entry.parameter_types != parameter_types);
                 if plans.len() == PLAN_CACHE_ENTRIES {
@@ -1268,7 +1269,10 @@ impl CypherEngine {
         // A copy, so the function (which holds the snapshot) isn't registered in it.
         let ctx = SessionContext::new_with_state(state.context.state());
         let cached = key.as_ref().and_then(|key| {
-            let mut plans = state.sql_plans.lock().expect("plan cache lock poisoned");
+            let mut plans = state
+                .sql_plans
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
             let index = plans
                 .iter()
                 .position(|entry| entry.text == sql && entry.parameter_types == *key)?;
@@ -1284,7 +1288,10 @@ impl CypherEngine {
                 self.register_graph_table(&ctx, &state, &params, templated.clone());
                 let plan = plan_read_only_sql(&ctx, sql).await?;
                 if let Some(parameter_types) = key.filter(|_| templated.load(Ordering::Relaxed)) {
-                    let mut plans = state.sql_plans.lock().expect("plan cache lock poisoned");
+                    let mut plans = state
+                        .sql_plans
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner);
                     if plans.len() == PLAN_CACHE_ENTRIES {
                         plans.pop_front();
                     }
@@ -1389,7 +1396,7 @@ impl CypherEngine {
         }
         let state =
             build_engine_state(&self.config, sources, &self.options, Some(&current), false).await?;
-        *self.state.write().expect("engine state lock poisoned") = Arc::new(state);
+        *self.state.write().unwrap_or_else(PoisonError::into_inner) = Arc::new(state);
         Ok(())
     }
 
@@ -1412,7 +1419,7 @@ impl CypherEngine {
             true,
         )
         .await?;
-        *self.state.write().expect("engine state lock poisoned") = Arc::new(state);
+        *self.state.write().unwrap_or_else(PoisonError::into_inner) = Arc::new(state);
         Ok(())
     }
 

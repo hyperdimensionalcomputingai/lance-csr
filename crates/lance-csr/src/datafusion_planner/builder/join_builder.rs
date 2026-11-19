@@ -220,7 +220,11 @@ impl DataFusionPlanner {
                         datafusion::logical_expr::JoinType::Right
                     }
                     crate::logical_plan::JoinType::Full => datafusion::logical_expr::JoinType::Full,
-                    _ => unreachable!("Inner and Cross joins handled above"),
+                    _ => {
+                        return Err(crate::error::GraphError::internal(
+                            "Inner and Cross joins handled above",
+                        ))
+                    }
                 };
 
                 // Build join with inferred keys

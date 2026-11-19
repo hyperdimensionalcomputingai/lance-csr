@@ -77,20 +77,21 @@ fn move_variable_properties_to_where(clause: &mut MatchClause, anonymous: &mut u
                 .collect(),
         };
         for node in nodes {
-            let keys: Vec<String> = node
+            let moved: Vec<(String, ValueExpression)> = node
                 .properties
                 .iter()
-                .filter(|(_, v)| {
-                    matches!(v, PropertyValue::Variable(_) | PropertyValue::Property(_))
+                .filter_map(|(k, v)| match v {
+                    PropertyValue::Variable(v) => {
+                        Some((k.clone(), ValueExpression::Variable(v.clone())))
+                    }
+                    PropertyValue::Property(p) => {
+                        Some((k.clone(), ValueExpression::Property(p.clone())))
+                    }
+                    _ => None,
                 })
-                .map(|(k, _)| k.clone())
                 .collect();
-            for key in keys {
-                let value = match node.properties.remove(&key) {
-                    Some(PropertyValue::Variable(v)) => ValueExpression::Variable(v),
-                    Some(PropertyValue::Property(p)) => ValueExpression::Property(p),
-                    _ => unreachable!("filtered above"),
-                };
+            for (key, value) in moved {
+                node.properties.remove(&key);
                 let variable = node.variable.get_or_insert_with(|| {
                     *anonymous += 1;
                     format!("__inline_{anonymous}")

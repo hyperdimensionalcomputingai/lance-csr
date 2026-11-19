@@ -159,7 +159,7 @@ impl ScalarUDFImpl for CypherScalar {
                     DataType::List(_) => input.as_list::<i32>().value(row),
                     DataType::LargeList(_) => input.as_list::<i64>().value(row),
                     DataType::FixedSizeList(_, _) => input.as_fixed_size_list().value(row),
-                    _ => unreachable!("validated list predicate input"),
+                    other => return exec_err!("{} expects a list, got {other}", self.name),
                 };
                 let values = cast(&values, &DataType::Boolean)?;
                 result.append_option(super::list_folds::predicate_result(
@@ -167,7 +167,7 @@ impl ScalarUDFImpl for CypherScalar {
                     values.as_boolean(),
                     0,
                     values.len(),
-                ));
+                )?);
             }
             return Ok(ColumnarValue::Array(Arc::new(result.finish())));
         }
@@ -239,7 +239,7 @@ impl ScalarUDFImpl for CypherScalar {
                     );
                     extract::array_slice_udf()
                 }
-                _ => unreachable!("validated list function"),
+                other => return exec_err!("unknown list function {other}"),
             };
             let rows = args.number_rows;
             args.arg_fields = args
@@ -387,7 +387,7 @@ impl ScalarUDFImpl for CypherScalar {
                         };
                         s.chars().skip(start).take(count).collect()
                     }
-                    _ => unreachable!("validated string function"),
+                    other => return exec_err!("unknown string function {other}"),
                 };
                 Ok(Some(value))
             })

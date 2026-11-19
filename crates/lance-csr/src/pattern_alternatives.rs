@@ -391,7 +391,7 @@ pub fn expand(
                 &labels,
                 &types,
                 retain_variable,
-            ));
+            )?);
         }
     }
     if branches.is_empty() {
@@ -466,7 +466,10 @@ fn unroll_variable_length_alternation(
     let fits = |labels: &[String], label: &str| {
         labels.is_empty() || labels.iter().any(|l| l.eq_ignore_ascii_case(label))
     };
-    let range = rel.length.as_ref().expect("a variable-length segment");
+    let range = rel
+        .length
+        .as_ref()
+        .ok_or_else(|| GraphError::internal("a variable-length segment"))?;
     let min = range.min.unwrap_or(1);
     let max = range.max.unwrap_or(crate::MAX_VARIABLE_LENGTH_HOPS);
     if max > crate::MAX_VARIABLE_LENGTH_HOPS {
@@ -578,33 +581,42 @@ fn rewrite(
     labels: &[Option<&str>],
     types: &[&str],
     retain_variable: bool,
-) -> Vec<GraphPattern> {
+) -> Result<Vec<GraphPattern>> {
     let mut occurrences = occurrence_slots.iter();
     let mut types = types.iter();
-    let mut relabel = |node: &NodePattern| NodePattern {
-        labels: labels[*occurrences.next().expect("one slot per node occurrence")]
-            .map(|l| vec![l.to_string()])
-            .unwrap_or_default(),
-        ..node.clone()
+    let mut relabel = |node: &NodePattern| -> Result<NodePattern> {
+        let slot = occurrences
+            .next()
+            .ok_or_else(|| GraphError::internal("one slot per node occurrence"))?;
+        Ok(NodePattern {
+            labels: labels[*slot]
+                .map(|l| vec![l.to_string()])
+                .unwrap_or_default(),
+            ..node.clone()
+        })
     };
     patterns
         .iter()
-        .map(|p| match p {
-            GraphPattern::Node(n) => GraphPattern::Node(relabel(n)),
-            GraphPattern::Path(path) => {
-                let mut path = path.clone();
-                path.start_node = relabel(&path.start_node);
-                for segment in &mut path.segments {
-                    if !(zero_hop(&segment.relationship)
-                        || retain_variable && segment.relationship.length.is_some())
-                    {
-                        segment.relationship.types =
-                            vec![types.next().expect("one type per relationship").to_string()];
+        .map(|p| {
+            Ok(match p {
+                GraphPattern::Node(n) => GraphPattern::Node(relabel(n)?),
+                GraphPattern::Path(path) => {
+                    let mut path = path.clone();
+                    path.start_node = relabel(&path.start_node)?;
+                    for segment in &mut path.segments {
+                        if !(zero_hop(&segment.relationship)
+                            || retain_variable && segment.relationship.length.is_some())
+                        {
+                            let kind = types
+                                .next()
+                                .ok_or_else(|| GraphError::internal("one type per relationship"))?;
+                            segment.relationship.types = vec![kind.to_string()];
+                        }
+                        segment.end_node = relabel(&segment.end_node)?;
                     }
-                    segment.end_node = relabel(&segment.end_node);
+                    GraphPattern::Path(path)
                 }
-                GraphPattern::Path(path)
-            }
+            })
         })
         .collect()
 }

@@ -767,7 +767,10 @@ impl DataFusionPlanner {
 
         // UNION all plans together
         if plans.len() == 1 {
-            Ok(plans.into_iter().next().unwrap())
+            plans
+                .into_iter()
+                .next()
+                .ok_or_else(|| crate::error::GraphError::internal("one plan"))
         } else {
             // Build UNION of all plans
             let mut union_plan = plans[0].clone();
@@ -961,29 +964,16 @@ impl DataFusionPlanner {
         {
             return Ok(None);
         }
+        let get = |forward: bool| {
+            catalog
+                .get(rel_type, forward)
+                .cloned()
+                .ok_or_else(|| crate::error::GraphError::internal("validated traversal"))
+        };
         let adjacency = match direction {
-            RelationshipDirection::Outgoing => Neighbors::directed(
-                catalog
-                    .get(rel_type, true)
-                    .expect("validated traversal")
-                    .clone(),
-            ),
-            RelationshipDirection::Incoming => Neighbors::directed(
-                catalog
-                    .get(rel_type, false)
-                    .expect("validated traversal")
-                    .clone(),
-            ),
-            RelationshipDirection::Undirected => Neighbors::undirected(
-                catalog
-                    .get(rel_type, true)
-                    .expect("validated traversal")
-                    .clone(),
-                catalog
-                    .get(rel_type, false)
-                    .expect("validated traversal")
-                    .clone(),
-            ),
+            RelationshipDirection::Outgoing => Neighbors::directed(get(true)?),
+            RelationshipDirection::Incoming => Neighbors::directed(get(false)?),
+            RelationshipDirection::Undirected => Neighbors::undirected(get(true)?, get(false)?),
         };
         let cat = self.get_catalog()?;
         let target = target_properties

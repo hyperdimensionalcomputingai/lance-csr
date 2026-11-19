@@ -61,6 +61,18 @@ pub enum GraphError {
     },
 }
 
+impl GraphError {
+    /// A planner invariant failed. That is a bug, reported as an error rather than a panic.
+    #[track_caller]
+    pub(crate) fn internal(message: impl Into<String>) -> Self {
+        let caller = std::panic::Location::caller();
+        Self::PlanError {
+            message: format!("internal error: {}", message.into()),
+            location: Location::new(caller.file(), caller.line(), caller.column()),
+        }
+    }
+}
+
 impl From<datafusion_common::DataFusionError> for GraphError {
     fn from(source: datafusion_common::DataFusionError) -> Self {
         Self::DataFusion {

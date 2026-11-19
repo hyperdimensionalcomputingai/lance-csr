@@ -67,16 +67,10 @@ impl DataFusionPlanner {
                         .collect();
 
                     // Combine with AND if multiple filters
-                    let combined_filter = filter_exprs
-                        .into_iter()
-                        .reduce(|acc, expr| {
-                            Expr::BinaryExpr(BinaryExpr {
-                                left: Box::new(acc),
-                                op: Operator::And,
-                                right: Box::new(expr),
-                            })
-                        })
-                        .unwrap();
+                    let combined_filter =
+                        datafusion::logical_expr::utils::conjunction(filter_exprs).ok_or_else(
+                            || crate::error::GraphError::internal("non-empty property filters"),
+                        )?;
 
                     builder = builder
                         .filter(combined_filter)

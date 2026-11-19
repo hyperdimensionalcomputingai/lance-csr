@@ -180,9 +180,9 @@ impl DataFusionPlanner {
                         edge_labels
                             .iter()
                             .position(|l| l.eq_ignore_ascii_case(t))
-                            .unwrap()
+                            .ok_or_else(|| error(format!("unknown relationship type {t}")))
                     })
-                    .collect(),
+                    .collect::<Result<_>>()?,
                 direction: rel.direction.clone(),
                 min,
                 max,

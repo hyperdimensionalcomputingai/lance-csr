@@ -209,8 +209,10 @@ impl UserDefinedLogicalNodeCore for ShortestPathNode {
         _exprs: Vec<Expr>,
         mut inputs: Vec<LogicalPlan>,
     ) -> datafusion::common::Result<Self> {
-        let edges = (inputs.len() > 1).then(|| inputs.pop().expect("two inputs"));
-        let input = inputs.pop().expect("an input");
+        let edges = if inputs.len() > 1 { inputs.pop() } else { None };
+        let input = inputs.pop().ok_or_else(|| {
+            datafusion::common::internal_datafusion_err!("ShortestPath has an input")
+        })?;
         Self::try_new(input, edges, self.adjacency.clone(), self.spec.clone())
             .map(|node| node.with_reverse_adjacency(self.reverse_adjacency.clone()))
             .map_err(|e| datafusion::common::DataFusionError::Plan(e.to_string()))
@@ -310,8 +312,14 @@ impl ExecutionPlan for ShortestPathExec {
         self: Arc<Self>,
         mut children: Vec<Arc<dyn ExecutionPlan>>,
     ) -> datafusion::common::Result<Arc<dyn ExecutionPlan>> {
-        let edges = (children.len() > 1).then(|| children.pop().expect("two children"));
-        let input = children.pop().expect("a child");
+        let edges = if children.len() > 1 {
+            children.pop()
+        } else {
+            None
+        };
+        let input = children.pop().ok_or_else(|| {
+            datafusion::common::internal_datafusion_err!("ShortestPathExec has a child")
+        })?;
         let mut exec = Self::new(
             input,
             edges,

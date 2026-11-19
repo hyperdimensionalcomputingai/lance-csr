@@ -228,7 +228,9 @@ impl DataFusionPlanner {
             // Grouping by a node groups by all its columns (`WITH b, count(*) AS n`).
             if let Some(columns) = Self::entity_columns(&schema, &p.expression, None) {
                 let ValueExpression::Variable(var) = &p.expression else {
-                    unreachable!("entity_columns matched a variable")
+                    return Err(crate::error::GraphError::internal(
+                        "entity_columns matched a variable",
+                    ));
                 };
                 let names: Option<Vec<&str>> = columns
                     .iter()
@@ -300,15 +302,20 @@ impl DataFusionPlanner {
             if let Some(columns) = Self::entity_columns(&schema, &p.expression, p.alias.as_deref())
             {
                 // After grouping, the node's columns are plain group columns of the same names.
-                final_projection.extend(columns.into_iter().map(|c| match c {
-                    datafusion::logical_expr::Expr::Alias(a) => {
-                        let datafusion::logical_expr::Expr::Column(column) = *a.expr else {
-                            unreachable!("entity_columns returns aliased columns")
-                        };
-                        col(datafusion::common::Column::new_unqualified(column.name)).alias(a.name)
-                    }
-                    other => other,
-                }));
+                for c in columns {
+                    final_projection.push(match c {
+                        datafusion::logical_expr::Expr::Alias(a) => {
+                            let datafusion::logical_expr::Expr::Column(column) = *a.expr else {
+                                return Err(crate::error::GraphError::internal(
+                                    "entity_columns returns aliased columns",
+                                ));
+                            };
+                            col(datafusion::common::Column::new_unqualified(column.name))
+                                .alias(a.name)
+                        }
+                        other => other,
+                    });
+                }
             } else if !super::super::expression::contains_aggregate(&p.expression) {
                 // Re-create the expression and apply alias
                 let expr = self.unresolved_value_expr(&p.expression);

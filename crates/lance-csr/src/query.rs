@@ -411,7 +411,7 @@ impl CypherQuery {
             catalog,
             parameter_types: self
                 .scalar_parameters()
-                .unwrap()
+                .ok_or_else(|| GraphError::internal("scalar parameters"))?
                 .into_iter()
                 .map(|(name, value)| (name, value.data_type()))
                 .collect(),

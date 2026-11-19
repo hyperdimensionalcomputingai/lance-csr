@@ -130,8 +130,11 @@ impl DataFusionPlanner {
             plans.push(self.build_operator(&mut branch, input)?);
             ctx.relationship_instance_idx = branch.relationship_instance_idx;
         }
-        let right = plans.pop().unwrap();
-        let left = plans.pop().unwrap();
+        let (Some(right), Some(left)) = (plans.pop(), plans.pop()) else {
+            return Err(crate::error::GraphError::internal(
+                "a union has two branches",
+            ));
+        };
         let l = left.schema();
         let r = right.schema();
         if l.fields().len() != r.fields().len()
