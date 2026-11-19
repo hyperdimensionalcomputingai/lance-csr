@@ -33,10 +33,10 @@ datafusion-expr = "54.0.0"
 datafusion-sql = "54.0.0"
 datafusion-functions-aggregate = "54.0.0"
 futures = "0.3"
-lance = "14.0.2"
-lance-linalg = "14.0.2"
-lance-namespace = "14.0.2"
-lance-table = "14.0.2"
+lance = "14.0.3"
+lance-linalg = "14.0.3"
+lance-namespace = "14.0.3"
+lance-table = "14.0.3"
 log = "0.4"
 nom = "7.1"
 object_store = "0.14.2"
@@ -47,6 +47,6 @@ tokio = { version = "1.37", features = ["rt", "time"] }
 
 [dev-dependencies]
 futures = "0.3"
-lance-arrow = "14.0.2"
+lance-arrow = "14.0.3"
 tempfile = "3"
 tokio = { version = "1.37", features = ["macros", "rt-multi-thread", "time"] }

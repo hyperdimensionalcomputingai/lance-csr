@@ -42,6 +42,13 @@ jobs:
         with:
           # The rust-cache step below caches the bindings crate.
           cache: false
+      - name: Keep only the pinned Rust toolchain
+        # rust-cache hashes every installed toolchain into its key, and runner images ship
+        # their own stable Rust, which differs while GitHub rolls out a new image. Without
+        # this, runs on the old and new images missed each other's caches.
+        run: |
+          pinned=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain list --quiet | grep -v "^$pinned-" | xargs -r -n1 rustup toolchain uninstall
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -81,6 +88,40 @@ jobs:
         working-directory: nodejs
         run: |
           for example in examples/*.ts; do node "$example"; done
+
+  rust-lint:
+    # Its own job, beside the tests rather than after them: clippy checks every dependency
+    # again in check mode, which can't reuse the test job's build.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
+        with:
+          # The rust-cache step below caches the bindings crate.
+          cache: false
+      - name: Keep only the pinned Rust toolchain
+        # rust-cache hashes every installed toolchain into its key, and runner images ship
+        # their own stable Rust, which differs while GitHub rolls out a new image. Without
+        # this, runs on the old and new images missed each other's caches.
+        run: |
+          pinned=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain list --quiet | grep -v "^$pinned-" | xargs -r -n1 rustup toolchain uninstall
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          shared-key: "lance-csr-node-lint"
+          # As in the test job: the root workspace is listed so the key hashes lance-csr's manifest.
+          workspaces: |
+            . -> target
+            crates/lance-csr-node -> target
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y protobuf-compiler
       - name: Check Rust formatting and lints
         working-directory: nodejs
         # From nodejs/, so nodejs/.cargo/config.toml applies as it does to the builds. Only
