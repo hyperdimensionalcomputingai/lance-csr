@@ -41,7 +41,7 @@ impl DataFusionPlanner {
     /// UNION ALL of alternation branches. Each branch is planned with its own variable
     /// labels (the analysis keeps only one per variable), then all branches are projected
     /// to the same columns by name: a column some branch lacks (a property only one label
-    /// has) is a typed null there, and differing types are cast to the first branch's.
+    /// has) is a typed null there. Entity records include properties from every branch.
     pub(crate) fn build_union(
         &self,
         ctx: &mut PlanningContext,
@@ -63,11 +63,14 @@ impl DataFusionPlanner {
             // Branches consume distinct relationship instances, in analysis order.
             ctx.relationship_instance_idx = branch.relationship_instance_idx;
         }
-        let mut columns: Vec<(String, arrow_schema::DataType)> = Vec::new();
+        let mut columns: Vec<arrow_schema::FieldRef> = Vec::new();
         for plan in &plans {
             for field in plan.schema().fields() {
-                if !columns.iter().any(|(name, _)| name == field.name()) {
-                    columns.push((field.name().clone(), field.data_type().clone()));
+                if let Some(existing) = columns.iter_mut().find(|f| f.name() == field.name()) {
+                    *existing = crate::path_value::merge_branch_field(existing, field)
+                        .map_err(|e| self.plan_error("Failed to align UNION branch", e))?;
+                } else {
+                    columns.push(field.clone());
                 }
             }
         }
@@ -75,7 +78,9 @@ impl DataFusionPlanner {
         for plan in plans {
             let schema = plan.schema().clone();
             let mut exprs = Vec::with_capacity(columns.len());
-            for (name, data_type) in &columns {
+            for target in &columns {
+                let name = target.name();
+                let data_type = target.data_type();
                 let expr = match schema.iter().find(|(_, f)| f.name() == name) {
                     Some((qualifier, field)) => {
                         let column = Expr::Column(Column::new(qualifier.cloned(), field.name()));

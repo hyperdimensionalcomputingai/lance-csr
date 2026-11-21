@@ -23,11 +23,12 @@ TABLES = {
     "Post": pa.table(
         {"id": [10, 11], "content": ["p10", "p11"], "imagefile": ["i10", None]}
     ),
-    "Comment": pa.table({"id": [20, 21], "content": ["c20", "c21"]}),
+    "Comment": pa.table({"id": [20, 21], "content": ["c20", "c21"], "score": [7, 9]}),
 } | {
     name: pa.table({"src": pa.array(s, pa.int64()), "dst": pa.array(d, pa.int64())})
     for name, (_, _, s, d) in RELS.items()
 }
+TABLES["replyOfPost"] = TABLES["replyOfPost"].append_column("page", pa.array([7]))
 
 
 def config():
@@ -174,3 +175,37 @@ def test_anonymous_relationships_return_all_types(datasets, use_csr):
     paths = engine.execute("MATCH path = (a)-[]-(b) RETURN path")
     assert paths.num_rows == 12
     assert all(row["path"]["length"] == 1 for row in paths.to_pylist())
+
+    empty_properties = dict.fromkeys(("name", "content", "imagefile", "score"))
+    expected = {
+        (label, row["id"]): {**empty_properties, **row}
+        for label in ("Person", "Post", "Comment")
+        for row in TABLES[label].to_pylist()
+    }
+
+    def check_node(node):
+        identity = node["__lance_csr_identity"]
+        key = (identity["label"], identity["id"])
+        assert node["__lance_csr_properties"] == expected[key]
+
+    def check_page(edge):
+        kind = edge["__lance_csr_identity"]["label"]
+        assert edge["__lance_csr_properties"]["page"] == (
+            7 if kind == "replyOfPost" else None
+        )
+
+    for row in result.to_pylist():
+        check_node(row["a"])
+        check_node(row["b"])
+    for row in paths.to_pylist():
+        for node in row["path"]["node_records"]:
+            check_node(node)
+        edge = row["path"]["relationships"][0]
+        check_page(edge)
+        check_node(edge["__lance_csr_start"])
+        check_node(edge["__lance_csr_end"])
+
+    edges = engine.execute("MATCH (a)-[r]-(b) RETURN r").to_pylist()
+    assert len(edges) == 12
+    for row in edges:
+        check_page(row["r"])

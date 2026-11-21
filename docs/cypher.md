@@ -345,7 +345,10 @@ RETURN length(p), nodes(p)
   `MATCH path = (a)-[]-(b) RETURN path`) range over the configured relationship types.
   Endpoint mappings resolve unlabeled nodes without combining identities from different tables.
   Undirected matches include both orientations; a self-loop appears once and parallel edges remain
-  distinct. Whole-node returns in these queries use typed Arrow entity records. The existing
+  distinct. Whole-node and path returns keep each node's properties. The Arrow records include
+  the fields of all participating labels, with nulls for fields a label does not have. If node labels or
+  relationship types use incompatible Arrow types for the same property, planning fails and names
+  that property. The existing
   alternative-branch bound still applies.
 - **Variable length** defaults to a minimum of 1 and a maximum of 20 hops; a maximum above 20 is rejected.
   `*0..` also matches the source itself, once per input row; `*0..0` matches only that identity. The start

@@ -93,8 +93,8 @@ impl fmt::Debug for PathMatchNode {
 
 impl PathMatchNode {
     pub fn try_new(inputs: Vec<LogicalPlan>, spec: PathSpec) -> Result<Self> {
-        let node_fields = property_fields(spec.nodes.iter().map(|s| s.schema.clone()))?;
-        let edge_fields = property_fields(spec.edges.iter().map(|s| s.schema.clone()))?;
+        let node_fields = property_fields(spec.nodes.iter().map(|s| s.schema.fields()))?;
+        let edge_fields = property_fields(spec.edges.iter().map(|s| s.schema.fields()))?;
         let node_type = entity_type(node_fields.clone(), "node", None);
         let edge_type = entity_type(edge_fields.clone(), "relationship", Some(&node_type));
         let mut fields = Vec::new();
@@ -279,10 +279,10 @@ pub(crate) fn plan_path_match(
             .map(|p| Arc::new(CoalescePartitionsExec::new(p.clone())) as Arc<dyn ExecutionPlan>),
     );
     let nodes = DFSchema::try_from(Schema::new(property_fields(
-        node.spec.nodes.iter().map(|s| s.schema.clone()),
+        node.spec.nodes.iter().map(|s| s.schema.fields()),
     )?))?;
     let edges = DFSchema::try_from(Schema::new(property_fields(
-        node.spec.edges.iter().map(|s| s.schema.clone()),
+        node.spec.edges.iter().map(|s| s.schema.fields()),
     )?))?;
     let predicates = node
         .spec
