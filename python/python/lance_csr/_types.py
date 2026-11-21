@@ -58,6 +58,7 @@ class CsrStats(TypedDict):
     version: int | None
     base_version: int | None
     build_ms: float
+    store_error: str | None
 
 
 class DatasetOptimizeStats(TypedDict):

@@ -6,7 +6,9 @@ use std::sync::Arc;
 
 use datafusion::physical_plan::SendableRecordBatchStream;
 use futures::StreamExt;
-use lance_csr::engine::{CypherEngine as RustCypherEngine, EngineOptions, MAX_TARGET_PARTITIONS};
+use lance_csr::engine::{
+    CypherEngine as RustCypherEngine, EngineOptions, PersistCsr, MAX_TARGET_PARTITIONS,
+};
 use lance_csr::SqlEngine as RustSqlEngine;
 use napi::bindgen_prelude::{BigInt64Array, BigUint64Array, Buffer};
 use napi_derive::napi;
@@ -47,6 +49,7 @@ pub struct CsrStats {
     pub version: Option<i64>,
     pub base_version: Option<i64>,
     pub build_ms: f64,
+    pub store_error: Option<String>,
 }
 
 #[napi(object)]
@@ -93,9 +96,16 @@ pub async fn open_cypher_engine(
     datasets_in: HashMap<String, DatasetInput>,
     use_csr: bool,
     target_partitions: Option<f64>,
-    persist_csr: bool,
+    // "off", "load" or "store"; the TypeScript facade maps `persistCsr` to these.
+    persist_csr: String,
 ) -> napi::Result<CypherEngine> {
-    if persist_csr && !use_csr {
+    let persist_csr = match persist_csr.as_str() {
+        "off" => PersistCsr::Off,
+        "load" => PersistCsr::Load,
+        "store" => PersistCsr::LoadAndStore,
+        _ => return Err(invalid("persistCsr must be true, false or \"load\"")),
+    };
+    if persist_csr != PersistCsr::Off && !use_csr {
         return Err(invalid("persistCsr requires useCsr: true"));
     }
     let target_partitions = target_partitions
@@ -242,6 +252,7 @@ impl CypherEngine {
                     version: entry.version.map(|v| v as i64),
                     base_version: entry.base_version.map(|v| v as i64),
                     build_ms: entry.build_ms,
+                    store_error: entry.store_error,
                 };
                 (rel_type, stats)
             })

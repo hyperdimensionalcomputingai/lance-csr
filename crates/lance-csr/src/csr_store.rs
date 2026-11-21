@@ -145,12 +145,20 @@ pub(crate) async fn save(
         .into_iter()
         .map(|f| f.metadata().clone())
         .collect();
-    let bytes = encode(version, src, dst, &fields, &fragments, outgoing, incoming)?;
-
     let store = ds
         .object_store(None)
         .await
         .map_err(|e| store_error(format!("Lance: {e}")))?;
+    // Encoding takes seconds on large graphs: find out first that the folder takes writes
+    // (read-only storage or credentials fail here). A probe left behind is never listed.
+    let probe = dir(ds).join(".write-probe");
+    store
+        .put(&probe, &[])
+        .await
+        .map_err(|e| store_error(format!("Failed to write {probe}: {e}")))?;
+    let _ = store.delete(&probe).await;
+    let bytes = encode(version, src, dst, &fields, &fragments, outgoing, incoming)?;
+
     let path = file_path(ds, version);
     // shortcut: the compressed file is held whole in memory before the upload (150 MiB for SF1); write it through a multipart upload if files get much larger.
     let payload = object_store::PutPayload::from(bytes);

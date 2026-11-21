@@ -479,9 +479,18 @@ files it recognises.
   once a newer one is written.
 - **A file that can't be used** (corrupt, written for other endpoint columns or by another format) is ignored and
   rebuilt, so a bad file costs a build, never a wrong answer.
-- **A dataset that can't be written**, because of read-only storage or credentials, is built as without the option,
-  and nothing is stored. Rust applications see the failed write as a `log` warning.
+- **A dataset that can't be written**, because of read-only storage or credentials, is built in memory and nothing
+  is stored. The engine checks that it can write before it compresses the file, so this costs about as much as a
+  start without the option. Python emits a `RuntimeWarning`, and
+  [`csr_stats()`][lance_csr.CypherEngine.csr_stats] reports the error as `store_error` for as long as the engine
+  keeps that CSR. Rust applications also see it as a `log` warning.
 - **PyArrow inputs** are never stored. That includes Lance data loaded into memory with `to_table()` first.
+
+Some applications only read datasets that another process writes, such as a graph browser over published Lance
+tables, and must never change them. They can still use the files a writer stored: with `persist_csr="load"`, an
+engine loads a stored CSR exactly as above but never writes. When no file can be used, it builds in memory as
+without the option, and the rebuilds of `checkout_latest()` and `optimize_csr()` aren't stored either.
+`delete_stored_csr()` raises `ValueError` on such an engine.
 
 To go back to building in memory only, create engines without `persist_csr` and delete the stored files once with
 [`delete_stored_csr()`][lance_csr.CypherEngine.delete_stored_csr]. It removes the `_lance_csr` folder of every

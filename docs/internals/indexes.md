@@ -179,3 +179,6 @@ node indexes scan on the engine's task. At most 10 load at once: each holds its 
 until it finishes, so peak memory would otherwise grow with the core count. Deltas and full builds gain nothing from overlapping there, so they still run
 one type at a time, and each `build_ms` measures one build. Writes go through the dataset's object store with `put_if_absent`, which
 publishes the whole file at once on local disk and object storage; the compressed file is encoded in memory first.
+Encoding takes seconds on large graphs, so the store first writes and deletes an empty `.write-probe` in
+`_lance_csr`: storage that can't be written fails there, before the encode. With `persist_csr="load"` nothing is
+written at all.

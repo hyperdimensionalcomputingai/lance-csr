@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import warnings
 from enum import IntEnum
-from typing import TYPE_CHECKING, Any, Self, final
+from typing import TYPE_CHECKING, Any, Literal, Self, final
 
 from ._internal import graph as _graph
 from ._types import inner
@@ -87,23 +88,27 @@ class CypherEngine:
         Keyword-only. A target from 1 to 1024 for DataFusion query partitioning; `None`
         keeps DataFusion's default. `checkout_latest` preserves it. It is not a thread
         or memory limit. See [Query parallelism](lance.md#query-parallelism).
-    persist_csr : bool
-        Keyword-only, experimental, needs `use_csr=True`. Store each relationship
-        dataset's CSR inside the dataset's own directory, at
+    persist_csr : bool or "load"
+        Keyword-only, experimental, needs `use_csr=True` unless `False`. With `True`,
+        store each relationship dataset's CSR inside the dataset's own directory, at
         `_lance_csr/<version>.arrow`, and load it instead of building when an engine
         starts. Changes since the stored version apply as a delta under the same 25%
         threshold as `checkout_latest`; past it, the CSR is rebuilt and stored again.
         Lance's `cleanup_old_versions` leaves the folder alone. PyArrow inputs aren't
-        stored, and a dataset that can't be written (read-only storage or credentials)
-        is built as without it. See [Storing the CSR](csr.md#storing-the-csr).
+        stored. A dataset that can't be written (read-only storage or credentials) is
+        built in memory, and the engine emits a `RuntimeWarning` and reports the error
+        as `store_error` in [`csr_stats`][lance_csr.CypherEngine.csr_stats]. With
+        `"load"`, load stored files the same way but never write to the datasets: a
+        CSR that can't be loaded is built in memory, as with `False`. See [Storing the
+        CSR](csr.md#storing-the-csr).
 
     Raises
     ------
     ValueError
         If `datasets` is empty, a configured key or endpoint column is missing, a Lance
         dataset was opened through a namespace client and can't be reopened by URI,
-        `target_partitions` is outside 1 to 1024, or `persist_csr` is set without
-        `use_csr`.
+        `target_partitions` is outside 1 to 1024, `persist_csr` isn't `True`, `False`
+        or `"load"`, or it is set without `use_csr`.
     TypeError
         If `config` isn't a `GraphConfig`, a dataset has an unsupported type, or
         `target_partitions` is a boolean or another non-integer other than `None`.
@@ -140,7 +145,7 @@ class CypherEngine:
         use_csr: bool = False,
         *,
         target_partitions: int | None = None,
-        persist_csr: bool = False,
+        persist_csr: bool | Literal["load"] = False,
     ) -> None:
         self._inner = _graph.CypherEngine(
             inner(config, GraphConfig, "config"),
@@ -149,6 +154,18 @@ class CypherEngine:
             target_partitions=target_partitions,
             persist_csr=persist_csr,
         )
+        self._warn_store_errors({})
+
+    def _warn_store_errors(self, before: dict[str, CsrStats]) -> None:
+        # The engine only logs a failed CSR write; Python callers see it here once.
+        for rel_type, stats in self._inner.csr_stats().items():
+            error = stats["store_error"]
+            if error and error != before.get(rel_type, {}).get("store_error"):
+                warnings.warn(
+                    f"Could not store the CSR of {rel_type}: {error}",
+                    RuntimeWarning,
+                    stacklevel=3,
+                )
 
     def __repr__(self) -> str:
         return repr(self._inner)
@@ -294,7 +311,9 @@ class CypherEngine:
         calls run one at a time, and `target_partitions` is preserved. See [Lance
         datasets](lance.md#checkout-latest).
         """
+        before = self._inner.csr_stats()
         self._inner.checkout_latest()
+        self._warn_store_errors(before)
 
     def optimize_csr(self) -> None:
         """Rebuild each CSR that carries a delta (experimental; needs `use_csr=True`).
@@ -314,14 +333,16 @@ class CypherEngine:
         and the two run one at a time. See [Rebuilding the
         CSR](csr.md#rebuilding-the-csr).
         """
+        before = self._inner.csr_stats()
         self._inner.optimize_csr()
+        self._warn_store_errors(before)
 
     def delete_stored_csr(self) -> int:
         """Delete the CSR files stored with `persist_csr=True` (experimental).
 
         Removes the `_lance_csr` folder of every Lance relationship dataset this
-        engine reads, whether or not the engine itself was created with
-        `persist_csr`. The engine keeps the CSR it already holds in memory, so queries
+        engine reads, whether the engine itself was created with `persist_csr=True`
+        or `False`. The engine keeps the CSR it already holds in memory, so queries
         aren't affected. To go back to in-memory builds only, create later engines
         without `persist_csr`: an engine with it stores a new file at its next full
         build. Runs one at a time with `checkout_latest` and `optimize_csr`. See
@@ -331,6 +352,12 @@ class CypherEngine:
         -------
         int
             The number of files deleted; 0 when nothing was stored.
+
+        Raises
+        ------
+        ValueError
+            If the engine was created with `persist_csr="load"`, which never writes
+            to its datasets.
         """
         return self._inner.delete_stored_csr()
 
@@ -375,6 +402,9 @@ class CypherEngine:
             - `base_version`: the relationship dataset version of the last full
               build (`None` for PyArrow). It trails `version` while deltas apply.
             - `build_ms`: wall time of that build or delta, both directions.
+            - `store_error`: why the base CSR couldn't be stored with
+              `persist_csr=True`, or `None`. It stays set while the engine keeps that
+              base, through deltas.
         """
         return self._inner.csr_stats()
 
@@ -429,7 +459,10 @@ class CypherEngine:
         users who keep them still run `table.optimize()` for that, followed by
         `checkout_latest()`.
         """
-        return self._inner.optimize_datasets(cleanup_older_than=cleanup_older_than)
+        before = self._inner.csr_stats()
+        result = self._inner.optimize_datasets(cleanup_older_than=cleanup_older_than)
+        self._warn_store_errors(before)
+        return result
 
     def export_graph(
         self, rel_types: list[str] | None = None, *, directed: bool = True

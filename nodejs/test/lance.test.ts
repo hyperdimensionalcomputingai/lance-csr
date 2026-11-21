@@ -1,7 +1,7 @@
 // CypherEngine over on-disk Lance datasets: pinned snapshots, checkoutLatest, streaming and
 // the stored CSR. Expected values are computed independently of the engine.
 import assert from "node:assert/strict";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { Table, tableFromArrays } from "apache-arrow";
@@ -216,6 +216,50 @@ describe("Lance datasets", () => {
     assert.equal(existsSync(folder), false);
     assert.equal(await second.deleteStoredCsr(), 0);
     assert.equal(await countPeople(second), N);
+  });
+
+  test('persistCsr "load" never writes, and a failed write is reported', async () => {
+    const { person, knows } = await graph();
+    const datasets = { Person: person, KNOWS: knows };
+    const folder = join(knows.uri, "_lance_csr");
+    const missed = await CypherEngine.create(config, datasets, {
+      useCsr: true,
+      persistCsr: "load",
+    });
+    assert.equal(missed.csrStats().KNOWS!.update, "build");
+    assert.equal(existsSync(folder), false);
+    await CypherEngine.create(config, datasets, { useCsr: true, persistCsr: true });
+    const loaded = await CypherEngine.create(config, datasets, {
+      useCsr: true,
+      persistCsr: "load",
+    });
+    assert.equal(loaded.csrStats().KNOWS!.update, "loaded");
+    await assert.rejects(loaded.deleteStoredCsr(), {
+      code: "InvalidArgument",
+      message: /load-only/,
+    });
+    assert.deepEqual(readdirSync(folder), ["1.arrow"]);
+
+    // A file where the folder should be makes the write fail.
+    rmSync(folder, { recursive: true });
+    writeFileSync(folder, "");
+    const warnings: string[] = [];
+    const listener = (warning: Error) => warnings.push(warning.message);
+    process.on("warning", listener);
+    try {
+      const failed = await CypherEngine.create(config, datasets, {
+        useCsr: true,
+        persistCsr: true,
+      });
+      assert.match(failed.csrStats().KNOWS!.storeError ?? "", /\.write-probe/);
+      await new Promise((resolve) => setImmediate(resolve));
+    } finally {
+      process.off("warning", listener);
+    }
+    assert.ok(
+      warnings.some((m) => m.startsWith("Could not store the CSR of KNOWS")),
+      `${warnings}`,
+    );
   });
 
   test("optimizeDatasets compacts, moves the engine and deletes old versions", async () => {
