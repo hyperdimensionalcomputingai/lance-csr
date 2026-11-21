@@ -346,7 +346,7 @@ RETURN length(p), nodes(p)
   Endpoint mappings resolve unlabeled nodes without combining identities from different tables.
   Undirected matches include both orientations; a self-loop appears once and parallel edges remain
   distinct. Whole-node and path returns keep each node's properties. The Arrow records include
-  the fields of all participating labels, with nulls for fields a label lacks. If node labels or
+  the fields of all participating labels, with nulls for fields a label does not have. If node labels or
   relationship types use incompatible Arrow types for the same property, planning fails and names
   that property. The existing
   alternative-branch bound still applies.
