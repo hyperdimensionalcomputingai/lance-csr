@@ -99,11 +99,7 @@ impl DataFusionPlanner {
             } else {
                 // Catalog exists but label not found - fail fast
                 return Err(crate::error::GraphError::ConfigError {
-                    message: format!(
-                        "Node label '{}' not found in catalog. \
-                         Ensure the label is registered in your GraphConfig with .node_table()",
-                        label
-                    ),
+                    message: crate::error::unknown_node_label_message(label),
                     location: snafu::Location::new(file!(), line!(), column!()),
                 });
             }
@@ -454,7 +450,7 @@ mod tests {
                     "Error should mention the missing label"
                 );
                 assert!(
-                    message.contains("not found"),
+                    message.contains("doesn't exist"),
                     "Error should indicate label not found"
                 );
             }

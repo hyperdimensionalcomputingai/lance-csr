@@ -261,6 +261,19 @@ used by IC14. The tables below specify its supported surface.
 
     Writes (`CREATE`, `MERGE`, `SET`, `DELETE`, `REMOVE`), procedure calls (`CALL name(...)` / `YIELD`), and `FOREACH`.
 
+Every node in a pattern reads from one or more node tables, so the engine must know its label. A node
+gets one from the pattern, as in `(n:Person)`, or from a relationship's mapping: in
+`(p:Person)-[:LIVES_IN]->(c)`, `c` takes the `to_table` of `LIVES_IN`, and untyped patterns such as
+`MATCH (a)-[]-(b)` range over the endpoints of every relationship type. A node with neither, such as
+`MATCH (n) RETURN n`, is rejected with a `ValueError`:
+
+```text
+Query planning error: A node pattern has no label and no relationship to infer one from: add a label, e.g. `(n:Person)`
+```
+
+Add a label to fix it. See [Labels in patterns](graph-schema.md#labels-in-patterns) for how labels map
+to tables.
+
 Integer list literals retain signed 64-bit values: `RETURN [1, 2, 3] AS ids` returns integers, and
 `UNWIND [1131, 19791209300775] AS id RETURN id` preserves both IDs exactly. Numeric literals with a decimal
 point or exponent, such as `[0.1, 1e-3]`, form float32 vectors. Whole-number lists can also be used as query
