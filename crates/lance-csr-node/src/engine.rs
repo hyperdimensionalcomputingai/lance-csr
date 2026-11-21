@@ -8,7 +8,7 @@ use datafusion::physical_plan::SendableRecordBatchStream;
 use futures::StreamExt;
 use lance_csr::engine::{CypherEngine as RustCypherEngine, EngineOptions, MAX_TARGET_PARTITIONS};
 use lance_csr::SqlEngine as RustSqlEngine;
-use napi::bindgen_prelude::Buffer;
+use napi::bindgen_prelude::{BigInt64Array, BigUint64Array, Buffer};
 use napi_derive::napi;
 use tokio::sync::Mutex;
 
@@ -47,6 +47,39 @@ pub struct CsrStats {
     pub version: Option<i64>,
     pub base_version: Option<i64>,
     pub build_ms: f64,
+}
+
+#[napi(object)]
+pub struct DatasetOptimizeStats {
+    pub fragments_removed: i64,
+    pub fragments_added: i64,
+    pub old_versions: i64,
+    pub bytes_removed: i64,
+}
+
+#[napi(object)]
+pub struct GraphExport {
+    pub num_nodes: i64,
+    pub directed: bool,
+    pub node_keys: BigInt64Array,
+    /// Label -> `[start, end]` dense id range.
+    pub label_ranges: HashMap<String, Vec<i64>>,
+    pub out_indptr: BigUint64Array,
+    pub out_indices: BigUint64Array,
+    pub in_indptr: Option<BigUint64Array>,
+    pub in_indices: Option<BigUint64Array>,
+    pub dropped_edges: i64,
+}
+
+/// The array's values as a `Vec`, without copying when the buffer is uniquely owned.
+fn into_vec<T: arrow_array::types::ArrowPrimitiveType>(
+    array: arrow_array::PrimitiveArray<T>,
+) -> Vec<T::Native> {
+    let (_, values, _) = array.into_parts();
+    values
+        .into_inner()
+        .into_vec()
+        .unwrap_or_else(|buffer| buffer.typed_data::<T::Native>().to_vec())
 }
 
 #[napi]
@@ -147,6 +180,31 @@ impl CypherEngine {
         blocking(async move { inner.optimize_csr().await }).await
     }
 
+    /// `cleanup_older_than_ms` defaults to 7 days.
+    #[napi]
+    pub async fn optimize_datasets(
+        &self,
+        cleanup_older_than_ms: Option<f64>,
+    ) -> napi::Result<HashMap<String, DatasetOptimizeStats>> {
+        let ms = cleanup_older_than_ms.unwrap_or(7.0 * 24.0 * 3600.0 * 1000.0);
+        let older_than = std::time::Duration::try_from_secs_f64(ms / 1000.0)
+            .map_err(|_| invalid("cleanupOlderThanMs must be a non-negative number"))?;
+        let inner = self.inner.clone();
+        let stats = blocking(async move { inner.optimize_datasets(older_than).await }).await?;
+        Ok(stats
+            .into_iter()
+            .map(|(name, s)| {
+                let stats = DatasetOptimizeStats {
+                    fragments_removed: s.fragments_removed as i64,
+                    fragments_added: s.fragments_added as i64,
+                    old_versions: s.old_versions as i64,
+                    bytes_removed: s.bytes_removed as i64,
+                };
+                (name, stats)
+            })
+            .collect())
+    }
+
     #[napi]
     pub async fn delete_stored_csr(&self) -> napi::Result<u32> {
         let deleted = self.inner.delete_stored_csr().await.map_err(graph_error)?;
@@ -188,6 +246,32 @@ impl CypherEngine {
                 (rel_type, stats)
             })
             .collect()
+    }
+
+    #[napi]
+    pub async fn export_graph(
+        &self,
+        rel_types: Option<Vec<String>>,
+        directed: bool,
+    ) -> napi::Result<GraphExport> {
+        let inner = self.inner.clone();
+        let g = blocking(async move { inner.export_graph(rel_types.as_deref(), directed).await })
+            .await?;
+        Ok(GraphExport {
+            num_nodes: g.num_nodes as i64,
+            directed: g.directed,
+            node_keys: into_vec(g.node_keys).into(),
+            label_ranges: g
+                .label_ranges
+                .into_iter()
+                .map(|(label, start, end)| (label, vec![start as i64, end as i64]))
+                .collect(),
+            out_indptr: into_vec(g.out_indptr).into(),
+            out_indices: into_vec(g.out_indices).into(),
+            in_indptr: g.in_indptr.map(|a| into_vec(a).into()),
+            in_indices: g.in_indices.map(|a| into_vec(a).into()),
+            dropped_edges: g.dropped_edges as i64,
+        })
     }
 
     #[napi]

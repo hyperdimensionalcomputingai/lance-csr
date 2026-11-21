@@ -5,7 +5,13 @@ import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { Table, tableFromArrays } from "apache-arrow";
-import { CypherEngine, CypherQuery, GraphConfig, type LanceDataset } from "../src/index.ts";
+import {
+  CypherEngine,
+  CypherQuery,
+  GraphConfig,
+  LanceCsrError,
+  type LanceDataset,
+} from "../src/index.ts";
 import { columns, rows, tempDir, writeLance } from "./helpers.ts";
 
 // Past the 10,000-row cap an old conversion fallback silently applied.
@@ -210,5 +216,25 @@ describe("Lance datasets", () => {
     assert.equal(existsSync(folder), false);
     assert.equal(await second.deleteStoredCsr(), 0);
     assert.equal(await countPeople(second), N);
+  });
+
+  test("optimizeDatasets compacts, moves the engine and deletes old versions", async () => {
+    const { person, knows } = await graph();
+    const engine = await CypherEngine.create(
+      config,
+      { Person: person, KNOWS: knows },
+      { useCsr: true },
+    );
+    // Written after the engine opened: optimizeDatasets starts from the newest version.
+    await writeLance(person.uri, people(N, N + 10), "append");
+    const stats = await engine.optimizeDatasets({ cleanupOlderThanMs: 0 });
+    assert.equal(stats.Person!.fragmentsRemoved, 4);
+    assert.equal(stats.Person!.fragmentsAdded, 1);
+    assert.ok(stats.Person!.oldVersions > 0 && stats.Person!.bytesRemoved > 0);
+    assert.equal(await countPeople(engine), N + 10);
+    await assert.rejects(
+      engine.optimizeDatasets({ cleanupOlderThanMs: -1 }),
+      (err) => err instanceof LanceCsrError && err.code === "InvalidArgument",
+    );
   });
 });

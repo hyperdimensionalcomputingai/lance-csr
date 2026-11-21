@@ -4,7 +4,15 @@
  * @module
  */
 
-import { RecordBatch, Table, tableFromIPC, tableToIPC } from "apache-arrow";
+import {
+  type Int64,
+  RecordBatch,
+  Table,
+  type Uint64,
+  type Vector,
+  tableFromIPC,
+  tableToIPC,
+} from "apache-arrow";
 import type * as native from "../native.js";
 
 /**
@@ -48,6 +56,18 @@ export interface NodeIndexStats {
   buildMs: number;
 }
 
+/** What `CypherEngine.optimizeDatasets()` did to one Lance dataset. */
+export interface DatasetOptimizeStats {
+  /** Small fragments compaction rewrote. */
+  fragmentsRemoved: number;
+  /** Fragments compaction wrote in their place. */
+  fragmentsAdded: number;
+  /** Old versions cleanup deleted. */
+  oldVersions: number;
+  /** Bytes of files cleanup deleted. */
+  bytesRemoved: number;
+}
+
 /** Statistics for one CSR adjacency index, from `CypherEngine.csrStats()`. */
 export interface CsrStats {
   /** Live indexed edges (null endpoints are skipped). */
@@ -66,6 +86,49 @@ export interface CsrStats {
   baseVersion?: number;
   /** Wall time of that build or delta, both directions, in milliseconds. */
   buildMs: number;
+}
+
+/**
+ * A graph as compressed sparse rows over dense node ids, from `CypherEngine.exportGraph()`.
+ *
+ * Nodes are numbered `0` to `numNodes - 1`, and the neighbours of node `i` are
+ * `outIndices[outIndptr[i]]` up to `outIndices[outIndptr[i + 1]]`. `nodeKeys` maps each dense
+ * id back to its node's key. The vectors wrap typed arrays built in Rust. See
+ * [Drawing the whole graph](https://lance-csr.hdclabs.ai/typescript/#drawing-the-whole-graph).
+ */
+export interface GraphExport {
+  /** Number of nodes. Dense ids run from 0 to `numNodes - 1`. */
+  numNodes: number;
+  /** Whether the arrays describe a directed graph. */
+  directed: boolean;
+  /**
+   * The key of each dense id. Each label's nodes are in the order its table is scanned; rows
+   * with a null key are left out.
+   */
+  nodeKeys: Vector<Int64>;
+  /**
+   * Each node label's dense ids, as `[start, end]` with `end` excluded. Labels get consecutive
+   * ranges in name order, so equal keys in two labels stay distinct.
+   */
+  labelRanges: Record<string, [number, number]>;
+  /** Offsets into `outIndices`, `numNodes + 1` entries. */
+  outIndptr: Vector<Uint64>;
+  /**
+   * Each node's out-neighbours, sorted, without duplicates. An undirected graph lists every
+   * edge in both directions and a self-loop once.
+   */
+  outIndices: Vector<Uint64>;
+  /** Offsets into `inIndices`; `null` for an undirected graph. */
+  inIndptr: Vector<Uint64> | null;
+  /**
+   * Each node's in-neighbours, sorted, without duplicates; `null` for an undirected graph.
+   */
+  inIndices: Vector<Uint64> | null;
+  /**
+   * Edges left out because an endpoint key isn't in its node table. Edges with a null
+   * endpoint are skipped and not counted.
+   */
+  droppedEdges: number;
 }
 
 /**

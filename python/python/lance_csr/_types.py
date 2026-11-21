@@ -60,6 +60,15 @@ class CsrStats(TypedDict):
     build_ms: float
 
 
+class DatasetOptimizeStats(TypedDict):
+    """What `CypherEngine.optimize_datasets` did to one Lance dataset."""
+
+    fragments_removed: int
+    fragments_added: int
+    old_versions: int
+    bytes_removed: int
+
+
 def inner(value: object, cls: type, name: str) -> Any:
     """Return the compiled object behind `value`, or raise `TypeError` naming `name`."""
     if not isinstance(value, cls):

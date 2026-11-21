@@ -40,3 +40,11 @@ uv run --with lance-csr python examples/kg_traversal.py
 ```bash
 uv run --with lance-csr python examples/lance_snapshots.py
 ```
+
+- `graph_algorithms.py`: export the graph as CSR arrays, run PageRank and connected components with
+  [icebug](https://github.com/Ladybug-Memory/icebug) (on macOS, `brew install libomp` first), and write the
+  results back to the Lance node table as columns.
+
+```bash
+uv run --with lance-csr --with icebug --with networkx python examples/graph_algorithms.py
+```

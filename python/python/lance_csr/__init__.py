@@ -20,6 +20,7 @@ except ImportError as e:
 
 from .config import GraphConfig, GraphConfigBuilder
 from .cypher import CypherEngine, CypherQuery, ExecutionStrategy
+from .export import GraphExport
 from .namespace import DirNamespace
 from .sql import SqlDialect, SqlEngine, SqlQuery
 from .vector import DistanceMetric, VectorSearch
@@ -32,6 +33,7 @@ __all__ = [
     "SqlQuery",
     "SqlEngine",
     "ExecutionStrategy",
+    "GraphExport",
     "SqlDialect",
     "VectorSearch",
     "DistanceMetric",

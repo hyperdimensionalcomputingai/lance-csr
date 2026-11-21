@@ -185,8 +185,22 @@ engine.checkout_latest()      # the engine sees the new version
 - Reads are lazy and version-pinned exactly as with `lance.dataset(...)`.
 - Passing the LanceDB `Table` object itself raises a `TypeError`. `table.to_arrow()` works, but loads the
   whole table into memory and never sees later versions.
-- Tested on local LanceDB tables. A LanceDB release that bundles a newer Lance major than lance-csr's may write
-  files this engine can't read.
+- Tested on local LanceDB tables.
+
+!!! warning "LanceDB bundles its own Lance"
+
+    LanceDB doesn't use `pylance` or lance-csr's built-in Lance: each LanceDB release bundles its own copy of the
+    Lance library, which is often newer than lance-csr's. The Lance format is mostly backwards compatible, so
+    newer Lance reads what older Lance wrote, but not always the other way around. A LanceDB that bundles a newer
+    Lance major version may write files, or use format features, that lance-csr's older Lance can't read: opening
+    or querying the dataset then fails with an error.
+
+    It also matters when lance-csr writes. [`write_node_column`](graph-algorithms.md#writing-results-back-to-lance)
+    and [`optimize_datasets`](#compaction-and-old-versions) commit new versions with lance-csr's Lance, into
+    datasets that LanceDB also writes. Before upgrading LanceDB, compare the Lance version it bundles (LanceDB's
+    `Cargo.toml` names it) with the one in lance-csr's
+    [`Cargo.toml`](https://github.com/hyperdimensionalcomputingai/lance-csr/blob/main/crates/lance-csr/Cargo.toml),
+    and when the major versions differ, try the upgrade on a copy of your tables first.
 
 !!! failure "Not supported"
 
@@ -195,6 +209,56 @@ engine.checkout_latest()      # the engine sees the new version
       can only reopen a dataset by URI and storage options, so it raises `ValueError` rather than read with
       the wrong identity.
     - Object-store tables (S3 and similar) have not been tested.
+
+## Compaction and old versions
+
+Every write to a Lance dataset makes a new version, whether it appends rows, deletes them or adds a column, as
+[`write_node_column`](graph-algorithms.md#writing-results-back-to-lance) does. Lance keeps the files of older
+versions, so you can still check them out and readers pinned to them, such as this engine, keep working. Over
+many writes, two things build up:
+
+- **Small fragments.** Each append writes its own fragment, and scans slow down as they multiply. *Compaction*
+  rewrites them into fewer, larger fragments.
+- **Old versions.** Data that a newer version replaced or dropped stays on disk until a *cleanup* deletes the
+  versions that still use it. A column replaced with `write_node_column(..., overwrite=True)` is one example.
+
+Neither happens on its own with local datasets, and doing them by hand around an engine is error-prone. A
+cleanup can delete the version the engine is pinned to, which makes its next query fail with a "Not found" error,
+and a LanceDB `Table` opened before the engine's writes stays on its old version, so its `optimize()` fails with a
+commit conflict. [`optimize_datasets`][lance_csr.CypherEngine.optimize_datasets] does the maintenance through
+the engine instead. For each Lance dataset the engine reads, it opens the newest version, compacts it, moves the
+engine onto the result as `checkout_latest()` does, and only then deletes old versions:
+
+```python
+from datetime import timedelta
+
+stats = engine.optimize_datasets(cleanup_older_than=timedelta(0))  # (1)!
+print(stats["KNOWS"]["fragments_removed"], stats["KNOWS"]["fragments_added"])  # 2 1
+print(len(lance.dataset("knows.lance").versions()))  # 1
+print(engine.execute("MATCH (p:Person) RETURN count(*) AS n").to_pylist())  # [{'n': 4}]
+```
+
+1. Deletes every version but the latest. The default, `None`, keeps the last 7 days, as LanceDB's `optimize()`
+   does.
+
+The result lists, per Lance dataset, the fragments compaction rewrote (`fragments_removed`) and wrote
+(`fragments_added`), and the versions and bytes cleanup deleted (`old_versions`, `bytes_removed`). It works the
+same for datasets written with `pylance` and for LanceDB tables, since it opens each dataset by its location rather
+than through your table object. LanceDB suggests compacting after about 100,000 changed rows or 20 write
+operations.
+
+Two things to keep in mind:
+
+- **Other readers.** A reader pinned to a version cleanup deletes fails, and that includes queries still running
+  on this engine and other processes reading the same datasets. Keep the window longer than any of them stays
+  pinned; a window of zero is only safe when nothing else reads the datasets.
+- **Lance indexes aren't updated.** LanceDB's `optimize()` also adds new rows to vector and scalar indexes. If you
+  keep such indexes, run `lance.dataset(uri).optimize.optimize_indices()` (or LanceDB's `optimize()`) for them,
+  then `engine.checkout_latest()`.
+
+Compacting a relationship table doesn't force a [CSR](csr.md#keeping-the-csr-current) rebuild. Compaction is a write
+made with lance-csr's built-in Lance, so with LanceDB tables, mind the
+[Lance version LanceDB bundles](#tables-created-with-lancedb).
 
 ## Directory namespaces
 

@@ -1,9 +1,16 @@
 from collections.abc import Sequence
-from datetime import date, datetime
-from typing import ClassVar, Literal, Protocol, Self, TypedDict, TypeVar, final
+from datetime import date, datetime, timedelta
+from typing import Any, ClassVar, Literal, Protocol, Self, TypedDict, TypeVar, final
 
 from lance import LanceDataset
-from pyarrow import RecordBatch, RecordBatchReader, Table
+from pyarrow import (
+    Array,
+    Int64Array,
+    RecordBatch,
+    RecordBatchReader,
+    Table,
+    UInt64Array,
+)
 
 class _ArrowStream(Protocol):
     def __arrow_c_stream__(self, requested_schema: object = None) -> object: ...
@@ -38,6 +45,12 @@ class _CsrStats(TypedDict):
     version: int | None
     base_version: int | None
     build_ms: float
+
+class _DatasetOptimizeStats(TypedDict):
+    fragments_removed: int
+    fragments_added: int
+    old_versions: int
+    bytes_removed: int
 
 @final
 class ExecutionStrategy:
@@ -142,6 +155,20 @@ class CypherEngine:
     def delete_stored_csr(self) -> int: ...
     def node_index_stats(self) -> dict[str, _NodeIndexStats]: ...
     def csr_stats(self) -> dict[str, _CsrStats]: ...
+    def optimize_datasets(
+        self, *, cleanup_older_than: timedelta | None = None
+    ) -> dict[str, _DatasetOptimizeStats]: ...
+    def export_graph(
+        self, rel_types: list[str] | None = None, *, directed: bool = True
+    ) -> GraphExport: ...
+    def write_node_column(
+        self,
+        export: GraphExport,
+        column: str,
+        values: Array[Any],
+        *,
+        overwrite: bool = False,
+    ) -> None: ...
     def dataset_versions(self) -> dict[str, int]: ...
     def config(self) -> GraphConfig: ...
     def execute_with_vector_rerank(
@@ -193,6 +220,27 @@ class VectorSearch:
     def search(
         self, table: Table | RecordBatch | RecordBatchReader | _ArrowStream
     ) -> Table: ...
+
+@final
+class GraphExport:
+    @property
+    def num_nodes(self) -> int: ...
+    @property
+    def directed(self) -> bool: ...
+    @property
+    def node_keys(self) -> Int64Array: ...
+    @property
+    def label_ranges(self) -> dict[str, tuple[int, int]]: ...
+    @property
+    def out_indptr(self) -> UInt64Array: ...
+    @property
+    def out_indices(self) -> UInt64Array: ...
+    @property
+    def in_indptr(self) -> UInt64Array | None: ...
+    @property
+    def in_indices(self) -> UInt64Array | None: ...
+    @property
+    def dropped_edges(self) -> int: ...
 
 @final
 class DirNamespace:

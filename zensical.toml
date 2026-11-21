@@ -33,6 +33,7 @@ nav = [
     { "The CSR index" = "csr.md" },
     { "Lance datasets" = "lance.md" },
     { "Vector search" = "vector-search.md" },
+    { "Graph algorithms" = "graph-algorithms.md" },
     { "SQL queries" = "sql.md" },
   ] },
   { "Using from Rust" = "rust.md" },

@@ -9,6 +9,7 @@ guides link here for exact signatures and link back for examples.
 | [`GraphConfig`][lance_csr.GraphConfig], [`GraphConfigBuilder`][lance_csr.GraphConfigBuilder] | Map tables to node labels and relationship types |
 | [`CypherEngine`][lance_csr.CypherEngine] | Run many Cypher queries over registered datasets |
 | [`CypherQuery`][lance_csr.CypherQuery] | Run one Cypher query |
+| [`GraphExport`][lance_csr.GraphExport] | The graph as CSR arrays, for graph-algorithm libraries |
 | [`SqlEngine`][lance_csr.SqlEngine], [`SqlQuery`][lance_csr.SqlQuery] | Run SQL through DataFusion |
 | [`VectorSearch`][lance_csr.VectorSearch], [`DistanceMetric`][lance_csr.DistanceMetric] | Vector similarity search and reranking |
 | [`DirNamespace`][lance_csr.DirNamespace] | Resolve table names to Lance datasets in a directory |
@@ -97,6 +98,8 @@ the stored endpoint node records. Their occurrence identities are query-local. S
 ::: lance_csr.CypherEngine
 
 ::: lance_csr.CypherQuery
+
+::: lance_csr.GraphExport
 
 ::: lance_csr.SqlEngine
 

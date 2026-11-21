@@ -14,8 +14,10 @@ export { DirNamespace } from "./namespace.ts";
 export { SqlDialect, SqlEngine, type SqlEngineOptions, SqlQuery } from "./sql.ts";
 export {
   type CsrStats,
+  type DatasetOptimizeStats,
   type Dataset,
   type ErrorCode,
+  type GraphExport,
   type LanceDataset,
   LanceCsrError,
   type NodeIndexStats,
