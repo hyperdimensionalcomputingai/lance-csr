@@ -130,6 +130,11 @@ affected. See [Storing the CSR](https://lance-csr.hdclabs.ai/csr/#storing-the-cs
 
 The number of files deleted; 0 when nothing was stored.
 
+###### Throws
+
+[LanceCsrError](#lancecsrerror) `InvalidArgument` if the engine was created with
+  `persistCsr: "load"`, which never writes to its datasets.
+
 <a id="execute"></a>
 
 ##### execute()
@@ -395,8 +400,8 @@ Open the datasets and build the engine. Lance datasets are pinned, not read; wit
 
 [LanceCsrError](#lancecsrerror) with code `InvalidArgument` if `datasets` is empty, a
 configured key or endpoint column is missing, `targetPartitions` is outside 1 to
-1024, or `persistCsr` is set without `useCsr`; `Runtime` if a dataset can't be
-opened.
+1024, `persistCsr` isn't `true`, `false` or `"load"`, or it is set without `useCsr`;
+`Runtime` if a dataset can't be opened.
 
 ###### Throws
 
@@ -1545,6 +1550,7 @@ Statistics for one CSR adjacency index, from `CypherEngine.csrStats()`.
 | <a id="property-buildms"></a> `buildMs` | `number` | Wall time of that build or delta, both directions, in milliseconds. |
 | <a id="property-deltaedges"></a> `deltaEdges` | `number` | Edges appended since the last full build, held outside the base CSR. |
 | <a id="property-edges"></a> `edges` | `number` | Live indexed edges (null endpoints are skipped). |
+| <a id="property-storeerror"></a> `storeError?` | `string` | Why the base CSR couldn't be stored with `persistCsr: true`; absent when it was, or when nothing is stored. It stays set while the engine keeps that base, through deltas. |
 | <a id="property-tombstones"></a> `tombstones` | `number` | Edges removed since the last full build, held outside the base CSR. |
 | <a id="property-unindexededges"></a> `unindexedEdges` | `number` | Live edges outside the base CSR: appended since its last full build and not since removed. |
 | <a id="property-update"></a> `update` | `"build"` \| `"rebuild"` \| `"loaded"` \| `"delta"` \| `"reused"` | How the last build, `checkoutLatest()` or `optimizeCsr()` produced it. |
@@ -1562,7 +1568,7 @@ Options for [CypherEngine.create](#create).
 
 | Property | Type | Description |
 | ------ | ------ | ------ |
-| <a id="property-persistcsr"></a> `persistCsr?` | `boolean` | Experimental, needs `useCsr`. Store each relationship dataset's CSR inside the dataset's own directory, at `_lance_csr/<version>.arrow`, and load it instead of building when an engine starts. Changes since the stored version apply as a delta under the same 25% threshold as `checkoutLatest`; past it, the CSR is rebuilt and stored again. Arrow inputs aren't stored, and a dataset that can't be written is built as without it. |
+| <a id="property-persistcsr"></a> `persistCsr?` | `boolean` \| `"load"` | Experimental, needs `useCsr` unless `false`. With `true`, store each relationship dataset's CSR inside the dataset's own directory, at `_lance_csr/<version>.arrow`, and load it instead of building when an engine starts. Changes since the stored version apply as a delta under the same 25% threshold as `checkoutLatest`; past it, the CSR is rebuilt and stored again. Arrow inputs aren't stored. A dataset that can't be written is built in memory, and the engine emits a process warning and reports the error as `storeError` in `csrStats()`. With `"load"`, load stored files the same way but never write to the datasets: a CSR that can't be loaded is built in memory, as with `false`. |
 | <a id="property-targetpartitions"></a> `targetPartitions?` | `number` | A target from 1 to 1024 for DataFusion query partitioning; left out, DataFusion's default. `checkoutLatest` preserves it. It is not a thread or memory limit. |
 | <a id="property-usecsr"></a> `useCsr?` | `boolean` | Build the experimental [CSR index](https://lance-csr.hdclabs.ai/csr/) for relationship types with integer endpoints, and node indexes for labels with unique integer keys. |
 

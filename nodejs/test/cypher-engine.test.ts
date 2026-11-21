@@ -151,6 +151,14 @@ describe("CypherEngine options", () => {
       code: "InvalidArgument",
       message: /persistCsr requires useCsr/,
     });
+    await assert.rejects(CypherEngine.create(config, datasets, { persistCsr: "load" }), {
+      code: "InvalidArgument",
+      message: /persistCsr requires useCsr/,
+    });
+    await assert.rejects(
+      CypherEngine.create(config, datasets, { useCsr: true, persistCsr: "store" as never }),
+      { code: "InvalidArgument", message: /persistCsr must be true, false or "load"/ },
+    );
   });
 
   test("argument types", async () => {

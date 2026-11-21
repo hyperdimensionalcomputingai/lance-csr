@@ -47,14 +47,17 @@ export interface CypherEngineOptions {
    */
   targetPartitions?: number;
   /**
-   * Experimental, needs `useCsr`. Store each relationship dataset's CSR inside the
-   * dataset's own directory, at `_lance_csr/<version>.arrow`, and load it instead of
-   * building when an engine starts. Changes since the stored version apply as a delta
-   * under the same 25% threshold as `checkoutLatest`; past it, the CSR is rebuilt and
-   * stored again. Arrow inputs aren't stored, and a dataset that can't be written is
-   * built as without it.
+   * Experimental, needs `useCsr` unless `false`. With `true`, store each relationship
+   * dataset's CSR inside the dataset's own directory, at `_lance_csr/<version>.arrow`,
+   * and load it instead of building when an engine starts. Changes since the stored
+   * version apply as a delta under the same 25% threshold as `checkoutLatest`; past it,
+   * the CSR is rebuilt and stored again. Arrow inputs aren't stored. A dataset that
+   * can't be written is built in memory, and the engine emits a process warning and
+   * reports the error as `storeError` in `csrStats()`. With `"load"`, load stored files
+   * the same way but never write to the datasets: a CSR that can't be loaded is built in
+   * memory, as with `false`.
    */
-  persistCsr?: boolean;
+  persistCsr?: boolean | "load";
 }
 
 /** Options for running a query. */
@@ -200,8 +203,8 @@ export class CypherEngine {
    * @param options - CSR and partitioning options.
    * @throws {@link LanceCsrError} with code `InvalidArgument` if `datasets` is empty, a
    * configured key or endpoint column is missing, `targetPartitions` is outside 1 to
-   * 1024, or `persistCsr` is set without `useCsr`; `Runtime` if a dataset can't be
-   * opened.
+   * 1024, `persistCsr` isn't `true`, `false` or `"load"`, or it is set without `useCsr`;
+   * `Runtime` if a dataset can't be opened.
    * @throws `TypeError` if `config` isn't a `GraphConfig` or a dataset has an
    * unsupported type.
    */
@@ -216,10 +219,29 @@ export class CypherEngine {
     if (targetPartitions !== undefined && typeof targetPartitions !== "number") {
       throw new TypeError("targetPartitions must be a number or undefined");
     }
+    const modes = new Map<unknown, string>([
+      [false, "off"],
+      [true, "store"],
+      ["load", "load"],
+    ]);
+    // Anything else reaches the native check as an unknown mode.
+    const mode = modes.get(persistCsr) ?? "invalid";
     const inner = await call(() =>
-      native.openCypherEngine(spec, inputs, useCsr, targetPartitions, persistCsr),
+      native.openCypherEngine(spec, inputs, useCsr, targetPartitions, mode),
     );
-    return new CypherEngine(inner, config);
+    const engine = new CypherEngine(inner, config);
+    engine.#warnStoreErrors({});
+    return engine;
+  }
+
+  // The engine only logs a failed CSR write; callers see it here once.
+  #warnStoreErrors(before: Record<string, native.CsrStats>): void {
+    for (const [relType, stats] of Object.entries(this.#inner.csrStats())) {
+      const error = stats.storeError;
+      if (error && error !== before[relType]?.storeError) {
+        process.emitWarning(`Could not store the CSR of ${relType}: ${error}`, "LanceCsrWarning");
+      }
+    }
   }
 
   /** @internal The native engine, for `SqlEngine.fromEngine`. */
@@ -307,7 +329,9 @@ export class CypherEngine {
    * [Lance datasets](https://lance-csr.hdclabs.ai/lance/#checkout-latest).
    */
   async checkoutLatest(): Promise<void> {
+    const before = this.#inner.csrStats();
     await call(() => this.#inner.checkoutLatest());
+    this.#warnStoreErrors(before);
   }
 
   /**
@@ -335,7 +359,10 @@ export class CypherEngine {
   async optimizeDatasets(
     options: { cleanupOlderThanMs?: number } = {},
   ): Promise<Record<string, DatasetOptimizeStats>> {
-    return await call(() => this.#inner.optimizeDatasets(options.cleanupOlderThanMs));
+    const before = this.#inner.csrStats();
+    const result = await call(() => this.#inner.optimizeDatasets(options.cleanupOlderThanMs));
+    this.#warnStoreErrors(before);
+    return result;
   }
 
   /**
@@ -349,7 +376,9 @@ export class CypherEngine {
    * [Rebuilding the CSR](https://lance-csr.hdclabs.ai/csr/#rebuilding-the-csr).
    */
   async optimizeCsr(): Promise<void> {
+    const before = this.#inner.csrStats();
     await call(() => this.#inner.optimizeCsr());
+    this.#warnStoreErrors(before);
   }
 
   /**
@@ -360,6 +389,8 @@ export class CypherEngine {
    * affected. See [Storing the CSR](https://lance-csr.hdclabs.ai/csr/#storing-the-csr).
    *
    * @returns The number of files deleted; 0 when nothing was stored.
+   * @throws {@link LanceCsrError} `InvalidArgument` if the engine was created with
+   *   `persistCsr: "load"`, which never writes to its datasets.
    */
   async deleteStoredCsr(): Promise<number> {
     return call(() => this.#inner.deleteStoredCsr());

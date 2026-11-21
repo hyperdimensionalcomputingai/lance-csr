@@ -204,6 +204,7 @@ method, so your editor shows the details on hover.
 | `GraphConfig.builder().node_table(...).rel_table(...).build()` | `GraphConfig.builder().nodeTable(...).relTable(...).build()` |
 | `config.node_labels()`, `config.relationship_types()` | `config.nodeLabels()`, `config.relationshipTypes()` |
 | `CypherEngine(config, datasets, use_csr=True, target_partitions=4, persist_csr=True)` | `await CypherEngine.create(config, datasets, { useCsr: true, targetPartitions: 4, persistCsr: true })` |
+| `persist_csr="load"`, and the `RuntimeWarning` for a failed write | `persistCsr: "load"`, and a `LanceCsrWarning` process warning |
 | `engine.execute(query, params, timeout=2.5)` | `await engine.execute(query, params, { timeoutMs: 2500 })` |
 | `engine.execute_batches(query, params, timeout=...)`, a `RecordBatchReader` | `await engine.executeBatches(query, params, { timeoutMs })`, an async iterable `RecordBatchStream` |
 | `engine.explain(query, params, analyze=True)` | `await engine.explain(query, params, { analyze: true })` |

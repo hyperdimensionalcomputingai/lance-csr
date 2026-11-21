@@ -82,7 +82,9 @@ pub const MAX_VARIABLE_LENGTH_HOPS: u32 = 20;
 
 pub use config::{GraphConfig, NodeMapping, RelationshipMapping};
 pub use csr_index::{CsrIndex, CsrIndexBuilder};
-pub use engine::{open_lance_dataset, CypherEngine, DatasetOptimizeStats, EngineSource, SqlEngine};
+pub use engine::{
+    open_lance_dataset, CypherEngine, DatasetOptimizeStats, EngineSource, PersistCsr, SqlEngine,
+};
 pub use error::{GraphError, Result};
 pub use graph_export::GraphExport;
 pub use lance_vector_search::VectorSearch;

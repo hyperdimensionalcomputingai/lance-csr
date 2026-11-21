@@ -86,6 +86,11 @@ export interface CsrStats {
   baseVersion?: number;
   /** Wall time of that build or delta, both directions, in milliseconds. */
   buildMs: number;
+  /**
+   * Why the base CSR couldn't be stored with `persistCsr: true`; absent when it was, or
+   * when nothing is stored. It stays set while the engine keeps that base, through deltas.
+   */
+  storeError?: string;
 }
 
 /**

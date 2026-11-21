@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright The Lance Authors
 
-"""Stored CSR files (`persist_csr=True`).
+"""Stored CSR files (`persist_csr=True` and `"load"`).
 
 An engine that loads a stored CSR must return exactly what a join-path engine
 returns, after appends, deletes, compaction and cleanup of old versions.
@@ -63,9 +63,9 @@ def knows(tmp_path):
     return uri
 
 
-def engine(uri, **kwargs):
+def engine(uri, persist_csr=True):
     datasets = {"Person": PEOPLE, "KNOWS": lance.dataset(uri)}
-    return CypherEngine(CONFIG, datasets, use_csr=True, persist_csr=True, **kwargs)
+    return CypherEngine(CONFIG, datasets, use_csr=True, persist_csr=persist_csr)
 
 
 def check(persisted, uri):
@@ -120,12 +120,36 @@ def test_rebuild_stores_a_new_base(knows):
 def test_read_only_dataset_still_builds(knows):
     os.chmod(knows, 0o555)
     try:
-        read_only = engine(knows)
+        with pytest.warns(RuntimeWarning, match="Could not store the CSR of KNOWS"):
+            read_only = engine(knows)
     finally:
         os.chmod(knows, 0o755)
-    assert read_only.csr_stats()["KNOWS"]["update"] == "build"
+    s = read_only.csr_stats()["KNOWS"]
+    assert s["update"] == "build"
+    assert s["store_error"] and ".write-probe" in s["store_error"]
     assert stored(knows) == []
     check(read_only, knows)
+
+
+def test_load_only_never_writes(knows):
+    missed = engine(knows, persist_csr="load")
+    s = missed.csr_stats()["KNOWS"]
+    assert (s["update"], s["store_error"]) == ("build", None)
+    assert stored(knows) == []
+    check(missed, knows)
+    engine(knows)  # a writer stores the file
+    loaded = engine(knows, persist_csr="load")
+    assert loaded.csr_stats()["KNOWS"]["update"] == "loaded"
+    check(loaded, knows)
+    # Past the rebuild threshold a load-only engine builds without replacing the file.
+    lance.write_dataset(edges(BASE[:60], 5000), knows, mode="append")
+    loaded.checkout_latest()
+    loaded.optimize_csr()
+    assert loaded.csr_stats()["KNOWS"]["update"] == "rebuild"
+    assert stored(knows) == ["1.arrow"]
+    with pytest.raises(ValueError, match="load-only"):
+        loaded.delete_stored_csr()
+    assert stored(knows) == ["1.arrow"]
 
 
 def test_delete_stored_csr(knows):
@@ -148,6 +172,13 @@ def test_pyarrow_input_is_not_stored():
     assert e.csr_stats()["KNOWS"]["update"] == "build"
 
 
-def test_persist_csr_needs_use_csr(knows):
+@pytest.mark.parametrize("persist_csr", [True, "load"])
+def test_persist_csr_needs_use_csr(knows, persist_csr):
     with pytest.raises(ValueError, match="persist_csr requires use_csr"):
-        CypherEngine(CONFIG, {"KNOWS": lance.dataset(knows)}, persist_csr=True)
+        CypherEngine(CONFIG, {"KNOWS": lance.dataset(knows)}, persist_csr=persist_csr)
+
+
+@pytest.mark.parametrize("persist_csr", ["store", 1])
+def test_persist_csr_rejects_other_values(knows, persist_csr):
+    with pytest.raises(ValueError, match='True, False or "load"'):
+        engine(knows, persist_csr=persist_csr)

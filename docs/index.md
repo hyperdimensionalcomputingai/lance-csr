@@ -140,8 +140,8 @@ The primary purpose of lance-csr is to serve as a fast, lightweight query engine
     distributed graph processing, [HDC Labs](https://hyperdimensionalcomputing.ai/contact/) builds that
     separately.
 
-- **Read-only.** The engine queries your tables; it never writes them (the experimental `persist_csr` option
-  stores only the CSR's own files beside them). Create and update your tables with
+- **Read-only.** The engine queries your tables; it never writes them (the experimental `persist_csr=True`
+  option stores only the CSR's own files beside them, and `persist_csr="load"` only reads them). Create and update your tables with
   [`pylance`](https://pypi.org/project/pylance/), LanceDB or PyArrow, then query them here.
 - **Not a server.** There's no network protocol, authentication or multi-tenant process. It's a library.
 - **Not all of openCypher.** See [supported Cypher](cypher.md#supported-cypher) for what is and isn't

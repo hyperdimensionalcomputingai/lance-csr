@@ -45,6 +45,7 @@ class _CsrStats(TypedDict):
     version: int | None
     base_version: int | None
     build_ms: float
+    store_error: str | None
 
 class _DatasetOptimizeStats(TypedDict):
     fragments_removed: int
@@ -127,7 +128,7 @@ class CypherEngine:
         use_csr: bool = False,
         *,
         target_partitions: int | None = None,
-        persist_csr: bool = False,
+        persist_csr: bool | Literal["load"] = False,
     ) -> None: ...
     def execute(
         self,

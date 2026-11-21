@@ -55,6 +55,7 @@ export interface CsrStats {
   version?: number
   baseVersion?: number
   buildMs: number
+  storeError?: string
 }
 
 export declare function cypherQueryExecute(spec: CypherQuerySpec, datasetsIn: Record<string, DatasetInput>, executionStrategy?: ExecutionStrategy | undefined | null, timeoutMs?: number | undefined | null): Promise<Buffer>
@@ -136,7 +137,7 @@ export interface NodeTableSpec {
   primaryKey: string
 }
 
-export declare function openCypherEngine(config: GraphConfigSpec, datasetsIn: Record<string, DatasetInput>, useCsr: boolean, targetPartitions: number | undefined | null, persistCsr: boolean): Promise<CypherEngine>
+export declare function openCypherEngine(config: GraphConfigSpec, datasetsIn: Record<string, DatasetInput>, useCsr: boolean, targetPartitions: number | undefined | null, persistCsr: string): Promise<CypherEngine>
 
 export declare function openSqlEngine(datasetsIn: Record<string, DatasetInput>, config: GraphConfigSpec | undefined | null, useCsr: boolean): Promise<SqlEngine>
 

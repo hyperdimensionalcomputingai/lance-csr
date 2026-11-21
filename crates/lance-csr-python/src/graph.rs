@@ -24,7 +24,10 @@ use arrow_schema::Schema;
 use futures::StreamExt;
 use lance_csr::{
     ast::{DistanceMetric as RustDistanceMetric, GraphPattern, ReadingClause},
-    engine::{CypherEngine as RustCypherEngine, EngineOptions, EngineSource, MAX_TARGET_PARTITIONS},
+    engine::{
+        CypherEngine as RustCypherEngine, EngineOptions, EngineSource, PersistCsr,
+        MAX_TARGET_PARTITIONS,
+    },
     CypherQuery as RustCypherQuery, ExecutionStrategy as RustExecutionStrategy,
     GraphConfig as RustGraphConfig, GraphError as RustGraphError, SqlDialect as RustSqlDialect,
     SqlEngine as RustSqlEngine, SqlQuery as RustSqlQuery, VectorSearch as RustVectorSearch,
@@ -1098,16 +1101,36 @@ pub struct CypherEngine {
 #[pymethods]
 impl CypherEngine {
     #[new]
-    #[pyo3(signature = (config, datasets, use_csr = false, *, target_partitions = None, persist_csr = false))]
+    // `persist_csr` is a bool or "load"; None (left out) is False.
+    #[pyo3(
+        signature = (config, datasets, use_csr = false, *, target_partitions = None, persist_csr = None),
+        text_signature = "(config, datasets, use_csr=False, *, target_partitions=None, persist_csr=False)"
+    )]
     fn new(
         py: Python,
         config: &GraphConfig,
         datasets: &Bound<'_, PyDict>,
         use_csr: bool,
         target_partitions: Option<&Bound<'_, PyAny>>,
-        persist_csr: bool,
+        persist_csr: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
-        if persist_csr && !use_csr {
+        let persist_csr = match persist_csr {
+            None => PersistCsr::Off,
+            Some(value) if value.is_instance_of::<PyBool>() => {
+                if value.extract::<bool>()? {
+                    PersistCsr::LoadAndStore
+                } else {
+                    PersistCsr::Off
+                }
+            }
+            Some(value) if value.extract::<&str>().is_ok_and(|v| v == "load") => PersistCsr::Load,
+            Some(_) => {
+                return Err(PyValueError::new_err(
+                    "persist_csr must be True, False or \"load\"",
+                ))
+            }
+        };
+        if persist_csr != PersistCsr::Off && !use_csr {
             return Err(PyValueError::new_err("persist_csr requires use_csr=True"));
         }
         let target_partitions = target_partitions
@@ -1248,6 +1271,7 @@ impl CypherEngine {
             item.set_item("version", entry.version)?;
             item.set_item("base_version", entry.base_version)?;
             item.set_item("build_ms", entry.build_ms)?;
+            item.set_item("store_error", entry.store_error)?;
             stats.set_item(rel_type, item)?;
         }
         Ok(stats.into_any().unbind())

@@ -63,8 +63,9 @@ get [CSR adjacencies](csr.md) and node labels with unique integer ids get a node
 `use_csr=True` in Python. `CypherEngine::with_target_partitions(config, sources, use_csr, Some(n))` also sets
 DataFusion's query partition target (1 to 1024), like `target_partitions=` in Python; see
 [Query parallelism](lance.md#query-parallelism). `CypherEngine::with_options(config, sources, options)` takes every
-setting at once as an `EngineOptions` (in `lance_csr::engine`), including `persist_csr`, which
-[stores the CSR](csr.md#storing-the-csr) as in Python.
+setting at once as an `EngineOptions` (in `lance_csr::engine`), including `persist_csr`, a `PersistCsr` that
+[loads and stores the CSR](csr.md#storing-the-csr) as in Python: `Off`, `Load` (`"load"`) or `LoadAndStore`
+(`True`).
 
 ## Run queries
 
@@ -191,7 +192,8 @@ case for `DirNamespace`.
 | `engine.explain(query, analyze=True)` | `engine.explain_analyze(query, params).await` |
 | `engine.execute(query, timeout=2.0)` | `timeout_at(deadline, with_execution_deadline(Some(deadline), engine.execute(...)))` |
 | `CypherEngine(..., target_partitions=4)` | `CypherEngine::with_target_partitions(config, sources, use_csr, Some(4)).await` |
-| `CypherEngine(..., persist_csr=True)` | `CypherEngine::with_options(config, sources, EngineOptions { use_csr: true, persist_csr: true, ..Default::default() }).await` |
+| `CypherEngine(..., persist_csr=True)` | `CypherEngine::with_options(config, sources, EngineOptions { use_csr: true, persist_csr: PersistCsr::LoadAndStore, ..Default::default() }).await` |
+| `CypherEngine(..., persist_csr="load")` | The same, with `persist_csr: PersistCsr::Load` |
 | `engine.csr_stats()` → `dict` | `engine.csr_stats()` → `HashMap<String, CsrStats>` |
 | `ValueError`, `RuntimeError`, ... | `GraphError` variants |
 

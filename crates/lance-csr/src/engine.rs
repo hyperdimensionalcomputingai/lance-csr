@@ -249,6 +249,9 @@ pub struct CsrStats {
     pub base_version: Option<u64>,
     /// Wall time of that build or delta, both directions.
     pub build_ms: f64,
+    /// Why the base CSR couldn't be stored (see [`PersistCsr::LoadAndStore`]), or `None`.
+    /// It stays set while the engine keeps that base, through deltas and reuse.
+    pub store_error: Option<String>,
 }
 
 /// What [`CypherEngine::optimize_datasets`] did to one Lance dataset.
@@ -384,6 +387,8 @@ struct CsrEntry {
     build_ms: f64,
     /// How the last build, `checkout_latest()` or optimize produced this entry: build, rebuild, loaded, delta or reused.
     update: &'static str,
+    /// Why the full build of the base couldn't be stored, if storing was on and failed.
+    store_error: Option<String>,
 }
 
 /// Rebuild instead of applying a delta once pending changes (appended edges +
@@ -445,6 +450,7 @@ async fn try_apply_csr_delta(
         base_version: old.base_version,
         build_ms: elapsed(),
         update: "delta",
+        store_error: old.store_error.clone(),
     })
 }
 
@@ -500,6 +506,7 @@ async fn load_stored_csr(source: &EngineSource, src: &str, dst: &str) -> Option<
         base_version: Some(stored.version),
         build_ms: started.elapsed().as_secs_f64() * 1e3,
         update: "loaded",
+        store_error: None,
     })
 }
 
@@ -941,8 +948,9 @@ const MAX_CONCURRENT_CSR_LOADS: usize = 10;
 /// target ids. Relationship types with non-integer endpoints get no entry and
 /// queries over them use the join path.
 ///
-/// With `persist`, a Lance relationship dataset's stored CSR is loaded instead of the
-/// first build when it can be brought up to date, and every full build is stored.
+/// Unless `persist` is [`PersistCsr::Off`], a Lance relationship dataset's stored CSR is
+/// loaded instead of the first build when it can be brought up to date. With
+/// [`PersistCsr::LoadAndStore`], every full build is stored too.
 /// Later rebuilds don't look for a file: the stored base is the one the engine already
 /// had, whose delta just grew too large.
 async fn build_csr_entries(
@@ -951,7 +959,7 @@ async fn build_csr_entries(
     schemas: &HashMap<String, SchemaRef>,
     previous: Option<&EngineState>,
     rebuild_deltas: bool,
-    persist: bool,
+    persist: PersistCsr,
 ) -> Result<HashMap<String, CsrEntry>> {
     // Types run concurrently so stored loads, which decode on the blocking pool, overlap.
     // Deltas and builds run on this task, where overlapping gains nothing and would blur
@@ -993,7 +1001,7 @@ async fn build_csr_entries(
             }
 
             let previous_entry = previous.and_then(|p| p.csr.get(rel_type));
-            if persist && previous_entry.is_none() {
+            if persist != PersistCsr::Off && previous_entry.is_none() {
                 if let Some(entry) = load_stored_csr(source, src.name(), dst.name()).await {
                     return Ok(Some((rel_type.clone(), entry)));
                 }
@@ -1015,12 +1023,16 @@ async fn build_csr_entries(
             let outgoing = Adjacency::build(scan().await?, src.name(), dst.name()).await?;
             let incoming = Adjacency::build(scan().await?, dst.name(), src.name()).await?;
             let build_ms = started.elapsed().as_secs_f64() * 1e3;
-            if let (true, EngineSource::Lance { dataset, .. }) = (persist, source) {
+            let mut store_error = None;
+            if let (PersistCsr::LoadAndStore, EngineSource::Lance { dataset, .. }) =
+                (persist, source)
+            {
                 // A failed write (read-only dataset or credentials) only costs the next start a build.
                 if let Err(e) =
                     csr_store::save(dataset, src.name(), dst.name(), &outgoing, &incoming).await
                 {
                     log::warn!("Could not store the CSR of {rel_type}: {e}");
+                    store_error = Some(e.to_string());
                 }
             }
             Ok::<_, GraphError>(Some((
@@ -1037,6 +1049,7 @@ async fn build_csr_entries(
                     } else {
                         "build"
                     },
+                    store_error,
                 },
             )))
         })
@@ -1050,6 +1063,23 @@ async fn build_csr_entries(
     Ok(entries.into_iter().flatten().collect())
 }
 
+/// How an engine over Lance datasets uses CSR files stored at
+/// `_lance_csr/<version>.arrow` inside each relationship dataset. Ignored without
+/// `use_csr` and for Arrow input.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PersistCsr {
+    /// Build every CSR in memory; never read or write stored files.
+    #[default]
+    Off,
+    /// Load a stored CSR when one can be brought up to date, and otherwise build in
+    /// memory. Never writes to the dataset, and [`CypherEngine::delete_stored_csr`] refuses.
+    Load,
+    /// Load as [`Load`](Self::Load) does, and store every full build, including those
+    /// from `checkout_latest()` and `optimize_csr()`. A failed write doesn't fail the
+    /// engine: it is logged and reported in [`CsrStats::store_error`].
+    LoadAndStore,
+}
+
 /// Options for [`CypherEngine::with_options`].
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct EngineOptions {
@@ -1057,12 +1087,10 @@ pub struct EngineOptions {
     pub use_csr: bool,
     /// DataFusion `target_partitions`; see [`CypherEngine::with_target_partitions`].
     pub target_partitions: Option<usize>,
-    /// Store each fully built CSR inside its Lance relationship dataset, at
-    /// `_lance_csr/<version>.arrow`, and load it instead of building when an engine
-    /// starts. Changes since the stored version apply as a delta, under
-    /// the same 25% threshold as `checkout_latest()`. Ignored without `use_csr` and for Arrow
-    /// input. A failed write is logged and doesn't fail the engine.
-    pub persist_csr: bool,
+    /// Whether to load stored CSR files instead of building, and whether to store full
+    /// builds; see [`PersistCsr`]. Changes since a stored version apply as a delta, under
+    /// the same 25% threshold as `checkout_latest()`.
+    pub persist_csr: PersistCsr,
 }
 
 /// Cypher query engine with a cached catalog for efficient multi-query execution.
@@ -1490,10 +1518,19 @@ impl CypherEngine {
     /// (see [`EngineOptions::persist_csr`]), returning how many files were deleted.
     ///
     /// The engine keeps the CSR it has in memory, so queries are unaffected. An
-    /// engine with `persist_csr` stores a new file at its next full build; create
-    /// engines without it to stay in memory only. Runs one at a time with `checkout_latest()`
-    /// and `optimize_csr()`.
+    /// engine with [`PersistCsr::LoadAndStore`] stores a new file at its next full build;
+    /// create engines without it to stay in memory only. An engine with
+    /// [`PersistCsr::Load`] never writes, so this returns a configuration error. Runs one
+    /// at a time with `checkout_latest()` and `optimize_csr()`.
     pub async fn delete_stored_csr(&self) -> Result<usize> {
+        if self.options.persist_csr == PersistCsr::Load {
+            return Err(GraphError::ConfigError {
+                message: "delete_stored_csr() is unavailable on a load-only engine, which \
+                          never writes to its datasets"
+                    .to_string(),
+                location: snafu::Location::new(file!(), line!(), column!()),
+            });
+        }
         let _updating = self.update_lock.lock().await;
         let current = self.snapshot();
         let mut deleted = 0;
@@ -1526,6 +1563,7 @@ impl CypherEngine {
                     version: entry.source.lance_version(),
                     base_version: entry.base_version,
                     build_ms: entry.build_ms,
+                    store_error: entry.store_error.clone(),
                 };
                 (rel_type.clone(), stats)
             })
@@ -2029,7 +2067,7 @@ mod tests {
     }
 
     /// Every `(a, b)` reachable in two hops, sorted, from an engine over `uri`.
-    async fn two_hops(uri: &str, persist_csr: bool) -> (Vec<(i64, i64)>, CsrStats) {
+    async fn two_hops(uri: &str, persist_csr: PersistCsr) -> (Vec<(i64, i64)>, CsrStats) {
         let config = GraphConfig::builder()
             .node_table("Person", "id")
             .rel_table("KNOWS", "Person", "Person", "src", "dst")
@@ -2107,18 +2145,18 @@ mod tests {
         edges.extend([(3, 3), (3, 21), (3, 21)]);
         write_knows(&uri, &edges, WriteMode::Create).await;
 
-        let (expected, stats) = two_hops(&uri, false).await;
+        let (expected, stats) = two_hops(&uri, PersistCsr::Off).await;
         assert_eq!(stats.update, "build");
         assert!(
             stored_files(&uri).is_empty(),
             "nothing is stored without persist_csr"
         );
 
-        let (rows, stats) = two_hops(&uri, true).await;
+        let (rows, stats) = two_hops(&uri, PersistCsr::LoadAndStore).await;
         assert_eq!((rows == expected, stats.update), (true, "build"));
         assert_eq!(stored_files(&uri), ["1.arrow"]);
 
-        let (rows, stats) = two_hops(&uri, true).await;
+        let (rows, stats) = two_hops(&uri, PersistCsr::LoadAndStore).await;
         assert_eq!((rows == expected, stats.update), (true, "loaded"));
         assert_eq!((stats.edges, stats.base_version), (103, Some(1)));
 
@@ -2126,8 +2164,8 @@ mod tests {
         write_knows(&uri, &[(1, 2), (2, 1), (40, 3)], WriteMode::Append).await;
         let mut ds = Dataset::open(&uri).await.unwrap();
         ds.delete("src = 3 AND dst = 21").await.unwrap();
-        let (expected, _) = two_hops(&uri, false).await;
-        let (rows, stats) = two_hops(&uri, true).await;
+        let (expected, _) = two_hops(&uri, PersistCsr::Off).await;
+        let (rows, stats) = two_hops(&uri, PersistCsr::LoadAndStore).await;
         assert_eq!((rows == expected, stats.update), (true, "loaded"));
         assert_eq!(
             (
@@ -2150,7 +2188,7 @@ mod tests {
             b"not arrow",
         )
         .unwrap();
-        let (rows, stats) = two_hops(&uri, true).await;
+        let (rows, stats) = two_hops(&uri, PersistCsr::LoadAndStore).await;
         assert_eq!((rows == expected, stats.update), (true, "build"));
         assert_eq!(stored_files(&uri), ["3.arrow"], "older files are pruned");
 
@@ -2166,7 +2204,7 @@ mod tests {
             .unwrap();
         let options = EngineOptions {
             use_csr: true,
-            persist_csr: true,
+            persist_csr: PersistCsr::LoadAndStore,
             ..Default::default()
         };
         let engine = CypherEngine::with_options(
@@ -2181,9 +2219,9 @@ mod tests {
         let stats = &engine.csr_stats()["KNOWS"];
         assert_eq!((stats.update, stats.base_version), ("rebuild", Some(4)));
         assert_eq!(stored_files(&uri), ["4.arrow"]);
-        let (rows, stats) = two_hops(&uri, true).await;
+        let (rows, stats) = two_hops(&uri, PersistCsr::LoadAndStore).await;
         assert_eq!(stats.update, "loaded");
-        assert_eq!(rows, two_hops(&uri, false).await.0);
+        assert_eq!(rows, two_hops(&uri, PersistCsr::Off).await.0);
 
         // Deleting the stored files leaves the engine's CSR in place.
         assert_eq!(engine.delete_stored_csr().await.unwrap(), 1);
@@ -2191,7 +2229,69 @@ mod tests {
         assert!(!dir.path().join("knows.lance/_lance_csr").exists());
         assert_eq!(engine.csr_stats()["KNOWS"].edges, 104);
         assert_eq!(engine.delete_stored_csr().await.unwrap(), 0);
-        assert_eq!(two_hops(&uri, true).await.1.update, "build");
+        assert_eq!(
+            two_hops(&uri, PersistCsr::LoadAndStore).await.1.update,
+            "build"
+        );
+    }
+
+    /// A load-only engine loads a stored CSR but never writes: a miss builds in memory,
+    /// and `delete_stored_csr()` refuses. A store that can't be written fails before the
+    /// encode and is reported in `csr_stats()`.
+    #[tokio::test]
+    async fn load_only_csr_never_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let uri = dir.path().join("knows.lance").display().to_string();
+        let edges: Vec<(i64, i64)> = (0..100).map(|i| (i % 50, (i * 7) % 60)).collect();
+        write_knows(&uri, &edges, WriteMode::Create).await;
+        let (expected, _) = two_hops(&uri, PersistCsr::Off).await;
+
+        let (rows, stats) = two_hops(&uri, PersistCsr::Load).await;
+        assert_eq!((rows == expected, stats.update), (true, "build"));
+        assert!(
+            stored_files(&uri).is_empty(),
+            "a load-only miss writes nothing"
+        );
+
+        two_hops(&uri, PersistCsr::LoadAndStore).await;
+        let (rows, stats) = two_hops(&uri, PersistCsr::Load).await;
+        assert_eq!((rows == expected, stats.update), (true, "loaded"));
+        assert_eq!(stats.store_error, None);
+
+        let knows = EngineSource::open_lance(&uri, None, HashMap::new())
+            .await
+            .unwrap();
+        let config = GraphConfig::builder()
+            .node_table("Person", "id")
+            .rel_table("KNOWS", "Person", "Person", "src", "dst")
+            .build()
+            .unwrap();
+        let options = EngineOptions {
+            use_csr: true,
+            persist_csr: PersistCsr::Load,
+            ..Default::default()
+        };
+        let engine = CypherEngine::with_options(
+            config,
+            HashMap::from([("KNOWS".to_string(), knows)]),
+            options,
+        )
+        .await
+        .unwrap();
+        let error = engine.delete_stored_csr().await.unwrap_err();
+        assert!(matches!(error, GraphError::ConfigError { .. }), "{error}");
+        assert_eq!(stored_files(&uri), ["1.arrow"]);
+
+        // A file where the folder should be makes every write fail, on any platform.
+        std::fs::remove_dir_all(dir.path().join("knows.lance/_lance_csr")).unwrap();
+        std::fs::write(dir.path().join("knows.lance/_lance_csr"), b"").unwrap();
+        let (rows, stats) = two_hops(&uri, PersistCsr::LoadAndStore).await;
+        assert_eq!((rows == expected, stats.update), (true, "build"));
+        let error = stats.store_error.expect("the failed write is reported");
+        assert!(
+            error.contains(".write-probe"),
+            "fails before the encode: {error}"
+        );
     }
 
     /// An engine over Lance `Person(id)` and `KNOWS(src, dst)` datasets in `dir`.
