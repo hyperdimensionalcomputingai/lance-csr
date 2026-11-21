@@ -167,7 +167,7 @@ Python package raises:
 | `code` | Python exception | Raised when |
 | --- | --- | --- |
 | `InvalidArgument` | `ValueError` | The query, config, a parameter or an option is invalid |
-| `NotImplemented` | `NotImplementedError` | The query uses Cypher that parses but isn't supported |
+| `NotImplemented` | `NotImplementedError` | The query is valid Cypher that isn't supported, such as a write clause |
 | `Timeout` | `TimeoutError` | The query runs past `timeoutMs` |
 | `Runtime` | `RuntimeError` | A dataset can't be read, or execution fails |
 
