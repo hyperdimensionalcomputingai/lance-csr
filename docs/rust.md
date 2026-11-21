@@ -107,7 +107,7 @@ different exception depending on the variant:
 
 | `GraphError` variant | Meaning | Python exception |
 | --- | --- | --- |
-| `ParseError` | The Cypher text doesn't parse | `ValueError` |
+| `ParseError` | The Cypher text doesn't parse. The message gives the line and column where parsing stopped and what was expected there, and `position` holds the byte offset | `ValueError` |
 | `ConfigError` | Bad graph configuration, no datasets, or a configured column is missing | `ValueError` |
 | `PlanError`, `InvalidPattern` | The query can't be planned against the configuration | `ValueError` |
 | `UnsupportedFeature` | Valid Cypher that lance-csr doesn't support | `NotImplementedError` |

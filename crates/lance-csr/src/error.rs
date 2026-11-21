@@ -12,10 +12,14 @@ pub type Result<T> = std::result::Result<T, GraphError>;
 #[snafu(visibility(pub(crate)))]
 pub enum GraphError {
     /// Error parsing Cypher query syntax
-    #[snafu(display("Cypher parse error at position {position}: {message}"))]
+    #[snafu(display("Cypher syntax error at line {line}, column {column}: {message}"))]
     ParseError {
         message: String,
+        /// Byte offset of the error in the query text.
         position: usize,
+        /// 1-based line and column (in characters) of the error.
+        line: usize,
+        column: usize,
         location: Location,
     },
 
