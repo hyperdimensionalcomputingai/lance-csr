@@ -21,14 +21,19 @@ use std::collections::HashMap;
 
 /// Parse one complete Cypher query with an optional trailing semicolon.
 pub fn parse_cypher_query(input: &str) -> Result<CypherQuery> {
-    let (remaining, query) = cypher_query(input).map_err(|e| GraphError::ParseError {
-        message: format!("Failed to parse Cypher query: {}", e),
-        position: 0,
-        location: snafu::Location::new(file!(), line!(), column!()),
+    let (remaining, query) = cypher_query(input).map_err(|e| {
+        write_clause_error(input).unwrap_or_else(|| GraphError::ParseError {
+            message: format!("Failed to parse Cypher query: {}", e),
+            position: 0,
+            location: snafu::Location::new(file!(), line!(), column!()),
+        })
     })?;
 
     let remaining = remaining.strip_prefix(';').unwrap_or(remaining);
     if !remaining.trim().is_empty() {
+        if let Some(error) = write_clause_error(input) {
+            return Err(error);
+        }
         return Err(GraphError::ParseError {
             message: format!("Unexpected input after query: {}", remaining),
             position: input.len() - remaining.len(),
@@ -39,6 +44,98 @@ pub fn parse_cypher_query(input: &str) -> Result<CypherQuery> {
     let mut query = query;
     normalize_inline_properties(&mut query);
     Ok(query)
+}
+
+/// Write clauses, longest first so `DETACH DELETE` wins over `DELETE`.
+const WRITE_CLAUSES: [&str; 8] = [
+    "DETACH DELETE",
+    "LOAD CSV",
+    "FOREACH",
+    "CREATE",
+    "DELETE",
+    "REMOVE",
+    "MERGE",
+    "SET",
+];
+
+/// Name the first write clause of a query that failed to parse, so callers can tell
+/// valid Cypher this read-only engine doesn't run apart from invalid Cypher.
+fn write_clause_error(input: &str) -> Option<GraphError> {
+    let (clause, offset) = find_write_clause(input)?;
+    let before = &input[..offset];
+    let line = before.matches('\n').count() + 1;
+    let column = before.rsplit('\n').next().unwrap_or("").chars().count() + 1;
+    Some(GraphError::UnsupportedFeature {
+        feature: format!(
+            "{clause} (line {line}, column {column}). lance-csr runs read-only queries."
+        ),
+        location: snafu::Location::new(file!(), line!(), column!()),
+    })
+}
+
+/// Find a write keyword outside strings, comments and backtick-quoted names. A word after
+/// `.`, `$` or `:`, or before `:`, is a property, parameter, label or map key instead.
+fn find_write_clause(input: &str) -> Option<(&'static str, usize)> {
+    let bytes = input.as_bytes();
+    let is_word = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+    let mut i = 0;
+    let mut prev = b' ';
+    while i < bytes.len() {
+        let b = bytes[i];
+        if matches!(b, b'\'' | b'"' | b'`') {
+            i += 1;
+            while i < bytes.len() && bytes[i] != b {
+                i += if bytes[i] == b'\\' && b != b'`' { 2 } else { 1 };
+            }
+            i += 1;
+            prev = b;
+        } else if bytes[i..].starts_with(b"//") {
+            i = input[i..].find('\n').map_or(bytes.len(), |n| i + n);
+        } else if bytes[i..].starts_with(b"/*") {
+            i = input[i + 2..].find("*/").map_or(bytes.len(), |n| i + n + 4);
+        } else if is_word(b) {
+            let start = i;
+            while i < bytes.len() && is_word(bytes[i]) {
+                i += 1;
+            }
+            let followed_by_colon = input[i..].trim_start().starts_with(':');
+            if !matches!(prev, b'.' | b'$' | b':') && !followed_by_colon {
+                let found = WRITE_CLAUSES
+                    .iter()
+                    .find(|clause| starts_with_clause(&input[start..], clause));
+                if let Some(clause) = found {
+                    return Some((clause, start));
+                }
+            }
+            prev = bytes[i - 1];
+        } else {
+            if !b.is_ascii_whitespace() {
+                prev = b;
+            }
+            i += 1;
+        }
+    }
+    None
+}
+
+/// Whether `text` starts with the words of `clause`, case-insensitively, each a whole word.
+fn starts_with_clause(text: &str, clause: &str) -> bool {
+    let mut rest = text;
+    for word in clause.split(' ') {
+        rest = rest.trim_start();
+        let Some(head) = rest.get(..word.len()) else {
+            return false;
+        };
+        rest = &rest[word.len()..];
+        let boundary = !rest
+            .bytes()
+            .next()
+            .is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_');
+        if !head.eq_ignore_ascii_case(word) || !boundary {
+            return false;
+        }
+    }
+    true
 }
 
 fn normalize_inline_properties(query: &mut CypherQuery) {
@@ -1662,6 +1759,71 @@ fn length_range(input: &str) -> IResult<&str, LengthRange> {
 mod tests {
     use super::*;
     use crate::ast::{BooleanExpression, ComparisonOperator, PropertyValue, ValueExpression};
+
+    fn unsupported_feature(query: &str) -> Option<String> {
+        match parse_cypher_query(query) {
+            Err(GraphError::UnsupportedFeature { feature, .. }) => Some(feature),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn write_clauses_are_unsupported_features() {
+        assert_eq!(
+            unsupported_feature("CREATE (n:Person {name: 'X'})").as_deref(),
+            Some("CREATE (line 1, column 1). lance-csr runs read-only queries.")
+        );
+        for (query, clause) in [
+            ("MATCH (p:Person) SET p.age = 1", "SET (line 1, column 18)"),
+            (
+                "MATCH (p)\n  DETACH  DELETE p",
+                "DETACH DELETE (line 2, column 3)",
+            ),
+            ("MATCH (p) delete p", "DELETE (line 1, column 11)"),
+            ("MERGE (p:Person)", "MERGE (line 1, column 1)"),
+            ("MATCH (p) REMOVE p.age", "REMOVE (line 1, column 11)"),
+            (
+                "MATCH (p) FOREACH (x IN [1] | SET p.a = x)",
+                "FOREACH (line 1, column 11)",
+            ),
+            (
+                "load csv FROM 'f' AS row RETURN row",
+                "LOAD CSV (line 1, column 1)",
+            ),
+            (
+                "MATCH (é) CREATE (é)-[:R]->()",
+                "CREATE (line 1, column 11)",
+            ),
+        ] {
+            let feature = unsupported_feature(query).unwrap_or_default();
+            assert!(feature.starts_with(clause), "{query}: {feature}");
+        }
+    }
+
+    #[test]
+    fn write_keywords_in_names_and_literals_stay_parse_errors() {
+        for query in [
+            "MATCH (p) RETURN 'CREATE' +",
+            "MATCH (p) RETURN `set` +",
+            "MATCH (p) RETURN p.set +",
+            "MATCH (p) RETURN $delete +",
+            "MATCH (p:Merge) RETURN p +",
+            "MATCH (p {remove: 1}) RETURN p +",
+            "MATCH (p) RETURN p.created +",
+            "MATCH (p) // CREATE\nRETURN p +",
+            "MATCH (p) /* SET */ RETURN p +",
+            "MATCH (p) RETURN \"it\\\"s CREATE\" +",
+        ] {
+            assert!(
+                matches!(
+                    parse_cypher_query(query),
+                    Err(GraphError::ParseError { .. })
+                ),
+                "{query}"
+            );
+        }
+        assert!(parse_cypher_query("MATCH (p) RETURN p.set AS remove").is_ok());
+    }
 
     #[test]
     fn test_optional_trailing_semicolon() {

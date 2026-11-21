@@ -259,7 +259,9 @@ used by IC14. The tables below specify its supported surface.
 
 !!! failure "Not supported"
 
-    Writes (`CREATE`, `MERGE`, `SET`, `DELETE`, `REMOVE`), procedure calls (`CALL name(...)` / `YIELD`), and `FOREACH`.
+    Writes (`CREATE`, `MERGE`, `SET`, `DELETE`, `DETACH DELETE`, `REMOVE`, `FOREACH`, `LOAD CSV`) and procedure
+    calls (`CALL name(...)` / `YIELD`). A write clause raises `NotImplementedError` naming the clause and its
+    line and column, rather than a parse error.
 
 Integer list literals retain signed 64-bit values: `RETURN [1, 2, 3] AS ids` returns integers, and
 `UNWIND [1131, 19791209300775] AS id RETURN id` preserves both IDs exactly. Numeric literals with a decimal
@@ -634,7 +636,7 @@ device_engine.execute(
 | Exception | Raised when |
 | --- | --- |
 | `ValueError` | The query doesn't parse, refers to an unknown label, a dataset is missing a configured column, or a comparison/arithmetic expression has incompatible known types, or a function isn't implemented. Type errors name the expression and its operand types. Known scalar-function return types are checked through `WITH` and `UNWIND` scopes. |
-| `NotImplementedError` | The query parses but uses an unsupported feature (for example more than 20 hops). |
+| `NotImplementedError` | The query is valid Cypher but uses an unsupported feature, for example a write clause such as `CREATE` or more than 20 hops. |
 | `RuntimeError` | Execution fails, for example when a Lance dataset can't be read. |
 | `TimeoutError` | A query passes its `timeout`. See [Query deadlines](#query-deadlines). |
 | `TypeError` | The engine gets a config that isn't a `GraphConfig`, an unsupported dataset type, or a non-integer `target_partitions`. |
