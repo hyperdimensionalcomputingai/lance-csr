@@ -657,6 +657,7 @@ impl DataFusionPlanner {
         direction: &RelationshipDirection,
         min_length: Option<u32>,
         max_length: Option<u32>,
+        relationship_properties: &HashMap<String, crate::ast::PropertyValue>,
         target_properties: &HashMap<String, crate::ast::PropertyValue>,
     ) -> Result<LogicalPlan> {
         let min_hops = min_length.unwrap_or(1);
@@ -700,17 +701,24 @@ impl DataFusionPlanner {
                 .map(|f| f.name().clone()),
         );
 
-        if let Some(plan) = self.try_build_csr_traversal(
-            ctx,
-            input_plan.clone(),
-            source_variable,
-            target_variable,
-            relationship_types,
-            direction,
-            min_hops,
-            max_hops,
-            target_properties,
-        )? {
+        // The CSR walk cannot filter relationship properties, so a property map falls
+        // back to the fixed-length plans, which filter every hop.
+        let csr_plan = if relationship_properties.is_empty() {
+            self.try_build_csr_traversal(
+                ctx,
+                input_plan.clone(),
+                source_variable,
+                target_variable,
+                relationship_types,
+                direction,
+                min_hops,
+                max_hops,
+                target_properties,
+            )?
+        } else {
+            None
+        };
+        if let Some(plan) = csr_plan {
             let projection: Vec<_> = plan
                 .schema()
                 .fields()
@@ -736,6 +744,7 @@ impl DataFusionPlanner {
                 relationship_types,
                 direction,
                 hop_count,
+                relationship_properties,
                 target_properties,
             )?;
 
@@ -804,6 +813,7 @@ impl DataFusionPlanner {
         relationship_types: &[String],
         direction: &RelationshipDirection,
         hop_count: u32,
+        relationship_properties: &HashMap<String, crate::ast::PropertyValue>,
         target_properties: &HashMap<String, crate::ast::PropertyValue>,
     ) -> Result<LogicalPlan> {
         if hop_count == 0 {
@@ -888,6 +898,7 @@ impl DataFusionPlanner {
                 &current_target,
                 relationship_types,
                 direction,
+                relationship_properties,
                 props_to_apply,
             )?;
 
@@ -1043,6 +1054,7 @@ impl DataFusionPlanner {
         target_variable: &str,
         relationship_types: &[String],
         direction: &RelationshipDirection,
+        relationship_properties: &HashMap<String, crate::ast::PropertyValue>,
         target_properties: &HashMap<String, crate::ast::PropertyValue>,
     ) -> Result<LogicalPlan> {
         if relationship_types.is_empty() {
@@ -1065,7 +1077,7 @@ impl DataFusionPlanner {
             relationship_types,
             direction,
             None,
-            &HashMap::new(),
+            relationship_properties,
             target_properties,
         )
     }
@@ -1145,6 +1157,7 @@ mod tests {
             relationship_variable: Some("r".into()),
             min_length: Some(1),
             max_length: Some(2),
+            properties: Default::default(),
             target_properties: HashMap::new(),
         };
         let project = LogicalOperator::Project {
@@ -1181,6 +1194,7 @@ mod tests {
             relationship_variable: None,
             min_length: Some(1),
             max_length: Some(1),
+            properties: Default::default(),
             target_properties: HashMap::new(),
         };
         let project = LogicalOperator::Project {
@@ -1217,6 +1231,7 @@ mod tests {
             relationship_variable: None,
             min_length: Some(2),
             max_length: Some(3),
+            properties: Default::default(),
             target_properties: HashMap::new(),
         };
         let project = LogicalOperator::Project {
@@ -1267,6 +1282,7 @@ mod tests {
             relationship_variable: None,
             min_length: None, // Should default to 1
             max_length: Some(3),
+            properties: Default::default(),
             target_properties: HashMap::new(),
         };
         let project = LogicalOperator::Project {
@@ -1316,6 +1332,7 @@ mod tests {
             relationship_variable: None,
             min_length: Some(2),
             max_length: None, // Should default to MAX_VARIABLE_LENGTH_HOPS (20)
+            properties: Default::default(),
             target_properties: HashMap::new(),
         };
         let project = LogicalOperator::Project {
@@ -1366,6 +1383,7 @@ mod tests {
             relationship_variable: None,
             min_length: Some(3),
             max_length: Some(2), // Invalid: min > max
+            properties: Default::default(),
             target_properties: HashMap::new(),
         };
         let project = LogicalOperator::Project {
@@ -1416,6 +1434,7 @@ mod tests {
             relationship_variable: None,
             min_length: Some(1),
             max_length: Some(25), // Exceeds MAX_VARIABLE_LENGTH_HOPS
+            properties: Default::default(),
             target_properties: HashMap::new(),
         };
         let project = LogicalOperator::Project {
@@ -1466,6 +1485,7 @@ mod tests {
             relationship_variable: None,
             min_length: Some(1),
             max_length: Some(2),
+            properties: Default::default(),
             target_properties: HashMap::new(),
         };
         let filter = LogicalOperator::Filter {

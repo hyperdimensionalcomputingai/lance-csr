@@ -100,6 +100,8 @@ pub enum LogicalOperator {
         min_length: Option<u32>,
         /// Maximum number of hops (defaults to system max if None)
         max_length: Option<u32>,
+        /// Property filters every relationship along the path must match
+        properties: HashMap<String, PropertyValue>,
         /// Property filters to apply on target nodes
         target_properties: HashMap<String, PropertyValue>,
     },
@@ -2003,6 +2005,7 @@ impl<'a> LogicalPlanner<'a> {
                     relationship_variable: segment.relationship.variable.clone(),
                     min_length: length_range.min,
                     max_length: length_range.max,
+                    properties: segment.relationship.properties.clone(),
                     target_properties: segment.end_node.properties.clone(),
                 },
                 None => LogicalOperator::Expand {
