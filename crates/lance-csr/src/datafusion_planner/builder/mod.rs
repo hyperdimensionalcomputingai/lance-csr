@@ -97,6 +97,7 @@ impl DataFusionPlanner {
                 direction,
                 min_length,
                 max_length,
+                properties,
                 target_properties,
                 ..
             } => self.build_variable_length_expand(
@@ -108,6 +109,7 @@ impl DataFusionPlanner {
                 direction,
                 *min_length,
                 *max_length,
+                properties,
                 target_properties,
             ),
             LogicalOperator::Join {

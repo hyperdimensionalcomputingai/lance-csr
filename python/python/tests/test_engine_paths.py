@@ -9,7 +9,7 @@ Uses the graph from ``test_engine_csr.py``: people 1-6 named a-f, with valid edg
 
 import pyarrow as pa
 import pytest
-from lance_csr import CypherEngine
+from lance_csr import CypherEngine, GraphConfig
 from test_engine_csr import CONFIG, KNOWS, PEOPLE
 
 CASES = [
@@ -166,3 +166,29 @@ def test_shortest_path_null_checks_keep_compact_plan(
     plan = engine.explain(query)
     assert "ShortestPathExec" in plan
     assert "PathMatchExec" not in plan
+
+
+@pytest.mark.parametrize("use_csr", [False, True])
+@pytest.mark.parametrize(
+    ("pattern", "expected"),
+    [
+        # 2->3 has day 6, so the walk from 1 stops at 2.
+        ("(a:N {id: 1})-[:R*1..3 {day: 5}]->(b:N)", [2]),
+        ("(a:N {id: 4})<-[:R*1..3 {day: 5}]-(b:N)", [3]),
+        # Zero hops has no relationship to check, so 3 matches itself.
+        ("(a:N {id: 3})-[:R*0..3 {day: 5}]-(b:N)", [3, 4]),
+        ("p = (a:N {id: 1})-[:R*1..3 {day: 5}]->(b:N)", [2]),
+    ],
+)
+def test_variable_length_property_map_filters_every_hop(use_csr, pattern, expected):
+    config = (
+        GraphConfig.builder()
+        .node_table("N", "id")
+        .rel_table("R", "N", "N", "src", "dst")
+        .build()
+    )
+    nodes = pa.table({"id": [1, 2, 3, 4]})
+    rels = pa.table({"src": [1, 2, 3], "dst": [2, 3, 4], "day": [5, 6, 5]})
+    engine = CypherEngine(config, {"N": nodes, "R": rels}, use_csr=use_csr)
+    result = engine.execute(f"MATCH {pattern} RETURN b.id AS b ORDER BY b")
+    assert result.to_pydict() == {"b": expected}

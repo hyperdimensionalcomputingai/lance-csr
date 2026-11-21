@@ -407,6 +407,7 @@ mod tests {
             min_length: Some(2),
             max_length: Some(2),
             relationship_variable: None,
+            properties: Default::default(),
             target_properties: Default::default(),
         };
 

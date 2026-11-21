@@ -457,6 +457,7 @@ mod tests {
             relationship_variable: None,
             min_length: Some(1),
             max_length: Some(2),
+            properties: Default::default(),
             target_properties: HashMap::new(),
         };
 
