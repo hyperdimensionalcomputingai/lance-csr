@@ -135,3 +135,16 @@ def test_labels_reject_mixed_label_bindings(engine, query):
 def test_entity_function_invalid_arguments(engine, query):
     with pytest.raises((ValueError, RuntimeError)):
         engine.execute(query)
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (n) RETURN n",
+        "MATCH (n) WHERE n.name = 'Alice' RETURN n.name",
+        "MATCH (n) RETURN count(*) AS c",
+    ],
+)
+def test_unlabeled_node_asks_for_a_label(engine, query):
+    with pytest.raises(ValueError, match=r"add a label, e\.g\. `\(n:Person\)`"):
+        engine.execute(query)

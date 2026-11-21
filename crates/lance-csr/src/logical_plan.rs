@@ -2177,7 +2177,7 @@ impl<'a> LogicalPlanner<'a> {
                         Some(label) if label != "Unwound" && label != "Path" => {
                             let mapping = self.config.get_node_mapping(label).ok_or_else(|| {
                                 GraphError::PlanError {
-                                    message: format!("Node label '{}' doesn't exist", label),
+                                    message: crate::error::unknown_node_label_message(label),
                                     location: Location::new(file!(), line!(), column!()),
                                 }
                             })?;
@@ -3263,6 +3263,17 @@ mod tests {
             err_msg.contains("Node label 'Person' doesn't exist"),
             "Expected error about missing label 'Person', got: {}",
             err_msg
+        );
+    }
+
+    #[test]
+    fn test_return_unlabeled_node_asks_for_label() {
+        let ast = parse_cypher_query("MATCH (n) RETURN n").unwrap();
+        let config = GraphConfig::default();
+        let err = LogicalPlanner::new(&config).plan(&ast).unwrap_err();
+        assert!(
+            err.to_string().contains("A node pattern has no label"),
+            "got: {err}"
         );
     }
 

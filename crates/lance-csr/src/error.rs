@@ -73,6 +73,21 @@ impl GraphError {
     }
 }
 
+/// The error text for a node label with no node table. A node pattern with no label, and no
+/// relationship to infer one from, gets the planner's default label `Node`, which users never wrote.
+pub(crate) fn unknown_node_label_message(label: &str) -> String {
+    if label == "Node" {
+        "A node pattern has no label and no relationship to infer one from: \
+         add a label, e.g. `(n:Person)`"
+            .to_string()
+    } else {
+        format!(
+            "Node label '{label}' doesn't exist. \
+             Register it in your GraphConfig with a node table"
+        )
+    }
+}
+
 impl From<datafusion_common::DataFusionError> for GraphError {
     fn from(source: datafusion_common::DataFusionError) -> Self {
         Self::DataFusion {
