@@ -286,6 +286,10 @@ collide with identity metadata. When an untyped match combines branches, the pla
 marked property fields by name before casting each branch to the common schema. This also preserves
 the node records nested inside a path or a relationship endpoint. See [path values](../cypher.md#path-values).
 
+For an unnamed, bounded undirected segment with several types, the same operator emits
+boundary columns and skips building the Arrow path value for each trail. It still builds the
+inventory of participating tables and tracks edge occurrences during traversal.
+
 ## `Apply`: correlated CALL subqueries
 
 A read-only `CALL { ... }` body runs once per incoming row: its `LIMIT` and aggregates apply to each row, not to the

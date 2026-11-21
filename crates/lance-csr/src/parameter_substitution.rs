@@ -101,18 +101,19 @@ fn substitute_in_graph_pattern(
     parameters: &HashMap<String, serde_json::Value>,
 ) -> Result<()> {
     match pattern {
-        GraphPattern::Node(node) => {
-            for value in node.properties.values_mut() {
-                substitute_in_property_value(value, parameters)?;
-            }
-        }
-        GraphPattern::Path(path) => {
-            substitute_in_node_pattern(&mut path.start_node, parameters)?;
-            for segment in &mut path.segments {
-                substitute_in_relationship_pattern(&mut segment.relationship, parameters)?;
-                substitute_in_node_pattern(&mut segment.end_node, parameters)?;
-            }
-        }
+        GraphPattern::Node(node) => substitute_in_node_pattern(node, parameters),
+        GraphPattern::Path(path) => substitute_in_path_pattern(path, parameters),
+    }
+}
+
+fn substitute_in_path_pattern(
+    path: &mut PathPattern,
+    parameters: &HashMap<String, serde_json::Value>,
+) -> Result<()> {
+    substitute_in_node_pattern(&mut path.start_node, parameters)?;
+    for segment in &mut path.segments {
+        substitute_in_relationship_pattern(&mut segment.relationship, parameters)?;
+        substitute_in_node_pattern(&mut segment.end_node, parameters)?;
     }
     Ok(())
 }
@@ -297,7 +298,12 @@ fn substitute_in_value_expression(
             }
         }
         ValueExpression::Field { base, .. } => substitute_in_value_expression(base, parameters)?,
-        ValueExpression::PatternComprehension { filter, map, .. } => {
+        ValueExpression::PatternComprehension {
+            pattern,
+            filter,
+            map,
+        } => {
+            substitute_in_path_pattern(pattern, parameters)?;
             if let Some(b) = filter {
                 substitute_in_boolean_expression(b, parameters)?;
             }

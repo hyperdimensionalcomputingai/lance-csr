@@ -53,7 +53,7 @@ pub(crate) struct Step {
 
 #[derive(Debug)]
 pub(crate) struct PathSpec {
-    pub variable: String,
+    pub variable: Option<String>,
     /// Expose typed boundary-node values alongside their property columns.
     pub node_values: bool,
     pub sources: crate::path_inventory::SourceBatches,
@@ -92,6 +92,10 @@ impl fmt::Debug for PathMatchNode {
 }
 
 impl PathMatchNode {
+    pub(crate) fn endpoints_only(&self) -> bool {
+        self.spec.variable.is_none()
+    }
+
     pub fn try_new(inputs: Vec<LogicalPlan>, spec: PathSpec) -> Result<Self> {
         let node_fields = property_fields(spec.nodes.iter().map(|s| s.schema.fields()))?;
         let edge_fields = property_fields(spec.edges.iter().map(|s| s.schema.fields()))?;
@@ -154,11 +158,13 @@ impl PathMatchNode {
                 }
             }
         }
-        fields.push(Field::new(
-            spec.variable.to_lowercase(),
-            path_type(node_type, edge_type),
-            true,
-        ));
+        if let Some(variable) = &spec.variable {
+            fields.push(Field::new(
+                variable.to_lowercase(),
+                path_type(node_type, edge_type),
+                true,
+            ));
+        }
         let schema = Arc::new(input.join(&DFSchema::try_from(Schema::new(fields))?)?);
         Ok(Self {
             inputs,
@@ -220,7 +226,7 @@ impl UserDefinedLogicalNodeCore for PathMatchNode {
         write!(
             f,
             "PathMatch: {}, {}",
-            self.spec.variable,
+            self.spec.variable.as_deref().unwrap_or("endpoints"),
             if self.spec.shortest.is_some() {
                 "shortest edge inventory"
             } else {
@@ -326,7 +332,11 @@ impl fmt::Debug for PathMatchExec {
 
 impl DisplayAs for PathMatchExec {
     fn fmt_as(&self, _: DisplayFormatType, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "PathMatchExec: {} edge inventory", self.spec.variable)
+        write!(
+            f,
+            "PathMatchExec: {} edge inventory",
+            self.spec.variable.as_deref().unwrap_or("endpoints")
+        )
     }
 }
 impl ExecutionPlan for PathMatchExec {
@@ -464,11 +474,13 @@ impl ExecutionPlan for PathMatchExec {
                             };
                             columns.push(take(array, &positions, None)?);
                         }
-                        columns.push(paths_array(
-                            &paths,
-                            &p.graph.inventory.nodes,
-                            &p.graph.inventory.edges,
-                        )?);
+                        if spec.variable.is_some() {
+                            columns.push(paths_array(
+                                &paths,
+                                &p.graph.inventory.nodes,
+                                &p.graph.inventory.edges,
+                            )?);
+                        }
                         let batch = RecordBatch::try_new(schema, columns)?;
                         return Ok(Some((batch, (input, pending))));
                     }
@@ -931,7 +943,7 @@ mod tests {
             properties: HashMap::new(),
         };
         let spec = PathSpec {
-            variable: "p".into(),
+            variable: Some("p".into()),
             node_values: false,
             sources: Default::default(),
             nodes: vec![NodeSource {

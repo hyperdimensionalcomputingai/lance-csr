@@ -190,12 +190,15 @@ impl DataFusionPlanner {
                 properties: rel.properties.clone(),
             });
         }
-        let variable = path
-            .variable
-            .as_ref()
-            .or_else(|| path.shortest.as_ref().and_then(|s| s.variable.as_ref()))
-            .cloned()
-            .ok_or_else(|| error("rich path needs a variable".into()))?;
+        let variable = match &path.shortest {
+            Some(shortest) => Some(
+                shortest
+                    .variable
+                    .clone()
+                    .ok_or_else(|| error("rich path needs a variable".into()))?,
+            ),
+            None => path.variable.clone(),
+        };
         let node = PathMatchNode::try_new(
             plans,
             PathSpec {

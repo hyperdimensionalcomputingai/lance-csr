@@ -728,7 +728,7 @@ mod tests {
     fn missing_endpoints_and_variable_length_alternation_are_errors() {
         // `knows` has no endpoint labels, so the multi-label end can't be resolved.
         assert!(branches("MATCH (a:Person)-[:knows]->(m:Post:Comment) RETURN m").is_err());
-        // Undirected variable-length alternation is not supported.
+        // The branch unroller cannot handle undirected trails with unresolved endpoint labels.
         assert!(branches("MATCH (a)-[:replyOfPost|replyOfComment*1..2]-(m) RETURN m").is_err());
         // Contradictory: postHasCreator never starts at a Comment.
         assert!(branches(

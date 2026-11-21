@@ -153,6 +153,90 @@ def test_variable_length_mixed_labels_keep_identity_separate(use_csr, minimum):
     assert rows(engine.execute(same_label)) == [(1,), (2,), (3,)]
 
 
+@pytest.mark.parametrize("use_csr", [False, True])
+def test_undirected_bounded_alternation(datasets, use_csr):
+    engine = CypherEngine(config(), datasets, use_csr=use_csr)
+    types = "postHasCreator|commentHasCreator|replyOfComment"
+    path = f"(p:Post {{id: 10}})-[:{types}*1..3]-(q:Comment)"
+    query = f"MATCH {path} RETURN q.id, q.score"
+    # Two trails reach each comment: via the creator and via the other comment.
+    expected = [(20, 7), (20, 7), (21, 9), (21, 9)]
+    assert rows(engine.execute(query)) == expected
+    assert rows(engine.execute(f"MATCH pth = {path} RETURN q.id, q.score")) == expected
+    physical = engine.explain(query).split("physical_plan", 1)[1]
+    assert physical.count("PathMatchExec: endpoints") == 1
+    assert "UnionExec" not in physical
+
+    # The application carries its starting nodes through UNWIND and collects endpoints.
+    carried = (
+        "MATCH (s:Post {id: 10}) WITH collect(s) AS seeds UNWIND seeds AS p "
+        f"OPTIONAL MATCH (p)-[:{types}*1..3]-(q:Comment) "
+        "WITH collect(DISTINCT q) AS endpoints UNWIND endpoints AS c RETURN c.id"
+    )
+    assert rows(engine.execute(carried)) == [(20,), (21,)]
+
+    # Post 11 has one way out. Reusing that edge is not a trail.
+    query = (
+        "MATCH (p:Post {id: 11}) "
+        "OPTIONAL MATCH (p)-[:postHasCreator|commentHasCreator*1..2]-(q:Post) "
+        "RETURN p.id AS p, q.id AS q"
+    )
+    assert engine.execute(query).to_pylist() == [{"p": 11, "q": None}]
+
+
+def test_undirected_alternation_parallel_edges_and_zero_hops():
+    cfg = (
+        GraphConfig.builder()
+        .node_table("N", "id")
+        .rel_table("A", "N", "N", "src", "dst")
+        .rel_table("B", "N", "N", "src", "dst")
+        .build()
+    )
+    tables = {
+        "N": pa.table({"id": [1, 2]}),
+        "A": pa.table({"src": [2, 2], "dst": [1, 1]}),
+        "B": pa.table({"src": [2], "dst": [2]}),
+    }
+    engine = CypherEngine(cfg, tables)
+    query = "MATCH (s:N {id: $seed})-[:A|B*0..2]-(q:N) RETURN q.id"
+    # One zero-hop match, two parallel edges, two returns via different edges,
+    # and one way per arriving edge to traverse the self-loop.
+    assert rows(engine.execute(query, {"seed": 1})) == [(1,)] * 3 + [(2,)] * 4
+    comp = "MATCH (s:N {id: 1}) RETURN [(s)-[:A|B*1..2]-(q:N {id: $t}) | q.id] AS ids"
+    for target, expected in [(2, [2] * 4), (1, [1] * 2)]:
+        assert engine.execute(comp, {"t": target}).to_pylist() == [{"ids": expected}]
+    other = engine.execute(query, {"seed": 2})
+    assert rows(other) == rows(
+        engine.execute(query.replace("MATCH ", "MATCH p = "), {"seed": 2})
+    )
+
+
+@pytest.mark.parametrize(
+    "predicate",
+    [
+        "(s)-[:A|B*1..2]-(:N {id: $target})",
+        "EXISTS { MATCH (s)-[:A|B*1..2]-(:N {id: $target}) }",
+    ],
+)
+def test_undirected_alternation_predicate_rebinds_parameters(predicate):
+    cfg = (
+        GraphConfig.builder()
+        .node_table("N", "id")
+        .rel_table("A", "N", "N", "src", "dst")
+        .rel_table("B", "N", "N", "src", "dst")
+        .build()
+    )
+    tables = {
+        "N": pa.table({"id": [1, 2, 3, 4]}),
+        "A": pa.table({"src": [2], "dst": [1]}),
+        "B": pa.table({"src": [2], "dst": [3]}),
+    }
+    engine = CypherEngine(cfg, tables)
+    query = f"MATCH (s:N {{id: 1}}) WHERE {predicate} RETURN s.id"
+    for target, expected in [(3, [(1,)]), (4, []), (2, [(1,)])]:
+        assert rows(engine.execute(query, {"target": target})) == expected
+
+
 def test_collect_distinct(datasets):
     engine = CypherEngine(config(), datasets)
     got = engine.execute(
