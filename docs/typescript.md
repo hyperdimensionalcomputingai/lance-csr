@@ -208,7 +208,9 @@ method, so your editor shows the details on hover.
 | `engine.execute_batches(query, params, timeout=...)`, a `RecordBatchReader` | `await engine.executeBatches(query, params, { timeoutMs })`, an async iterable `RecordBatchStream` |
 | `engine.explain(query, params, analyze=True)` | `await engine.explain(query, params, { analyze: true })` |
 | `engine.checkout_latest()`, `optimize_csr()`, `delete_stored_csr()` | `await engine.checkoutLatest()`, `optimizeCsr()`, `deleteStoredCsr()` |
+| `engine.optimize_datasets(cleanup_older_than=timedelta(days=1))` | `await engine.optimizeDatasets({ cleanupOlderThanMs: 86_400_000 })` |
 | `engine.csr_stats()`, `node_index_stats()` (keys such as `delta_edges`, `build_ms`) | `engine.csrStats()`, `nodeIndexStats()` (keys such as `deltaEdges`, `buildMs`) |
+| `engine.export_graph(rel_types, directed=False)`, a `GraphExport` of pyarrow arrays | `await engine.exportGraph(relTypes, { directed: false })`, a `GraphExport` of apache-arrow vectors |
 | `engine.dataset_versions()`, `engine.config()` | `engine.datasetVersions()`, `engine.config()` |
 | `engine.execute_with_vector_rerank(query, search)` | `await engine.executeWithVectorRerank(query, search)` |
 | `CypherQuery(text).with_config(config).with_parameter(key, value)` | `new CypherQuery(text).withConfig(config).withParameter(key, value)` |
@@ -228,6 +230,8 @@ method, so your editor shows the details on hover.
 | `ValueError`, `NotImplementedError`, `TimeoutError`, `RuntimeError` | `LanceCsrError` with `code` `InvalidArgument`, `NotImplemented`, `Timeout`, `Runtime` |
 | `lance_csr.__version__` | `version` |
 
+`CypherEngine.write_node_column` is Python only.
+
 Where Python takes a PyArrow table or a `lance.LanceDataset`, TypeScript takes an apache-arrow `Table` or
 `RecordBatch`, or a `LanceDataset` object (`{ uri, version, storageOptions }`). Python's `datetime` parameters
 are TypeScript `Date`s.
@@ -242,3 +246,29 @@ converting `bigint` values, which `JSON.stringify` rejects) or as Arrow IPC byte
 `tableToIPC(result)`, which the browser reads back with `tableFromIPC`. IPC keeps the column types and is
 much smaller for large results. When your Lance datasets change, call `checkoutLatest()` on the shared
 engine; requests already running finish on the snapshot they started with.
+
+### Drawing the whole graph
+
+A query result suits a page that shows some nodes and their neighbours. A view of the whole graph, such as a
+network map of every node, needs every edge at once, and renderers that draw large graphs on the GPU, such as
+cosmos.gl, don't take your node keys. They take the nodes as positions in an array, `0` to `n - 1`, and each link
+as a pair of those positions.
+
+`exportGraph()` builds that form on the server. It reads only the key and endpoint columns, from the same
+dataset versions your queries see, and numbers the nodes `0` to `n - 1`: their *dense ids*. The edges come back as
+compressed sparse rows (CSR): `outIndices` lists every node's neighbours, one node after another, and
+`outIndptr` holds `n + 1` offsets into it, so node `i`'s neighbours run from `outIndptr[i]` up to
+`outIndptr[i + 1]`. One loop turns that into link pairs:
+
+```ts
+--8<-- "nodejs/examples/guide.ts:export"
+```
+
+`nodeKeys` holds each dense id's key, so the browser can match the rows of a query result, such as names or
+other properties to show, to their points. `labelRanges` gives each label's range of dense ids, for example to
+colour points by label. Send `links` as raw bytes, which the browser reads back with `new Uint32Array(buffer)`; for
+millions of edges, that's far smaller than JSON.
+
+`exportGraph(relTypes)` takes the relationship types to include; left out, it includes every type whose dataset
+has integer endpoints. Edges whose endpoint key isn't in its node table are left out and counted in
+`droppedEdges`, and an edge listed twice appears once. Keys and endpoints must be integer columns up to `int64`.

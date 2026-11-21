@@ -103,3 +103,19 @@ const cities = new Table({
 console.log(cities.schema.fields.map((field) => `${field.name}: ${field.type}`));
 // [ 'id: Int64', 'name: Utf8' ]
 // --8<-- [end:explicit-types]
+
+// --8<-- [start:export]
+const g = await engine.exportGraph(["KNOWS"]);
+const indptr = g.outIndptr.toArray();
+const targets = g.outIndices.toArray();
+// One [source, target] pair of dense ids per edge.
+const links = new Uint32Array(targets.length * 2);
+for (let node = 0; node < g.numNodes; node++) {
+  for (let i = Number(indptr[node]); i < Number(indptr[node + 1]); i++) {
+    links[2 * i] = node;
+    links[2 * i + 1] = Number(targets[i]);
+  }
+}
+console.log(g.nodeKeys.toArray(), links);
+// BigInt64Array(3) [ 1n, 2n, 3n ] Uint32Array(4) [ 0, 1, 1, 2 ]
+// --8<-- [end:export]

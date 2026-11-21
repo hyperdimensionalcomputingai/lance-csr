@@ -252,6 +252,41 @@ The graph logical plan, the DataFusion logical plan and the physical plan,
 including pushed-down scans. With `analyze`, the physical plan's row is labelled
 `physical_plan_with_metrics`.
 
+<a id="exportgraph"></a>
+
+##### exportGraph()
+
+```ts
+exportGraph(relTypes?, options?): Promise<GraphExport>;
+```
+
+The whole graph as typed arrays over dense node ids, for drawing it in a browser.
+
+Nodes are numbered `0` to `numNodes - 1` and each edge is a pair of those numbers, the form
+GPU graph renderers take. Reads the key column of each node table and the endpoint columns
+of each relationship table from the engine's pinned snapshot, as queries see it, with or
+without `useCsr`. Lance datasets are scanned for just those columns. See
+[Drawing the whole graph](https://lance-csr.hdclabs.ai/typescript/#drawing-the-whole-graph).
+
+###### Parameters
+
+| Parameter | Type | Description |
+| ------ | ------ | ------ |
+| `relTypes?` | `string`[] | Relationship types to include, case-insensitive. Left out, every type whose dataset has integer endpoint columns. The nodes are those of the labels at either end of the included types. |
+| `options?` | \{ `directed?`: `boolean`; \} | - |
+| `options.directed?` | `boolean` | `true` (the default) returns out-edge and in-edge arrays; `false` returns one set of arrays listing every edge in both directions. |
+
+###### Returns
+
+`Promise`\<[`GraphExport`](#graphexport)\>
+
+###### Throws
+
+[LanceCsrError](#lancecsrerror) `InvalidArgument` if a relationship type or label isn't in
+  the config, has no dataset, or a key or endpoint column is missing or isn't an integer
+  type up to `int64`, or there's nothing to export; `Runtime` if a node key appears twice
+  within a label, or a scan fails.
+
 <a id="nodeindexstats"></a>
 
 ##### nodeIndexStats()
@@ -289,6 +324,45 @@ versions: call `checkoutLatest` first for that. Query results never change. See
 ###### Returns
 
 `Promise`\<`void`\>
+
+<a id="optimizedatasets"></a>
+
+##### optimizeDatasets()
+
+```ts
+optimizeDatasets(options?): Promise<Record<string, DatasetOptimizeStats>>;
+```
+
+Compact the engine's Lance datasets, move it onto them and delete old versions.
+
+Every write to a Lance dataset makes a new version, and appends leave small fragments that
+slow scans down. This runs the maintenance Lance and LanceDB recommend, and keeps the engine
+in step with it. For each Lance dataset the engine reads, it opens the newest version
+(including writes made through other handles, such as a LanceDB table), compacts small
+fragments into larger ones, moves the engine to the new versions as `checkoutLatest` does,
+then deletes versions older than `cleanupOlderThanMs`, except the latest and tagged ones.
+The engine moves before the cleanup, so it never reads a deleted version. Lance indexes
+aren't updated with new rows. See
+[Compaction and old versions](https://lance-csr.hdclabs.ai/lance/#compaction-and-old-versions).
+
+###### Parameters
+
+| Parameter | Type | Description |
+| ------ | ------ | ------ |
+| `options?` | \{ `cleanupOlderThanMs?`: `number`; \} | - |
+| `options.cleanupOlderThanMs?` | `number` | Delete versions older than this many milliseconds (default 7 days, as in LanceDB's `optimize()`). Other readers pinned to an older version, including queries already running on this engine, fail once their version is deleted, so use a short window only when nothing else reads the datasets. |
+
+###### Returns
+
+`Promise`\<`Record`\<`string`, [`DatasetOptimizeStats`](#datasetoptimizestats)\>\>
+
+Per Lance dataset, what compaction and cleanup did. Arrow inputs aren't listed.
+
+###### Throws
+
+[LanceCsrError](#lancecsrerror) `InvalidArgument` if `cleanupOlderThanMs` is negative;
+  `Runtime` if a dataset can't be opened, compacted or cleaned up. Datasets compacted before
+  the failure stay compacted.
 
 <a id="create"></a>
 
@@ -1494,6 +1568,23 @@ Options for [CypherEngine.create](#create).
 
 ***
 
+<a id="datasetoptimizestats"></a>
+
+### DatasetOptimizeStats
+
+What `CypherEngine.optimizeDatasets()` did to one Lance dataset.
+
+#### Properties
+
+| Property | Type | Description |
+| ------ | ------ | ------ |
+| <a id="property-bytesremoved"></a> `bytesRemoved` | `number` | Bytes of files cleanup deleted. |
+| <a id="property-fragmentsadded"></a> `fragmentsAdded` | `number` | Fragments compaction wrote in their place. |
+| <a id="property-fragmentsremoved"></a> `fragmentsRemoved` | `number` | Small fragments compaction rewrote. |
+| <a id="property-oldversions"></a> `oldVersions` | `number` | Old versions cleanup deleted. |
+
+***
+
 <a id="executeoptions"></a>
 
 ### ExecuteOptions
@@ -1519,6 +1610,33 @@ Options for explaining a query.
 | Property | Type | Description |
 | ------ | ------ | ------ |
 | <a id="property-analyze"></a> `analyze?` | `boolean` | Run the query, like SQL's `EXPLAIN ANALYZE`, and show each physical operator's metrics (output rows, elapsed compute time and more) in place of the plain physical plan. The query runs to completion; its rows are discarded. |
+
+***
+
+<a id="graphexport"></a>
+
+### GraphExport
+
+A graph as compressed sparse rows over dense node ids, from `CypherEngine.exportGraph()`.
+
+Nodes are numbered `0` to `numNodes - 1`, and the neighbours of node `i` are
+`outIndices[outIndptr[i]]` up to `outIndices[outIndptr[i + 1]]`. `nodeKeys` maps each dense
+id back to its node's key. The vectors wrap typed arrays built in Rust. See
+[Drawing the whole graph](https://lance-csr.hdclabs.ai/typescript/#drawing-the-whole-graph).
+
+#### Properties
+
+| Property | Type | Description |
+| ------ | ------ | ------ |
+| <a id="property-directed"></a> `directed` | `boolean` | Whether the arrays describe a directed graph. |
+| <a id="property-droppededges"></a> `droppedEdges` | `number` | Edges left out because an endpoint key isn't in its node table. Edges with a null endpoint are skipped and not counted. |
+| <a id="property-inindices"></a> `inIndices` | `Vector`\<`Uint64`\> \| `null` | Each node's in-neighbours, sorted, without duplicates; `null` for an undirected graph. |
+| <a id="property-inindptr"></a> `inIndptr` | `Vector`\<`Uint64`\> \| `null` | Offsets into `inIndices`; `null` for an undirected graph. |
+| <a id="property-labelranges"></a> `labelRanges` | `Record`\<`string`, \[`number`, `number`\]\> | Each node label's dense ids, as `[start, end]` with `end` excluded. Labels get consecutive ranges in name order, so equal keys in two labels stay distinct. |
+| <a id="property-nodekeys"></a> `nodeKeys` | `Vector`\<`Int64`\> | The key of each dense id. Each label's nodes are in the order its table is scanned; rows with a null key are left out. |
+| <a id="property-numnodes"></a> `numNodes` | `number` | Number of nodes. Dense ids run from 0 to `numNodes - 1`. |
+| <a id="property-outindices"></a> `outIndices` | `Vector`\<`Uint64`\> | Each node's out-neighbours, sorted, without duplicates. An undirected graph lists every edge in both directions and a self-loop once. |
+| <a id="property-outindptr"></a> `outIndptr` | `Vector`\<`Uint64`\> | Offsets into `outIndices`, `numNodes + 1` entries. |
 
 ***
 

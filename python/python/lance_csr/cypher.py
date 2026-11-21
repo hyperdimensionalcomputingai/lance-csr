@@ -9,13 +9,23 @@ from ._internal import graph as _graph
 from ._types import inner
 from .config import GraphConfig
 from .dialect import SqlDialect
+from .export import GraphExport
 from .namespace import DirNamespace
 from .vector import VectorSearch
 
 if TYPE_CHECKING:
+    from datetime import timedelta
+
     from pyarrow import RecordBatchReader, Table
 
-    from ._types import CsrStats, Dataset, NodeIndexStats, Parameter, Scalar
+    from ._types import (
+        CsrStats,
+        Dataset,
+        DatasetOptimizeStats,
+        NodeIndexStats,
+        Parameter,
+        Scalar,
+    )
 
 
 class ExecutionStrategy(IntEnum):
@@ -367,6 +377,169 @@ class CypherEngine:
             - `build_ms`: wall time of that build or delta, both directions.
         """
         return self._inner.csr_stats()
+
+    def optimize_datasets(
+        self, *, cleanup_older_than: timedelta | None = None
+    ) -> dict[str, DatasetOptimizeStats]:
+        """Compact the engine's Lance datasets, move onto them, delete old versions.
+
+        Every write to a Lance dataset makes a new version, and appends leave small
+        fragments that slow scans down. This runs the maintenance Lance and LanceDB
+        recommend, and keeps the engine in step with it. For each Lance dataset the
+        engine reads, it:
+
+        1. opens the newest version, including writes made through other handles,
+           such as a LanceDB table;
+        2. compacts it, rewriting small fragments into larger ones;
+        3. moves the engine to the new versions, as
+           [`checkout_latest`][lance_csr.CypherEngine.checkout_latest] does;
+        4. deletes versions older than `cleanup_older_than`, except the latest and
+           tagged ones.
+
+        The engine moves before the cleanup, so it never reads a deleted version. See
+        [Compaction and old versions](lance.md#compaction-and-old-versions).
+
+        Parameters
+        ----------
+        cleanup_older_than : datetime.timedelta or None
+            Keyword-only. Delete versions older than this; `None` means 7 days, as in
+            LanceDB's `optimize()`. Other readers pinned to an older version, including
+            queries already running on this engine, fail once their version is
+            deleted, so use a short window only when nothing else reads the datasets.
+
+        Returns
+        -------
+        dict[str, DatasetOptimizeStats]
+            Per Lance dataset: `fragments_removed` and `fragments_added` by compaction,
+            `old_versions` and `bytes_removed` by cleanup. PyArrow inputs aren't listed.
+
+        Raises
+        ------
+        TypeError
+            If `cleanup_older_than` isn't a `timedelta`.
+        ValueError
+            If `cleanup_older_than` is negative.
+        RuntimeError
+            If a dataset can't be opened, compacted or cleaned up. Datasets compacted
+            before the failure stay compacted.
+
+        Notes
+        -----
+        Lance indexes, such as vector indexes, aren't updated with new rows. LanceDB
+        users who keep them still run `table.optimize()` for that, followed by
+        `checkout_latest()`.
+        """
+        return self._inner.optimize_datasets(cleanup_older_than=cleanup_older_than)
+
+    def export_graph(
+        self, rel_types: list[str] | None = None, *, directed: bool = True
+    ) -> GraphExport:
+        """The graph as dense CSR arrays, for graph-algorithm libraries.
+
+        Reads the key column of each node table and the endpoint columns of each
+        relationship table from the engine's pinned snapshot, as queries see it, with
+        or without `use_csr`. Lance datasets are scanned for just those columns. See
+        [Graph algorithms](graph-algorithms.md).
+
+        Parameters
+        ----------
+        rel_types : list[str] or None
+            Relationship types to include, case-insensitive. `None` includes every
+            type whose dataset has integer endpoint columns. The nodes are those of
+            the labels at either end of the included types.
+        directed : bool
+            Keyword-only. `True` returns out-edge and in-edge arrays; `False` returns
+            one set of arrays listing every edge in both directions.
+
+        Returns
+        -------
+        GraphExport
+            Dense node ids, their keys and the CSR arrays.
+
+        Raises
+        ------
+        ValueError
+            If a relationship type or label isn't in the config, has no dataset, or a
+            key or endpoint column is missing or isn't an integer type up to `int64`
+            (`uint64` isn't supported), or there's nothing to export.
+        RuntimeError
+            If a node key appears twice within a label, or a scan fails.
+
+        Examples
+        --------
+        >>> import pyarrow as pa
+        >>> from lance_csr import CypherEngine, GraphConfig
+        >>> config = (
+        ...     GraphConfig.builder()
+        ...     .node_table("Person", "id")
+        ...     .rel_table("KNOWS", "Person", "Person", "src_id", "dst_id")
+        ...     .build()
+        ... )
+        >>> engine = CypherEngine(config, {
+        ...     "Person": pa.table({"id": [10, 20, 30]}),
+        ...     "KNOWS": pa.table({"src_id": [10, 20], "dst_id": [20, 30]}),
+        ... })
+        >>> g = engine.export_graph()
+        >>> g.out_indptr.to_pylist(), g.out_indices.to_pylist()
+        ([0, 1, 2, 2], [1, 2])
+        """
+        return GraphExport._from_inner(
+            self._inner.export_graph(rel_types, directed=directed)
+        )
+
+    def write_node_column(
+        self,
+        export: GraphExport,
+        column: str,
+        values: Any,
+        *,
+        overwrite: bool = False,
+    ) -> None:
+        """Add one value per node of an export, such as an algorithm's scores, as a
+        column of the node tables.
+
+        `values[i]` belongs to dense id `i` of `export`. For each label in
+        `export.label_ranges`, the label's slice of `values` is paired with its keys
+        and merged into its Lance dataset on the key column, which writes only the new
+        column's data files as a new dataset version. Node rows the export left out
+        (null keys) get nulls. The engine then moves to the new versions of those
+        datasets, so queries see the column at once; other datasets stay pinned where
+        they were. See [Graph algorithms](graph-algorithms.md).
+
+        Parameters
+        ----------
+        export : GraphExport
+            The export the values were computed on, from
+            [`export_graph`][lance_csr.CypherEngine.export_graph].
+        column : str
+            The column to add to each node table.
+        values : pyarrow.Array, pyarrow.ChunkedArray, numpy array or list
+            `export.num_nodes` values, in dense-id order. Anything `pyarrow.array`
+            takes is converted with it.
+        overwrite : bool
+            Keyword-only. Replace `column` where it already exists, by dropping it
+            first. A dropped column's files stay on disk until Lance's
+            `cleanup_old_versions` removes old versions.
+
+        Raises
+        ------
+        ValueError
+            If `values` doesn't have one entry per node, a label's data is a PyArrow
+            table rather than a Lance dataset, `column` is a key column, or it exists
+            and `overwrite` is `False`.
+        RuntimeError
+            If a write fails. Labels are written one after another, so a failure can
+            leave earlier labels written.
+        """
+        import pyarrow as pa
+
+        if isinstance(values, pa.ChunkedArray):
+            values = values.combine_chunks()
+        elif not isinstance(values, pa.Array):
+            values = pa.array(values)
+        self._inner.write_node_column(
+            export._inner, column, values, overwrite=overwrite
+        )
 
     def dataset_versions(self) -> dict[str, int]:
         """The pinned version of each Lance dataset, keyed by dataset name.

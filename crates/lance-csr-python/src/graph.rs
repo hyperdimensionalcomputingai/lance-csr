@@ -1005,6 +1005,91 @@ fn reader_with_deadline(
     })
 }
 
+/// The CSR arrays from `CypherEngine::export_graph`. Each array getter hands pyarrow
+/// the Rust buffers through the Arrow C Data Interface, without copying.
+#[pyclass(name = "GraphExport", module = "lance_csr.graph", frozen)]
+pub struct GraphExport {
+    inner: lance_csr::GraphExport,
+}
+
+fn to_pyarrow_array<'py>(
+    py: Python<'py>,
+    array: &dyn arrow::array::Array,
+) -> PyResult<Bound<'py, PyAny>> {
+    use arrow::pyarrow::ToPyArrow;
+    array.to_data().to_pyarrow(py)
+}
+
+#[pymethods]
+impl GraphExport {
+    #[getter]
+    fn num_nodes(&self) -> u64 {
+        self.inner.num_nodes
+    }
+
+    #[getter]
+    fn directed(&self) -> bool {
+        self.inner.directed
+    }
+
+    #[getter]
+    fn node_keys<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        to_pyarrow_array(py, &self.inner.node_keys)
+    }
+
+    /// In id order, which a `dict` keeps.
+    #[getter]
+    fn label_ranges<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let ranges = PyDict::new(py);
+        for (label, start, end) in &self.inner.label_ranges {
+            ranges.set_item(label, (start, end))?;
+        }
+        Ok(ranges)
+    }
+
+    #[getter]
+    fn out_indptr<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        to_pyarrow_array(py, &self.inner.out_indptr)
+    }
+
+    #[getter]
+    fn out_indices<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        to_pyarrow_array(py, &self.inner.out_indices)
+    }
+
+    #[getter]
+    fn in_indptr<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
+        self.inner
+            .in_indptr
+            .as_ref()
+            .map(|a| to_pyarrow_array(py, a))
+            .transpose()
+    }
+
+    #[getter]
+    fn in_indices<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
+        self.inner
+            .in_indices
+            .as_ref()
+            .map(|a| to_pyarrow_array(py, a))
+            .transpose()
+    }
+
+    #[getter]
+    fn dropped_edges(&self) -> u64 {
+        self.inner.dropped_edges
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "GraphExport(num_nodes={}, edges={}, directed={})",
+            self.inner.num_nodes,
+            self.inner.out_indices.len(),
+            if self.inner.directed { "True" } else { "False" }
+        )
+    }
+}
+
 #[pyclass(name = "CypherEngine", module = "lance_csr.graph")]
 pub struct CypherEngine {
     inner: Arc<RustCypherEngine>,
@@ -1166,6 +1251,77 @@ impl CypherEngine {
             stats.set_item(rel_type, item)?;
         }
         Ok(stats.into_any().unbind())
+    }
+
+    #[pyo3(signature = (*, cleanup_older_than=None))]
+    fn optimize_datasets(
+        &self,
+        py: Python,
+        cleanup_older_than: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Py<PyAny>> {
+        let older_than = match cleanup_older_than {
+            None => std::time::Duration::from_secs(7 * 24 * 3600),
+            Some(value) => {
+                let timedelta = py.import("datetime")?.getattr("timedelta")?;
+                if !value.is_instance(&timedelta)? {
+                    return Err(PyTypeError::new_err(
+                        "cleanup_older_than must be a datetime.timedelta",
+                    ));
+                }
+                let seconds: f64 = value.call_method0("total_seconds")?.extract()?;
+                std::time::Duration::try_from_secs_f64(seconds).map_err(|_| {
+                    PyValueError::new_err("cleanup_older_than must not be negative")
+                })?
+            }
+        };
+        let result = RT
+            .block_on(Some(py), self.inner.optimize_datasets(older_than))?
+            .map_err(graph_error_to_pyerr)?;
+        let stats = PyDict::new(py);
+        for (name, entry) in result {
+            let item = PyDict::new(py);
+            item.set_item("fragments_removed", entry.fragments_removed)?;
+            item.set_item("fragments_added", entry.fragments_added)?;
+            item.set_item("old_versions", entry.old_versions)?;
+            item.set_item("bytes_removed", entry.bytes_removed)?;
+            stats.set_item(name, item)?;
+        }
+        Ok(stats.into_any().unbind())
+    }
+
+    #[pyo3(signature = (rel_types=None, *, directed=true))]
+    fn export_graph(
+        &self,
+        py: Python,
+        rel_types: Option<Vec<String>>,
+        directed: bool,
+    ) -> PyResult<GraphExport> {
+        let inner = RT
+            .block_on(
+                Some(py),
+                self.inner.export_graph(rel_types.as_deref(), directed),
+            )?
+            .map_err(graph_error_to_pyerr)?;
+        Ok(GraphExport { inner })
+    }
+
+    #[pyo3(signature = (export, column, values, *, overwrite=false))]
+    fn write_node_column(
+        &self,
+        py: Python,
+        export: &GraphExport,
+        column: &str,
+        values: &Bound<'_, PyAny>,
+        overwrite: bool,
+    ) -> PyResult<()> {
+        use arrow::pyarrow::FromPyArrow;
+        let values = arrow::array::make_array(arrow::array::ArrayData::from_pyarrow_bound(values)?);
+        RT.block_on(
+            Some(py),
+            self.inner
+                .write_node_column(&export.inner, column, &values, overwrite),
+        )?
+        .map_err(graph_error_to_pyerr)
     }
 
     fn dataset_versions(&self) -> HashMap<String, u64> {
@@ -1353,6 +1509,7 @@ pub fn register_graph_module(py: Python, parent_module: &Bound<'_, PyModule>) ->
     graph_module.add_class::<GraphConfigBuilder>()?;
     graph_module.add_class::<CypherQuery>()?;
     graph_module.add_class::<CypherEngine>()?;
+    graph_module.add_class::<GraphExport>()?;
     graph_module.add_class::<SqlQuery>()?;
     graph_module.add_class::<SqlEngine>()?;
     graph_module.add_class::<VectorSearch>()?;

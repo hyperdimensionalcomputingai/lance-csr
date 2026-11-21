@@ -17,6 +17,7 @@ arrow = { version = "58.0.0", features = ["prettyprint", "ipc_compression"] }
 arrow-array = "58.0.0"
 arrow-schema = "58.0.0"
 async-trait = "0.1"
+chrono = { version = "0.4", default-features = false }
 datafusion = { version = "54.0.0", default-features = false, features = [
     "nested_expressions",
     "math_expressions",
@@ -38,6 +39,7 @@ lance-linalg = "14.0.3"
 lance-namespace = "14.0.3"
 lance-table = "14.0.3"
 log = "0.4"
+rayon = "1.12"
 nom = "7.1"
 object_store = "0.14.2"
 serde = { version = "1", features = ["derive"] }

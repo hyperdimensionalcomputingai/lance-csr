@@ -4,7 +4,7 @@
  * @module
  */
 
-import { type RecordBatch, type Schema, type Table, tableFromIPC } from "apache-arrow";
+import { type RecordBatch, type Schema, type Table, makeVector, tableFromIPC } from "apache-arrow";
 import * as native from "../native.js";
 import { GraphConfig } from "./config.ts";
 import type { SqlDialect } from "./sql.ts";
@@ -12,6 +12,8 @@ import { DirNamespace } from "./namespace.ts";
 import {
   type CsrStats,
   type Dataset,
+  type DatasetOptimizeStats,
+  type GraphExport,
   type NodeIndexStats,
   type Parameter,
   type Scalar,
@@ -309,6 +311,34 @@ export class CypherEngine {
   }
 
   /**
+   * Compact the engine's Lance datasets, move it onto them and delete old versions.
+   *
+   * Every write to a Lance dataset makes a new version, and appends leave small fragments that
+   * slow scans down. This runs the maintenance Lance and LanceDB recommend, and keeps the engine
+   * in step with it. For each Lance dataset the engine reads, it opens the newest version
+   * (including writes made through other handles, such as a LanceDB table), compacts small
+   * fragments into larger ones, moves the engine to the new versions as `checkoutLatest` does,
+   * then deletes versions older than `cleanupOlderThanMs`, except the latest and tagged ones.
+   * The engine moves before the cleanup, so it never reads a deleted version. Lance indexes
+   * aren't updated with new rows. See
+   * [Compaction and old versions](https://lance-csr.hdclabs.ai/lance/#compaction-and-old-versions).
+   *
+   * @param options.cleanupOlderThanMs - Delete versions older than this many milliseconds
+   *   (default 7 days, as in LanceDB's `optimize()`). Other readers pinned to an older version,
+   *   including queries already running on this engine, fail once their version is deleted, so
+   *   use a short window only when nothing else reads the datasets.
+   * @returns Per Lance dataset, what compaction and cleanup did. Arrow inputs aren't listed.
+   * @throws {@link LanceCsrError} `InvalidArgument` if `cleanupOlderThanMs` is negative;
+   *   `Runtime` if a dataset can't be opened, compacted or cleaned up. Datasets compacted before
+   *   the failure stay compacted.
+   */
+  async optimizeDatasets(
+    options: { cleanupOlderThanMs?: number } = {},
+  ): Promise<Record<string, DatasetOptimizeStats>> {
+    return await call(() => this.#inner.optimizeDatasets(options.cleanupOlderThanMs));
+  }
+
+  /**
    * Rebuild each CSR that carries a delta (experimental; needs `useCsr`).
    *
    * `checkoutLatest` applies Lance writes as a delta over the base CSR, and rebuilds on
@@ -353,6 +383,45 @@ export class CypherEngine {
    */
   csrStats(): Record<string, CsrStats> {
     return callSync(() => this.#inner.csrStats()) as Record<string, CsrStats>;
+  }
+
+  /**
+   * The whole graph as typed arrays over dense node ids, for drawing it in a browser.
+   *
+   * Nodes are numbered `0` to `numNodes - 1` and each edge is a pair of those numbers, the form
+   * GPU graph renderers take. Reads the key column of each node table and the endpoint columns
+   * of each relationship table from the engine's pinned snapshot, as queries see it, with or
+   * without `useCsr`. Lance datasets are scanned for just those columns. See
+   * [Drawing the whole graph](https://lance-csr.hdclabs.ai/typescript/#drawing-the-whole-graph).
+   *
+   * @param relTypes - Relationship types to include, case-insensitive. Left out, every type
+   *   whose dataset has integer endpoint columns. The nodes are those of the labels at either
+   *   end of the included types.
+   * @param options.directed - `true` (the default) returns out-edge and in-edge arrays; `false`
+   *   returns one set of arrays listing every edge in both directions.
+   * @throws {@link LanceCsrError} `InvalidArgument` if a relationship type or label isn't in
+   *   the config, has no dataset, or a key or endpoint column is missing or isn't an integer
+   *   type up to `int64`, or there's nothing to export; `Runtime` if a node key appears twice
+   *   within a label, or a scan fails.
+   */
+  async exportGraph(
+    relTypes?: string[],
+    options: { directed?: boolean } = {},
+  ): Promise<GraphExport> {
+    const g = await call(() => this.#inner.exportGraph(relTypes, options.directed ?? true));
+    return {
+      numNodes: g.numNodes,
+      directed: g.directed,
+      nodeKeys: makeVector(g.nodeKeys),
+      labelRanges: Object.fromEntries(
+        Object.entries(g.labelRanges).map(([label, [start, end]]) => [label, [start!, end!]]),
+      ),
+      outIndptr: makeVector(g.outIndptr),
+      outIndices: makeVector(g.outIndices),
+      inIndptr: g.inIndptr ? makeVector(g.inIndptr) : null,
+      inIndices: g.inIndices ? makeVector(g.inIndices) : null,
+      droppedEdges: g.droppedEdges,
+    };
   }
 
   /** The pinned version of each Lance dataset, keyed by dataset name. Arrow inputs aren't listed. */

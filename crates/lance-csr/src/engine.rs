@@ -165,8 +165,58 @@ impl EngineSource {
         })
     }
 
+    /// The source's Arrow schema.
+    pub(crate) fn schema(&self) -> SchemaRef {
+        match self {
+            Self::Lance { dataset, .. } => Arc::new(dataset.schema().into()),
+            Self::Arrow(batch) => batch.schema(),
+        }
+    }
+
+    /// Batches holding only `columns` (matched case-insensitively), in that order.
+    /// Lance is a projected scan; Arrow is the one batch, projected.
+    pub(crate) async fn scan_columns(
+        &self,
+        columns: &[&str],
+    ) -> Result<futures::stream::BoxStream<'static, Result<RecordBatch>>> {
+        let schema = self.schema();
+        let names = columns
+            .iter()
+            .map(|c| {
+                schema
+                    .fields()
+                    .iter()
+                    .find(|f| f.name().eq_ignore_ascii_case(c))
+                    .map(|f| f.name().clone())
+                    .ok_or_else(|| config_error(format!("Column '{c}' not found")))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let project = move |batch: RecordBatch| -> Result<RecordBatch> {
+            let indices = names
+                .iter()
+                .map(|n| batch.schema().index_of(n))
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .and_then(|i| batch.project(&i))
+                .map_err(|e| exec_error(format!("Failed to project columns: {e}")))?;
+            Ok(indices)
+        };
+        Ok(match self {
+            Self::Lance { dataset, .. } => {
+                let scan_error = |e: lance::Error| exec_error(format!("Failed to scan: {}", e));
+                let mut scanner = dataset.scan();
+                let fields: Vec<&str> = columns.to_vec();
+                scanner.project(&fields).map_err(scan_error)?;
+                let stream = scanner.try_into_stream().await.map_err(scan_error)?;
+                stream
+                    .map(move |b| b.map_err(scan_error).and_then(&project))
+                    .boxed()
+            }
+            Self::Arrow(batch) => futures::stream::iter([project(batch.clone())]).boxed(),
+        })
+    }
+
     /// Row count: free for Arrow input, from Lance metadata otherwise.
-    async fn num_rows(&self, name: &str) -> Result<usize> {
+    pub(crate) async fn num_rows(&self, name: &str) -> Result<usize> {
         Ok(match self {
             Self::Arrow(batch) => batch.num_rows(),
             Self::Lance { dataset, .. } => dataset
@@ -199,6 +249,19 @@ pub struct CsrStats {
     pub base_version: Option<u64>,
     /// Wall time of that build or delta, both directions.
     pub build_ms: f64,
+}
+
+/// What [`CypherEngine::optimize_datasets`] did to one Lance dataset.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct DatasetOptimizeStats {
+    /// Small fragments compaction rewrote.
+    pub fragments_removed: u64,
+    /// Fragments compaction wrote in their place.
+    pub fragments_added: u64,
+    /// Old versions cleanup deleted.
+    pub old_versions: u64,
+    /// Bytes of files cleanup deleted.
+    pub bytes_removed: u64,
 }
 
 /// Node id -> row index statistics for one node label; see [`CypherEngine::node_index_stats`].
@@ -1486,6 +1549,145 @@ impl CypherEngine {
                 (label.clone(), stats)
             })
             .collect()
+    }
+
+    /// The graph as dense CSR arrays, for graph-algorithm libraries (icebug, igraph,
+    /// scipy). Reads the engine's pinned snapshot, with or without `use_csr`.
+    ///
+    /// `rel_types` `None` exports every relationship type whose dataset has integer
+    /// endpoints. See [`crate::graph_export`] for how ids and rows are laid out.
+    ///
+    /// Sorting the edges is CPU-bound and runs on rayon's pool; as with the CSR
+    /// build, call it from a blocking thread in an application with its own runtime.
+    ///
+    /// # Errors
+    /// [`GraphError::ConfigError`] for an unknown relationship type or label, a missing
+    /// or non-integer key or endpoint column, or nothing to export;
+    /// [`GraphError::ExecutionError`] for a repeated node key or a failed scan.
+    pub async fn export_graph(
+        &self,
+        rel_types: Option<&[String]>,
+        directed: bool,
+    ) -> Result<crate::graph_export::GraphExport> {
+        let snapshot = self.snapshot();
+        crate::graph_export::export_graph(&self.config, &snapshot.sources, rel_types, directed)
+            .await
+    }
+
+    /// Add `column` to the node tables of `export`, from `values` indexed by dense id, and pin the
+    /// engine to the new versions of those datasets.
+    ///
+    /// `values` has one entry per node of `export`, such as the scores a graph algorithm returns.
+    /// Each label's values are merged into its Lance dataset on the key column, so nodes the
+    /// export left out (null keys) get nulls. Other datasets stay at the versions the engine is
+    /// pinned to.
+    ///
+    /// # Errors
+    /// [`GraphError::ConfigError`] if `values` has the wrong length, a label is in-memory Arrow
+    /// data, `column` is a key column, or it exists and `overwrite` is false;
+    /// [`GraphError::ExecutionError`] if a write fails. Labels are written one after another, so
+    /// a failed write leaves earlier labels written.
+    pub async fn write_node_column(
+        &self,
+        export: &crate::graph_export::GraphExport,
+        column: &str,
+        values: &arrow::array::ArrayRef,
+        overwrite: bool,
+    ) -> Result<()> {
+        let _updating = self.update_lock.lock().await;
+        let current = self.snapshot();
+        let updated = crate::graph_export::write_node_column(
+            &self.config,
+            &current.sources,
+            export,
+            column,
+            values,
+            overwrite,
+        )
+        .await?;
+        let mut sources = current.sources.clone();
+        sources.extend(updated);
+        let state =
+            build_engine_state(&self.config, sources, &self.options, Some(&current), false).await?;
+        *self.state.write().unwrap_or_else(PoisonError::into_inner) = Arc::new(state);
+        Ok(())
+    }
+
+    /// Compact each Lance dataset, move the engine onto the result and delete old versions.
+    ///
+    /// For every Lance dataset the engine reads, in this order:
+    ///
+    /// 1. open its newest version, so writes made through other handles are included;
+    /// 2. compact it with Lance's `compact_files`, which rewrites small fragments into larger ones;
+    /// 3. move the engine to the new versions, as [`checkout_latest`](Self::checkout_latest) does;
+    /// 4. delete versions older than `cleanup_older_than`, except the latest and tagged ones.
+    ///
+    /// Moving the engine before the cleanup means it never reads a version the cleanup deleted.
+    /// Other readers pinned to an older version, including queries already running on this
+    /// engine, fail if their version is deleted, so a short `cleanup_older_than` is only safe when
+    /// nothing else reads the datasets. Lance indexes aren't updated. Arrow inputs are skipped.
+    ///
+    /// # Errors
+    /// [`GraphError::ExecutionError`] if a dataset can't be opened, compacted or cleaned up, or
+    /// [`checkout_latest`](Self::checkout_latest)'s errors. A dataset compacted before a later one
+    /// fails stays compacted.
+    pub async fn optimize_datasets(
+        &self,
+        cleanup_older_than: std::time::Duration,
+    ) -> Result<HashMap<String, DatasetOptimizeStats>> {
+        let older_than = chrono::Duration::from_std(cleanup_older_than)
+            .map_err(|e| exec_error(format!("cleanup_older_than is too large: {e}")))?;
+        let _updating = self.update_lock.lock().await;
+        let current = self.snapshot();
+        let mut sources = current.sources.clone();
+        let mut stats = HashMap::new();
+        for (name, source) in sources.iter_mut() {
+            let EngineSource::Lance {
+                uri,
+                storage_options,
+                dataset,
+            } = source
+            else {
+                continue;
+            };
+            let mut latest = open_lance_dataset(uri, None, storage_options).await?;
+            let metrics = lance::dataset::optimize::compact_files(
+                &mut latest,
+                lance::dataset::optimize::CompactionOptions::default(),
+                None,
+            )
+            .await
+            .map_err(|e| exec_error(format!("Compacting '{name}': {e}")))?;
+            stats.insert(
+                name.clone(),
+                DatasetOptimizeStats {
+                    fragments_removed: metrics.fragments_removed as u64,
+                    fragments_added: metrics.fragments_added as u64,
+                    ..Default::default()
+                },
+            );
+            if !same_lance_snapshot(&latest, dataset) {
+                *dataset = Arc::new(latest);
+            }
+        }
+        let state =
+            build_engine_state(&self.config, sources, &self.options, Some(&current), false).await?;
+        let state = Arc::new(state);
+        *self.state.write().unwrap_or_else(PoisonError::into_inner) = state.clone();
+
+        for (name, source) in &state.sources {
+            let EngineSource::Lance { dataset, .. } = source else {
+                continue;
+            };
+            let removed = dataset
+                .cleanup_old_versions(older_than, None, Some(false))
+                .await
+                .map_err(|e| exec_error(format!("Cleaning up '{name}': {e}")))?;
+            let entry = stats.entry(name.clone()).or_default();
+            entry.old_versions = removed.old_versions;
+            entry.bytes_removed = removed.bytes_removed;
+        }
+        Ok(stats)
     }
 
     /// Pinned version of each Lance dataset, keyed by dataset name.

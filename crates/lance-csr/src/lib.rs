@@ -56,6 +56,7 @@ pub mod datafusion_planner;
 pub mod engine;
 pub mod error;
 mod exec_metrics;
+pub mod graph_export;
 pub mod graph_table;
 pub mod key_statistics;
 pub mod lance_vector_search;
@@ -81,8 +82,9 @@ pub const MAX_VARIABLE_LENGTH_HOPS: u32 = 20;
 
 pub use config::{GraphConfig, NodeMapping, RelationshipMapping};
 pub use csr_index::{CsrIndex, CsrIndexBuilder};
-pub use engine::{open_lance_dataset, CypherEngine, EngineSource, SqlEngine};
+pub use engine::{open_lance_dataset, CypherEngine, DatasetOptimizeStats, EngineSource, SqlEngine};
 pub use error::{GraphError, Result};
+pub use graph_export::GraphExport;
 pub use lance_vector_search::VectorSearch;
 pub use mapping::{EdgeTableMapping, GraphMapping, GraphSnapshot, NodeTableMapping, PinnedTable};
 pub use namespace::DirNamespace;

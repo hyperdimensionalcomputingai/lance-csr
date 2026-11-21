@@ -15,9 +15,12 @@ export declare class CypherEngine {
   explain(query: string, paramsJson: string | undefined | null, analyze: boolean): Promise<string>
   checkoutLatest(): Promise<void>
   optimizeCsr(): Promise<void>
+  /** `cleanup_older_than_ms` defaults to 7 days. */
+  optimizeDatasets(cleanupOlderThanMs?: number | undefined | null): Promise<Record<string, DatasetOptimizeStats>>
   deleteStoredCsr(): Promise<number>
   nodeIndexStats(): Record<string, NodeIndexStats>
   csrStats(): Record<string, CsrStats>
+  exportGraph(relTypes: Array<string> | undefined | null, directed: boolean): Promise<GraphExport>
   datasetVersions(): Record<string, number>
   executeWithVectorRerank(query: string, search: VectorSearchSpec): Promise<Buffer>
 }
@@ -80,6 +83,13 @@ export interface DatasetInput {
   storageOptions?: Record<string, string>
 }
 
+export interface DatasetOptimizeStats {
+  fragmentsRemoved: number
+  fragmentsAdded: number
+  oldVersions: number
+  bytesRemoved: number
+}
+
 export declare enum DistanceMetric {
   L2 = 0,
   Cosine = 1,
@@ -100,6 +110,19 @@ export interface GraphConfigInfo {
 export interface GraphConfigSpec {
   nodes: Array<NodeTableSpec>
   relationships: Array<RelTableSpec>
+}
+
+export interface GraphExport {
+  numNodes: number
+  directed: boolean
+  nodeKeys: BigInt64Array
+  /** Label -> `[start, end]` dense id range. */
+  labelRanges: Record<string, Array<number>>
+  outIndptr: BigUint64Array
+  outIndices: BigUint64Array
+  inIndptr?: BigUint64Array
+  inIndices?: BigUint64Array
+  droppedEdges: number
 }
 
 export interface NodeIndexStats {
