@@ -41,10 +41,10 @@ pub(crate) struct EdgeSource {
     pub schema: Arc<Schema>,
 }
 
-pub(crate) fn property_fields(schemas: impl Iterator<Item = Arc<Schema>>) -> Result<Fields> {
+pub(crate) fn property_fields<'a>(schemas: impl IntoIterator<Item = &'a Fields>) -> Result<Fields> {
     let mut fields = BTreeMap::<String, DataType>::new();
     for schema in schemas {
-        for field in schema.fields() {
+        for field in schema {
             let name = field.name().to_lowercase();
             if fields.get(&name).is_some_and(|t| t != field.data_type()) {
                 return plan_err!(
@@ -146,8 +146,8 @@ impl Inventory {
             }
             batches.push(sources[&key].clone());
         }
-        let node_fields = property_fields(node_sources.iter().map(|s| s.schema.clone()))?;
-        let edge_fields = property_fields(edge_sources.iter().map(|s| s.schema.clone()))?;
+        let node_fields = property_fields(node_sources.iter().map(|s| s.schema.fields()))?;
+        let edge_fields = property_fields(edge_sources.iter().map(|s| s.schema.fields()))?;
         let node_type = entity_type(node_fields.clone(), "node", None);
         let edge_type = entity_type(edge_fields.clone(), "relationship", Some(&node_type));
         let mut by_key = HashMap::new();

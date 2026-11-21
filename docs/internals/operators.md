@@ -282,7 +282,9 @@ parallel edges must stay distinct even through `collect()` and `UNWIND`. `PathMa
 query-local edge inventory in which an edge's identity is its actual scanned occurrence. It enumerates trails over the
 inventory, resuming between output batches, and reuses the bidirectional breadth-first search on a bipartite
 node/edge graph for shortest paths. Path values keep properties in a marked child, so user property names can't
-collide with identity metadata. See [path values](../cypher.md#path-values) for what users see.
+collide with identity metadata. When an untyped match combines branches, the planner merges those
+marked property fields by name before casting each branch to the common schema. This also preserves
+the node records nested inside a path or a relationship endpoint. See [path values](../cypher.md#path-values).
 
 ## `Apply`: correlated CALL subqueries
 

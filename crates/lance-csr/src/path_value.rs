@@ -10,7 +10,7 @@ use std::sync::Arc;
 use arrow::array::{Array, ArrayRef, AsArray, Int64Array, ListArray, StructArray, UInt32Array};
 use arrow::buffer::OffsetBuffer;
 use arrow::compute::take;
-use arrow_schema::{DataType, Field, Fields};
+use arrow_schema::{DataType, Field, FieldRef, Fields};
 use datafusion::common::Result;
 
 pub(crate) const PROPERTIES: &str = "__lance_csr_properties";
@@ -24,6 +24,31 @@ pub(crate) fn entity_kind(data_type: &DataType) -> Option<&str> {
         return None;
     };
     fields.first()?.metadata().get(ENTITY).map(String::as_str)
+}
+
+/// Widen marked entity properties across MATCH alternatives, including inside path
+/// lists and relationship endpoints. Ordinary columns keep the first branch's type.
+pub(crate) fn merge_branch_field(left: &FieldRef, right: &FieldRef) -> Result<FieldRef> {
+    if left.data_type() == right.data_type() {
+        return Ok(left.clone());
+    }
+    let data_type = match (left.data_type(), right.data_type()) {
+        (DataType::Struct(a), DataType::Struct(b))
+            if left.metadata().contains_key(ENTITY)
+                && left.metadata().get(ENTITY) == right.metadata().get(ENTITY) =>
+        {
+            DataType::Struct(crate::path_inventory::property_fields([a, b])?)
+        }
+        (DataType::Struct(a), DataType::Struct(b))
+            if a.len() == b.len() && a.iter().zip(b).all(|(l, r)| l.name() == r.name()) =>
+        {
+            let children = a.iter().zip(b).map(|(l, r)| merge_branch_field(l, r));
+            DataType::Struct(children.collect::<Result<Fields>>()?)
+        }
+        (DataType::List(a), DataType::List(b)) => DataType::List(merge_branch_field(a, b)?),
+        _ => return Ok(left.clone()),
+    };
+    Ok(Arc::new(left.as_ref().clone().with_data_type(data_type)))
 }
 
 pub(crate) fn entity_type(
@@ -337,6 +362,18 @@ pub(crate) fn needs_values(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn branch_alignment_rejects_conflicting_entity_properties() {
+        let node = |data_type| {
+            let properties = vec![Field::new("value", data_type, true)].into();
+            Arc::new(Field::new("n", entity_type(properties, "node", None), true))
+        };
+        let error = merge_branch_field(&node(DataType::Utf8), &node(DataType::Int64)).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("conflicting Arrow types for property 'value'"));
+    }
 
     #[test]
     fn direct_shortest_queries_keep_the_csr_route() {
