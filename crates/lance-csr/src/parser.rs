@@ -10,40 +10,160 @@ use crate::ast::*;
 use crate::error::{GraphError, Result};
 use nom::{
     branch::alt,
-    bytes::complete::{tag, tag_no_case, take_while, take_while1},
-    character::complete::{char, digit0, digit1, multispace0, multispace1, one_of, satisfy},
+    bytes::complete::{take_while, take_while1},
+    character::complete::{digit0, digit1, multispace0, multispace1, one_of, satisfy},
     combinator::{map, map_res, not, opt, peek, recognize},
     multi::{many0, many1, separated_list0, separated_list1},
     sequence::{delimited, pair, preceded, terminated, tuple},
     IResult,
 };
+use std::cell::RefCell;
 use std::collections::HashMap;
 
 /// Parse one complete Cypher query with an optional trailing semicolon.
 pub fn parse_cypher_query(input: &str) -> Result<CypherQuery> {
-    let (remaining, query) = cypher_query(input).map_err(|e| {
-        write_clause_error(input).unwrap_or_else(|| GraphError::ParseError {
-            message: format!("Failed to parse Cypher query: {}", e),
-            position: 0,
-            location: snafu::Location::new(file!(), line!(), column!()),
-        })
-    })?;
+    PROGRESS.with(|p| *p.borrow_mut() = Progress::default());
+    let result = cypher_query(input);
+    let progress = PROGRESS.with(|p| std::mem::take(&mut *p.borrow_mut()));
 
-    let remaining = remaining.strip_prefix(';').unwrap_or(remaining);
-    if !remaining.trim().is_empty() {
-        if let Some(error) = write_clause_error(input) {
-            return Err(error);
+    let remaining = match result {
+        Ok((remaining, mut query)) => {
+            let remaining = remaining.strip_prefix(';').unwrap_or(remaining);
+            if remaining.trim().is_empty() {
+                normalize_inline_properties(&mut query);
+                return Ok(query);
+            }
+            remaining
         }
-        return Err(GraphError::ParseError {
-            message: format!("Unexpected input after query: {}", remaining),
-            position: input.len() - remaining.len(),
-            location: snafu::Location::new(file!(), line!(), column!()),
-        });
-    }
+        Err(_) => input,
+    };
+    Err(write_clause_error(input)
+        .unwrap_or_else(|| syntax_error(input, input.len() - remaining.len(), progress)))
+}
 
-    let mut query = query;
-    normalize_inline_properties(&mut query);
-    Ok(query)
+/// How far the parser got before failing, and what it expected there.
+///
+/// `alt`, `opt` and `many0` backtrack and drop their errors, so the error that reaches the top
+/// usually points at the start of the query. The furthest failure is where the query went wrong.
+#[derive(Default)]
+struct Progress {
+    /// Bytes left in the query at the furthest failure; `None` until a parser fails.
+    furthest: Option<usize>,
+    expected: Vec<Expected>,
+    /// A failure that stops parsing at once, such as an integer literal out of range.
+    fatal: Option<(usize, &'static str)>,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Expected {
+    Text(&'static str),
+    Char(char),
+    Name,
+}
+
+thread_local! {
+    static PROGRESS: RefCell<Progress> = RefCell::new(Progress::default());
+}
+
+fn note_failure(input: &str, what: Expected) {
+    PROGRESS.with(|p| {
+        let mut p = p.borrow_mut();
+        let left = input.len();
+        if p.furthest.is_none_or(|furthest| left < furthest) {
+            p.furthest = Some(left);
+            p.expected.clear();
+        }
+        if p.furthest == Some(left) && !p.expected.contains(&what) {
+            p.expected.push(what);
+        }
+    });
+}
+
+/// Fail at `input` without backtracking, with a message for the user.
+fn fail<'a, T>(input: &'a str, message: &'static str) -> IResult<&'a str, T> {
+    PROGRESS.with(|p| {
+        p.borrow_mut().fatal.get_or_insert((input.len(), message));
+    });
+    Err(nom::Err::Failure(nom::error::Error::new(
+        input,
+        nom::error::ErrorKind::Verify,
+    )))
+}
+
+// These shadow nom's parsers of the same names, to record what was expected where they fail.
+fn tag<'a>(text: &'static str) -> impl Fn(&'a str) -> IResult<&'a str, &'a str> {
+    move |input| {
+        nom::bytes::complete::tag(text)(input)
+            .inspect_err(|_| note_failure(input, Expected::Text(text)))
+    }
+}
+
+fn tag_no_case<'a>(text: &'static str) -> impl Fn(&'a str) -> IResult<&'a str, &'a str> {
+    move |input| {
+        nom::bytes::complete::tag_no_case(text)(input)
+            .inspect_err(|_| note_failure(input, Expected::Text(text)))
+    }
+}
+
+fn char<'a>(c: std::primitive::char) -> impl Fn(&'a str) -> IResult<&'a str, std::primitive::char> {
+    move |input| {
+        nom::character::complete::char(c)(input)
+            .inspect_err(|_| note_failure(input, Expected::Char(c)))
+    }
+}
+
+fn syntax_error(query: &str, fallback: usize, progress: Progress) -> GraphError {
+    let (position, message) = if let Some((left, message)) = progress.fatal {
+        (query.len() - left, message.to_string())
+    } else {
+        let position = progress
+            .furthest
+            .map_or(fallback, |left| (query.len() - left).max(fallback));
+        let rest = &query[position..];
+        let found = match rest.chars().next() {
+            None => "end of query".to_string(),
+            Some(c) if c.is_alphanumeric() || c == '_' => format!(
+                "'{}'",
+                rest.split(|c: std::primitive::char| !(c.is_alphanumeric() || c == '_'))
+                    .next()
+                    .unwrap_or_default()
+            ),
+            Some(c) => format!("'{c}'"),
+        };
+        let expected: Vec<String> = if position == query.len() - progress.furthest.unwrap_or(0) {
+            progress
+                .expected
+                .iter()
+                .map(|e| match e {
+                    Expected::Text(t) => format!("'{t}'"),
+                    Expected::Char(c) => format!("'{c}'"),
+                    Expected::Name => "a name".to_string(),
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let message = match expected.as_slice() {
+            [] => format!("unexpected {found}"),
+            [one] => format!("expected {one}, found {found}"),
+            [init @ .., last] => format!("expected {} or {last}, found {found}", init.join(", ")),
+        };
+        (position, message)
+    };
+    let before = &query[..position];
+    GraphError::ParseError {
+        message,
+        position,
+        line: before.matches('\n').count() + 1,
+        column: before
+            .rsplit('\n')
+            .next()
+            .unwrap_or_default()
+            .chars()
+            .count()
+            + 1,
+        location: snafu::Location::new(file!(), line!(), column!()),
+    }
 }
 
 /// Write clauses, longest first so `DETACH DELETE` wins over `DELETE`.
@@ -1232,6 +1352,7 @@ fn parse_parameter(input: &str) -> IResult<&str, ValueExpression> {
 
 // Parse a function call: function_name(args)
 fn function_call(input: &str) -> IResult<&str, ValueExpression> {
+    let start = input;
     // Namespaced names such as `duration.inSeconds`.
     let (input, name) = recognize(pair(
         bare_identifier,
@@ -1251,7 +1372,7 @@ fn function_call(input: &str) -> IResult<&str, ValueExpression> {
     };
 
     // Handle COUNT(*) special case - only allow * for COUNT function
-    if let Ok((input_after_star, _)) = char::<_, nom::error::Error<&str>>('*')(input) {
+    if let Ok((input_after_star, _)) = char('*')(input) {
         // Validate that this is COUNT function
         if name.to_lowercase() == "count" {
             let (input, _) = multispace0(input_after_star)?;
@@ -1290,10 +1411,7 @@ fn function_call(input: &str) -> IResult<&str, ValueExpression> {
         FunctionType::Scalar => {
             // Validate: reject DISTINCT on scalar functions at parse time
             if distinct {
-                return Err(nom::Err::Failure(nom::error::Error::new(
-                    input,
-                    nom::error::ErrorKind::Verify,
-                )));
+                return fail(start, "DISTINCT is only allowed in aggregate functions");
             }
             Ok((
                 input,
@@ -1307,10 +1425,7 @@ fn function_call(input: &str) -> IResult<&str, ValueExpression> {
             // Default to ScalarFunction for unknown functions
             // They'll be handled as NULL in expression conversion
             if distinct {
-                return Err(nom::Err::Failure(nom::error::Error::new(
-                    input,
-                    nom::error::ErrorKind::Verify,
-                )));
+                return fail(start, "DISTINCT is only allowed in aggregate functions");
             }
             Ok((
                 input,
@@ -1568,10 +1683,10 @@ fn row_count(input: &str) -> IResult<&str, RowCount> {
         return Ok((remaining, RowCount::Parameter(name)));
     }
     let (remaining, value) = integer_literal(input)?;
-    let value = u64::try_from(value).map_err(|_| {
-        nom::Err::Failure(nom::error::Error::new(input, nom::error::ErrorKind::Verify))
-    })?;
-    Ok((remaining, RowCount::Literal(value)))
+    match u64::try_from(value) {
+        Ok(value) => Ok((remaining, RowCount::Literal(value))),
+        Err(_) => fail(input, "SKIP and LIMIT take a non-negative integer"),
+    }
 }
 
 // Parse pagination clauses (SKIP and LIMIT)
@@ -1615,7 +1730,7 @@ fn identifier(input: &str) -> IResult<&str, String> {
     alt((
         map(
             delimited(
-                char('`'),
+                nom::character::complete::char('`'),
                 many0(alt((
                     map(tag("``"), |_| '`'),
                     nom::character::complete::none_of("`"),
@@ -1626,6 +1741,7 @@ fn identifier(input: &str) -> IResult<&str, String> {
         ),
         map(bare_identifier, str::to_string),
     ))(input)
+    .inspect_err(|_| note_failure(input, Expected::Name))
 }
 
 fn bare_identifier(input: &str) -> IResult<&str, &str> {
@@ -1653,37 +1769,31 @@ fn single_quoted_string(input: &str) -> IResult<&str, String> {
 
 // Parse an integer literal
 fn integer_literal(input: &str) -> IResult<&str, i64> {
-    let (input, digits) = recognize(pair(
+    let (rest, digits) = recognize(pair(
         opt(char('-')),
         take_while1(|c: char| c.is_ascii_digit()),
     ))(input)?;
 
     // Out-of-range literals fail to parse instead of panicking.
-    let value = digits.parse().map_err(|_| {
-        nom::Err::Failure(nom::error::Error::new(input, nom::error::ErrorKind::Digit))
-    })?;
-    Ok((input, value))
+    match digits.parse() {
+        Ok(value) => Ok((rest, value)),
+        Err(_) => fail(input, "integer literal out of range"),
+    }
 }
 
 // Parse a float literal
-fn float_literal(input: &str) -> IResult<&str, f64> {
-    let (input, number) = recognize(tuple((
+fn float_literal(start: &str) -> IResult<&str, f64> {
+    let (rest, number) = recognize(tuple((
         opt(char('-')),
         take_while1(|c: char| c.is_ascii_digit()),
         char('.'),
         take_while1(|c: char| c.is_ascii_digit()),
-    )))(input)?;
+    )))(start)?;
 
-    let value: f64 = number.parse().map_err(|_| {
-        nom::Err::Failure(nom::error::Error::new(input, nom::error::ErrorKind::Float))
-    })?;
-    if !value.is_finite() {
-        return Err(nom::Err::Failure(nom::error::Error::new(
-            input,
-            nom::error::ErrorKind::Float,
-        )));
+    match number.parse::<f64>() {
+        Ok(value) if value.is_finite() => Ok((rest, value)),
+        _ => fail(start, "float literal out of range"),
     }
-    Ok((input, value))
 }
 
 // Parse a boolean literal
@@ -2919,5 +3029,48 @@ mod tests {
             }
         });
         assert_eq!(body_locals, ["s", "x"]);
+    }
+
+    #[test]
+    fn test_syntax_errors_report_where_parsing_stopped() {
+        let cases = [
+            // Missing `)`: the furthest failure, not the start of the query.
+            (
+                "MATCH (n:Person RETURN n",
+                16,
+                "Cypher syntax error at line 1, column 17: expected '{' or ')', found 'RETURN'",
+            ),
+            ("MATCH (n:Person) RETURNS n", 17, "found 'RETURNS'"),
+            (
+                "MATCH (n)\nRETURN n.",
+                19,
+                "line 2, column 10: expected a name, found end of query",
+            ),
+            (
+                "MATCH (n) RETURN n LIMIT -1",
+                25,
+                "SKIP and LIMIT take a non-negative integer",
+            ),
+            (
+                "MATCH (n) RETURN toUpper(DISTINCT n.name)",
+                17,
+                "DISTINCT is only allowed in aggregate functions",
+            ),
+            (
+                "MATCH (n) RETURN 99999999999999999999",
+                17,
+                "integer literal out of range",
+            ),
+            ("FETCH (n) RETURN n", 0, "found 'FETCH'"),
+        ];
+        for (query, expected_position, expected_text) in cases {
+            let err = parse_cypher_query(query).unwrap_err();
+            let GraphError::ParseError { position, .. } = &err else {
+                panic!("{query}: expected a ParseError, got {err}");
+            };
+            assert_eq!(*position, expected_position, "{query}: {err}");
+            assert!(err.to_string().contains(expected_text), "{query}: {err}");
+            assert!(!err.to_string().contains("Error {"), "{query}: {err}");
+        }
     }
 }
