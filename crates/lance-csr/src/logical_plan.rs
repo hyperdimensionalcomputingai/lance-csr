@@ -2045,6 +2045,7 @@ impl<'a> LogicalPlanner<'a> {
             .get_or_insert_with(|| format!("_path_node_{}", self.variables.len()))
             .clone();
         let base = if self.variables.contains_key(&start) {
+            self.validate_variable_label(&start, &path.start_node.labels)?;
             base.ok_or_else(|| GraphError::internal("bound variables have input rows"))?
         } else {
             let scan = self.plan_node_scan(&path.start_node)?;
@@ -3161,21 +3162,20 @@ mod tests {
 
     #[test]
     fn test_variable_reuse_with_conflicting_labels() {
-        let query_text =
-            "MATCH (a:Person)-[:KNOWS]->(shared:Person), (shared:Company)-[:EMPLOYS]->(b:Person) RETURN b.name";
-
-        let ast = parse_cypher_query(query_text).unwrap();
         let config = GraphConfig::default();
-        let mut planner = LogicalPlanner::new(&config);
-        let err = planner.plan(&ast).unwrap_err();
-        let err_msg = err.to_string();
-
-        assert!(
-            err_msg.contains("already has label 'Person'")
-                && err_msg.contains("cannot redefine as 'Company'"),
-            "Expected error about label conflict, got: {}",
-            err_msg
-        );
+        for query in [
+            "MATCH (a:Person)-[:KNOWS]->(shared:Person), (shared:Company)-[:EMPLOYS]->(b:Person) RETURN b.name",
+            "MATCH (shared:Person) MATCH (shared:Company)-[:A|B*1..2]-(b:Company) RETURN b.name",
+        ] {
+            let ast = parse_cypher_query(query).unwrap();
+            let err = LogicalPlanner::new(&config).plan(&ast).unwrap_err();
+            assert!(
+                err.to_string().contains(
+                    "Variable 'shared' already has label 'Person', cannot redefine as 'Company'"
+                ),
+                "Expected label conflict for {query}, got: {err}"
+            );
+        }
     }
 
     #[test]

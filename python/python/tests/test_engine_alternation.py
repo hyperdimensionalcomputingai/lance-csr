@@ -184,6 +184,31 @@ def test_undirected_bounded_alternation(datasets, use_csr):
     assert engine.execute(query).to_pylist() == [{"p": 11, "q": None}]
 
 
+@pytest.mark.parametrize("binding", ["", "p = "])
+def test_undirected_alternation_bound_start_label(binding):
+    cfg = (
+        GraphConfig.builder()
+        .node_table("X", "id")
+        .node_table("Y", "id")
+        .rel_table("A", "Y", "Y", "src", "dst")
+        .rel_table("B", "Y", "Y", "src", "dst")
+        .build()
+    )
+    tables = {
+        "X": pa.table({"id": [1]}),
+        "Y": pa.table({"id": [1, 2, 3]}),
+        "A": pa.table({"src": [1], "dst": [2]}),
+        "B": pa.table({"src": [3], "dst": [2]}),
+    }
+    engine = CypherEngine(cfg, tables)
+    path = f"MATCH {binding}(s:Y)-[:A|B*1..2]-(q:Y) RETURN q.id"
+    assert rows(engine.execute(f"MATCH (s:Y {{id: 1}}) {path}")) == [(2,), (3,)]
+    with pytest.raises(
+        ValueError, match="Variable 's' already has label 'X', cannot redefine as 'Y'"
+    ):
+        engine.execute(f"MATCH (s:X {{id: 1}}) {path}")
+
+
 def test_undirected_alternation_parallel_edges_and_zero_hops():
     cfg = (
         GraphConfig.builder()
