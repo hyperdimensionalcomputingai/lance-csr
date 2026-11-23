@@ -393,9 +393,11 @@ impl CypherQuery {
                         .filter_map(|stage| stage.with_clause.limit.as_ref()),
                 )
                 .any(|count| matches!(count, crate::ast::RowCount::Parameter(_)))
-                || query
-                    .all_reading_clauses()
-                    .any(|clause| matches!(clause, ReadingClause::Call(_)));
+                || query.all_reading_clauses().any(|clause| match clause {
+                    ReadingClause::Call(_) => true,
+                    ReadingClause::Match(m) => m.is_bounded_undirected_alternation(),
+                    _ => false,
+                });
         });
         if shape_sensitive
             || self.scalar_parameters().is_none()
@@ -405,6 +407,18 @@ impl CypherQuery {
             return Ok(false);
         }
         let (graph, datafusion) = self.build_logical_plans(catalog.clone(), true)?;
+        // Predicates and comprehensions can also plan a PathMatch below the outer MATCH.
+        // Its filters and inventory belong to one execution, outside template binding.
+        use datafusion::common::tree_node::TreeNode;
+        if datafusion.exists(|node| {
+            Ok(
+                matches!(node, datafusion::logical_expr::LogicalPlan::Extension(ext)
+                if ext.node.as_any().downcast_ref::<crate::path_match::PathMatchNode>()
+                    .is_some_and(|path| path.endpoints_only())),
+            )
+        })? {
+            return Ok(false);
+        }
         self.cached_plan = Some(Arc::new(CachedPlan {
             graph,
             datafusion,

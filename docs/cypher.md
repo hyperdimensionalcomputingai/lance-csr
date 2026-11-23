@@ -374,8 +374,12 @@ RETURN length(p), nodes(p)
 - **Variable-length alternation** follows each relationship type's configured endpoint labels. With
   suitable CSR and node indexes, a mixed path such as `[:hasType|isSubclassOf*1..3]` stays in one operator.
   Named paths also support typed variable-length alternation through their edge inventory.
-  Unnamed undirected variable-length alternation remains unsupported.
-- **Undirected variable-length paths** skip immediate backtracking (`a-b-a`).
+  A standalone undirected segment with an explicit upper bound and multiple types, such as
+  `MATCH (a:Person)-[:KNOWS|WORKS_WITH*1..3]-(b:Person) RETURN b.id`, can change
+  direction at each hop. Its endpoints need known labels and integer keys. Each stored
+  relationship can occur only once per trail, so parallel edges can yield repeated endpoints.
+  This form also works in `OPTIONAL MATCH`.
+- **Unnamed single-type undirected variable-length paths** skip immediate backtracking (`a-b-a`).
 - **Relationship uniqueness**: within one `MATCH`, two single-hop relationships of the same type never
   bind the same edge, whether they are named or anonymous, in one pattern or in comma-separated parts.
   `(a)-[:KNOWS]->(b)<-[:KNOWS]-(c)` therefore never matches `c = a`. Separate `MATCH` clauses may bind the

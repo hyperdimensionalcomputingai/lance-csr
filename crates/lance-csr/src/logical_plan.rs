@@ -910,6 +910,11 @@ impl<'a> LogicalPlanner<'a> {
             ),
             ..match_clause.clone()
         };
+        if match_clause.is_bounded_undirected_alternation() {
+            if let [GraphPattern::Path(path)] = inferred.patterns.as_slice() {
+                return self.plan_inventory_path(base, path);
+            }
+        }
         let match_clause = &inferred;
         let retain_variable = self.retain_variable_alternation(&match_clause.patterns);
         if crate::pattern_alternatives::needs_expansion(
@@ -973,7 +978,7 @@ impl<'a> LogicalPlanner<'a> {
                     }
                 }
                 GraphPattern::Path(path) if path.variable.is_some() => {
-                    plan = Some(self.plan_named_path(plan, path)?)
+                    plan = Some(self.plan_inventory_path(plan, path)?)
                 }
                 GraphPattern::Path(path) if path.shortest.is_some() => {
                     plan = Some(self.plan_shortest_path(plan, path)?)
@@ -988,7 +993,7 @@ impl<'a> LogicalPlanner<'a> {
                 {
                     let mut path = path.clone();
                     path.variable = Some(format!("_path_value_{}", self.variables.len()));
-                    plan = Some(self.plan_named_path(plan, &path)?);
+                    plan = Some(self.plan_inventory_path(plan, &path)?);
                 }
                 GraphPattern::Path(path) => plan = Some(self.plan_path(plan, path)?),
             }
@@ -2028,7 +2033,7 @@ impl<'a> LogicalPlanner<'a> {
         Ok(plan)
     }
 
-    fn plan_named_path(
+    fn plan_inventory_path(
         &mut self,
         base: Option<LogicalOperator>,
         path: &PathPattern,
@@ -2040,6 +2045,7 @@ impl<'a> LogicalPlanner<'a> {
             .get_or_insert_with(|| format!("_path_node_{}", self.variables.len()))
             .clone();
         let base = if self.variables.contains_key(&start) {
+            self.validate_variable_label(&start, &path.start_node.labels)?;
             base.ok_or_else(|| GraphError::internal("bound variables have input rows"))?
         } else {
             let scan = self.plan_node_scan(&path.start_node)?;
@@ -2064,16 +2070,14 @@ impl<'a> LogicalPlanner<'a> {
                 .cloned()
                 .or_else(|| segment.end_node.labels.first().cloned())
                 .ok_or_else(|| GraphError::UnsupportedFeature {
-                    feature: "named path boundary needs a resolved node label".into(),
+                    feature: "path boundary needs a resolved node label".into(),
                     location: Location::new(file!(), line!(), column!()),
                 })?;
             self.variables.insert(variable.clone(), label);
         }
-        let path_variable = path
-            .variable
-            .clone()
-            .ok_or_else(|| GraphError::internal("a named path has a variable"))?;
-        self.variables.insert(path_variable, "Path".into());
+        if let Some(variable) = &path.variable {
+            self.variables.insert(variable.clone(), "Path".into());
+        }
         Ok(LogicalOperator::PathMatch {
             input: Box::new(base),
             path,
@@ -3158,21 +3162,20 @@ mod tests {
 
     #[test]
     fn test_variable_reuse_with_conflicting_labels() {
-        let query_text =
-            "MATCH (a:Person)-[:KNOWS]->(shared:Person), (shared:Company)-[:EMPLOYS]->(b:Person) RETURN b.name";
-
-        let ast = parse_cypher_query(query_text).unwrap();
         let config = GraphConfig::default();
-        let mut planner = LogicalPlanner::new(&config);
-        let err = planner.plan(&ast).unwrap_err();
-        let err_msg = err.to_string();
-
-        assert!(
-            err_msg.contains("already has label 'Person'")
-                && err_msg.contains("cannot redefine as 'Company'"),
-            "Expected error about label conflict, got: {}",
-            err_msg
-        );
+        for query in [
+            "MATCH (a:Person)-[:KNOWS]->(shared:Person), (shared:Company)-[:EMPLOYS]->(b:Person) RETURN b.name",
+            "MATCH (shared:Person) MATCH (shared:Company)-[:A|B*1..2]-(b:Company) RETURN b.name",
+        ] {
+            let ast = parse_cypher_query(query).unwrap();
+            let err = LogicalPlanner::new(&config).plan(&ast).unwrap_err();
+            assert!(
+                err.to_string().contains(
+                    "Variable 'shared' already has label 'Person', cannot redefine as 'Company'"
+                ),
+                "Expected label conflict for {query}, got: {err}"
+            );
+        }
     }
 
     #[test]
@@ -3300,6 +3303,24 @@ mod tests {
             LogicalOperator::OptionalMatch { optional, .. } => expand_order(optional, out),
             _ => {}
         }
+    }
+
+    #[test]
+    fn undirected_alternation_plans_one_inventory_without_a_path_variable() {
+        let config = GraphConfig::builder()
+            .node_table("N", "id")
+            .rel_table("A", "N", "N", "src", "dst")
+            .rel_table("B", "N", "N", "src", "dst")
+            .build()
+            .unwrap();
+        let ast = parse_cypher_query("MATCH (s:N)-[:A|B*1..3]-(q:N) RETURN q.id").unwrap();
+        let plan = LogicalPlanner::new(&config).plan(&ast).unwrap();
+        let LogicalOperator::Project { input, .. } = plan else {
+            panic!("expected projection");
+        };
+        assert!(
+            matches!(*input, LogicalOperator::PathMatch { path, .. } if path.variable.is_none())
+        );
     }
 
     #[test]

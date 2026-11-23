@@ -40,6 +40,37 @@ def test_cached_target_filters_bind_each_value(engine):
         assert engine.execute_batches(query, params).read_all().to_pylist() == expected
 
 
+@pytest.mark.parametrize(
+    ("relationship", "targets"),
+    [
+        ("-[:A]->", [(2, [2]), (3, [])]),
+        ("-[:A*1..2]->", [(2, [2]), (3, [3])]),
+        ("-[:A*1..2]-", [(3, [3]), (4, [4])]),
+    ],
+)
+def test_pattern_comprehension_rebinds_target_id(relationship, targets):
+    config = (
+        GraphConfig.builder()
+        .node_table("N", "id")
+        .rel_table("A", "N", "N", "src", "dst")
+        .build()
+    )
+    # 4 -> 1 -> 2 -> 3 makes the hop bound and direction observable from 1.
+    engine = CypherEngine(
+        config,
+        {
+            "N": pa.table({"id": [1, 2, 3, 4]}),
+            "A": pa.table({"src": [4, 1, 2], "dst": [1, 2, 3]}),
+        },
+    )
+    query = (
+        "MATCH (s:N {id: 1}) RETURN "
+        f"[(s){relationship}(q:N {{id: $t}}) | q.id] AS ids"
+    )
+    for target, expected in targets:
+        assert engine.execute(query, {"t": target}).to_pylist() == [{"ids": expected}]
+
+
 def test_cached_parameter_types_and_container_fallback(engine):
     query = "MATCH (p:Person) WHERE p.id = 1 RETURN $value AS value"
     for value in [1, 2, None, 1.5, "Ada", "Bob", True, False, [1, 2], [3], {"x": 1}]:

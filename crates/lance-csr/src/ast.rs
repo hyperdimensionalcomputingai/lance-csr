@@ -252,6 +252,27 @@ pub struct MatchClause {
     pub where_clause: Option<WhereClause>,
 }
 
+impl MatchClause {
+    /// A standalone anonymous segment whose trails can share the named-path inventory.
+    pub(crate) fn is_bounded_undirected_alternation(&self) -> bool {
+        let [GraphPattern::Path(path)] = self.patterns.as_slice() else {
+            return false;
+        };
+        let [segment] = path.segments.as_slice() else {
+            return false;
+        };
+        let rel = &segment.relationship;
+        path.variable.is_none()
+            && path.shortest.is_none()
+            && path.start_node.labels.len() <= 1
+            && segment.end_node.labels.len() <= 1
+            && rel.direction == RelationshipDirection::Undirected
+            && rel.types.len() > 1
+            && rel.variable.is_none()
+            && rel.length.as_ref().is_some_and(|range| range.max.is_some())
+    }
+}
+
 /// An UNWIND clause
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UnwindClause {
