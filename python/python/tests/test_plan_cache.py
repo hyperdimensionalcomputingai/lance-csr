@@ -130,3 +130,28 @@ def test_parameterized_limits_replan_each_count(engine, query):
             engine.execute_batches(query, {"count": count}).read_all().to_pylist()
             == expected
         )
+
+
+def test_named_exists_matches_unnamed_with_current_parameters():
+    config = (
+        GraphConfig.builder()
+        .node_table("N", "id")
+        .rel_table("A", "N", "N", "src", "dst")
+        .build()
+    )
+    engine = CypherEngine(
+        config,
+        {
+            "N": pa.table({"id": [1, 2, 3]}),
+            "A": pa.table({"src": [1, 2], "dst": [2, 3]}),
+        },
+    )
+    unnamed = (
+        "MATCH (s:N {id: 1}) WHERE EXISTS { MATCH (s)-[:A*1..2]->(:N {id: $t}) } "
+        "RETURN s.id"
+    )
+    named = unnamed.replace("EXISTS { MATCH ", "EXISTS { MATCH p = ")
+    for target, expected in [(2, [{"s.id": 1}]), (1, []), (3, [{"s.id": 1}])]:
+        params = {"t": target}
+        assert engine.execute(named, params).to_pylist() == expected
+        assert engine.execute(unnamed, params).to_pylist() == expected

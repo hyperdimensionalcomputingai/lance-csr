@@ -272,6 +272,7 @@ pub struct CypherQuery {
 struct CachedPlan {
     graph: crate::logical_plan::LogicalOperator,
     datafusion: datafusion::logical_expr::LogicalPlan,
+    has_path_match: bool,
     catalog: Arc<dyn crate::GraphSourceCatalog>,
     parameter_types: HashMap<String, arrow_schema::DataType>,
 }
@@ -372,8 +373,6 @@ impl CypherQuery {
         &mut self,
         catalog: Arc<dyn crate::GraphSourceCatalog>,
     ) -> Result<bool> {
-        // Rich path properties live in an extension-owned spec, and its inventory is
-        // query-local. Keep ordinary substitution and a fresh inventory for each query.
         let mut shape_sensitive = false;
         self.ast.for_each_query(&mut |query| {
             shape_sensitive |= query
@@ -393,34 +392,19 @@ impl CypherQuery {
                         .filter_map(|stage| stage.with_clause.limit.as_ref()),
                 )
                 .any(|count| matches!(count, crate::ast::RowCount::Parameter(_)))
-                || query.all_reading_clauses().any(|clause| match clause {
-                    ReadingClause::Call(_) => true,
-                    ReadingClause::Match(m) => m.is_bounded_undirected_alternation(),
-                    _ => false,
-                });
+                || query
+                    .all_reading_clauses()
+                    .any(|clause| matches!(clause, ReadingClause::Call(_)));
         });
-        if shape_sensitive
-            || self.scalar_parameters().is_none()
-            || crate::path_value::needs_values(&self.ast, self.require_config()?)
-        {
+        if shape_sensitive || self.scalar_parameters().is_none() {
             // CALL binds its own child templates; row counts alter plan shape.
             return Ok(false);
         }
         let (graph, datafusion) = self.build_logical_plans(catalog.clone(), true)?;
-        // Predicates and comprehensions can also plan a PathMatch below the outer MATCH.
-        // Its filters and inventory belong to one execution, outside template binding.
-        use datafusion::common::tree_node::TreeNode;
-        if datafusion.exists(|node| {
-            Ok(
-                matches!(node, datafusion::logical_expr::LogicalPlan::Extension(ext)
-                if ext.node.as_any().downcast_ref::<crate::path_match::PathMatchNode>()
-                    .is_some_and(|path| path.endpoints_only())),
-            )
-        })? {
-            return Ok(false);
-        }
         self.cached_plan = Some(Arc::new(CachedPlan {
             graph,
+            has_path_match: crate::path_match::has_path_match(&datafusion)
+                .map_err(|e| GraphError::internal(format!("inspect cached query plan: {e}")))?,
             datafusion,
             catalog,
             parameter_types: self
@@ -1208,6 +1192,13 @@ impl CypherQuery {
                     .datafusion
                     .clone()
                     .with_param_values(parameters)
+                    .and_then(|plan| {
+                        if template.has_path_match {
+                            crate::path_match::refresh_path_sources(plan)
+                        } else {
+                            Ok(plan)
+                        }
+                    })
                     .map_err(|error| GraphError::PlanError {
                         message: format!("Failed to bind query parameters: {error}"),
                         location: snafu::Location::new(file!(), line!(), column!()),
@@ -2000,27 +1991,70 @@ mod tests {
         }
     }
 
-    #[test]
-    fn cross_label_shortest_queries_bypass_cached_inventories() {
+    #[tokio::test]
+    async fn cached_cross_label_shortest_queries_bind_current_parameters() {
+        use arrow_array::{ArrayRef, Int64Array};
+
         let config = GraphConfig::builder()
             .node_table("Person", "id")
             .node_table("Place", "id")
             .rel_table("LIVES", "Person", "Place", "src", "dst")
             .build()
             .unwrap();
+        let nodes = || {
+            RecordBatch::try_from_iter([("id", Arc::new(Int64Array::from(vec![1, 2])) as ArrayRef)])
+                .unwrap()
+        };
+        let lives = RecordBatch::try_from_iter([
+            ("src", Arc::new(Int64Array::from(vec![1])) as ArrayRef),
+            ("dst", Arc::new(Int64Array::from(vec![2])) as ArrayRef),
+        ])
+        .unwrap();
+        let datasets = HashMap::from([
+            ("Person".into(), nodes()),
+            ("Place".into(), nodes()),
+            ("LIVES".into(), lives),
+        ]);
         for text in [
             "MATCH p = shortestPath((a:Person {id: $id})-[:LIVES*0..]->(b:Place)) RETURN length(p)",
             "MATCH p = shortestPath((a:Person {id: $id})-[:LIVES*0..]-(b:Person)) WITH p AS q RETURN nodes(q)",
             "RETURN 0 AS n UNION MATCH p = shortestPath((a:Person {id: $id})-[:LIVES*0..]->(b:Place)) RETURN length(p) AS n",
         ] {
-            let mut query = CypherQuery::new(text)
-                .unwrap()
-                .with_config(config.clone())
-                .with_parameter("id", 1);
-            assert!(!query
-                .prepare_cached_plan(Arc::new(crate::InMemoryCatalog::new()))
-                .unwrap());
-            assert!(query.cached_plan.is_none(), "{text}");
+            let fresh = CypherQuery::new(text).unwrap().with_config(config.clone());
+            let mut template = fresh.clone().with_parameter("id", 1);
+            let (catalog, context) = template
+                .build_catalog_and_context_from_datasets(datasets.clone())
+                .await
+                .unwrap();
+            let catalog = Arc::new(catalog);
+            assert!(template.prepare_cached_plan(catalog.clone()).unwrap(), "{text}");
+            for id in [1, 2] {
+                let actual = template
+                    .clone()
+                    .with_parameter("id", id)
+                    .execute_with_catalog_and_context(catalog.clone(), context.clone())
+                    .await
+                    .unwrap();
+                let expected = fresh
+                    .clone()
+                    .with_parameter("id", id)
+                    .execute_with_catalog_and_context(catalog.clone(), context.clone())
+                    .await
+                    .unwrap();
+                assert_eq!(actual.schema(), expected.schema(), "{text}");
+                if expected.schema().field(0).data_type().is_numeric() {
+                    let sorted = |batch: &RecordBatch| {
+                        arrow::compute::sort(batch.column(0).as_ref(), None).unwrap()
+                    };
+                    assert_eq!(
+                        sorted(&actual).as_ref(),
+                        sorted(&expected).as_ref(),
+                        "{text} with id={id}"
+                    );
+                } else {
+                    assert_eq!(actual, expected, "{text} with id={id}");
+                }
+            }
         }
     }
 

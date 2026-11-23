@@ -314,6 +314,7 @@ struct CachedSql {
     text: String,
     parameter_types: Vec<(String, u8)>,
     plan: datafusion::logical_expr::LogicalPlan,
+    has_path_match: bool,
 }
 
 // Containers change expression shape; keep them on the uncached path.
@@ -1368,17 +1369,21 @@ impl CypherEngine {
                 .iter()
                 .position(|entry| entry.text == sql && entry.parameter_types == *key)?;
             let entry = plans.remove(index).expect("index from position");
-            let plan = entry.plan.clone();
+            let template = (entry.plan.clone(), entry.has_path_match);
             plans.push_back(entry);
-            Some(plan)
+            Some(template)
         });
-        let plan = match cached {
-            Some(plan) => plan,
+        let (plan, refresh_sources) = match cached {
+            Some(template) => template,
             None => {
                 let templated = Arc::new(AtomicBool::new(key.is_some()));
                 self.register_graph_table(&ctx, &state, &params, templated.clone());
                 let plan = plan_read_only_sql(&ctx, sql).await?;
+                let mut refresh_sources = false;
                 if let Some(parameter_types) = key.filter(|_| templated.load(Ordering::Relaxed)) {
+                    refresh_sources = crate::path_match::has_path_match(&plan).map_err(|e| {
+                        plan_error(format!("Failed to inspect cached SQL plan: {e}"))
+                    })?;
                     let mut plans = state
                         .sql_plans
                         .lock()
@@ -1390,14 +1395,22 @@ impl CypherEngine {
                         text: sql.to_string(),
                         parameter_types,
                         plan: plan.clone(),
+                        has_path_match: refresh_sources,
                     });
                 }
-                plan
+                (plan, refresh_sources)
             }
         };
         let plan = match crate::query::scalar_values(&params) {
             Some(values) => plan
                 .with_param_values(values)
+                .and_then(|plan| {
+                    if refresh_sources {
+                        crate::path_match::refresh_path_sources(plan)
+                    } else {
+                        Ok(plan)
+                    }
+                })
                 .map_err(|e| plan_error(format!("Failed to bind query parameters: {e}")))?,
             _ => plan,
         };
@@ -1830,7 +1843,7 @@ impl SqlEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use arrow_array::{Int64Array, RecordBatchIterator};
+    use arrow_array::{Array, Int64Array, RecordBatchIterator};
     use arrow_schema::{DataType, Field, Schema};
     use lance::dataset::{WriteMode, WriteParams};
 
@@ -1885,6 +1898,125 @@ mod tests {
             )
             .await;
             assert!(matches!(result, Err(GraphError::ConfigError { .. })));
+        }
+    }
+
+    #[tokio::test]
+    async fn plan_cache_rebinds_path_inventory_filters() {
+        let config = GraphConfig::builder()
+            .node_table("N", "id")
+            .rel_table("A", "N", "N", "src", "dst")
+            .rel_table("B", "N", "N", "src", "dst")
+            .build()
+            .unwrap();
+        let nodes = RecordBatch::try_from_iter([(
+            "id",
+            Arc::new(Int64Array::from(vec![1, 2, 3])) as arrow_array::ArrayRef,
+        )])
+        .unwrap();
+        let edges = |src: Vec<i64>, dst: Vec<i64>| {
+            RecordBatch::try_from_iter([
+                (
+                    "src",
+                    Arc::new(Int64Array::from(src)) as arrow_array::ArrayRef,
+                ),
+                (
+                    "dst",
+                    Arc::new(Int64Array::from(dst)) as arrow_array::ArrayRef,
+                ),
+            ])
+            .unwrap()
+        };
+        let sources = HashMap::from([
+            ("N".to_string(), EngineSource::Arrow(nodes)),
+            (
+                "A".to_string(),
+                EngineSource::Arrow(edges(vec![1, 2], vec![2, 3])),
+            ),
+            ("B".to_string(), EngineSource::Arrow(edges(vec![], vec![]))),
+        ]);
+        let cases = [
+            (
+                "MATCH p = (s:N {id: 1})-[:A*1..2]->(q:N {id: $t}) RETURN length(p) AS value",
+                1,
+                false,
+            ),
+            (
+                "MATCH (s:N {id: 1}) WHERE EXISTS { MATCH p = (s)-[:A*1..2]->(:N {id: $t}) } RETURN s.id AS value",
+                1,
+                false,
+            ),
+            (
+                "MATCH (s:N {id: 1}) WHERE EXISTS { MATCH (s)-[:A*1..2]->(:N {id: $t}) } RETURN s.id AS value",
+                1,
+                false,
+            ),
+            (
+                "MATCH (s:N {id: 1})-[:A|B*1..2]-(q:N {id: $t}) RETURN q.id AS value",
+                2,
+                false,
+            ),
+            (
+                "MATCH (s:N {id: 1}) WHERE (s)-[:A|B*1..2]-(:N {id: $t}) RETURN s.id AS value",
+                1,
+                false,
+            ),
+            (
+                "MATCH (s:N {id: 1}) RETURN [(s)-[:A|B*1..2]-(q:N {id: $t}) | q.id] AS value",
+                2,
+                true,
+            ),
+            (
+                "MATCH p = (s:N {id: 1})-[:A {dst: $t}]->(q:N) RETURN q.id AS value",
+                2,
+                false,
+            ),
+        ];
+        for use_csr in [false, true] {
+            let engine = CypherEngine::new(config.clone(), sources.clone(), use_csr)
+                .await
+                .unwrap();
+            let snapshot = engine.snapshot();
+            for (query, expected, list) in cases {
+                for target in [2, 1] {
+                    let params = HashMap::from([("t".to_string(), JsonValue::from(target))]);
+                    let batch = engine
+                        .execute(query, params)
+                        .await
+                        .unwrap_or_else(|err| panic!("{query} with t={target}: {err}"));
+                    let expected = if target == 2 { vec![expected] } else { vec![] };
+                    let values = if list {
+                        let array = batch
+                            .column(0)
+                            .as_any()
+                            .downcast_ref::<arrow_array::ListArray>()
+                            .unwrap();
+                        assert_eq!(array.len(), 1, "{query}");
+                        let values = array.value(0);
+                        let values = values.as_any().downcast_ref::<Int64Array>().unwrap();
+                        values.values().to_vec()
+                    } else {
+                        int_column(&batch, "value")
+                    };
+                    assert_eq!(values, expected, "{query} with t={target}");
+                    let plans = snapshot.plans.lock().unwrap();
+                    let entry = plans
+                        .iter()
+                        .find(|entry| entry.text == query)
+                        .unwrap_or_else(|| panic!("missing cached template for {query}"));
+                    assert_eq!(entry.query.parameters()["t"], JsonValue::from(2), "{query}");
+                }
+            }
+            let sql = "SELECT g.target FROM GRAPH_TABLE (
+                MATCH p = (s:N {id: 1})-[:A*1..2]->(q:N {id: $t})
+                COLUMNS (q.id AS target)
+            ) AS g";
+            for (target, expected) in [(2, vec![2]), (3, vec![3])] {
+                let params = HashMap::from([("t".to_string(), JsonValue::from(target))]);
+                let batch = engine.sql(sql, params).await.unwrap();
+                assert_eq!(int_column(&batch, "target"), expected);
+            }
+            assert_eq!(snapshot.sql_plans.lock().unwrap().len(), 1);
         }
     }
 

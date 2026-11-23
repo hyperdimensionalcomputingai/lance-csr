@@ -910,18 +910,16 @@ impl<'a> LogicalPlanner<'a> {
             ),
             ..match_clause.clone()
         };
-        if match_clause.is_bounded_undirected_alternation() {
-            if let [GraphPattern::Path(path)] = inferred.patterns.as_slice() {
-                return self.plan_inventory_path(base, path);
-            }
-        }
+        let inventory_alternation = match_clause.is_bounded_undirected_alternation();
         let match_clause = &inferred;
         let retain_variable = self.retain_variable_alternation(&match_clause.patterns);
-        if crate::pattern_alternatives::needs_expansion(
-            &match_clause.patterns,
-            retain_variable,
-            self.config,
-        ) {
+        if !inventory_alternation
+            && crate::pattern_alternatives::needs_expansion(
+                &match_clause.patterns,
+                retain_variable,
+                self.config,
+            )
+        {
             let branches = crate::pattern_alternatives::expand(
                 &match_clause.patterns,
                 self.config,
@@ -977,7 +975,7 @@ impl<'a> LogicalPlanner<'a> {
                         });
                     }
                 }
-                GraphPattern::Path(path) if path.variable.is_some() => {
+                GraphPattern::Path(path) if path.variable.is_some() || inventory_alternation => {
                     plan = Some(self.plan_inventory_path(plan, path)?)
                 }
                 GraphPattern::Path(path) if path.shortest.is_some() => {

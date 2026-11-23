@@ -290,6 +290,10 @@ For an unnamed, bounded undirected segment with several types, the same operator
 boundary columns and skips building the Arrow path value for each trail. It still builds the
 inventory of participating tables and tracks edge occurrences during traversal.
 
+Path property values are logical expressions, so cached plans bind them before physical planning.
+The physical operator then builds predicates against the inventory's node and relationship schemas.
+Each execution starts with fresh inventory scans that can share source batches within that execution.
+
 ## `Apply`: correlated CALL subqueries
 
 A read-only `CALL { ... }` body runs once per incoming row: its `LIMIT` and aggregates apply to each row, not to the
