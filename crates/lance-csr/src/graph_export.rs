@@ -300,7 +300,9 @@ pub(crate) async fn export_graph(
     let mut inc: Vec<u64> = Vec::with_capacity(keys_cap);
     let mut out_w: Vec<(u64, f64)> =
         Vec::with_capacity(if directed { pairs_cap } else { 2 * pairs_cap });
-    let mut inc_w: Vec<(u64, f64)> = Vec::with_capacity(pairs_cap);
+    // Undirected weighted edges go straight into `out_w`: appending a second vector
+    // would hold both at once.
+    let mut inc_w: Vec<(u64, f64)> = Vec::with_capacity(if directed { pairs_cap } else { 0 });
     let mut dropped = 0u64;
     for rel in &rels {
         let (src_map, dst_map) = (&maps[rel.src_label], &maps[rel.dst_label]);
@@ -338,10 +340,12 @@ pub(crate) async fn export_graph(
                     (Some((a, b, i)), Some(w)) => {
                         let w = w.value(i);
                         out_w.push((a * n + b, w));
-                        // Undirected: a self-loop's reverse is itself; adding it would
-                        // count its weight twice.
-                        if directed || a != b {
+                        if directed {
                             inc_w.push((b * n + a, w));
+                        } else if a != b {
+                            // A self-loop's reverse is itself; adding it would count its
+                            // weight twice.
+                            out_w.push((b * n + a, w));
                         }
                     }
                     (None, _) => dropped += 1,
@@ -352,12 +356,7 @@ pub(crate) async fn export_graph(
 
     let ((out_indptr, out_indices, out_weights), inbound) = if weighted {
         drop((out, inc));
-        let inc_w = if directed {
-            Some(inc_w)
-        } else {
-            out_w.append(&mut inc_w);
-            None // `inc_w`'s allocation is freed here, before the sort
-        };
+        let inc_w = directed.then_some(inc_w);
         let weighted = |pairs| {
             let (p, i, w) = weighted_csr(n, pairs, combine);
             (p, i, Some(w))
