@@ -31,6 +31,7 @@ QUERIES = [
     # Relationship columns are taken by edge row, so rows must stay aligned.
     "MATCH (a:Person)-[r:KNOWS]->(b:Person) RETURN a.id, b.id, r.since",
     "MATCH (a:Person)<-[r:KNOWS]-(b:Person) WHERE a.id < 10 RETURN a.id, r.since",
+    "MATCH (s:Person {id:2})-[:KNOWS*2..3]-(q:Person) RETURN q.id",
 ]
 
 

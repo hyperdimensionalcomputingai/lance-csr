@@ -340,8 +340,11 @@ def test_terminal_batches_resume_across_high_degree_and_missing_nodes():
             "N": pa.table({"id": [0, 1, *endpoints]}),
             "A": pa.table({"src": [0, *([1] * len(dst))], "dst": [1, *dst]}),
         },
+        use_csr=True,
     )
-    result = engine.execute("MATCH (s:N {id:0})-[:A*2..2]->(q:N) RETURN q.id")
+    query = "MATCH (s:N {id:0})-[:A*2..2]->(q:N) RETURN q.id"
+    assert "CsrExpandExec" in engine.explain(query)
+    result = engine.execute(query)
     assert sorted(result.column(0).to_pylist()) == endpoints
 
 
