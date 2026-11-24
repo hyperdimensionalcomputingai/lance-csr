@@ -142,8 +142,8 @@ export interface GraphExport {
    */
   inWeights: Vector<Float64> | null;
   /**
-   * Edges left out because an endpoint key isn't in its node table. Edges with a null
-   * endpoint are skipped and not counted.
+   * Edges left out because an endpoint key isn't in its node table, or, in a weighted export,
+   * because the weight is null. Edges with a null endpoint are skipped and not counted.
    */
   droppedEdges: number;
 }

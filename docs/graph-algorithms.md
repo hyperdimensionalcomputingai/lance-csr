@@ -51,7 +51,7 @@ The returned [`GraphExport`][lance_csr.GraphExport] also holds:
 | `in_indptr`, `in_indices` | The same arrays for incoming edges; `None` for an undirected export |
 | `label_ranges` | Each node label's dense ids, as `(start, end)` with `end` excluded |
 | `out_weights`, `in_weights` | Edge weights, when asked for (see [Weighted graphs](#weighted-graphs)); otherwise `None` |
-| `dropped_edges` | Edges whose endpoint key isn't in its node table |
+| `dropped_edges` | Edges whose endpoint key isn't in its node table, or whose weight is null |
 
 The export follows the same rules as a query's join between relationship and node tables. An edge whose
 endpoint key isn't in its node table is left out (and counted in `dropped_edges`), an edge with a null endpoint is
@@ -114,6 +114,16 @@ print(w.out_weights.to_pylist())  # [2.0, 1.0, 7.0, 5.0]
 
 The weight of `out_indices[i]` is `out_weights[i]`, and the same holds for the in-edges. Every included
 relationship type must have the column, and it must be numeric.
+
+A null weight means the weight is unknown, and no number stands in for it safely: 1.0 would make a costly
+edge look cheap to a shortest-path search. So the export leaves the edge out and counts it in `dropped_edges`,
+as it does an edge whose endpoint is missing:
+
+```python
+gaps = pa.table({"src": [10, 20], "dst": [20, 30], "messages": [3, None]})
+partial = CypherEngine(config, {"Person": people, "FOLLOWS": gaps}).export_graph(weight="messages")
+print(partial.out_weights.to_pylist(), partial.dropped_edges)  # [3.0] 1
+```
 
 The export lists each edge once, so an edge that appears in several rows needs one weight, and
 `combine_edges` says how to get it. The default, `"sum"`, adds the weights, which suits counts and amounts:

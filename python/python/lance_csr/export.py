@@ -117,9 +117,10 @@ class GraphExport:
 
     @property
     def dropped_edges(self) -> int:
-        """Edges left out because an endpoint key isn't in its node table.
+        """Edges left out because an endpoint key isn't in its node table, or, in a
+        weighted export, because the weight is null.
 
-        A query's join between the relationship and node tables leaves them out too.
-        Edges with a null endpoint are skipped and not counted.
+        A query's join between the relationship and node tables leaves out the first
+        kind too. Edges with a null endpoint are skipped and not counted.
         """
         return self._inner.dropped_edges

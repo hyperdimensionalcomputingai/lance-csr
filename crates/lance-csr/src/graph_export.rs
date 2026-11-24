@@ -11,7 +11,8 @@
 //!   the node table's rows in scan order (rows with a null key are skipped), so keys
 //!   that collide across labels stay distinct;
 //! - edges: endpoints are mapped to dense ids in parallel; an edge with a null
-//!   endpoint is skipped, one whose key isn't in its node table is dropped and counted;
+//!   endpoint is skipped, one whose key isn't in its node table, or whose weight is
+//!   null in a weighted export, is dropped and counted;
 //! - rows: each edge is packed as `row * n + column` into a `u64`, sorted in parallel
 //!   and deduplicated, which sorts every neighbour list too; `indptr` is then a count
 //!   per row. Directed graphs also get the in-edge CSR (PageRank reads in-edges);
@@ -59,7 +60,8 @@ pub struct GraphExport {
     pub out_weights: Option<Float64Array>,
     /// The weight of each entry in `in_indices`; `None` for undirected or unweighted graphs.
     pub in_weights: Option<Float64Array>,
-    /// Edges dropped because an endpoint key isn't in its node table.
+    /// Edges dropped because an endpoint key isn't in its node table, or, in a weighted
+    /// export, because the weight is null.
     pub dropped_edges: u64,
 }
 
@@ -313,18 +315,18 @@ pub(crate) async fn export_graph(
                 Some(name) => Some(float64(batch.column(2), name, &rel.name)?),
                 None => None,
             };
-            if w.as_ref().is_some_and(|w| w.null_count() > 0) {
-                return Err(exec_error(format!(
-                    "Weight column '{}' of '{}' has null values",
-                    rel.weight.as_deref().unwrap_or_default(),
-                    rel.name
-                )));
-            }
             let pairs: Vec<Option<(u64, u64, usize)>> = (0..batch.num_rows())
                 .into_par_iter()
                 .with_min_len(4096)
                 .filter(|&i| s.is_valid(i) && d.is_valid(i))
-                .map(|i| Some((*src_map.get(&s.value(i))?, *dst_map.get(&d.value(i))?, i)))
+                .map(|i| {
+                    // A null weight drops the edge, as a missing endpoint does: no weight
+                    // is a safe stand-in for an unknown one.
+                    if w.as_ref().is_some_and(|w| w.is_null(i)) {
+                        return None;
+                    }
+                    Some((*src_map.get(&s.value(i))?, *dst_map.get(&d.value(i))?, i))
+                })
                 .collect();
             for pair in pairs {
                 match (pair, &w) {
@@ -823,6 +825,31 @@ mod tests {
         }
         assert_eq!("MAX".parse::<CombineEdges>().unwrap(), CombineEdges::Max);
         assert!("mean".parse::<CombineEdges>().is_err());
+    }
+
+    #[tokio::test]
+    async fn null_weights_drop_and_count_their_edges() {
+        // Null weights on one copy of the duplicate 10->20 and on 30->10.
+        let mut w = powers_of_two();
+        w[1] = None;
+        w[3] = None;
+        let (nodes, edges) = weighted_people(w);
+        let engine = arrow_engine(person_config(), vec![("Person", nodes), ("KNOWS", edges)]).await;
+        let g = engine
+            .export_graph(None, true, Some("w"), CombineEdges::Sum)
+            .await
+            .unwrap();
+        // 10->99 and the two null weights; the null endpoint isn't counted.
+        assert_eq!(g.dropped_edges, 3);
+        assert_eq!(values(&g.out_indptr), vec![0, 1, 2, 3, 4, 5, 5]);
+        assert_eq!(values(&g.out_indices), vec![2, 4, 0, 3, 3]);
+        assert_eq!(weights(&g.out_weights), vec![128.0, 1.0, 64.0, 16.0, 4.0]);
+        // Without `weight`, the column is ignored and nothing extra is dropped.
+        let plain = engine
+            .export_graph(None, true, None, CombineEdges::Sum)
+            .await
+            .unwrap();
+        assert_eq!(plain.dropped_edges, 1);
     }
 
     #[tokio::test]

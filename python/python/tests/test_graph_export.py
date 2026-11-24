@@ -77,6 +77,14 @@ def test_weights():
     assert high.out_weights is not None
     assert high.out_weights.to_pylist() == [128, 8, 2, 128, 8, 16, 4, 2, 4]
 
+    # A null weight drops its edge and counts it; unweighted exports ignore it.
+    gaps = EDGES.append_column("w", pa.array([1, None, 4, 8, 16, 32, 64, 128, 256]))
+    gappy = CypherEngine(CONFIG, {"Person": NODES, "KNOWS": gaps})
+    dropped = gappy.export_graph(weight="w")
+    assert dropped.dropped_edges == 2 and dropped.out_weights is not None
+    assert dropped.out_weights.to_pylist() == [128, 1, 64, 8, 16, 4]
+    assert gappy.export_graph().dropped_edges == 1
+
     with pytest.raises(ValueError, match="cost"):
         engine.export_graph(weight="cost")
     with pytest.raises(ValueError, match="combine_edges"):

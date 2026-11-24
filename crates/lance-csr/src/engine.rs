@@ -1618,8 +1618,8 @@ impl CypherEngine {
     /// # Errors
     /// [`GraphError::ConfigError`] for an unknown relationship type or label, a missing
     /// or non-integer key or endpoint column, a missing or non-numeric weight column, or
-    /// nothing to export; [`GraphError::ExecutionError`] for a repeated node key, a null
-    /// weight or a failed scan.
+    /// nothing to export; [`GraphError::ExecutionError`] for a repeated node key or a
+    /// failed scan. An edge with a null weight is dropped and counted in `dropped_edges`.
     pub async fn export_graph(
         &self,
         rel_types: Option<&[String]>,

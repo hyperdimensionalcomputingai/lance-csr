@@ -491,7 +491,8 @@ class CypherEngine:
         weight : str or None
             Keyword-only. A numeric column of the relationship tables to export as
             `float64` edge weights, in `out_weights` and `in_weights`; every included
-            type must have it, case-insensitive. `None` (the default) exports no
+            type must have it, case-insensitive. An edge whose weight is null is left
+            out and counted in `dropped_edges`. `None` (the default) exports no
             weights, and the export then needs no memory for them.
         combine_edges : {"sum", "min", "max"}
             Keyword-only. How an edge listed more than once combines its weights:
@@ -513,8 +514,7 @@ class CypherEngine:
             (`uint64` isn't supported), the weight column is missing or isn't numeric,
             `combine_edges` isn't one of the three rules, or there's nothing to export.
         RuntimeError
-            If a node key appears twice within a label, a weight is null, or a scan
-            fails.
+            If a node key appears twice within a label, or a scan fails.
 
         Examples
         --------

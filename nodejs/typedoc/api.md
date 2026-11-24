@@ -281,7 +281,7 @@ without `useCsr`. Lance datasets are scanned for just those columns. See
 | `options?` | \{ `combineEdges?`: `"sum"` \| `"min"` \| `"max"`; `directed?`: `boolean`; `weight?`: `string`; \} | - |
 | `options.combineEdges?` | `"sum"` \| `"min"` \| `"max"` | How an edge listed more than once combines its weights: `"sum"` (the default) adds them, as for counts or amounts; `"min"` keeps the smallest, as for distances; `"max"` the largest. In an undirected export, `a -> b` and `b -> a` are one edge and combine the same way. Ignored without `weight`. |
 | `options.directed?` | `boolean` | `true` (the default) returns out-edge and in-edge arrays; `false` returns one set of arrays listing every edge in both directions. |
-| `options.weight?` | `string` | A numeric column of the relationship tables to export as float64 edge weights, in `outWeights` and `inWeights`; every included type must have it, case-insensitive. Left out, no weights are exported, and the export needs no memory for them. |
+| `options.weight?` | `string` | A numeric column of the relationship tables to export as float64 edge weights, in `outWeights` and `inWeights`; every included type must have it, case-insensitive. An edge whose weight is null is left out and counted in `droppedEdges`. Left out, no weights are exported, and the export needs no memory for them. |
 
 ###### Returns
 
@@ -292,8 +292,8 @@ without `useCsr`. Lance datasets are scanned for just those columns. See
 [LanceCsrError](#lancecsrerror) `InvalidArgument` if a relationship type or label isn't in
   the config, has no dataset, or a key or endpoint column is missing or isn't an integer
   type up to `int64`, the weight column is missing or isn't numeric, `combineEdges` isn't
-  one of the three rules, or there's nothing to export; `Runtime` if a node key appears twice within a label, a weight is null, or a scan
-  fails.
+  one of the three rules, or there's nothing to export; `Runtime` if a node key appears
+  twice within a label, or a scan fails.
 
 <a id="nodeindexstats"></a>
 
@@ -1638,7 +1638,7 @@ id back to its node's key. The vectors wrap typed arrays built in Rust. See
 | Property | Type | Description |
 | ------ | ------ | ------ |
 | <a id="property-directed"></a> `directed` | `boolean` | Whether the arrays describe a directed graph. |
-| <a id="property-droppededges"></a> `droppedEdges` | `number` | Edges left out because an endpoint key isn't in its node table. Edges with a null endpoint are skipped and not counted. |
+| <a id="property-droppededges"></a> `droppedEdges` | `number` | Edges left out because an endpoint key isn't in its node table, or, in a weighted export, because the weight is null. Edges with a null endpoint are skipped and not counted. |
 | <a id="property-inindices"></a> `inIndices` | `Vector`\<`Uint64`\> \| `null` | Each node's in-neighbours, sorted, without duplicates; `null` for an undirected graph. |
 | <a id="property-inindptr"></a> `inIndptr` | `Vector`\<`Uint64`\> \| `null` | Offsets into `inIndices`; `null` for an undirected graph. |
 | <a id="property-inweights"></a> `inWeights` | `Vector`\<`Float64`\> \| `null` | The weight of each entry in `inIndices`; `null` for an undirected export, or unless `exportGraph` was given a `weight` column. |
