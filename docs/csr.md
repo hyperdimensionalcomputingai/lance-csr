@@ -179,8 +179,8 @@ hops. A node's label and key travel together, so the same integer key in two lab
 The iterative path needs CSR indexes for every traversed type and direction, node indexes for every
 intermediate label, and resolved labels for the endpoints. Unsupported index shapes retain the join
 fallback. The 20-hop maximum still applies. `*0..` includes a zero-hop identity match when both labels and
-keys agree. Undirected paths keep the existing rule that rejects immediate backtracking; neither execution
-path enforces full relationship uniqueness on longer cycles.
+keys agree. Each cursor records the relationship type and stored edge row used to reach it.
+The walk skips an edge already on the current trail and can return to a node along a different edge.
 
 Traversal state grows with the hop limit, not the number of pending paths. Resident graph indexes, input
 batches, fetched target properties and downstream operators still contribute to query memory. Branching

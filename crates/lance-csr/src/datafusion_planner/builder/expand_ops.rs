@@ -193,6 +193,7 @@ impl DataFusionPlanner {
                     relationship_properties,
                     rel_map,
                     direction,
+                    None,
                 )?;
 
                 // Join source node with relationship
@@ -735,19 +736,17 @@ impl DataFusionPlanner {
         // Generate a plan for each hop count and UNION them
         let mut plans = Vec::new();
 
-        for hop_count in min_hops..=max_hops {
-            let mut plan = self.build_fixed_length_path(
-                ctx,
-                input_plan.clone(),
-                source_variable,
-                target_variable,
-                relationship_types,
-                direction,
-                hop_count,
-                relationship_properties,
-                target_properties,
-            )?;
-
+        let paths = self.build_trail_paths(
+            ctx,
+            &input_plan,
+            [source_variable, target_variable],
+            relationship_types,
+            direction,
+            [min_hops, max_hops],
+            relationship_properties,
+            target_properties,
+        )?;
+        for mut plan in paths {
             // Project only source and target columns to ensure consistent schema for UNION
             // This removes intermediate node columns that vary by hop count
             // Use the pre-computed expected column set derived from actual node schemas
@@ -798,136 +797,6 @@ impl DataFusionPlanner {
             }
             Ok(union_plan)
         }
-    }
-
-    /// Build a fixed-length path of N hops
-    ///
-    /// For hop_count=3: (a)-[:KNOWS]->(temp1)-[:KNOWS]->(temp2)-[:KNOWS]->(b)
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn build_fixed_length_path(
-        &self,
-        ctx: &mut PlanningContext,
-        input_plan: LogicalPlan,
-        source_variable: &str,
-        target_variable: &str,
-        relationship_types: &[String],
-        direction: &RelationshipDirection,
-        hop_count: u32,
-        relationship_properties: &HashMap<String, crate::ast::PropertyValue>,
-        target_properties: &HashMap<String, crate::ast::PropertyValue>,
-    ) -> Result<LogicalPlan> {
-        if hop_count == 0 {
-            let (source_label, source_map) = self.get_target_node_mapping(ctx, source_variable)?;
-            let (target_label, target_map) = self.get_target_node_mapping(ctx, target_variable)?;
-            let source = col(qualify_column(source_variable, &source_map.id_field));
-            let target = qualify_column(target_variable, &target_map.id_field);
-            let same_label = source_label.eq_ignore_ascii_case(&target_label);
-            let mut builder = LogicalPlanBuilder::from(input_plan);
-            if builder
-                .schema()
-                .field_with_unqualified_name(&target)
-                .is_ok()
-            {
-                if !target_properties.is_empty() {
-                    return Err(crate::error::GraphError::PlanError {
-                        message: format!("Property filters on reused variable '{target_variable}' are not yet supported"),
-                        location: snafu::Location::new(file!(), line!(), column!()),
-                    });
-                }
-                builder = builder
-                    .filter(
-                        source
-                            .eq(col(&target))
-                            .and(datafusion::logical_expr::lit(same_label)),
-                    )
-                    .map_err(|e| self.plan_error("Failed to filter zero-hop identity", e))?;
-            } else {
-                let target_source =
-                    self.get_catalog()?
-                        .node_source(&target_label)
-                        .ok_or_else(|| crate::error::GraphError::PlanError {
-                            message: format!("No node source for {target_label}"),
-                            location: snafu::Location::new(file!(), line!(), column!()),
-                        })?;
-                let scan = self.build_target_scan(
-                    target_source,
-                    &target_label,
-                    target_variable,
-                    target_properties,
-                )?;
-                builder = builder
-                    .join_on(
-                        scan,
-                        datafusion::logical_expr::JoinType::Inner,
-                        [source
-                            .eq(col(&target))
-                            .and(datafusion::logical_expr::lit(same_label))],
-                    )
-                    .map_err(|e| self.plan_error("Failed to join zero-hop identity", e))?;
-            }
-            return builder
-                .build()
-                .map_err(|e| self.plan_error("Failed to build zero-hop identity", e));
-        }
-        let mut current_plan = input_plan;
-        let mut current_source = source_variable.to_string();
-        let mut path_nodes = vec![current_source.clone()];
-
-        for hop_index in 0..hop_count {
-            let is_last_hop = hop_index == hop_count - 1;
-
-            // Target variable: use actual target on last hop, temp variable otherwise
-            let current_target = if is_last_hop {
-                target_variable.to_string()
-            } else {
-                format!("_temp_{}_{}", source_variable, hop_index + 1)
-            };
-
-            // Build the expansion on top of current plan
-            // Apply target properties only on the last hop
-            let props_to_apply = if is_last_hop {
-                target_properties
-            } else {
-                &HashMap::new()
-            };
-
-            current_plan = self.build_expand_on_plan(
-                ctx,
-                current_plan,
-                &current_source,
-                &current_target,
-                relationship_types,
-                direction,
-                relationship_properties,
-                props_to_apply,
-            )?;
-
-            // Move to next hop
-            path_nodes.push(current_target.clone());
-            current_source = current_target;
-        }
-
-        if *direction != RelationshipDirection::Undirected {
-            return Ok(current_plan);
-        }
-        // Cypher never reuses a relationship within a path, but an undirected hop can walk
-        // straight back over the edge it just took (u-v-u). Rule that out by requiring each
-        // node to differ from the one two hops earlier.
-        // shortcut: exact only while no two distinct edges join the same pair of nodes (and
-        // for paths of at most 3 hops); upgrade by carrying edge row ids through the hops.
-        let mut builder = LogicalPlanBuilder::from(current_plan);
-        for pair in path_nodes.windows(3) {
-            let id = |var: &str| -> Result<_> {
-                let (_, node_map) = self.get_target_node_mapping(ctx, var)?;
-                Ok(col(qualify_column(var, &node_map.id_field)))
-            };
-            builder = builder
-                .filter(id(&pair[0])?.not_eq(id(&pair[2])?))
-                .map_err(|e| self.plan_error("Failed to filter backtracking hops", e))?;
-        }
-        builder
-            .build()
-            .map_err(|e| self.plan_error("Failed to build undirected path", e))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1040,46 +909,6 @@ impl DataFusionPlanner {
             },
         )
         .map(Some)
-    }
-
-    /// Build a single-hop expansion on top of an existing plan (one hop of a
-    /// variable-length path). Uses the same planning as a single hop, so a hop gets
-    /// the CSR expansion whenever a plain `(a)-[:R]->(b)` would.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn build_expand_on_plan(
-        &self,
-        ctx: &mut PlanningContext,
-        input_plan: LogicalPlan,
-        source_variable: &str,
-        target_variable: &str,
-        relationship_types: &[String],
-        direction: &RelationshipDirection,
-        relationship_properties: &HashMap<String, crate::ast::PropertyValue>,
-        target_properties: &HashMap<String, crate::ast::PropertyValue>,
-    ) -> Result<LogicalPlan> {
-        if relationship_types.is_empty() {
-            return Err(crate::error::GraphError::InvalidPattern {
-                message: "Expand requires at least one relationship type".to_string(),
-                location: snafu::Location::new(file!(), line!(), column!()),
-            });
-        }
-        // Fail on a missing mapping or catalog here: `expand_plan` passes the input
-        // through in those cases, which would silently drop the hop.
-        self.get_relationship_mapping(&relationship_types[0])?;
-        self.get_catalog()?;
-        let (target_label, _) = self.get_target_node_mapping(ctx, target_variable)?;
-        self.expand_plan(
-            ctx,
-            input_plan,
-            source_variable,
-            target_variable,
-            &target_label,
-            relationship_types,
-            direction,
-            None,
-            relationship_properties,
-            target_properties,
-        )
     }
 }
 

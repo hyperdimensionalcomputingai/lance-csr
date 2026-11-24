@@ -15,6 +15,8 @@ use crate::csr_expand::{
 struct Step {
     from: usize,
     to: usize,
+    /// Index of the relationship type: with the edge row, it identifies the edge.
+    rel: usize,
     adjacency: Neighbors,
 }
 
@@ -26,7 +28,6 @@ pub(crate) struct Traversal {
     target: usize,
     pub min_hops: u32,
     pub max_hops: u32,
-    undirected: bool,
 }
 
 impl Traversal {
@@ -54,7 +55,7 @@ impl Traversal {
         };
         let (start, target) = (label(source_label)?, label(target_label)?);
         let mut steps = Vec::new();
-        for name in types {
+        for (rel, name) in types.iter().enumerate() {
             let mapping = config.get_relationship_mapping(name)?;
             let (from, to) = (
                 label(mapping.source_label.as_deref()?)?,
@@ -64,16 +65,19 @@ impl Traversal {
                 RelationshipDirection::Outgoing => steps.push(Step {
                     from,
                     to,
+                    rel,
                     adjacency: Neighbors::directed(catalog.get(name, true)?.clone()),
                 }),
                 RelationshipDirection::Incoming => steps.push(Step {
                     from: to,
                     to: from,
+                    rel,
                     adjacency: Neighbors::directed(catalog.get(name, false)?.clone()),
                 }),
                 RelationshipDirection::Undirected if from == to => steps.push(Step {
                     from,
                     to,
+                    rel,
                     adjacency: Neighbors::undirected(
                         catalog.get(name, true)?.clone(),
                         catalog.get(name, false)?.clone(),
@@ -83,11 +87,13 @@ impl Traversal {
                     steps.push(Step {
                         from,
                         to,
+                        rel,
                         adjacency: Neighbors::directed(catalog.get(name, true)?.clone()),
                     });
                     steps.push(Step {
                         from: to,
                         to: from,
+                        rel,
                         adjacency: Neighbors::directed(catalog.get(name, false)?.clone()),
                     });
                 }
@@ -100,7 +106,6 @@ impl Traversal {
             target,
             min_hops,
             max_hops,
-            undirected: *direction == RelationshipDirection::Undirected,
         })
     }
 }
@@ -111,16 +116,19 @@ struct Frame {
     step: usize,
     position: NeighborPosition,
     emit: bool,
+    /// The edge this frame was reached by, as (type index, edge row).
+    edge: Option<(usize, u64)>,
 }
 
 impl Frame {
-    fn new(label: usize, key: i64) -> Self {
+    fn new(label: usize, key: i64, edge: Option<(usize, u64)>) -> Self {
         Self {
             label,
             key,
             step: 0,
             position: NeighborPosition::default(),
             emit: true,
+            edge,
         }
     }
 }
@@ -132,7 +140,7 @@ pub(crate) struct TraversalCursor {
 impl TraversalCursor {
     pub fn new(graph: &Traversal, key: i64) -> Self {
         Self {
-            stack: vec![Frame::new(graph.start, key)],
+            stack: vec![Frame::new(graph.start, key, None)],
         }
     }
 
@@ -161,12 +169,12 @@ impl TraversalCursor {
             let next = (step.from == frame.label)
                 .then(|| {
                     step.adjacency
-                        .candidates_from::<false>(frame.key, &mut frame.position)
+                        .candidates_from::<true>(frame.key, &mut frame.position)
                         .next()
                 })
                 .flatten();
-            let key = match next {
-                Some(Some((key, _))) => key as i64,
+            let (key, edge) = match next {
+                Some(Some((key, row))) => (key as i64, (step.rel, row)),
                 Some(None) => continue,
                 None => {
                     frame.step += 1;
@@ -177,16 +185,19 @@ impl TraversalCursor {
             if graph.nodes[step.to].position(key).is_none() {
                 continue;
             }
-            // Preserve the existing undirected immediate-backtracking rule, using typed ids.
-            // shortcut: full relationship uniqueness needs edge row ids, as on the join path.
-            if graph.undirected
-                && self.stack.len() >= 2
-                && self.stack[self.stack.len() - 2].label == step.to
-                && self.stack[self.stack.len() - 2].key == key
-            {
+            // A trail uses each relationship at most once (Cypher relationship isomorphism).
+            if self.stack.iter().any(|f| f.edge == Some(edge)) {
                 continue;
             }
-            self.stack.push(Frame::new(step.to, key));
+            // At the limit there is no next hop. Emit directly from the parent's cursor
+            // instead of allocating a frame just to return the endpoint and pop it.
+            if depth + 1 == graph.max_hops {
+                if step.to == graph.target {
+                    return Some(key);
+                }
+                continue;
+            }
+            self.stack.push(Frame::new(step.to, key, Some(edge)));
         }
         None
     }
@@ -324,7 +335,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn zero_hop_is_identity_and_depth_bound_survives_cycles() {
+    async fn zero_hop_is_identity_and_a_cycle_can_only_be_traversed_once() {
         let (config, catalog) = graph().await;
         let walk = Traversal::new(
             &config,
@@ -338,7 +349,7 @@ mod tests {
         )
         .unwrap();
         let mut cursor = TraversalCursor::new(&walk, 1);
-        for depth in 0..=20 {
+        for depth in 0..=3 {
             assert_eq!(cursor.next(&walk).await, Some(1 + depth % 3));
             assert_eq!(cursor.stack.len(), depth as usize + 1);
         }

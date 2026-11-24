@@ -367,7 +367,11 @@ RETURN length(p), nodes(p)
   alternative-branch bound still applies.
 - **Variable length** defaults to a minimum of 1 and a maximum of 20 hops; a maximum above 20 is rejected.
   `*0..` also matches the source itself, once per input row; `*0..0` matches only that identity. The start
-  and end must have the same label and key for a zero-hop match. Eligible CSR paths use one iterative
+  and end must have the same label and key for a zero-hop match. Each stored relationship can occur
+  once per variable-length segment, in either direction. A path can revisit a node using a different
+  relationship. For example, two parallel edges between nodes 1 and 2 give two distinct two-hop
+  trails from 1 back to 1. Earlier versions could drop these valid trails or count extra rows
+  by reusing an edge in a cycle. Eligible CSR paths use one iterative
   expansion for the whole range; the join fallback uses one branch per length. A property map on a
   variable-length relationship, such as `[:KNOWS*1..3 {since: 2020}]`, must hold for every relationship
   on the path; a zero-hop match has none to check. Such a path uses the join fallback.
@@ -376,15 +380,16 @@ RETURN length(p), nodes(p)
   Named paths also support typed variable-length alternation through their edge inventory.
   A standalone undirected segment with an explicit upper bound and multiple types, such as
   `MATCH (a:Person)-[:KNOWS|WORKS_WITH*1..3]-(b:Person) RETURN b.id`, can change
-  direction at each hop. Its endpoints need known labels and integer keys. Each stored
-  relationship can occur only once per trail, so parallel edges can yield repeated endpoints.
+  direction at each hop. Its endpoints need known labels and integer keys.
   This form also works in `OPTIONAL MATCH`.
-- **Unnamed single-type undirected variable-length paths** skip immediate backtracking (`a-b-a`).
 - **Relationship uniqueness**: within one `MATCH`, two single-hop relationships of the same type never
   bind the same edge, whether they are named or anonymous, in one pattern or in comma-separated parts.
   `(a)-[:KNOWS]->(b)<-[:KNOWS]-(c)` therefore never matches `c = a`. Separate `MATCH` clauses may bind the
   same edge again. Edges are compared by their endpoints, so two parallel edges between the same nodes
-  count as one. Variable-length and untyped relationships are not checked, except inside a named path.
+  count as one for this single-hop check. A named path tracks edge occurrences across its segments.
+  An unnamed path can also track occurrences across segments that share a type when all boundary
+  labels resolve and the relationship mappings have integer keys. For string keys or paths in
+  separate comma-separated patterns, the variable-length check applies within each segment.
 - **`count(r)` on a relationship** counts the rows where `r` matched, so an unmatched `OPTIONAL MATCH`
   counts zero. `count(DISTINCT r)` compares all of `r`'s columns: parallel edges with identical properties
   count once.
@@ -402,8 +407,7 @@ RETURN length(p), nodes(p)
   duplicate node sequences that use different parallel edges. A single source-target pair searches from
   both ends when reverse adjacency is available. Several targets for the same source in an input batch
   share one forward search, and those forward searches run together, up to 64 sources at a time.
-- **Named paths** (`p = (a)-[:R]->(b)`) retain the ordered node and relationship records. Named
-  variable-length paths use each relationship at most once, including self-loops and parallel edges.
+- **Named paths** (`p = (a)-[:R]->(b)`) retain the ordered node and relationship records.
   Use `relationships(p)` for variable-length relationship lists; binding a relationship variable inside
   a named variable-length segment is not supported.
 

@@ -277,8 +277,9 @@ ProjectionExec: expr=[p__length@6 as length(p)]
 
 ## `PathMatch`: named paths with real edge identity
 
-CSR neighbours don't carry edge identity or properties, but `MATCH p = ...` with `relationships(p)` needs both, and
-parallel edges must stay distinct even through `collect()` and `UNWIND`. `PathMatchExec` builds one immutable,
+The CSR walk uses the relationship type and stored edge row to recognize a repeated hop.
+`MATCH p = ...` with `relationships(p)` also returns the ordered relationships and their properties.
+Parallel edges stay distinct through `collect()` and `UNWIND`. `PathMatchExec` builds one immutable,
 query-local edge inventory in which an edge's identity is its actual scanned occurrence. It enumerates trails over the
 inventory, resuming between output batches, and reuses the bidirectional breadth-first search on a bipartite
 node/edge graph for shortest paths. Path values keep properties in a marked child, so user property names can't
@@ -286,9 +287,12 @@ collide with identity metadata. When an untyped match combines branches, the pla
 marked property fields by name before casting each branch to the common schema. This also preserves
 the node records nested inside a path or a relationship endpoint. See [path values](../cypher.md#path-values).
 
-For an unnamed, bounded undirected segment with several types, the same operator emits
-boundary columns and skips building the Arrow path value for each trail. It still builds the
-inventory of participating tables and tracks edge occurrences during traversal.
+For a mapped, integer-keyed path where a variable-length segment and another segment share
+a relationship type, the planner can use the inventory to track used edges across both segments.
+An unnamed, bounded undirected segment with several types can use iterative `CsrExpandExec`
+when the required indexes are available. The fallback uses `PathMatchExec` to emit boundary
+columns without building Arrow path values. Both operators identify each edge by its type and
+occurrence, including when a trail traverses it in reverse.
 
 Path property values are logical expressions, so cached plans bind them before physical planning.
 The physical operator then builds predicates against the inventory's node and relationship schemas.

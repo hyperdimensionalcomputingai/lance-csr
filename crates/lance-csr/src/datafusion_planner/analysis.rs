@@ -196,8 +196,6 @@ fn analyze_operator(
             relationship_types,
             direction,
             relationship_variable,
-            min_length,
-            max_length,
             ..
         } => {
             // Recursively analyze input first
@@ -209,40 +207,26 @@ fn analyze_operator(
             );
             analysis.var_to_label.insert(target_variable.clone(), label);
 
-            // For variable-length paths, register multiple instances (one per hop)
-            // We need to register instances for all possible hop counts
-            if let Some(rel_type) = relationship_types.first() {
-                let max_hops = max_length.unwrap_or(crate::MAX_VARIABLE_LENGTH_HOPS);
-                let min_hops = min_length.unwrap_or(1).max(1);
-
-                // Register instances for each hop count we'll generate
-                for hop_count in min_hops..=max_hops {
-                    for _ in 0..hop_count {
-                        let instance_id = rel_counter
-                            .entry(rel_type.clone())
-                            .and_modify(|c| *c += 1)
-                            .or_insert(1);
-
-                        // Use relationship variable if provided, otherwise use type_instanceId
-                        let alias = if let Some(rel_var) = relationship_variable {
-                            format!("{}_{}", rel_var, instance_id)
-                        } else {
-                            format!("{}_{}", rel_type.to_lowercase(), instance_id)
-                        };
-
-                        analysis.relationship_instances.push(RelationshipInstance {
-                            id: *instance_id,
-                            rel_type: rel_type.clone(),
-                            source_var: source_variable.clone(),
-                            target_var: target_variable.clone(),
-                            direction: direction.clone(),
-                            alias,
-                        });
-                    }
-                }
-
-                analysis.required_datasets.insert(rel_type.clone());
+            // Both the CSR operator and the join fallback consume one instance per segment.
+            // The fallback's per-hop columns are local to each branch.
+            if let Some(kind) = relationship_types.first() {
+                let id = rel_counter.entry(kind.clone()).or_default();
+                *id += 1;
+                let name = relationship_variable
+                    .clone()
+                    .unwrap_or_else(|| kind.to_lowercase());
+                analysis.relationship_instances.push(RelationshipInstance {
+                    id: *id,
+                    rel_type: kind.clone(),
+                    source_var: source_variable.clone(),
+                    target_var: target_variable.clone(),
+                    direction: direction.clone(),
+                    alias: format!("{name}_{id}"),
+                });
             }
+            analysis
+                .required_datasets
+                .extend(relationship_types.iter().cloned());
         }
         LogicalOperator::Filter { input, .. }
         | LogicalOperator::Project { input, .. }
@@ -441,7 +425,7 @@ mod tests {
 
     #[test]
     fn test_varlength_expand_analysis_registers_instances() {
-        // Test that analysis phase correctly registers multiple relationship instances
+        // Internal hop aliases are private to the segment.
         let scan_a = LogicalOperator::ScanByLabel {
             variable: "a".to_string(),
             label: "Person".to_string(),
@@ -475,18 +459,14 @@ mod tests {
         let _planner = crate::datafusion_planner::DataFusionPlanner::new(cfg);
         let analysis = analyze(&vlexpand).unwrap();
 
-        // For *1..2, should register 1 + 2 = 3 instances
+        // One public instance regardless of the number of internal hops.
         let knows_instances: Vec<_> = analysis
             .relationship_instances
             .iter()
             .filter(|r| r.rel_type == "KNOWS")
             .collect();
 
-        assert_eq!(
-            knows_instances.len(),
-            3,
-            "Expected 3 KNOWS instances (1 for 1-hop + 2 for 2-hop)"
-        );
+        assert_eq!(knows_instances.len(), 1);
     }
 
     #[test]

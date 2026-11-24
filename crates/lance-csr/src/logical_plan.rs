@@ -259,6 +259,7 @@ pub struct LogicalPlanner<'a> {
     config: &'a GraphConfig,
     fan_out: Option<&'a FanOut>,
     adjacency: Option<&'a crate::csr_expand::AdjacencyCatalog>,
+    catalog: Option<&'a dyn crate::GraphSourceCatalog>,
     /// Mark columns created for EXISTS subqueries so far (names `__exists_<n>`).
     exists_marks: usize,
     /// Aliases holding lists of node ids (`collect(node) AS friends`), with the label.
@@ -286,6 +287,7 @@ impl<'a> LogicalPlanner<'a> {
             config,
             fan_out: None,
             adjacency: None,
+            catalog: None,
             exists_marks: 0,
             node_lists: HashMap::new(),
             comprehensions: 0,
@@ -312,16 +314,91 @@ impl<'a> LogicalPlanner<'a> {
         self
     }
 
-    fn retain_variable_alternation(&self, patterns: &[GraphPattern]) -> bool {
+    pub(crate) fn with_catalog(
+        mut self,
+        catalog: Option<&'a dyn crate::GraphSourceCatalog>,
+    ) -> Self {
+        self.catalog = catalog;
+        self
+    }
+
+    /// Separate expand operators share node IDs but not the used edges. Only an overlapping
+    /// variable-length segment needs the inventory to keep edge identity across boundaries.
+    fn needs_shared_path_inventory(&self, path: &PathPattern) -> bool {
+        let segments = &path.segments;
+        if path.variable.is_some() || path.shortest.is_some() || segments.len() < 2 {
+            return false;
+        }
+        let overlapping = segments.iter().enumerate().any(|(i, a)| {
+            a.relationship.length.is_some()
+                && segments.iter().enumerate().any(|(j, b)| {
+                    i != j
+                        && a.relationship.types.iter().any(|kind| {
+                            b.relationship
+                                .types
+                                .iter()
+                                .any(|t| t.eq_ignore_ascii_case(kind))
+                        })
+                })
+        });
+        if !overlapping {
+            return false;
+        }
+        let Some(catalog) = self.catalog else {
+            return false;
+        };
+        let integer_key = |schema: &arrow_schema::Schema, name: &str| {
+            schema.fields().iter().any(|f| {
+                f.name().eq_ignore_ascii_case(name)
+                    && crate::csr_expand::is_supported_id_type(f.data_type())
+            })
+        };
+        // The inventory needs typed, integer-keyed endpoints. Other ID types still use joins.
+        let supported = |kind: &str| -> Option<bool> {
+            let map = self.config.get_relationship_mapping(kind)?;
+            let edge = catalog.relationship_source(kind)?.schema();
+            for label in [&map.source_label, &map.target_label] {
+                let label = label.as_deref()?;
+                let node = self.config.get_node_mapping(label)?;
+                if !integer_key(&catalog.node_source(label)?.schema(), &node.id_field) {
+                    return Some(false);
+                }
+            }
+            Some(
+                integer_key(&edge, &map.source_id_field)
+                    && integer_key(&edge, &map.target_id_field),
+            )
+        };
+        let resolved = |node: &NodePattern| {
+            node.labels.len() == 1
+                || node
+                    .variable
+                    .as_ref()
+                    .is_some_and(|v| self.variables.contains_key(v))
+        };
+        resolved(&path.start_node)
+            && segments.iter().all(|s| {
+                resolved(&s.end_node)
+                    && !s.relationship.types.is_empty()
+                    && (s.relationship.length.is_none() || s.relationship.variable.is_none())
+                    && s.relationship
+                        .types
+                        .iter()
+                        .all(|t| supported(t) == Some(true))
+            })
+    }
+
+    fn retain_variable_alternation(
+        &self,
+        patterns: &[GraphPattern],
+        bounded_undirected: bool,
+    ) -> bool {
         if patterns
             .iter()
             .all(|p| matches!(p, GraphPattern::Path(path) if path.variable.is_some()))
         {
             return true;
         }
-        let Some(catalog) = self.adjacency else {
-            return false;
-        };
         let labels = |n: &NodePattern| -> Vec<String> {
             n.variable
                 .as_ref()
@@ -345,34 +422,44 @@ impl<'a> LogicalPlanner<'a> {
                     return true;
                 }
                 if rel.variable.is_some()
-                    || !rel.properties.is_empty()
-                    || rel.direction == RelationshipDirection::Undirected
+                    || (rel.direction == RelationshipDirection::Undirected
+                        && (!bounded_undirected || !rel.properties.is_empty()))
                     || (range.min == Some(1) && range.max == Some(1))
                 {
                     return false;
                 }
                 let (starts, ends) = (labels(start), labels(&segment.end_node));
-                let (Some(start), Some(end)) = (starts.first(), ends.first()) else {
+                let (Some(first), Some(last)) = (starts.first(), ends.first()) else {
                     return false;
                 };
-                if starts
-                    .iter()
-                    .chain(&ends)
-                    .any(|l| catalog.nodes(l).is_none())
-                {
-                    return false;
-                }
-                crate::csr_traversal::Traversal::new(
-                    self.config,
-                    catalog,
-                    &rel.types,
-                    &rel.direction,
-                    start,
-                    end,
-                    0,
-                    0,
-                )
-                .is_some()
+                let csr = rel.properties.is_empty()
+                    && self.adjacency.is_some_and(|catalog| {
+                        starts
+                            .iter()
+                            .chain(&ends)
+                            .all(|l| catalog.nodes(l).is_some())
+                            && crate::csr_traversal::Traversal::new(
+                                self.config,
+                                catalog,
+                                &rel.types,
+                                &rel.direction,
+                                first,
+                                last,
+                                0,
+                                0,
+                            )
+                            .is_some()
+                    });
+                // Without the CSR walk, the planner joins the valid type sequences itself
+                // when both ends have one label (otherwise the unroller handles the segment).
+                csr || (rel.direction != RelationshipDirection::Undirected
+                    && starts.len() == 1
+                    && ends.len() == 1
+                    && rel.types.iter().all(|t| {
+                        self.config
+                            .get_relationship_mapping(t)
+                            .is_some_and(|m| m.source_label.is_some() && m.target_label.is_some())
+                    }))
             })
         })
     }
@@ -570,7 +657,8 @@ impl<'a> LogicalPlanner<'a> {
         for branch in &query.union_branches {
             let mut planner = LogicalPlanner::new(self.config)
                 .with_fan_out(self.fan_out)
-                .with_adjacency(self.adjacency);
+                .with_adjacency(self.adjacency)
+                .with_catalog(self.catalog);
             planner.calls = self.calls;
             planner.rich_paths = self.rich_paths;
             planner.wildcard_relationships = self.wildcard_relationships;
@@ -664,7 +752,8 @@ impl<'a> LogicalPlanner<'a> {
         let id = self.calls;
         let mut inner = Self::new(self.config)
             .with_fan_out(self.fan_out)
-            .with_adjacency(self.adjacency);
+            .with_adjacency(self.adjacency)
+            .with_catalog(self.catalog);
         inner.calls = self.calls;
         inner.rich_paths = self.rich_paths;
         inner.wildcard_relationships = self.wildcard_relationships;
@@ -910,9 +999,23 @@ impl<'a> LogicalPlanner<'a> {
             ),
             ..match_clause.clone()
         };
-        let inventory_alternation = match_clause.is_bounded_undirected_alternation();
+        if let Some(branches) = crate::pattern_alternatives::trail_label_branches(
+            &inferred.patterns,
+            self.config,
+            &self.variables,
+        )? {
+            return self.plan_match_branches(base, branches, filter);
+        }
+        if let [GraphPattern::Path(path)] = inferred.patterns.as_slice() {
+            if self.needs_shared_path_inventory(path) {
+                return self.plan_inventory_path(base, path);
+            }
+        }
+        let bounded_undirected = match_clause.is_bounded_undirected_alternation();
         let match_clause = &inferred;
-        let retain_variable = self.retain_variable_alternation(&match_clause.patterns);
+        let retain_variable =
+            self.retain_variable_alternation(&match_clause.patterns, bounded_undirected);
+        let inventory_alternation = bounded_undirected && !retain_variable;
         if !inventory_alternation
             && crate::pattern_alternatives::needs_expansion(
                 &match_clause.patterns,
@@ -1027,6 +1130,11 @@ impl<'a> LogicalPlanner<'a> {
         // Whether each variable seen in this clause was variable-length.
         let mut seen: HashMap<String, bool> = HashMap::new();
         for rel in relationships(&mut patterns) {
+            if rel.length.is_some() && rel.types.len() > 1 {
+                let mut unique = HashSet::new();
+                rel.types
+                    .retain(|kind| unique.insert(kind.to_ascii_lowercase()));
+            }
             let Some(var) = rel.variable.as_ref() else {
                 continue;
             };

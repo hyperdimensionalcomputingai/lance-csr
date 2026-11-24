@@ -11,7 +11,10 @@ use crate::case_insensitive::qualify_column;
 use crate::config::RelationshipMapping;
 use crate::error::Result;
 use datafusion::common::Column;
-use datafusion::logical_expr::{col, BinaryExpr, Expr, LogicalPlan, LogicalPlanBuilder, Operator};
+use datafusion::functions_window::expr_fn::row_number;
+use datafusion::logical_expr::{
+    col, BinaryExpr, Expr, ExprFunctionExt, LogicalPlan, LogicalPlanBuilder, Operator,
+};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -120,7 +123,13 @@ impl DataFusionPlanner {
             .map_err(|e| self.plan_error("Failed to build scan plan", e))
     }
 
-    /// Build a qualified relationship scan with property filters
+    /// Build a qualified relationship scan with property filters.
+    ///
+    /// With `rank_column`, the scan also carries each row's number among
+    /// the rows with the same (source, target) as walked. Parallel edges then differ, which
+    /// a path needs to tell whether two of its hops walked the same edge. Which parallel
+    /// edge gets which number does not matter: they are interchangeable, and every scan
+    /// of a table numbers them 1..n.
     pub(crate) fn build_relationship_scan(
         &self,
         rel_instance: &RelationshipInstance,
@@ -128,6 +137,7 @@ impl DataFusionPlanner {
         relationship_properties: &HashMap<String, PropertyValue>,
         rel_map: &RelationshipMapping,
         direction: &RelationshipDirection,
+        rank_column: Option<&str>,
     ) -> Result<LogicalPlan> {
         let rel_schema = rel_source.schema();
         let normalized_rel_type = rel_instance.rel_type.to_lowercase();
@@ -168,11 +178,57 @@ impl DataFusionPlanner {
             })
             .collect();
 
-        rel_builder
+        rel_builder = rel_builder
             .project(rel_qualified_exprs)
-            .map_err(|e| self.plan_error("Failed to project relationship columns", e))?
+            .map_err(|e| self.plan_error("Failed to project relationship columns", e))?;
+        if let Some(rank) = rank_column {
+            // After the reversed copies are added: both orientations of an edge are rows of
+            // their own (source, target) group, and each group is numbered 1..n.
+            let (src, dst) = Self::endpoint_columns(&rel_schema, rel_map)?;
+            let number = row_number()
+                .partition_by(vec![
+                    col(Column::new_unqualified(qualify_column(
+                        &rel_instance.alias,
+                        &src,
+                    ))),
+                    col(Column::new_unqualified(qualify_column(
+                        &rel_instance.alias,
+                        &dst,
+                    ))),
+                ])
+                .build()
+                .map_err(|e| self.plan_error("Failed to number parallel edges", e))?
+                .alias(rank);
+            rel_builder = rel_builder
+                .window(vec![number])
+                .map_err(|e| self.plan_error("Failed to number parallel edges", e))?;
+        }
+
+        rel_builder
             .build()
             .map_err(|e| self.plan_error("Failed to build relationship scan", e))
+    }
+
+    /// The physical names of a relationship's source and target id columns.
+    fn endpoint_columns(
+        rel_schema: &arrow_schema::SchemaRef,
+        rel_map: &RelationshipMapping,
+    ) -> Result<(String, String)> {
+        let field = |name: &str| {
+            rel_schema
+                .fields()
+                .iter()
+                .find(|f| f.name().eq_ignore_ascii_case(name))
+                .map(|f| f.name().clone())
+                .ok_or_else(|| crate::error::GraphError::PlanError {
+                    message: format!("Relationship column '{}' not found", name),
+                    location: snafu::Location::new(file!(), line!(), column!()),
+                })
+        };
+        Ok((
+            field(&rel_map.source_id_field)?,
+            field(&rel_map.target_id_field)?,
+        ))
     }
 
     /// For an undirected pattern, append a reversed copy of every edge (source and
@@ -191,21 +247,7 @@ impl DataFusionPlanner {
         if *direction != RelationshipDirection::Undirected {
             return Ok(builder);
         }
-        let field = |name: &str| {
-            rel_schema
-                .fields()
-                .iter()
-                .find(|f| f.name().eq_ignore_ascii_case(name))
-                .map(|f| f.name().clone())
-                .ok_or_else(|| crate::error::GraphError::PlanError {
-                    message: format!("Relationship column '{}' not found", name),
-                    location: snafu::Location::new(file!(), line!(), column!()),
-                })
-        };
-        let (src, dst) = (
-            field(&rel_map.source_id_field)?,
-            field(&rel_map.target_id_field)?,
-        );
+        let (src, dst) = Self::endpoint_columns(rel_schema, rel_map)?;
         let swapped: Vec<Expr> = rel_schema
             .fields()
             .iter()

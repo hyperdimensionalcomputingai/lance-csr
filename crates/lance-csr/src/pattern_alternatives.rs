@@ -404,6 +404,121 @@ pub fn expand(
     Ok(branches)
 }
 
+/// Resolve ambiguous boundary labels before planning a directed variable-length segment.
+/// Each label pair keeps one whole segment, including its relationship-uniqueness check.
+pub(crate) fn trail_label_branches(
+    patterns: &[GraphPattern],
+    config: &GraphConfig,
+    bound: &HashMap<String, String>,
+) -> Result<Option<Vec<Vec<GraphPattern>>>> {
+    let labels = |node: &NodePattern| {
+        if node.labels.is_empty() {
+            node.variable
+                .as_ref()
+                .and_then(|v| bound.get(v))
+                .cloned()
+                .into_iter()
+                .collect()
+        } else {
+            node.labels.clone()
+        }
+    };
+    for (p, pattern) in patterns.iter().enumerate() {
+        let GraphPattern::Path(path) = pattern else {
+            continue;
+        };
+        for (i, segment) in path.segments.iter().enumerate() {
+            let rel = &segment.relationship;
+            let Some(range) = &rel.length else {
+                continue;
+            };
+            if rel.types.len() < 2
+                || rel.direction == RelationshipDirection::Undirected
+                || rel.variable.is_some()
+                || path.shortest.is_some()
+            {
+                continue;
+            }
+            let left = if i == 0 {
+                &path.start_node
+            } else {
+                &path.segments[i - 1].end_node
+            };
+            let (starts, ends) = (labels(left), labels(&segment.end_node));
+            if starts.len() == 1 && ends.len() == 1 {
+                continue;
+            }
+            let fits = |labels: &[String], name: &str| {
+                labels.is_empty() || labels.iter().any(|l| l.eq_ignore_ascii_case(name))
+            };
+            let mut steps = Vec::new();
+            for kind in &rel.types {
+                let map = config.get_relationship_mapping(kind);
+                let Some((a, b)) =
+                    map.and_then(|m| m.source_label.as_deref().zip(m.target_label.as_deref()))
+                else {
+                    return Ok(None); // Let the unroller report the missing mapping.
+                };
+                steps.push(if rel.direction == RelationshipDirection::Incoming {
+                    (b, a)
+                } else {
+                    (a, b)
+                });
+            }
+            // Only the reachable label pairs matter here. Several type sequences for the
+            // same pair share one branch and one used-edge history during execution.
+            let mut frontier: std::collections::BTreeSet<_> = config
+                .iter_node_mappings()
+                .map(|(_, n)| n.label.as_str())
+                .filter(|l| fits(&starts, l))
+                .map(|l| (l, l))
+                .collect();
+            let mut pairs = std::collections::BTreeSet::new();
+            let max = range.max.unwrap_or(crate::MAX_VARIABLE_LENGTH_HOPS);
+            if max > crate::MAX_VARIABLE_LENGTH_HOPS {
+                return Ok(None);
+            }
+            for depth in 0..=max {
+                if depth >= range.min.unwrap_or(1) {
+                    pairs.extend(frontier.iter().copied().filter(|(_, to)| fits(&ends, to)));
+                }
+                if depth < max {
+                    frontier = frontier
+                        .iter()
+                        .flat_map(|&(start, at)| {
+                            steps
+                                .iter()
+                                .filter(move |(from, _)| at.eq_ignore_ascii_case(from))
+                                .map(move |&(_, to)| (start, to))
+                        })
+                        .collect();
+                }
+            }
+            if pairs.len() > MAX_BRANCHES {
+                return Err(too_many());
+            }
+            let mut branches = Vec::new();
+            for (start, end) in pairs {
+                let mut path = path.clone();
+                let left = if i == 0 {
+                    &mut path.start_node
+                } else {
+                    &mut path.segments[i - 1].end_node
+                };
+                left.labels = vec![start.to_string()];
+                path.segments[i].end_node.labels = vec![end.to_string()];
+                let mut branch = patterns.to_vec();
+                branch[p] = GraphPattern::Path(path);
+                branches.push(branch);
+            }
+            if !branches.is_empty() {
+                return Ok(Some(branches));
+            }
+        }
+    }
+    Ok(None)
+}
+
 /// The first variable-length segment with several types, replaced by each fixed-length path
 /// it can match: per hop count in its range, every sequence of types whose endpoint labels
 /// chain from the segment's start node to its end node. `None` when there is no such
@@ -428,28 +543,8 @@ fn unroll_variable_length_alternation(
         return Ok(None);
     };
     let rel = &path.segments[i].relationship;
-    if rel.variable.is_some() || rel.direction == RelationshipDirection::Undirected {
-        return Err(unsupported(
-            "relationship-type alternation in an undirected or named variable-length pattern",
-        ));
-    }
-    let mut ends = Vec::with_capacity(rel.types.len());
-    for t in &rel.types {
-        let m = config.get_relationship_mapping(t);
-        let (Some(src), Some(dst)) = (
-            m.and_then(|m| m.source_label.clone()),
-            m.and_then(|m| m.target_label.clone()),
-        ) else {
-            return Err(plan_error(format!(
-                "relationship type '{t}' needs endpoint labels (GraphConfig rel_table's \
-                 from_table and to_table) for alternation in a variable-length pattern"
-            )));
-        };
-        // Labels in traversal order: the segment is read from its left node.
-        ends.push(match rel.direction {
-            RelationshipDirection::Incoming => (t.clone(), dst, src),
-            _ => (t.clone(), src, dst),
-        });
+    if rel.variable.is_some() {
+        return Err(unsupported(UNSUPPORTED_ALTERNATION));
     }
     let node_labels = |node: &NodePattern| -> Vec<String> {
         match node.variable.as_ref().and_then(|v| bound.get(v)) {
@@ -462,56 +557,19 @@ fn unroll_variable_length_alternation(
     } else {
         &path.segments[i - 1].end_node
     };
-    let (starts, finishes) = (node_labels(left), node_labels(&path.segments[i].end_node));
-    let fits = |labels: &[String], label: &str| {
-        labels.is_empty() || labels.iter().any(|l| l.eq_ignore_ascii_case(label))
-    };
     let range = rel
         .length
         .as_ref()
         .ok_or_else(|| GraphError::internal("a variable-length segment"))?;
     let min = range.min.unwrap_or(1);
-    let max = range.max.unwrap_or(crate::MAX_VARIABLE_LENGTH_HOPS);
-    if max > crate::MAX_VARIABLE_LENGTH_HOPS {
-        return Err(unsupported(&format!(
-            "variable-length paths longer than {} hops",
-            crate::MAX_VARIABLE_LENGTH_HOPS
-        )));
-    }
-    // Depth-first over (type, label after the hop) sequences.
-    let mut sequences: Vec<Vec<(String, String)>> = Vec::new();
-    let mut stack: Vec<Vec<(String, String)>> = vec![vec![]];
-    while let Some(prefix) = stack.pop() {
-        let hops = prefix.len() as u32;
-        let at = prefix.last().map(|(_, label)| label.clone());
-        if hops >= min && at.as_deref().is_some_and(|l| fits(&finishes, l)) {
-            sequences.push(prefix.clone());
-            if sequences.len() > MAX_BRANCHES {
-                return Err(too_many());
-            }
-        }
-        if hops == max {
-            continue;
-        }
-        for (t, from, to) in &ends {
-            let chains = match &at {
-                None => fits(&starts, from),
-                Some(label) => label.eq_ignore_ascii_case(from),
-            };
-            if chains {
-                let mut next = prefix.clone();
-                next.push((t.clone(), to.clone()));
-                stack.push(next);
-            }
-        }
-    }
-    if sequences.is_empty() && min != 0 {
-        return Err(plan_error(
-            "no sequence of relationship types in the variable-length pattern chains its \
-             endpoint labels"
-                .into(),
-        ));
-    }
+    let sequences = alternation_sequences(
+        &rel.types,
+        &rel.direction,
+        range,
+        &node_labels(left),
+        &node_labels(&path.segments[i].end_node),
+        config,
+    )?;
     let mut variants = Vec::new();
     if min == 0 {
         let mut identity = path.clone();
@@ -552,6 +610,92 @@ fn unroll_variable_length_alternation(
         variant
     }));
     Ok(Some(variants))
+}
+
+const UNSUPPORTED_ALTERNATION: &str =
+    "relationship-type alternation in an undirected or named variable-length pattern";
+
+/// The valid hop sequences of a directed variable-length segment with several types, as
+/// (type, label reached) per hop in traversal order, from a node labelled one of `starts`
+/// to one labelled one of `finishes` (any label when empty). Each type's endpoint labels
+/// must chain from the label before it. Zero hops are not a sequence: callers add that
+/// identity themselves. Every type needs endpoint labels, since they decide which types
+/// may follow.
+pub(crate) fn alternation_sequences(
+    types: &[String],
+    direction: &RelationshipDirection,
+    range: &crate::ast::LengthRange,
+    starts: &[String],
+    finishes: &[String],
+    config: &GraphConfig,
+) -> Result<Vec<Vec<(String, String)>>> {
+    if *direction == RelationshipDirection::Undirected {
+        return Err(unsupported(UNSUPPORTED_ALTERNATION));
+    }
+    let mut ends = Vec::with_capacity(types.len());
+    for t in types {
+        let m = config.get_relationship_mapping(t);
+        let (Some(src), Some(dst)) = (
+            m.and_then(|m| m.source_label.clone()),
+            m.and_then(|m| m.target_label.clone()),
+        ) else {
+            return Err(plan_error(format!(
+                "relationship type '{t}' needs endpoint labels (GraphConfig rel_table's \
+                 from_table and to_table) for alternation in a variable-length pattern"
+            )));
+        };
+        // Labels in traversal order: the segment is read from its left node.
+        ends.push(match direction {
+            RelationshipDirection::Incoming => (t.clone(), dst, src),
+            _ => (t.clone(), src, dst),
+        });
+    }
+    let fits = |labels: &[String], label: &str| {
+        labels.is_empty() || labels.iter().any(|l| l.eq_ignore_ascii_case(label))
+    };
+    let min = range.min.unwrap_or(1);
+    let max = range.max.unwrap_or(crate::MAX_VARIABLE_LENGTH_HOPS);
+    if max > crate::MAX_VARIABLE_LENGTH_HOPS {
+        return Err(unsupported(&format!(
+            "variable-length paths longer than {} hops",
+            crate::MAX_VARIABLE_LENGTH_HOPS
+        )));
+    }
+    // Depth-first over (type, label after the hop) sequences.
+    let mut sequences: Vec<Vec<(String, String)>> = Vec::new();
+    let mut stack: Vec<Vec<(String, String)>> = vec![vec![]];
+    while let Some(prefix) = stack.pop() {
+        let hops = prefix.len() as u32;
+        let at = prefix.last().map(|(_, label)| label.clone());
+        if hops >= min && at.as_deref().is_some_and(|l| fits(finishes, l)) {
+            sequences.push(prefix.clone());
+            if sequences.len() > MAX_BRANCHES {
+                return Err(too_many());
+            }
+        }
+        if hops == max {
+            continue;
+        }
+        for (t, from, to) in &ends {
+            let chains = match &at {
+                None => fits(starts, from),
+                Some(label) => label.eq_ignore_ascii_case(from),
+            };
+            if chains {
+                let mut next = prefix.clone();
+                next.push((t.clone(), to.clone()));
+                stack.push(next);
+            }
+        }
+    }
+    if sequences.is_empty() && min != 0 {
+        return Err(plan_error(
+            "no sequence of relationship types in the variable-length pattern chains its \
+             endpoint labels"
+                .into(),
+        ));
+    }
+    Ok(sequences)
 }
 
 fn too_many() -> GraphError {
