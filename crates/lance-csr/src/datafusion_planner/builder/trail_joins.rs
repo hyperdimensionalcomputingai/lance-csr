@@ -8,6 +8,7 @@ use crate::ast::{LengthRange, PropertyValue, RelationshipDirection};
 use crate::case_insensitive::qualify_column;
 use crate::datafusion_planner::analysis::{PlanningContext, RelationshipInstance};
 use crate::datafusion_planner::join_ops::{SourceJoinParams, TargetJoinParams};
+use crate::datafusion_planner::scan_ops::TrailIdentity;
 use crate::datafusion_planner::DataFusionPlanner;
 use crate::error::{GraphError, Result};
 use datafusion::common::Column;
@@ -299,9 +300,19 @@ impl DataFusionPlanner {
         let direction = &instance.direction;
         let rel_map = self.get_relationship_mapping(&instance.rel_type)?;
         let cat = self.get_catalog()?;
-        let rel_source = cat
-            .relationship_source(&instance.rel_type)
-            .ok_or_else(|| self.missing_table(&instance.rel_type))?;
+        let identity_source = if walked.is_some() {
+            cat.relationship_occurrence_source(&instance.rel_type)?
+        } else {
+            None
+        };
+        let (rel_source, stored) = match identity_source {
+            Some((source, id)) => (source, Some(id)),
+            None => (
+                cat.relationship_source(&instance.rel_type)
+                    .ok_or_else(|| self.missing_table(&instance.rel_type))?,
+                None,
+            ),
+        };
         let node_mapping = |label: &str| {
             self.config
                 .get_node_mapping(label)
@@ -318,7 +329,10 @@ impl DataFusionPlanner {
             relationship_properties,
             rel_map,
             direction,
-            rank.as_deref(),
+            rank.as_deref().map(|output| TrailIdentity {
+                output,
+                stored: stored.as_deref(),
+            }),
         )?;
         let mut builder = self.join_source_to_relationship(
             left_plan,
@@ -336,7 +350,13 @@ impl DataFusionPlanner {
             let undirected = *direction == RelationshipDirection::Undirected;
             if let Some(repeated) = walked
                 .iter()
-                .map(|prior| edge.is_same_edge(prior, undirected))
+                .map(|prior| {
+                    if stored.is_some() {
+                        edge.rank.clone().eq(prior.rank.clone())
+                    } else {
+                        edge.is_same_edge(prior, undirected)
+                    }
+                })
                 .reduce(Expr::or)
             {
                 builder = builder

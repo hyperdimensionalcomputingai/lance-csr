@@ -287,6 +287,11 @@ collide with identity metadata. When an untyped match combines branches, the pla
 marked property fields by name before casting each branch to the common schema. This also preserves
 the node records nested inside a path or a relationship endpoint. See [path values](../cypher.md#path-values).
 
+The join fallback uses Lance row addresses or original Arrow row ordinals to recognize
+an edge appearing twice. For an Arrow table the engine builds the ordinal column on its
+first use and shares it within that snapshot. A custom catalog without occurrence IDs
+can still join trails by numbering parallel rows within each pair of endpoints.
+
 For a mapped, integer-keyed path where a variable-length segment and another segment share
 a relationship type, the planner can use the inventory to track used edges across both segments.
 An unnamed, bounded undirected segment with several types can use iterative `CsrExpandExec`

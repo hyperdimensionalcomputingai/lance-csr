@@ -18,6 +18,12 @@ use datafusion::logical_expr::{
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+/// An internal output column identifying the edge walked by this hop.
+pub(super) struct TrailIdentity<'a> {
+    pub output: &'a str,
+    pub stored: Option<&'a str>,
+}
+
 /// Bind a property filter to its physical field spelling before scan aliasing.
 pub(super) fn source_column(schema: &arrow_schema::Schema, name: &str) -> Expr {
     let physical = schema
@@ -125,19 +131,20 @@ impl DataFusionPlanner {
 
     /// Build a qualified relationship scan with property filters.
     ///
-    /// With `rank_column`, the scan also carries each row's number among
+    /// Carry the stored row ID when the source supplies one. For other sources,
+    /// the scan computes each row's number among
     /// the rows with the same (source, target) as walked. Parallel edges then differ, which
     /// a path needs to tell whether two of its hops walked the same edge. Which parallel
     /// edge gets which number does not matter: they are interchangeable, and every scan
     /// of a table numbers them 1..n.
-    pub(crate) fn build_relationship_scan(
+    pub(super) fn build_relationship_scan(
         &self,
         rel_instance: &RelationshipInstance,
         rel_source: Arc<dyn datafusion::logical_expr::TableSource>,
         relationship_properties: &HashMap<String, PropertyValue>,
         rel_map: &RelationshipMapping,
         direction: &RelationshipDirection,
-        rank_column: Option<&str>,
+        identity: Option<TrailIdentity<'_>>,
     ) -> Result<LogicalPlan> {
         let rel_schema = rel_source.schema();
         let normalized_rel_type = rel_instance.rel_type.to_lowercase();
@@ -173,6 +180,11 @@ impl DataFusionPlanner {
             .fields()
             .iter()
             .map(|field| {
+                if let Some(id) = &identity {
+                    if id.stored == Some(field.name().as_str()) {
+                        return col(Column::new_unqualified(field.name())).alias(id.output);
+                    }
+                }
                 let qualified_name = qualify_column(&rel_instance.alias, field.name());
                 col(Column::new_unqualified(field.name())).alias(&qualified_name)
             })
@@ -181,7 +193,11 @@ impl DataFusionPlanner {
         rel_builder = rel_builder
             .project(rel_qualified_exprs)
             .map_err(|e| self.plan_error("Failed to project relationship columns", e))?;
-        if let Some(rank) = rank_column {
+        if let Some(TrailIdentity {
+            output: rank,
+            stored: None,
+        }) = identity
+        {
             // After the reversed copies are added: both orientations of an edge are rows of
             // their own (source, target) group, and each group is numbered 1..n.
             let (src, dst) = Self::endpoint_columns(&rel_schema, rel_map)?;

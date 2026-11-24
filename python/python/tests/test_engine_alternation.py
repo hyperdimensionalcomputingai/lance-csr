@@ -216,12 +216,21 @@ def test_undirected_alternation_bound_start_label(binding):
     [
         ([(1, 2), (1, 2)], "-[:{}*1..2]-", [1, 1, 2, 2]),
         ([(1, 1)], "-[:{}*1..2]->", [1]),
+        ([(1, 1)], "-[:{}*1..2]-", [1]),
         ([(1, 2), (2, 1)], "-[:{}*1..4]->", [1, 2]),
         ([(1, 2), (2, 3), (3, 1)], "-[:{}*4..4]-", []),
         ([(1, 2), (2, 1), (1, 2)], "<-[:{}*3..3]-", []),
         ([(1, 2), (2, 1), (1, 2)], "-[:{}*3..3]->", [2, 2]),
     ],
-    ids=["parallel", "self-loop", "cycle", "triangle", "incoming", "distinct-parallel"],
+    ids=[
+        "parallel",
+        "self-loop",
+        "undirected-loop",
+        "cycle",
+        "triangle",
+        "incoming",
+        "distinct-parallel",
+    ],
 )
 def test_each_relationship_is_used_once_per_trail(use_csr, edges, pattern, expected):
     cfg = (
@@ -312,6 +321,66 @@ def test_trail_boundaries_and_carried_scalars(use_csr):
     assert rows(engine.execute(query)) == [(99, 2)] * 4
     query = "MATCH (s:N {id:1})-[:A*1..3 {_edge_rank: 1}]-(q:N) RETURN q.id"
     assert rows(engine.execute(query)) == [(2,)]
+
+
+def test_terminal_batches_resume_across_high_degree_and_missing_nodes():
+    # Unmatched endpoints span multiple yield intervals before the first row.
+    missing = list(range(3000, 5500))
+    endpoints = list(range(2, 1091))
+    dst = missing + endpoints
+    cfg = (
+        GraphConfig.builder()
+        .node_table("N", "id")
+        .rel_table("A", "N", "N", "src", "dst")
+        .build()
+    )
+    engine = CypherEngine(
+        cfg,
+        {
+            "N": pa.table({"id": [0, 1, *endpoints]}),
+            "A": pa.table({"src": [0, *([1] * len(dst))], "dst": [1, *dst]}),
+        },
+    )
+    result = engine.execute("MATCH (s:N {id:0})-[:A*2..2]->(q:N) RETURN q.id")
+    assert sorted(result.column(0).to_pylist()) == endpoints
+
+
+def test_trail_join_uses_stored_rows_across_lance_versions(tmp_path):
+    cfg = (
+        GraphConfig.builder()
+        .node_table("N", "id")
+        .rel_table("A", "N", "N", "src", "dst")
+        .build()
+    )
+    path = tmp_path / "edges.lance"
+    a = pa.table(
+        {
+            "src": [1, 1, 1],
+            "dst": [2, 2, 2],
+            "n": [1, 2, 3],
+            "__lance_csr_edge_ordinal": [0, 0, 0],
+        }
+    )
+    dataset = lance.write_dataset(a, path, max_rows_per_file=2)
+    dataset.delete("n = 2")
+    nodes = pa.table({"id": [1, 2]})
+    query = "MATCH (s:N {id:1})-[:A*2..2]-(q:N) RETURN q.id"
+    for source in (a.filter(pa.array([True, False, True])), lance.dataset(path)):
+        engine = CypherEngine(cfg, {"N": nodes, "A": source}, use_csr=False)
+        assert rows(engine.execute(query)) == [(1,), (1,)]
+        assert "WindowAggExec" not in engine.explain(query)
+    lance.write_dataset(a.slice(0, 1), path, mode="append")
+    assert rows(engine.execute(query)) == [(1,), (1,)]
+    engine.checkout_latest()
+    assert rows(engine.execute(query)) == [(1,)] * 6
+
+    # A user column that would collide with Lance's hidden physical address
+    # selects the generic window-based fallback. Its values are all identical.
+    colliding = a.append_column("_ROWADDR", pa.array([0, 0, 0]))
+    fallback = lance.write_dataset(colliding, tmp_path / "custom.lance")
+    engine = CypherEngine(cfg, {"N": nodes, "A": fallback}, use_csr=False)
+    assert "WindowAggExec" in engine.explain(query)
+    assert rows(engine.execute(query)) == [(1,)] * 6
 
 
 def test_undirected_alternation_parallel_edges_and_zero_hops():

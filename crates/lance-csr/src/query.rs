@@ -1004,6 +1004,17 @@ impl CypherQuery {
             catalog = catalog
                 .with_node_source(name, table_source.clone())
                 .with_relationship_source(name, table_source);
+            if self
+                .require_config()?
+                .get_relationship_mapping(name)
+                .is_some()
+            {
+                catalog = catalog.with_relationship_engine_source(
+                    name,
+                    crate::engine::EngineSource::Arrow(normalized_batch),
+                    None,
+                );
+            }
         }
 
         Ok((catalog, ctx))
@@ -1055,7 +1066,7 @@ impl CypherQuery {
                 .build(),
         ));
         let mut catalog = InMemoryCatalog::new();
-        let mut providers: HashMap<String, Arc<dyn TableProvider>> = HashMap::new();
+        let mut providers = HashMap::new();
 
         for table_name in required_tables {
             let mut request = DescribeTableRequest::new();
@@ -1116,11 +1127,16 @@ impl CypherQuery {
                 })?;
 
             // Store provider with normalized (lowercase) key for consistent lookup
-            providers.insert(normalized_table_name.clone(), provider);
+            let has_physical_address = !dataset
+                .schema()
+                .fields
+                .iter()
+                .any(|field| field.name.eq_ignore_ascii_case("_rowaddr"));
+            providers.insert(normalized_table_name, (provider, has_physical_address));
         }
 
         for (label, _) in config.iter_node_mappings() {
-            let provider = providers
+            let (provider, _) = providers
                 .get(label)
                 .ok_or_else(|| GraphError::ConfigError {
                     message: format!(
@@ -1135,18 +1151,25 @@ impl CypherQuery {
         }
 
         for (rel_type, _) in config.iter_relationship_mappings() {
-            let provider = providers
-                .get(rel_type)
-                .ok_or_else(|| GraphError::ConfigError {
-                    message: format!(
-                        "Namespace did not resolve dataset for relationship type '{}'",
-                        rel_type
-                    ),
-                    location: snafu::Location::new(file!(), line!(), column!()),
-                })?;
+            let (provider, has_physical_address) =
+                providers
+                    .get(rel_type)
+                    .ok_or_else(|| GraphError::ConfigError {
+                        message: format!(
+                            "Namespace did not resolve dataset for relationship type '{}'",
+                            rel_type
+                        ),
+                        location: snafu::Location::new(file!(), line!(), column!()),
+                    })?;
 
             let table_source = Arc::new(DefaultTableSource::new(provider.clone()));
-            catalog = catalog.with_relationship_source(rel_type, table_source);
+            catalog = catalog.with_relationship_source(rel_type, table_source.clone());
+            if *has_physical_address {
+                catalog = catalog.with_relationship_occurrence_table(
+                    rel_type,
+                    (table_source, "_rowaddr".into()),
+                );
+            }
         }
 
         Ok((catalog, ctx))

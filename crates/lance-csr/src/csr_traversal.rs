@@ -3,7 +3,7 @@
 
 //! Resumable variable-length walks over immutable, typed CSR snapshots.
 
-use std::sync::Arc;
+use std::{collections::VecDeque, sync::Arc};
 
 use crate::ast::RelationshipDirection;
 use crate::config::GraphConfig;
@@ -135,20 +135,56 @@ impl Frame {
 
 pub(crate) struct TraversalCursor {
     stack: Vec<Frame>,
+    endpoints: VecDeque<i64>,
 }
 
 impl TraversalCursor {
     pub fn new(graph: &Traversal, key: i64) -> Self {
         Self {
             stack: vec![Frame::new(graph.start, key, None)],
+            endpoints: VecDeque::new(),
         }
+    }
+
+    /// Read a small batch from the last hop while its packed edge-row iterator is hot.
+    /// Each surviving endpoint is ready to emit; none of these edges needs a stack frame.
+    fn last_hop(&mut self, graph: &Traversal, budget: usize) -> usize {
+        let (frame, ancestors) = self.stack.split_last_mut().expect("nonempty stack");
+        let step = &graph.steps[frame.step];
+        let limit = budget.min(64);
+        let mut visited = 0;
+        if step.from == frame.label && step.to == graph.target {
+            let candidates = step
+                .adjacency
+                .candidates_from::<true>(frame.key, &mut frame.position);
+            for candidate in candidates.take(limit) {
+                visited += 1;
+                if let Some((key, row)) = candidate {
+                    let edge = Some((step.rel, row));
+                    if frame.edge != edge
+                        && !ancestors.iter().any(|f| f.edge == edge)
+                        && graph.nodes[step.to].position(key as i64).is_some()
+                    {
+                        self.endpoints.push_back(key as i64);
+                    }
+                }
+            }
+        }
+        if visited < limit {
+            frame.step += 1;
+            frame.position = NeighborPosition::default();
+        }
+        visited
     }
 
     /// Keep one frame per hop, and cooperate even when candidate edges produce no rows.
     pub async fn next(&mut self, graph: &Traversal) -> Option<i64> {
         let mut work = 0;
         while !self.stack.is_empty() {
-            if work == 1024 {
+            if let Some(key) = self.endpoints.pop_front() {
+                return Some(key);
+            }
+            if work >= 1024 {
                 cooperative_yield().await;
                 work = 0;
             }
@@ -163,6 +199,10 @@ impl TraversalCursor {
             }
             if depth == graph.max_hops || frame.step == graph.steps.len() {
                 self.stack.pop();
+                continue;
+            }
+            if depth + 1 == graph.max_hops {
+                work += self.last_hop(graph, 1024 - work);
                 continue;
             }
             let step = &graph.steps[frame.step];
@@ -187,14 +227,6 @@ impl TraversalCursor {
             }
             // A trail uses each relationship at most once (Cypher relationship isomorphism).
             if self.stack.iter().any(|f| f.edge == Some(edge)) {
-                continue;
-            }
-            // At the limit there is no next hop. Emit directly from the parent's cursor
-            // instead of allocating a frame just to return the endpoint and pop it.
-            if depth + 1 == graph.max_hops {
-                if step.to == graph.target {
-                    return Some(key);
-                }
                 continue;
             }
             self.stack.push(Frame::new(step.to, key, Some(edge)));

@@ -112,6 +112,30 @@ mod tests {
     use test_fixtures::{make_catalog, person_config, person_knows_config, person_scan};
 
     #[test]
+    fn catalog_without_stored_edge_ids_numbers_parallel_edges() {
+        let planner = DataFusionPlanner::with_catalog(person_knows_config(), make_catalog());
+        let expand = LogicalOperator::VariableLengthExpand {
+            input: Box::new(person_scan("a")),
+            source_variable: "a".into(),
+            target_variable: "b".into(),
+            target_label: "Person".into(),
+            relationship_types: vec!["KNOWS".into()],
+            direction: RelationshipDirection::Undirected,
+            relationship_variable: None,
+            min_length: Some(2),
+            max_length: Some(2),
+            properties: Default::default(),
+            target_properties: Default::default(),
+        };
+        let plan = planner.plan(&expand).unwrap();
+        assert!(plan
+            .display_indent()
+            .to_string()
+            .to_lowercase()
+            .contains("row_number"));
+    }
+
+    #[test]
     fn test_filter_preserves_error_context() {
         // Test that filter errors include helpful context
         let planner = DataFusionPlanner::with_catalog(person_config(), make_catalog());
