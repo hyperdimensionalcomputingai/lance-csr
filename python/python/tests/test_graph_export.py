@@ -49,6 +49,34 @@ def test_undirected_export():
     assert g.out_indices.to_pylist() == [2, 3, 4, 0, 1, 3, 4, 1, 3]
 
 
+WEIGHTED = EDGES.append_column("w", pa.array([1, 2, 4, 8, 16, 32, 64, 128, 256]))
+
+
+def test_weights():
+    engine = CypherEngine(CONFIG, {"Person": NODES, "KNOWS": WEIGHTED})
+    plain = engine.export_graph()
+    assert plain.out_weights is None and plain.in_weights is None
+
+    g = engine.export_graph(weight="W")
+    assert g.out_indices.equals(plain.out_indices)
+    assert g.out_weights is not None and g.in_weights is not None
+    assert g.out_weights.type == pa.float64()
+    # The duplicate 10->20 (weights 1 and 2) sums to 3.
+    assert g.out_weights.to_pylist() == [128, 3, 64, 8, 16, 4]
+    assert g.in_weights.to_pylist() == [64, 8, 128, 16, 4, 3]
+
+    # Undirected: 50->60 and 60->50 combine; the self-loop 30->30 counts once.
+    u = engine.export_graph(directed=False, weight="w")
+    assert u.in_weights is None and u.out_weights is not None
+    assert u.out_weights.to_pylist() == [192, 8, 3, 192, 8, 16, 4, 3, 4]
+
+    with pytest.raises(ValueError, match="cost"):
+        engine.export_graph(weight="cost")
+    named = EDGES.append_column("w", pa.array(["x"] * 9))
+    with pytest.raises(ValueError, match="not a numeric"):
+        CypherEngine(CONFIG, {"Person": NODES, "KNOWS": named}).export_graph(weight="w")
+
+
 def test_labels_with_colliding_keys():
     config = (
         GraphConfig.builder()
@@ -124,6 +152,30 @@ def test_icebug_pagerank_and_components():
     components = ib.components.ConnectedComponents(undirected)
     # {10, 20, 30}, {50, 60} and the isolated 40.
     assert components.run().numberOfComponents() == 3
+
+
+def test_icebug_weighted_shortest_paths():
+    ib = pytest.importorskip("icebug")
+    # 0->1 and 1->2 cost 1 each; the direct 0->2 costs 5.
+    nodes = pa.table({"id": [0, 1, 2]})
+    edges = pa.table({"src": [0, 1, 0], "dst": [1, 2, 2], "cost": [1.0, 1.0, 5.0]})
+    g = CypherEngine(CONFIG, {"Person": nodes, "KNOWS": edges}).export_graph(
+        weight="cost"
+    )
+    graph = ib.Graph.fromCSR(
+        g.num_nodes,
+        g.directed,
+        g.out_indices,
+        g.out_indptr,
+        g.in_indices,
+        g.in_indptr,
+        g.out_weights,
+        g.in_weights,
+    )
+    assert graph.isWeighted()
+    dijkstra = ib.distance.Dijkstra(graph, 0)
+    dijkstra.run()
+    assert dijkstra.getDistances() == [0.0, 1.0, 2.0]
 
 
 def test_write_node_column(tmp_path):

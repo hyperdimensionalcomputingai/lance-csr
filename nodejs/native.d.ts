@@ -20,7 +20,7 @@ export declare class CypherEngine {
   deleteStoredCsr(): Promise<number>
   nodeIndexStats(): Record<string, NodeIndexStats>
   csrStats(): Record<string, CsrStats>
-  exportGraph(relTypes: Array<string> | undefined | null, directed: boolean): Promise<GraphExport>
+  exportGraph(relTypes: Array<string> | undefined | null, directed: boolean, weight?: string | undefined | null): Promise<GraphExport>
   datasetVersions(): Record<string, number>
   executeWithVectorRerank(query: string, search: VectorSearchSpec): Promise<Buffer>
 }
@@ -123,6 +123,8 @@ export interface GraphExport {
   outIndices: BigUint64Array
   inIndptr?: BigUint64Array
   inIndices?: BigUint64Array
+  outWeights?: Float64Array
+  inWeights?: Float64Array
   droppedEdges: number
 }
 

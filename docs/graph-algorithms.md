@@ -50,6 +50,7 @@ The returned [`GraphExport`][lance_csr.GraphExport] also holds:
 | `num_nodes`, `directed` | The number of nodes and whether the arrays are directed |
 | `in_indptr`, `in_indices` | The same arrays for incoming edges; `None` for an undirected export |
 | `label_ranges` | Each node label's dense ids, as `(start, end)` with `end` excluded |
+| `out_weights`, `in_weights` | Edge weights, when asked for (see [Weighted graphs](#weighted-graphs)); otherwise `None` |
 | `dropped_edges` | Edges whose endpoint key isn't in its node table |
 
 The export follows the same rules as a query's join between relationship and node tables. An edge whose
@@ -94,6 +95,34 @@ engine2 = CypherEngine(config2, {"Person": people, "City": cities, "LIVES_IN": l
 print(engine2.export_graph().label_ranges)  # {'City': (0, 2), 'Person': (2, 6)}
 ```
 
+## Weighted graphs
+
+Some algorithms read a number on each edge as well as the edge itself: a distance for shortest paths, a
+strength for weighted PageRank or community detection. In a relationship table that number is a column, such
+as the messages sent along each `FOLLOWS` edge. Name it with `weight` and the export returns it as `float64`
+arrays that line up with `out_indices` and `in_indices`:
+
+```python
+messages = pa.table(
+    {"src": [10, 10, 20, 30, 10], "dst": [20, 30, 30, 10, 20], "messages": [3, 1, 5, 2, 4]}
+)
+weighted_engine = CypherEngine(config, {"Person": people, "FOLLOWS": messages})
+w = weighted_engine.export_graph(weight="messages")
+print(w.out_indices.to_pylist())  # [1, 0, 2, 0]
+print(w.out_weights.to_pylist())  # [2.0, 1.0, 7.0, 5.0]
+```
+
+The weight of `out_indices[i]` is `out_weights[i]`, and the same holds for the in-edges. Every included
+relationship type must have the column, and it must be numeric.
+
+The export lists each edge once, so an edge that appears in several rows needs one weight. The export sums
+them: 10 → 20 appears twice, with 3 and 4 messages, and gets 7. An undirected export does the same with an
+edge stored in both directions, so `a → b` and `b → a` become one edge carrying both weights; a self-loop's
+weight counts once.
+
+Weights cost memory only when you ask for them. Without `weight`, the export reads no extra column and
+`out_weights` and `in_weights` are `None`.
+
 ## Running an algorithm with icebug
 
 [icebug](https://github.com/Ladybug-Memory/icebug) is a fork of [NetworKit](https://networkit.github.io/) whose
@@ -123,6 +152,10 @@ scores = pa.table({"id": g.node_keys, "pagerank": pagerank.run().scores()})
     `icebug` is a separate package (`uv add icebug`); lance-csr doesn't depend on it. Version 13.6 requires
     exactly `pyarrow==26.0.1`, imports only when `networkx` is installed, and on macOS needs OpenMP from
     Homebrew (`brew install libomp`).
+
+For a weighted graph, pass the weights after the in-edge arrays:
+`ib.Graph.fromCSR(w.num_nodes, w.directed, w.out_indices, w.out_indptr, w.in_indices, w.in_indptr,
+w.out_weights, w.in_weights)`. Algorithms such as `ib.distance.Dijkstra` then use them.
 
 Other libraries take the same arrays. For example, `scipy.sparse.csr_array((data, g.out_indices, g.out_indptr))`
 builds an adjacency matrix, after converting the arrays with `to_numpy()`, which doesn't copy them either.
@@ -185,6 +218,7 @@ Some cases need care:
 
 - The export holds the whole graph in memory: eight bytes per edge in each direction for `indices`, plus the
   offsets and keys. A directed export of 10 million edges takes about 160 MB, and building it briefly needs
-  about as much again.
+  about as much again. Weights add eight bytes per edge in each direction, and while the export is built each
+  edge takes 16 bytes instead of eight.
 - Keys and endpoints must be integers up to `int64`; string and `uint64` keys aren't supported.
-- Edge properties, such as weights, aren't exported.
+- Only one edge property is exported, as a weight; other edge properties aren't.

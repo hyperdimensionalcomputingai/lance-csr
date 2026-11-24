@@ -16,13 +16,16 @@
 //!   and deduplicated, which sorts every neighbour list too; `indptr` is then a count
 //!   per row. Directed graphs also get the in-edge CSR (PageRank reads in-edges);
 //!   undirected graphs get one CSR holding both directions, a self-loop once.
+//! - weights, only when asked for: each packed key is paired with its weight (16 bytes
+//!   per edge instead of 8 while sorting), and duplicate edges are combined by summing
+//!   their weights. Unweighted exports never allocate the pairs.
 
 use std::collections::HashMap;
 
 use ahash::RandomState;
-use arrow::array::{Array, ArrayRef, AsArray, Int64Array, UInt64Array};
+use arrow::array::{Array, ArrayRef, AsArray, Float64Array, Int64Array, UInt64Array};
 use arrow::compute::cast;
-use arrow::datatypes::{DataType, Int64Type};
+use arrow::datatypes::{DataType, Float64Type, Int64Type};
 use futures::StreamExt;
 use rayon::prelude::*;
 
@@ -52,6 +55,10 @@ pub struct GraphExport {
     pub in_indptr: Option<UInt64Array>,
     /// In-edge sources, sorted within each row; `None` for undirected graphs.
     pub in_indices: Option<UInt64Array>,
+    /// The weight of each entry in `out_indices`; `None` unless a weight column was asked for.
+    pub out_weights: Option<Float64Array>,
+    /// The weight of each entry in `in_indices`; `None` for undirected or unweighted graphs.
+    pub in_weights: Option<Float64Array>,
     /// Edges dropped because an endpoint key isn't in its node table.
     pub dropped_edges: u64,
 }
@@ -62,6 +69,7 @@ struct RelSource<'a> {
     source: &'a EngineSource,
     src: String,
     dst: String,
+    weight: Option<String>,
     src_label: usize,
     dst_label: usize,
 }
@@ -69,12 +77,14 @@ struct RelSource<'a> {
 /// Build the export from `sources` (the engine's pinned snapshot).
 ///
 /// `rel_types` `None` takes every relationship type whose dataset is registered and
-/// whose endpoints are integers.
+/// whose endpoints are integers. `weight` names a numeric column every exported
+/// relationship type must have.
 pub(crate) async fn export_graph(
     config: &GraphConfig,
     sources: &HashMap<String, EngineSource>,
     rel_types: Option<&[String]>,
     directed: bool,
+    weight: Option<&str>,
 ) -> Result<GraphExport> {
     let find_source = |name: &str| {
         sources
@@ -164,11 +174,30 @@ pub(crate) async fn export_graph(
             }
             Ok(field.name().clone())
         };
+        let weight = weight
+            .map(|name| -> Result<String> {
+                let field = schema
+                    .fields()
+                    .iter()
+                    .find(|f| f.name().eq_ignore_ascii_case(name))
+                    .ok_or_else(|| {
+                        config_error(format!("Weight column '{name}' not found in '{rel}'"))
+                    })?;
+                if !field.data_type().is_numeric() {
+                    return Err(config_error(format!(
+                        "Weight column '{name}' of '{rel}' is {}, not a numeric type",
+                        field.data_type()
+                    )));
+                }
+                Ok(field.name().clone())
+            })
+            .transpose()?;
         rels.push(RelSource {
             name: rel.clone(),
             source,
             src: column(&m.source_id_field)?,
             dst: column(&m.target_id_field)?,
+            weight,
             src_label: labels.binary_search(src_label).expect("collected above"),
             dst_label: labels.binary_search(dst_label).expect("collected above"),
         });
@@ -223,49 +252,93 @@ pub(crate) async fn export_graph(
     for rel in &rels {
         rows += rel.source.num_rows(&rel.name).await?;
     }
-    let mut out: Vec<u64> = Vec::with_capacity(if directed { rows } else { 2 * rows });
-    let mut inc: Vec<u64> = Vec::with_capacity(rows);
+    // Exactly one of the key and the (key, weight) vectors is used.
+    let weighted = weight.is_some();
+    let (keys_cap, pairs_cap) = if weighted { (0, rows) } else { (rows, 0) };
+    let mut out: Vec<u64> = Vec::with_capacity(if directed { keys_cap } else { 2 * keys_cap });
+    let mut inc: Vec<u64> = Vec::with_capacity(keys_cap);
+    let mut out_w: Vec<(u64, f64)> =
+        Vec::with_capacity(if directed { pairs_cap } else { 2 * pairs_cap });
+    let mut inc_w: Vec<(u64, f64)> = Vec::with_capacity(pairs_cap);
     let mut dropped = 0u64;
     for rel in &rels {
         let (src_map, dst_map) = (&maps[rel.src_label], &maps[rel.dst_label]);
-        let mut stream = rel
-            .source
-            .scan_columns(&[rel.src.as_str(), rel.dst.as_str()])
-            .await?;
+        let mut columns = vec![rel.src.as_str(), rel.dst.as_str()];
+        columns.extend(rel.weight.as_deref());
+        let mut stream = rel.source.scan_columns(&columns).await?;
         while let Some(batch) = stream.next().await {
             let batch = batch?;
             let s = int64(batch.column(0), &rel.src, &rel.name)?;
             let d = int64(batch.column(1), &rel.dst, &rel.name)?;
-            let pairs: Vec<Option<(u64, u64)>> = (0..batch.num_rows())
+            let w = match &rel.weight {
+                Some(name) => Some(float64(batch.column(2), name, &rel.name)?),
+                None => None,
+            };
+            if w.as_ref().is_some_and(|w| w.null_count() > 0) {
+                return Err(exec_error(format!(
+                    "Weight column '{}' of '{}' has null values",
+                    rel.weight.as_deref().unwrap_or_default(),
+                    rel.name
+                )));
+            }
+            let pairs: Vec<Option<(u64, u64, usize)>> = (0..batch.num_rows())
                 .into_par_iter()
                 .with_min_len(4096)
                 .filter(|&i| s.is_valid(i) && d.is_valid(i))
-                .map(|i| Some((*src_map.get(&s.value(i))?, *dst_map.get(&d.value(i))?)))
+                .map(|i| Some((*src_map.get(&s.value(i))?, *dst_map.get(&d.value(i))?, i)))
                 .collect();
             for pair in pairs {
-                match pair {
-                    Some((a, b)) => {
+                match (pair, &w) {
+                    (Some((a, b, _)), None) => {
                         out.push(a * n + b);
                         // Undirected: the reverse goes into the same CSR.
                         inc.push(b * n + a);
                     }
-                    None => dropped += 1,
+                    (Some((a, b, i)), Some(w)) => {
+                        let w = w.value(i);
+                        out_w.push((a * n + b, w));
+                        // Undirected: a self-loop's reverse is itself; adding it would
+                        // count its weight twice.
+                        if directed || a != b {
+                            inc_w.push((b * n + a, w));
+                        }
+                    }
+                    (None, _) => dropped += 1,
                 }
             }
         }
     }
 
-    let (out, inc) = if directed {
-        (out, Some(inc))
+    let ((out_indptr, out_indices, out_weights), inbound) = if weighted {
+        drop((out, inc));
+        let inc_w = if directed {
+            Some(inc_w)
+        } else {
+            out_w.append(&mut inc_w);
+            None // `inc_w`'s allocation is freed here, before the sort
+        };
+        let weighted = |pairs| {
+            let (p, i, w) = weighted_csr(n, pairs);
+            (p, i, Some(w))
+        };
+        (weighted(out_w), inc_w.map(weighted))
     } else {
-        out.append(&mut inc);
-        drop(inc); // its allocation would otherwise stay alive through the sort
-        (out, None)
+        drop((out_w, inc_w));
+        let inc = if directed {
+            Some(inc)
+        } else {
+            out.append(&mut inc);
+            None
+        };
+        let unweighted = |keys| {
+            let (p, i) = csr(n, keys);
+            (p, i, None)
+        };
+        (unweighted(out), inc.map(unweighted))
     };
-    let (out_indptr, out_indices) = csr(n, out);
-    let (in_indptr, in_indices) = match inc.map(|inc| csr(n, inc)) {
-        Some((p, i)) => (Some(p), Some(i)),
-        None => (None, None),
+    let (in_indptr, in_indices, in_weights) = match inbound {
+        Some((p, i, w)) => (Some(p), Some(i), w),
+        None => (None, None, None),
     };
     Ok(GraphExport {
         num_nodes: n,
@@ -276,6 +349,8 @@ pub(crate) async fn export_graph(
         out_indices,
         in_indptr,
         in_indices,
+        out_weights,
+        in_weights,
         dropped_edges: dropped,
     })
 }
@@ -296,6 +371,35 @@ fn csr(n: u64, mut packed: Vec<u64>) -> (UInt64Array, UInt64Array) {
         .with_min_len(4096)
         .for_each(|key| *key %= n);
     (UInt64Array::from(indptr), UInt64Array::from(packed))
+}
+
+/// [`csr`] for `(key, weight)` pairs: duplicate edges are combined by summing their weights.
+fn weighted_csr(n: u64, mut pairs: Vec<(u64, f64)>) -> (UInt64Array, UInt64Array, Float64Array) {
+    pairs.par_sort_unstable_by_key(|p| p.0);
+    // `dedup_by` passes the later element first, the one kept second.
+    pairs.dedup_by(|later, kept| {
+        let same = later.0 == kept.0;
+        if same {
+            kept.1 += later.1;
+        }
+        same
+    });
+    let mut indptr = vec![0u64; n as usize + 1];
+    for &(key, _) in &pairs {
+        indptr[(key / n) as usize + 1] += 1;
+    }
+    for i in 1..indptr.len() {
+        indptr[i] += indptr[i - 1];
+    }
+    let weights: Vec<f64> = pairs.par_iter().map(|p| p.1).collect();
+    // Collected in place into the pairs' allocation, then shrunk to the final size.
+    let mut indices: Vec<u64> = pairs.into_iter().map(|p| p.0 % n).collect();
+    indices.shrink_to_fit();
+    (
+        UInt64Array::from(indptr),
+        UInt64Array::from(indices),
+        Float64Array::from(weights),
+    )
 }
 
 /// Add `column` to the node table of each label in `export`, from `values` indexed by dense id.
@@ -432,6 +536,15 @@ fn int64(array: &ArrayRef, column: &str, table: &str) -> Result<Int64Array> {
     Ok(array.as_primitive::<Int64Type>().clone())
 }
 
+fn float64(array: &ArrayRef, column: &str, table: &str) -> Result<Float64Array> {
+    let array = cast(array, &DataType::Float64).map_err(|e| {
+        exec_error(format!(
+            "Column '{column}' of '{table}' is not numeric: {e}"
+        ))
+    })?;
+    Ok(array.as_primitive::<Float64Type>().clone())
+}
+
 fn config_error(message: String) -> GraphError {
     GraphError::ConfigError {
         message,
@@ -532,7 +645,7 @@ mod tests {
     async fn directed_export_matches_hand_built_csr() {
         let (nodes, edges) = people();
         let engine = arrow_engine(person_config(), vec![("Person", nodes), ("KNOWS", edges)]).await;
-        let g = engine.export_graph(None, true).await.unwrap();
+        let g = engine.export_graph(None, true, None).await.unwrap();
         // Dense ids follow row order: 60->0, 10->1, 50->2, 30->3, 20->4, 40->5.
         assert_eq!(g.node_keys.values().to_vec(), vec![60, 10, 50, 30, 20, 40]);
         assert_eq!(g.num_nodes, 6);
@@ -555,12 +668,105 @@ mod tests {
         let (nodes, edges) = people();
         let engine = arrow_engine(person_config(), vec![("Person", nodes), ("KNOWS", edges)]).await;
         let g = engine
-            .export_graph(Some(&["knows".to_string()]), false)
+            .export_graph(Some(&["knows".to_string()]), false, None)
             .await
             .unwrap();
         assert!(!g.directed && g.in_indptr.is_none() && g.in_indices.is_none());
         assert_eq!(values(&g.out_indptr), vec![0, 1, 3, 4, 7, 9, 9]);
         assert_eq!(values(&g.out_indices), vec![2, 3, 4, 0, 1, 3, 4, 1, 3]);
+    }
+
+    /// `people()` with an edge weight column `w`.
+    fn weighted_people(weights: Vec<Option<f64>>) -> (RecordBatch, RecordBatch) {
+        let (nodes, edges) = people();
+        let mut fields = edges.schema().fields().to_vec();
+        fields.push(Arc::new(Field::new("w", DataType::Float64, true)));
+        let mut columns = edges.columns().to_vec();
+        columns.push(Arc::new(arrow::array::Float64Array::from(weights)));
+        let edges = RecordBatch::try_new(Arc::new(Schema::new(fields)), columns).unwrap();
+        (nodes, edges)
+    }
+
+    fn powers_of_two() -> Vec<Option<f64>> {
+        (0..9).map(|i| Some(f64::from(1 << i))).collect()
+    }
+
+    fn weights(array: &Option<Float64Array>) -> Vec<f64> {
+        array.as_ref().unwrap().values().to_vec()
+    }
+
+    #[tokio::test]
+    async fn weights_follow_their_edges_and_duplicates_sum() {
+        let (nodes, edges) = weighted_people(powers_of_two());
+        let engine = arrow_engine(person_config(), vec![("Person", nodes), ("KNOWS", edges)]).await;
+
+        // Unweighted: no weight arrays, same CSR as without the column.
+        let plain = engine.export_graph(None, true, None).await.unwrap();
+        assert!(plain.out_weights.is_none() && plain.in_weights.is_none());
+
+        let g = engine.export_graph(None, true, Some("W")).await.unwrap();
+        assert_eq!(
+            (&g.out_indptr, &g.out_indices),
+            (&plain.out_indptr, &plain.out_indices)
+        );
+        assert_eq!(
+            (&g.in_indptr, &g.in_indices),
+            (&plain.in_indptr, &plain.in_indices)
+        );
+        // 10->20 is listed twice, with weights 1 and 2.
+        assert_eq!(
+            weights(&g.out_weights),
+            vec![128.0, 3.0, 64.0, 8.0, 16.0, 4.0]
+        );
+        assert_eq!(
+            weights(&g.in_weights),
+            vec![64.0, 8.0, 128.0, 16.0, 4.0, 3.0]
+        );
+        assert_eq!(g.dropped_edges, 1);
+
+        // Undirected: 50->60 and 60->50 become one edge, the self-loop's weight counts once.
+        let u = engine.export_graph(None, false, Some("w")).await.unwrap();
+        let plain = engine.export_graph(None, false, None).await.unwrap();
+        assert_eq!(
+            (&u.out_indptr, &u.out_indices),
+            (&plain.out_indptr, &plain.out_indices)
+        );
+        assert_eq!(
+            weights(&u.out_weights),
+            vec![192.0, 8.0, 3.0, 192.0, 8.0, 16.0, 4.0, 3.0, 4.0]
+        );
+        assert!(u.in_weights.is_none());
+    }
+
+    #[tokio::test]
+    async fn bad_weight_columns_are_errors() {
+        let (nodes, edges) = weighted_people(powers_of_two());
+        let engine = arrow_engine(person_config(), vec![("Person", nodes), ("KNOWS", edges)]).await;
+        let err = engine
+            .export_graph(None, true, Some("cost"))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, GraphError::ConfigError { .. }), "{err}");
+        let names = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("src", DataType::Int64, true),
+                Field::new("dst", DataType::Int64, true),
+                Field::new("w", DataType::Utf8, true),
+            ])),
+            vec![
+                Arc::new(Int64Array::from(vec![10])),
+                Arc::new(Int64Array::from(vec![20])),
+                Arc::new(StringArray::from(vec!["heavy"])),
+            ],
+        )
+        .unwrap();
+        let (nodes, _) = people();
+        let engine = arrow_engine(person_config(), vec![("Person", nodes), ("KNOWS", names)]).await;
+        let err = engine
+            .export_graph(None, true, Some("w"))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, GraphError::ConfigError { .. }), "{err}");
     }
 
     #[tokio::test]
@@ -592,7 +798,7 @@ mod tests {
             ],
         )
         .await;
-        let g = engine.export_graph(None, true).await.unwrap();
+        let g = engine.export_graph(None, true, None).await.unwrap();
         // City 0..2, Person 2..4.
         assert_eq!(
             g.label_ranges,
@@ -612,13 +818,13 @@ mod tests {
             vec![("Person", duplicate), ("KNOWS", edges.clone())],
         )
         .await;
-        let err = engine.export_graph(None, true).await.unwrap_err();
+        let err = engine.export_graph(None, true, None).await.unwrap_err();
         assert!(matches!(err, GraphError::ExecutionError { .. }), "{err}");
 
         let (nodes, _) = people();
         let engine = arrow_engine(person_config(), vec![("Person", nodes), ("KNOWS", edges)]).await;
         let err = engine
-            .export_graph(Some(&["LIKES".to_string()]), true)
+            .export_graph(Some(&["LIKES".to_string()]), true, None)
             .await
             .unwrap_err();
         assert!(matches!(err, GraphError::ConfigError { .. }), "{err}");
@@ -641,7 +847,7 @@ mod tests {
             ],
         )
         .await;
-        let err = engine.export_graph(None, true).await.unwrap_err();
+        let err = engine.export_graph(None, true, None).await.unwrap_err();
         assert!(matches!(err, GraphError::ConfigError { .. }), "{err}");
     }
 
@@ -684,8 +890,8 @@ mod tests {
             .unwrap();
         let arrow = arrow_engine(person_config(), vec![("Person", nodes), ("KNOWS", edges)]).await;
         let (a, b) = (
-            lance.export_graph(None, true).await.unwrap(),
-            arrow.export_graph(None, true).await.unwrap(),
+            lance.export_graph(None, true, None).await.unwrap(),
+            arrow.export_graph(None, true, None).await.unwrap(),
         );
         assert_eq!(a.node_keys, b.node_keys);
         assert_eq!(
@@ -702,11 +908,17 @@ mod tests {
         )
         .await;
         assert_eq!(
-            values(&lance.export_graph(None, true).await.unwrap().out_indptr)[6],
+            values(
+                &lance
+                    .export_graph(None, true, None)
+                    .await
+                    .unwrap()
+                    .out_indptr
+            )[6],
             6
         );
         lance.checkout_latest().await.unwrap();
-        let g = lance.export_graph(None, true).await.unwrap();
+        let g = lance.export_graph(None, true, None).await.unwrap();
         assert_eq!(values(&g.out_indptr), vec![0, 1, 2, 3, 5, 6, 7]);
         assert_eq!(values(&g.out_indices)[6], 0);
     }
@@ -733,7 +945,7 @@ mod tests {
         let engine = CypherEngine::new(person_config(), sources, true)
             .await
             .unwrap();
-        let g = engine.export_graph(None, true).await.unwrap();
+        let g = engine.export_graph(None, true, None).await.unwrap();
         let degree = |g: &GraphExport| -> ArrayRef {
             let p = g.out_indptr.values();
             Arc::new(Int64Array::from_iter_values(
@@ -833,7 +1045,7 @@ mod tests {
         let engine = CypherEngine::new(person_config(), sources, true)
             .await
             .unwrap();
-        let g = engine.export_graph(None, true).await.unwrap();
+        let g = engine.export_graph(None, true, None).await.unwrap();
         let ones: ArrayRef = Arc::new(Int64Array::from(vec![1; g.num_nodes as usize]));
         engine
             .write_node_column(&g, "x", &ones, false)

@@ -1608,21 +1608,33 @@ impl CypherEngine {
     /// `rel_types` `None` exports every relationship type whose dataset has integer
     /// endpoints. See [`crate::graph_export`] for how ids and rows are laid out.
     ///
+    /// `weight` names a numeric column of the relationship tables to export as `f64`
+    /// edge weights; duplicate edges get the sum of their weights. `None` exports no
+    /// weights and allocates nothing for them.
+    ///
     /// Sorting the edges is CPU-bound and runs on rayon's pool; as with the CSR
     /// build, call it from a blocking thread in an application with its own runtime.
     ///
     /// # Errors
     /// [`GraphError::ConfigError`] for an unknown relationship type or label, a missing
-    /// or non-integer key or endpoint column, or nothing to export;
-    /// [`GraphError::ExecutionError`] for a repeated node key or a failed scan.
+    /// or non-integer key or endpoint column, a missing or non-numeric weight column, or
+    /// nothing to export; [`GraphError::ExecutionError`] for a repeated node key, a null
+    /// weight or a failed scan.
     pub async fn export_graph(
         &self,
         rel_types: Option<&[String]>,
         directed: bool,
+        weight: Option<&str>,
     ) -> Result<crate::graph_export::GraphExport> {
         let snapshot = self.snapshot();
-        crate::graph_export::export_graph(&self.config, &snapshot.sources, rel_types, directed)
-            .await
+        crate::graph_export::export_graph(
+            &self.config,
+            &snapshot.sources,
+            rel_types,
+            directed,
+            weight,
+        )
+        .await
     }
 
     /// Add `column` to the node tables of `export`, from `values` indexed by dense id, and pin the

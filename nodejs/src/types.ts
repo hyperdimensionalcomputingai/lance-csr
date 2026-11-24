@@ -5,6 +5,7 @@
  */
 
 import {
+  type Float64,
   type Int64,
   RecordBatch,
   Table,
@@ -129,6 +130,17 @@ export interface GraphExport {
    * Each node's in-neighbours, sorted, without duplicates; `null` for an undirected graph.
    */
   inIndices: Vector<Uint64> | null;
+  /**
+   * The weight of each entry in `outIndices`; `null` unless `exportGraph` was given a `weight`
+   * column. An edge listed more than once gets the sum of its weights; in an undirected export,
+   * so do `a -> b` and `b -> a`.
+   */
+  outWeights: Vector<Float64> | null;
+  /**
+   * The weight of each entry in `inIndices`; `null` for an undirected export, or unless
+   * `exportGraph` was given a `weight` column.
+   */
+  inWeights: Vector<Float64> | null;
   /**
    * Edges left out because an endpoint key isn't in its node table. Edges with a null
    * endpoint are skipped and not counted.

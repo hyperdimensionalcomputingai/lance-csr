@@ -430,16 +430,23 @@ export class CypherEngine {
    *   end of the included types.
    * @param options.directed - `true` (the default) returns out-edge and in-edge arrays; `false`
    *   returns one set of arrays listing every edge in both directions.
+   * @param options.weight - A numeric column of the relationship tables to export as float64
+   *   edge weights, in `outWeights` and `inWeights`; every included type must have it,
+   *   case-insensitive. An edge listed more than once gets the sum of its weights. Left out, no
+   *   weights are exported, and the export needs no memory for them.
    * @throws {@link LanceCsrError} `InvalidArgument` if a relationship type or label isn't in
    *   the config, has no dataset, or a key or endpoint column is missing or isn't an integer
-   *   type up to `int64`, or there's nothing to export; `Runtime` if a node key appears twice
-   *   within a label, or a scan fails.
+   *   type up to `int64`, the weight column is missing or isn't numeric, or there's nothing to
+   *   export; `Runtime` if a node key appears twice within a label, a weight is null, or a scan
+   *   fails.
    */
   async exportGraph(
     relTypes?: string[],
-    options: { directed?: boolean } = {},
+    options: { directed?: boolean; weight?: string } = {},
   ): Promise<GraphExport> {
-    const g = await call(() => this.#inner.exportGraph(relTypes, options.directed ?? true));
+    const g = await call(() =>
+      this.#inner.exportGraph(relTypes, options.directed ?? true, options.weight),
+    );
     return {
       numNodes: g.numNodes,
       directed: g.directed,
@@ -451,6 +458,8 @@ export class CypherEngine {
       outIndices: makeVector(g.outIndices),
       inIndptr: g.inIndptr ? makeVector(g.inIndptr) : null,
       inIndices: g.inIndices ? makeVector(g.inIndices) : null,
+      outWeights: g.outWeights ? makeVector(g.outWeights) : null,
+      inWeights: g.inWeights ? makeVector(g.inWeights) : null,
       droppedEdges: g.droppedEdges,
     };
   }

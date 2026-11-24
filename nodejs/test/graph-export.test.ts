@@ -45,6 +45,30 @@ test("undirected export", async () => {
   assert.deepEqual(list(g.outIndices), [1, 2, 0, 2, 0, 1]);
 });
 
+test("edge weights only when asked for", async () => {
+  const weighted = {
+    ...datasets,
+    KNOWS: tableFromArrays({
+      src: BigInt64Array.from([10n, 10n, 20n, 30n, 10n]),
+      dst: BigInt64Array.from([20n, 20n, 30n, 10n, 99n]),
+      w: Float64Array.from([1, 2, 4, 8, 16]),
+    }),
+  };
+  const engine = await CypherEngine.create(config, weighted);
+  const plain = await engine.exportGraph();
+  assert.equal(plain.outWeights, null);
+  assert.equal(plain.inWeights, null);
+  const g = await engine.exportGraph(undefined, { weight: "w" });
+  // The duplicate 10->20 sums to 3.
+  assert.equal(g.outWeights!.type.typeId, Type.Float);
+  assert.deepEqual(Array.from(g.outWeights!.toArray()), [8, 3, 4]);
+  assert.deepEqual(Array.from(g.inWeights!.toArray()), [4, 8, 3]);
+  await assert.rejects(
+    engine.exportGraph(undefined, { weight: "cost" }),
+    (err) => err instanceof LanceCsrError && err.code === "InvalidArgument",
+  );
+});
+
 test("unknown relationship type", async () => {
   const engine = await CypherEngine.create(config, datasets);
   await assert.rejects(

@@ -1079,6 +1079,24 @@ impl GraphExport {
     }
 
     #[getter]
+    fn out_weights<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
+        self.inner
+            .out_weights
+            .as_ref()
+            .map(|a| to_pyarrow_array(py, a))
+            .transpose()
+    }
+
+    #[getter]
+    fn in_weights<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
+        self.inner
+            .in_weights
+            .as_ref()
+            .map(|a| to_pyarrow_array(py, a))
+            .transpose()
+    }
+
+    #[getter]
     fn dropped_edges(&self) -> u64 {
         self.inner.dropped_edges
     }
@@ -1313,17 +1331,19 @@ impl CypherEngine {
         Ok(stats.into_any().unbind())
     }
 
-    #[pyo3(signature = (rel_types=None, *, directed=true))]
+    #[pyo3(signature = (rel_types=None, *, directed=true, weight=None))]
     fn export_graph(
         &self,
         py: Python,
         rel_types: Option<Vec<String>>,
         directed: bool,
+        weight: Option<String>,
     ) -> PyResult<GraphExport> {
         let inner = RT
             .block_on(
                 Some(py),
-                self.inner.export_graph(rel_types.as_deref(), directed),
+                self.inner
+                    .export_graph(rel_types.as_deref(), directed, weight.as_deref()),
             )?
             .map_err(graph_error_to_pyerr)?;
         Ok(GraphExport { inner })

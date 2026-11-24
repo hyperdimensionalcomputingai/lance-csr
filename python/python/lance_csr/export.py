@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 if TYPE_CHECKING:
-    from pyarrow import Int64Array, UInt64Array
+    from pyarrow import DoubleArray, Int64Array, UInt64Array
 
     from ._internal import graph as _graph
 
@@ -95,6 +95,25 @@ class GraphExport:
         need them for a directed graph.
         """
         return self._inner.in_indices
+
+    @property
+    def out_weights(self) -> DoubleArray | None:
+        """The weight of each entry in `out_indices`, as `float64`.
+
+        `None` unless `export_graph` was given a `weight` column. An edge listed more
+        than once gets the sum of its weights; in an undirected export, so do `a -> b`
+        and `b -> a`.
+        """
+        return self._inner.out_weights
+
+    @property
+    def in_weights(self) -> DoubleArray | None:
+        """The weight of each entry in `in_indices`, as `float64`.
+
+        `None` for an undirected export, or unless `export_graph` was given a `weight`
+        column.
+        """
+        return self._inner.in_weights
 
     @property
     def dropped_edges(self) -> int:

@@ -10,7 +10,7 @@ use lance_csr::engine::{
     CypherEngine as RustCypherEngine, EngineOptions, PersistCsr, MAX_TARGET_PARTITIONS,
 };
 use lance_csr::SqlEngine as RustSqlEngine;
-use napi::bindgen_prelude::{BigInt64Array, BigUint64Array, Buffer};
+use napi::bindgen_prelude::{BigInt64Array, BigUint64Array, Buffer, Float64Array};
 use napi_derive::napi;
 use tokio::sync::Mutex;
 
@@ -71,6 +71,8 @@ pub struct GraphExport {
     pub out_indices: BigUint64Array,
     pub in_indptr: Option<BigUint64Array>,
     pub in_indices: Option<BigUint64Array>,
+    pub out_weights: Option<Float64Array>,
+    pub in_weights: Option<Float64Array>,
     pub dropped_edges: i64,
 }
 
@@ -264,10 +266,15 @@ impl CypherEngine {
         &self,
         rel_types: Option<Vec<String>>,
         directed: bool,
+        weight: Option<String>,
     ) -> napi::Result<GraphExport> {
         let inner = self.inner.clone();
-        let g = blocking(async move { inner.export_graph(rel_types.as_deref(), directed).await })
-            .await?;
+        let g = blocking(async move {
+            inner
+                .export_graph(rel_types.as_deref(), directed, weight.as_deref())
+                .await
+        })
+        .await?;
         Ok(GraphExport {
             num_nodes: g.num_nodes as i64,
             directed: g.directed,
@@ -281,6 +288,8 @@ impl CypherEngine {
             out_indices: into_vec(g.out_indices).into(),
             in_indptr: g.in_indptr.map(|a| into_vec(a).into()),
             in_indices: g.in_indices.map(|a| into_vec(a).into()),
+            out_weights: g.out_weights.map(|a| into_vec(a).into()),
+            in_weights: g.in_weights.map(|a| into_vec(a).into()),
             dropped_edges: g.dropped_edges as i64,
         })
     }

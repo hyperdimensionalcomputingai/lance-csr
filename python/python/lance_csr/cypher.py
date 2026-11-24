@@ -465,7 +465,11 @@ class CypherEngine:
         return result
 
     def export_graph(
-        self, rel_types: list[str] | None = None, *, directed: bool = True
+        self,
+        rel_types: list[str] | None = None,
+        *,
+        directed: bool = True,
+        weight: str | None = None,
     ) -> GraphExport:
         """The graph as dense CSR arrays, for graph-algorithm libraries.
 
@@ -483,6 +487,12 @@ class CypherEngine:
         directed : bool
             Keyword-only. `True` returns out-edge and in-edge arrays; `False` returns
             one set of arrays listing every edge in both directions.
+        weight : str or None
+            Keyword-only. A numeric column of the relationship tables to export as
+            `float64` edge weights, in `out_weights` and `in_weights`; every included
+            type must have it, case-insensitive. An edge listed more than once gets the
+            sum of its weights. `None` (the default) exports no weights, and the export
+            then needs no memory for them.
 
         Returns
         -------
@@ -494,9 +504,11 @@ class CypherEngine:
         ValueError
             If a relationship type or label isn't in the config, has no dataset, or a
             key or endpoint column is missing or isn't an integer type up to `int64`
-            (`uint64` isn't supported), or there's nothing to export.
+            (`uint64` isn't supported), the weight column is missing or isn't numeric,
+            or there's nothing to export.
         RuntimeError
-            If a node key appears twice within a label, or a scan fails.
+            If a node key appears twice within a label, a weight is null, or a scan
+            fails.
 
         Examples
         --------
@@ -517,7 +529,7 @@ class CypherEngine:
         ([0, 1, 2, 2], [1, 2])
         """
         return GraphExport._from_inner(
-            self._inner.export_graph(rel_types, directed=directed)
+            self._inner.export_graph(rel_types, directed=directed, weight=weight)
         )
 
     def write_node_column(
