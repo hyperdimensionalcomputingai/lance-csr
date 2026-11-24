@@ -13,10 +13,11 @@ use std::sync::Arc;
 use arrow::array::{Array, ArrayRef, AsArray, BooleanArray, Int64Array, RecordBatch, UInt32Array};
 use arrow::compute::take;
 use arrow_schema::{Field, Schema, SchemaRef};
+use datafusion::common::tree_node::{Transformed, TransformedResult, TreeNodeRecursion};
 use datafusion::common::{DFSchema, DFSchemaRef, Result};
 use datafusion::execution::session_state::SessionState;
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
-use datafusion::logical_expr::{col, Expr, LogicalPlan, UserDefinedLogicalNodeCore};
+use datafusion::logical_expr::{col, Expr, Extension, LogicalPlan, UserDefinedLogicalNodeCore};
 use datafusion::physical_expr::{EquivalenceProperties, PhysicalExpr};
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
@@ -28,7 +29,9 @@ use futures::{lock::Mutex, StreamExt};
 
 use crate::ast::{PropertyValue, RelationshipDirection};
 use crate::csr_expand::{cooperative_yield, Adjacency, Neighbors};
-use crate::path_inventory::{id_column, property_fields, EdgeSource, Inventory, NodeSource};
+use crate::path_inventory::{
+    id_column, property_fields, EdgeSource, Inventory, NodeSource, SourceBatches,
+};
 use crate::path_value::{entity_type, path_type, paths_array, PathRows};
 
 type Parents = HashMap<i64, Vec<i64>, ahash::RandomState>;
@@ -38,7 +41,6 @@ pub(crate) struct Binding {
     pub variable: String,
     pub label: usize,
     pub id_column: String,
-    pub properties: HashMap<String, PropertyValue>,
 }
 
 #[derive(Debug, Clone)]
@@ -48,7 +50,6 @@ pub(crate) struct Step {
     pub min: u32,
     pub max: u32,
     pub relationship: Option<String>,
-    pub properties: HashMap<String, PropertyValue>,
 }
 
 #[derive(Debug)]
@@ -56,7 +57,6 @@ pub(crate) struct PathSpec {
     pub variable: Option<String>,
     /// Expose typed boundary-node values alongside their property columns.
     pub node_values: bool,
-    pub sources: crate::path_inventory::SourceBatches,
     pub nodes: Vec<NodeSource>,
     pub edges: Vec<EdgeSource>,
     pub bindings: Vec<Binding>,
@@ -69,6 +69,9 @@ pub(crate) struct PathSpec {
 pub(crate) struct PathMatchNode {
     inputs: Vec<LogicalPlan>,
     spec: Arc<PathSpec>,
+    sources: SourceBatches,
+    // Node bindings first, then relationship steps, in traversal order.
+    filters: Vec<Vec<(String, Expr)>>,
     schema: DFSchemaRef,
     outputs: Vec<Output>,
 }
@@ -92,11 +95,26 @@ impl fmt::Debug for PathMatchNode {
 }
 
 impl PathMatchNode {
-    pub(crate) fn endpoints_only(&self) -> bool {
-        self.spec.variable.is_none()
-    }
-
-    pub fn try_new(inputs: Vec<LogicalPlan>, spec: PathSpec) -> Result<Self> {
+    pub fn try_new<'a>(
+        inputs: Vec<LogicalPlan>,
+        spec: PathSpec,
+        sources: SourceBatches,
+        properties: impl IntoIterator<Item = &'a HashMap<String, PropertyValue>>,
+    ) -> Result<Self> {
+        let filters = properties
+            .into_iter()
+            .map(|properties| {
+                properties
+                    .iter()
+                    .map(|(key, value)| {
+                        let value = crate::datafusion_planner::expression::to_df_value_expr(
+                            &crate::ast::ValueExpression::Literal(value.clone()),
+                        );
+                        (key.to_lowercase(), value)
+                    })
+                    .collect()
+            })
+            .collect();
         let node_fields = property_fields(spec.nodes.iter().map(|s| s.schema.fields()))?;
         let edge_fields = property_fields(spec.edges.iter().map(|s| s.schema.fields()))?;
         let node_type = entity_type(node_fields.clone(), "node", None);
@@ -169,6 +187,8 @@ impl PathMatchNode {
         Ok(Self {
             inputs,
             spec: Arc::new(spec),
+            sources,
+            filters,
             schema,
             outputs,
         })
@@ -176,7 +196,9 @@ impl PathMatchNode {
 }
 impl PartialEq for PathMatchNode {
     fn eq(&self, other: &Self) -> bool {
-        self.inputs == other.inputs && Arc::ptr_eq(&self.spec, &other.spec)
+        self.inputs == other.inputs
+            && Arc::ptr_eq(&self.spec, &other.spec)
+            && self.filters == other.filters
     }
 }
 impl Eq for PathMatchNode {}
@@ -184,11 +206,15 @@ impl Hash for PathMatchNode {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.inputs.hash(state);
         Arc::as_ptr(&self.spec).hash(state);
+        self.filters.hash(state);
     }
 }
 impl PartialOrd for PathMatchNode {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Arc::as_ptr(&self.spec).partial_cmp(&Arc::as_ptr(&other.spec))
+        Arc::as_ptr(&self.spec)
+            .partial_cmp(&Arc::as_ptr(&other.spec))
+            // Same spec but different bound filters are not equal, so don't report Equal (PartialOrd must agree with PartialEq).
+            .filter(|order| *order != Ordering::Equal || self == other)
     }
 }
 impl UserDefinedLogicalNodeCore for PathMatchNode {
@@ -202,7 +228,12 @@ impl UserDefinedLogicalNodeCore for PathMatchNode {
         &self.schema
     }
     fn expressions(&self) -> Vec<Expr> {
-        vec![]
+        // The property columns belong to the inventory, so only expose the values.
+        self.filters
+            .iter()
+            .flatten()
+            .map(|(_, value)| value.clone())
+            .collect()
     }
     fn prevent_predicate_push_down_columns(&self) -> HashSet<String> {
         // DataFusion copies a pushed predicate into every input, so only columns that
@@ -234,12 +265,52 @@ impl UserDefinedLogicalNodeCore for PathMatchNode {
             }
         )
     }
-    fn with_exprs_and_inputs(&self, _: Vec<Expr>, inputs: Vec<LogicalPlan>) -> Result<Self> {
-        Ok(Self {
-            inputs,
-            ..self.clone()
-        })
+    fn with_exprs_and_inputs(&self, exprs: Vec<Expr>, inputs: Vec<LogicalPlan>) -> Result<Self> {
+        let mut node = self.clone();
+        if exprs.len() != node.filters.iter().map(Vec::len).sum::<usize>() {
+            return datafusion::common::internal_err!(
+                "PathMatch expected one expression per property"
+            );
+        }
+        for ((_, value), expr) in node.filters.iter_mut().flatten().zip(exprs) {
+            *value = expr;
+        }
+        node.inputs = inputs;
+        Ok(node)
     }
+}
+
+pub(crate) fn has_path_match(plan: &LogicalPlan) -> Result<bool> {
+    Ok(plan.apply_with_subqueries(|plan| {
+        Ok(match plan {
+            LogicalPlan::Extension(ext) if ext.node.as_any().is::<PathMatchNode>() => {
+                TreeNodeRecursion::Stop
+            }
+            _ => TreeNodeRecursion::Continue,
+        })
+    })? == TreeNodeRecursion::Stop)
+}
+
+/// Give each execution its own raw source batches while preserving sharing among
+/// PathMatch nodes from the same graph planning context.
+pub(crate) fn refresh_path_sources(plan: LogicalPlan) -> Result<LogicalPlan> {
+    let mut sources = HashMap::<_, SourceBatches>::new();
+    plan.transform_down_with_subqueries(|plan| {
+        if let LogicalPlan::Extension(ext) = &plan {
+            if let Some(path) = ext.node.as_any().downcast_ref::<PathMatchNode>() {
+                let mut path = path.clone();
+                path.sources = sources
+                    .entry(Arc::as_ptr(&path.sources))
+                    .or_default()
+                    .clone();
+                return Ok(Transformed::yes(LogicalPlan::Extension(Extension {
+                    node: Arc::new(path),
+                })));
+            }
+        }
+        Ok(Transformed::no(plan))
+    })
+    .data()
 }
 
 #[derive(Debug)]
@@ -255,22 +326,12 @@ struct PathMatchExec {
     metrics: datafusion::physical_plan::metrics::ExecutionPlanMetricsSet,
     inputs: Vec<Arc<dyn ExecutionPlan>>,
     spec: Arc<PathSpec>,
+    sources: SourceBatches,
     outputs: Vec<Output>,
     schema: SchemaRef,
     properties: Arc<PlanProperties>,
     predicates: Vec<Option<Arc<dyn PhysicalExpr>>>,
     ready: Arc<Mutex<Option<Arc<Ready>>>>,
-}
-
-fn predicate(properties: &HashMap<String, PropertyValue>) -> Option<Expr> {
-    properties
-        .iter()
-        .map(|(key, value)| {
-            col(key.to_lowercase()).eq(crate::datafusion_planner::expression::to_df_value_expr(
-                &crate::ast::ValueExpression::Literal(value.clone()),
-            ))
-        })
-        .reduce(Expr::and)
 }
 
 pub(crate) fn plan_path_match(
@@ -291,14 +352,20 @@ pub(crate) fn plan_path_match(
         node.spec.edges.iter().map(|s| s.schema.fields()),
     )?))?;
     let predicates = node
-        .spec
-        .bindings
+        .filters
         .iter()
-        .map(|b| (&b.properties, &nodes))
-        .chain(node.spec.steps.iter().map(|s| (&s.properties, &edges)))
-        .map(|(properties, schema)| {
-            predicate(properties)
-                .map(|e| state.create_physical_expr(e, schema))
+        .enumerate()
+        .map(|(index, properties)| {
+            let schema = if index < node.spec.bindings.len() {
+                &nodes
+            } else {
+                &edges
+            };
+            properties
+                .iter()
+                .map(|(key, value)| col(key.clone()).eq(value.clone()))
+                .reduce(Expr::and)
+                .map(|expr| state.create_physical_expr(expr, schema))
                 .transpose()
         })
         .collect::<Result<Vec<_>>>()?;
@@ -313,6 +380,7 @@ pub(crate) fn plan_path_match(
         metrics: Default::default(),
         inputs: plans,
         spec: node.spec.clone(),
+        sources: node.sources.clone(),
         outputs: node.outputs.clone(),
         schema,
         properties,
@@ -375,6 +443,7 @@ impl ExecutionPlan for PathMatchExec {
             metrics: Default::default(),
             inputs,
             spec: self.spec.clone(),
+            sources: self.sources.clone(),
             outputs: self.outputs.clone(),
             schema: self.schema.clone(),
             properties,
@@ -397,6 +466,7 @@ impl ExecutionPlan for PathMatchExec {
             self.schema.clone(),
             self.predicates.clone(),
         );
+        let sources = self.sources.clone();
         let out_schema = schema.clone();
         let batch_size = context.session_config().batch_size();
         let stream = futures::stream::try_unfold(
@@ -411,6 +481,7 @@ impl ExecutionPlan for PathMatchExec {
                     predicates.clone(),
                     context.clone(),
                 );
+                let sources = sources.clone();
                 async move {
                     loop {
                         if pending.is_none() {
@@ -422,8 +493,14 @@ impl ExecutionPlan for PathMatchExec {
                                 let mut ready = cell.lock().await;
                                 if ready.is_none() {
                                     *ready = Some(Arc::new(
-                                        Ready::build(&spec, &plans, &predicates, context.clone())
-                                            .await?,
+                                        Ready::build(
+                                            &spec,
+                                            &plans,
+                                            &predicates,
+                                            context.clone(),
+                                            &sources,
+                                        )
+                                        .await?,
                                     ));
                                 }
                                 ready.as_ref().expect("built").clone()
@@ -504,9 +581,9 @@ impl Ready {
         plans: &[Arc<dyn ExecutionPlan>],
         predicates: &[Option<Arc<dyn PhysicalExpr>>],
         context: Arc<TaskContext>,
+        sources: &SourceBatches,
     ) -> Result<Self> {
-        let inventory =
-            Inventory::build(&spec.nodes, &spec.edges, plans, context, &spec.sources).await?;
+        let inventory = Inventory::build(&spec.nodes, &spec.edges, plans, context, sources).await?;
         let mask =
             |p: &Option<Arc<dyn PhysicalExpr>>, batch: &RecordBatch| -> Result<BooleanArray> {
                 match p {
@@ -940,12 +1017,10 @@ mod tests {
             variable: variable.into(),
             label: 0,
             id_column: format!("{variable}__id"),
-            properties: HashMap::new(),
         };
         let spec = PathSpec {
             variable: Some("p".into()),
             node_values: false,
-            sources: Default::default(),
             nodes: vec![NodeSource {
                 label: "Person".into(),
                 id: "id".into(),
@@ -966,7 +1041,6 @@ mod tests {
                 min: 0,
                 max,
                 relationship: None,
-                properties: HashMap::new(),
             }],
             shortest,
         };
@@ -981,9 +1055,15 @@ mod tests {
                     .unwrap(),
             );
         }
-        let ready = Ready::build(&spec, &plans, &[None, None, None], ctx.task_ctx())
-            .await
-            .unwrap();
+        let ready = Ready::build(
+            &spec,
+            &plans,
+            &[None, None, None],
+            ctx.task_ctx(),
+            &Default::default(),
+        )
+        .await
+        .unwrap();
         (spec, Arc::new(ready))
     }
 

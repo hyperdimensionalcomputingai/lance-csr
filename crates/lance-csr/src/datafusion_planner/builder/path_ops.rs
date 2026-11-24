@@ -150,7 +150,6 @@ impl DataFusionPlanner {
                 id_column: qualify_column(&variable, &nodes[label].id),
                 variable,
                 label,
-                properties: node.properties.clone(),
             });
         }
         let shortest = path.shortest.as_ref().map(|s| s.all);
@@ -187,7 +186,6 @@ impl DataFusionPlanner {
                 min,
                 max,
                 relationship: rel.variable.clone(),
-                properties: rel.properties.clone(),
             });
         }
         let variable = match &path.shortest {
@@ -204,13 +202,24 @@ impl DataFusionPlanner {
             PathSpec {
                 variable,
                 node_values,
-                sources: ctx.path_sources.clone(),
                 nodes,
                 edges,
                 bindings,
                 steps,
                 shortest,
             },
+            std::sync::Arc::clone(&ctx.path_sources),
+            std::iter::once(&path.start_node.properties)
+                .chain(
+                    path.segments
+                        .iter()
+                        .map(|segment| &segment.end_node.properties),
+                )
+                .chain(
+                    path.segments
+                        .iter()
+                        .map(|segment| &segment.relationship.properties),
+                ),
         )
         .map_err(|e| self.plan_error("Failed to plan path value", e))?;
         Ok(LogicalPlan::Extension(Extension {
