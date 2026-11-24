@@ -213,6 +213,7 @@ impl PartialOrd for PathMatchNode {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Arc::as_ptr(&self.spec)
             .partial_cmp(&Arc::as_ptr(&other.spec))
+            // Same spec but different bound filters are not equal, so don't report Equal (PartialOrd must agree with PartialEq).
             .filter(|order| *order != Ordering::Equal || self == other)
     }
 }
