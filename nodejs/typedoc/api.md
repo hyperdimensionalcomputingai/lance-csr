@@ -278,9 +278,10 @@ without `useCsr`. Lance datasets are scanned for just those columns. See
 | Parameter | Type | Description |
 | ------ | ------ | ------ |
 | `relTypes?` | `string`[] | Relationship types to include, case-insensitive. Left out, every type whose dataset has integer endpoint columns. The nodes are those of the labels at either end of the included types. |
-| `options?` | \{ `directed?`: `boolean`; `weight?`: `string`; \} | - |
+| `options?` | \{ `combineEdges?`: `"sum"` \| `"min"` \| `"max"`; `directed?`: `boolean`; `weight?`: `string`; \} | - |
+| `options.combineEdges?` | `"sum"` \| `"min"` \| `"max"` | How an edge listed more than once combines its weights: `"sum"` (the default) adds them, as for counts or amounts; `"min"` keeps the smallest, as for distances; `"max"` the largest. In an undirected export, `a -> b` and `b -> a` are one edge and combine the same way. Ignored without `weight`. |
 | `options.directed?` | `boolean` | `true` (the default) returns out-edge and in-edge arrays; `false` returns one set of arrays listing every edge in both directions. |
-| `options.weight?` | `string` | A numeric column of the relationship tables to export as float64 edge weights, in `outWeights` and `inWeights`; every included type must have it, case-insensitive. An edge listed more than once gets the sum of its weights. Left out, no weights are exported, and the export needs no memory for them. |
+| `options.weight?` | `string` | A numeric column of the relationship tables to export as float64 edge weights, in `outWeights` and `inWeights`; every included type must have it, case-insensitive. Left out, no weights are exported, and the export needs no memory for them. |
 
 ###### Returns
 
@@ -290,8 +291,8 @@ without `useCsr`. Lance datasets are scanned for just those columns. See
 
 [LanceCsrError](#lancecsrerror) `InvalidArgument` if a relationship type or label isn't in
   the config, has no dataset, or a key or endpoint column is missing or isn't an integer
-  type up to `int64`, the weight column is missing or isn't numeric, or there's nothing to
-  export; `Runtime` if a node key appears twice within a label, a weight is null, or a scan
+  type up to `int64`, the weight column is missing or isn't numeric, `combineEdges` isn't
+  one of the three rules, or there's nothing to export; `Runtime` if a node key appears twice within a label, a weight is null, or a scan
   fails.
 
 <a id="nodeindexstats"></a>
@@ -1646,7 +1647,7 @@ id back to its node's key. The vectors wrap typed arrays built in Rust. See
 | <a id="property-numnodes"></a> `numNodes` | `number` | Number of nodes. Dense ids run from 0 to `numNodes - 1`. |
 | <a id="property-outindices"></a> `outIndices` | `Vector`\<`Uint64`\> | Each node's out-neighbours, sorted, without duplicates. An undirected graph lists every edge in both directions and a self-loop once. |
 | <a id="property-outindptr"></a> `outIndptr` | `Vector`\<`Uint64`\> | Offsets into `outIndices`, `numNodes + 1` entries. |
-| <a id="property-outweights"></a> `outWeights` | `Vector`\<`Float64`\> \| `null` | The weight of each entry in `outIndices`; `null` unless `exportGraph` was given a `weight` column. An edge listed more than once gets the sum of its weights; in an undirected export, so do `a -> b` and `b -> a`. |
+| <a id="property-outweights"></a> `outWeights` | `Vector`\<`Float64`\> \| `null` | The weight of each entry in `outIndices`; `null` unless `exportGraph` was given a `weight` column. An edge listed more than once, or in an undirected export both `a -> b` and `b -> a`, gets one weight, combined by the `combineEdges` rule (a sum by default). |
 
 ***
 

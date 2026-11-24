@@ -1609,8 +1609,8 @@ impl CypherEngine {
     /// endpoints. See [`crate::graph_export`] for how ids and rows are laid out.
     ///
     /// `weight` names a numeric column of the relationship tables to export as `f64`
-    /// edge weights; duplicate edges get the sum of their weights. `None` exports no
-    /// weights and allocates nothing for them.
+    /// edge weights, and `combine` sets how a repeated edge merges its weights (it's
+    /// ignored without `weight`). `None` exports no weights and allocates nothing for them.
     ///
     /// Sorting the edges is CPU-bound and runs on rayon's pool; as with the CSR
     /// build, call it from a blocking thread in an application with its own runtime.
@@ -1625,6 +1625,7 @@ impl CypherEngine {
         rel_types: Option<&[String]>,
         directed: bool,
         weight: Option<&str>,
+        combine: crate::graph_export::CombineEdges,
     ) -> Result<crate::graph_export::GraphExport> {
         let snapshot = self.snapshot();
         crate::graph_export::export_graph(
@@ -1633,6 +1634,7 @@ impl CypherEngine {
             rel_types,
             directed,
             weight,
+            combine,
         )
         .await
     }

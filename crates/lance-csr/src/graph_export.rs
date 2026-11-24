@@ -17,8 +17,8 @@
 //!   per row. Directed graphs also get the in-edge CSR (PageRank reads in-edges);
 //!   undirected graphs get one CSR holding both directions, a self-loop once.
 //! - weights, only when asked for: each packed key is paired with its weight (16 bytes
-//!   per edge instead of 8 while sorting), and duplicate edges are combined by summing
-//!   their weights. Unweighted exports never allocate the pairs.
+//!   per edge instead of 8 while sorting), and duplicate edges are combined into one
+//!   weight by a [`CombineEdges`] rule. Unweighted exports never allocate the pairs.
 
 use std::collections::HashMap;
 
@@ -63,6 +63,44 @@ pub struct GraphExport {
     pub dropped_edges: u64,
 }
 
+/// How an edge listed more than once combines its weights into one. In an undirected
+/// export, `a -> b` and `b -> a` are the same edge and combine too.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CombineEdges {
+    /// Add the weights, as for message counts or transaction amounts.
+    #[default]
+    Sum,
+    /// Keep the smallest, as for distances or costs.
+    Min,
+    /// Keep the largest.
+    Max,
+}
+
+impl CombineEdges {
+    fn apply(self, kept: f64, other: f64) -> f64 {
+        match self {
+            CombineEdges::Sum => kept + other,
+            CombineEdges::Min => kept.min(other),
+            CombineEdges::Max => kept.max(other),
+        }
+    }
+}
+
+impl std::str::FromStr for CombineEdges {
+    type Err = GraphError;
+
+    fn from_str(s: &str) -> Result<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "sum" => Ok(CombineEdges::Sum),
+            "min" => Ok(CombineEdges::Min),
+            "max" => Ok(CombineEdges::Max),
+            _ => Err(config_error(format!(
+                "Unknown combine_edges '{s}'; expected 'sum', 'min' or 'max'"
+            ))),
+        }
+    }
+}
+
 /// One relationship type to export: its dataset and the labels at both ends.
 struct RelSource<'a> {
     name: String,
@@ -78,13 +116,14 @@ struct RelSource<'a> {
 ///
 /// `rel_types` `None` takes every relationship type whose dataset is registered and
 /// whose endpoints are integers. `weight` names a numeric column every exported
-/// relationship type must have.
+/// relationship type must have; `combine` merges the weights of a repeated edge.
 pub(crate) async fn export_graph(
     config: &GraphConfig,
     sources: &HashMap<String, EngineSource>,
     rel_types: Option<&[String]>,
     directed: bool,
     weight: Option<&str>,
+    combine: CombineEdges,
 ) -> Result<GraphExport> {
     let find_source = |name: &str| {
         sources
@@ -318,7 +357,7 @@ pub(crate) async fn export_graph(
             None // `inc_w`'s allocation is freed here, before the sort
         };
         let weighted = |pairs| {
-            let (p, i, w) = weighted_csr(n, pairs);
+            let (p, i, w) = weighted_csr(n, pairs, combine);
             (p, i, Some(w))
         };
         (weighted(out_w), inc_w.map(weighted))
@@ -373,14 +412,18 @@ fn csr(n: u64, mut packed: Vec<u64>) -> (UInt64Array, UInt64Array) {
     (UInt64Array::from(indptr), UInt64Array::from(packed))
 }
 
-/// [`csr`] for `(key, weight)` pairs: duplicate edges are combined by summing their weights.
-fn weighted_csr(n: u64, mut pairs: Vec<(u64, f64)>) -> (UInt64Array, UInt64Array, Float64Array) {
+/// [`csr`] for `(key, weight)` pairs: duplicate edges are combined by `combine`.
+fn weighted_csr(
+    n: u64,
+    mut pairs: Vec<(u64, f64)>,
+    combine: CombineEdges,
+) -> (UInt64Array, UInt64Array, Float64Array) {
     pairs.par_sort_unstable_by_key(|p| p.0);
     // `dedup_by` passes the later element first, the one kept second.
     pairs.dedup_by(|later, kept| {
         let same = later.0 == kept.0;
         if same {
-            kept.1 += later.1;
+            kept.1 = combine.apply(kept.1, later.1);
         }
         same
     });
@@ -645,7 +688,10 @@ mod tests {
     async fn directed_export_matches_hand_built_csr() {
         let (nodes, edges) = people();
         let engine = arrow_engine(person_config(), vec![("Person", nodes), ("KNOWS", edges)]).await;
-        let g = engine.export_graph(None, true, None).await.unwrap();
+        let g = engine
+            .export_graph(None, true, None, CombineEdges::Sum)
+            .await
+            .unwrap();
         // Dense ids follow row order: 60->0, 10->1, 50->2, 30->3, 20->4, 40->5.
         assert_eq!(g.node_keys.values().to_vec(), vec![60, 10, 50, 30, 20, 40]);
         assert_eq!(g.num_nodes, 6);
@@ -668,7 +714,7 @@ mod tests {
         let (nodes, edges) = people();
         let engine = arrow_engine(person_config(), vec![("Person", nodes), ("KNOWS", edges)]).await;
         let g = engine
-            .export_graph(Some(&["knows".to_string()]), false, None)
+            .export_graph(Some(&["knows".to_string()]), false, None, CombineEdges::Sum)
             .await
             .unwrap();
         assert!(!g.directed && g.in_indptr.is_none() && g.in_indices.is_none());
@@ -701,10 +747,16 @@ mod tests {
         let engine = arrow_engine(person_config(), vec![("Person", nodes), ("KNOWS", edges)]).await;
 
         // Unweighted: no weight arrays, same CSR as without the column.
-        let plain = engine.export_graph(None, true, None).await.unwrap();
+        let plain = engine
+            .export_graph(None, true, None, CombineEdges::Sum)
+            .await
+            .unwrap();
         assert!(plain.out_weights.is_none() && plain.in_weights.is_none());
 
-        let g = engine.export_graph(None, true, Some("W")).await.unwrap();
+        let g = engine
+            .export_graph(None, true, Some("W"), CombineEdges::Sum)
+            .await
+            .unwrap();
         assert_eq!(
             (&g.out_indptr, &g.out_indices),
             (&plain.out_indptr, &plain.out_indices)
@@ -725,8 +777,14 @@ mod tests {
         assert_eq!(g.dropped_edges, 1);
 
         // Undirected: 50->60 and 60->50 become one edge, the self-loop's weight counts once.
-        let u = engine.export_graph(None, false, Some("w")).await.unwrap();
-        let plain = engine.export_graph(None, false, None).await.unwrap();
+        let u = engine
+            .export_graph(None, false, Some("w"), CombineEdges::Sum)
+            .await
+            .unwrap();
+        let plain = engine
+            .export_graph(None, false, None, CombineEdges::Sum)
+            .await
+            .unwrap();
         assert_eq!(
             (&u.out_indptr, &u.out_indices),
             (&plain.out_indptr, &plain.out_indices)
@@ -739,11 +797,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn combine_edges_picks_min_or_max() {
+        let (nodes, edges) = weighted_people(powers_of_two());
+        let engine = arrow_engine(person_config(), vec![("Person", nodes), ("KNOWS", edges)]).await;
+        // The duplicate 10->20 has weights 1 and 2; undirected 50-60 has 64 and 128.
+        for (combine, dup, pair) in [
+            (CombineEdges::Min, 1.0, 64.0),
+            (CombineEdges::Max, 2.0, 128.0),
+        ] {
+            let g = engine
+                .export_graph(None, true, Some("w"), combine)
+                .await
+                .unwrap();
+            assert_eq!(weights(&g.out_weights)[1], dup, "{combine:?}");
+            assert_eq!(weights(&g.in_weights)[5], dup, "{combine:?}");
+            let u = engine
+                .export_graph(None, false, Some("w"), combine)
+                .await
+                .unwrap();
+            assert_eq!(
+                weights(&u.out_weights),
+                vec![pair, 8.0, dup, pair, 8.0, 16.0, 4.0, dup, 4.0],
+                "{combine:?}"
+            );
+        }
+        assert_eq!("MAX".parse::<CombineEdges>().unwrap(), CombineEdges::Max);
+        assert!("mean".parse::<CombineEdges>().is_err());
+    }
+
+    #[tokio::test]
     async fn bad_weight_columns_are_errors() {
         let (nodes, edges) = weighted_people(powers_of_two());
         let engine = arrow_engine(person_config(), vec![("Person", nodes), ("KNOWS", edges)]).await;
         let err = engine
-            .export_graph(None, true, Some("cost"))
+            .export_graph(None, true, Some("cost"), CombineEdges::Sum)
             .await
             .unwrap_err();
         assert!(matches!(err, GraphError::ConfigError { .. }), "{err}");
@@ -763,7 +850,7 @@ mod tests {
         let (nodes, _) = people();
         let engine = arrow_engine(person_config(), vec![("Person", nodes), ("KNOWS", names)]).await;
         let err = engine
-            .export_graph(None, true, Some("w"))
+            .export_graph(None, true, Some("w"), CombineEdges::Sum)
             .await
             .unwrap_err();
         assert!(matches!(err, GraphError::ConfigError { .. }), "{err}");
@@ -798,7 +885,10 @@ mod tests {
             ],
         )
         .await;
-        let g = engine.export_graph(None, true, None).await.unwrap();
+        let g = engine
+            .export_graph(None, true, None, CombineEdges::Sum)
+            .await
+            .unwrap();
         // City 0..2, Person 2..4.
         assert_eq!(
             g.label_ranges,
@@ -818,13 +908,16 @@ mod tests {
             vec![("Person", duplicate), ("KNOWS", edges.clone())],
         )
         .await;
-        let err = engine.export_graph(None, true, None).await.unwrap_err();
+        let err = engine
+            .export_graph(None, true, None, CombineEdges::Sum)
+            .await
+            .unwrap_err();
         assert!(matches!(err, GraphError::ExecutionError { .. }), "{err}");
 
         let (nodes, _) = people();
         let engine = arrow_engine(person_config(), vec![("Person", nodes), ("KNOWS", edges)]).await;
         let err = engine
-            .export_graph(Some(&["LIKES".to_string()]), true, None)
+            .export_graph(Some(&["LIKES".to_string()]), true, None, CombineEdges::Sum)
             .await
             .unwrap_err();
         assert!(matches!(err, GraphError::ConfigError { .. }), "{err}");
@@ -847,7 +940,10 @@ mod tests {
             ],
         )
         .await;
-        let err = engine.export_graph(None, true, None).await.unwrap_err();
+        let err = engine
+            .export_graph(None, true, None, CombineEdges::Sum)
+            .await
+            .unwrap_err();
         assert!(matches!(err, GraphError::ConfigError { .. }), "{err}");
     }
 
@@ -890,8 +986,14 @@ mod tests {
             .unwrap();
         let arrow = arrow_engine(person_config(), vec![("Person", nodes), ("KNOWS", edges)]).await;
         let (a, b) = (
-            lance.export_graph(None, true, None).await.unwrap(),
-            arrow.export_graph(None, true, None).await.unwrap(),
+            lance
+                .export_graph(None, true, None, CombineEdges::Sum)
+                .await
+                .unwrap(),
+            arrow
+                .export_graph(None, true, None, CombineEdges::Sum)
+                .await
+                .unwrap(),
         );
         assert_eq!(a.node_keys, b.node_keys);
         assert_eq!(
@@ -910,7 +1012,7 @@ mod tests {
         assert_eq!(
             values(
                 &lance
-                    .export_graph(None, true, None)
+                    .export_graph(None, true, None, CombineEdges::Sum)
                     .await
                     .unwrap()
                     .out_indptr
@@ -918,7 +1020,10 @@ mod tests {
             6
         );
         lance.checkout_latest().await.unwrap();
-        let g = lance.export_graph(None, true, None).await.unwrap();
+        let g = lance
+            .export_graph(None, true, None, CombineEdges::Sum)
+            .await
+            .unwrap();
         assert_eq!(values(&g.out_indptr), vec![0, 1, 2, 3, 5, 6, 7]);
         assert_eq!(values(&g.out_indices)[6], 0);
     }
@@ -945,7 +1050,10 @@ mod tests {
         let engine = CypherEngine::new(person_config(), sources, true)
             .await
             .unwrap();
-        let g = engine.export_graph(None, true, None).await.unwrap();
+        let g = engine
+            .export_graph(None, true, None, CombineEdges::Sum)
+            .await
+            .unwrap();
         let degree = |g: &GraphExport| -> ArrayRef {
             let p = g.out_indptr.values();
             Arc::new(Int64Array::from_iter_values(
@@ -1045,7 +1153,10 @@ mod tests {
         let engine = CypherEngine::new(person_config(), sources, true)
             .await
             .unwrap();
-        let g = engine.export_graph(None, true, None).await.unwrap();
+        let g = engine
+            .export_graph(None, true, None, CombineEdges::Sum)
+            .await
+            .unwrap();
         let ones: ArrayRef = Arc::new(Int64Array::from(vec![1; g.num_nodes as usize]));
         engine
             .write_node_column(&g, "x", &ones, false)

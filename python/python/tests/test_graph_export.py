@@ -70,8 +70,17 @@ def test_weights():
     assert u.in_weights is None and u.out_weights is not None
     assert u.out_weights.to_pylist() == [192, 8, 3, 192, 8, 16, 4, 3, 4]
 
+    # min/max instead: the duplicate 10->20 has 1 and 2, 50-60 has 64 and 128.
+    low = engine.export_graph(weight="w", combine_edges="min")
+    assert low.out_weights is not None and low.out_weights.to_pylist()[1] == 1
+    high = engine.export_graph(directed=False, weight="w", combine_edges="max")
+    assert high.out_weights is not None
+    assert high.out_weights.to_pylist() == [128, 8, 2, 128, 8, 16, 4, 2, 4]
+
     with pytest.raises(ValueError, match="cost"):
         engine.export_graph(weight="cost")
+    with pytest.raises(ValueError, match="combine_edges"):
+        engine.export_graph(weight="w", combine_edges="mean")  # pyright: ignore[reportArgumentType]
     named = EDGES.append_column("w", pa.array(["x"] * 9))
     with pytest.raises(ValueError, match="not a numeric"):
         CypherEngine(CONFIG, {"Person": NODES, "KNOWS": named}).export_graph(weight="w")

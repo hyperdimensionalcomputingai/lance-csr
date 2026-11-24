@@ -166,6 +166,7 @@ class CypherEngine:
         *,
         directed: bool = True,
         weight: str | None = None,
+        combine_edges: Literal["sum", "min", "max"] = "sum",
     ) -> GraphExport: ...
     def write_node_column(
         self,

@@ -63,6 +63,12 @@ test("edge weights only when asked for", async () => {
   assert.equal(g.outWeights!.type.typeId, Type.Float);
   assert.deepEqual(Array.from(g.outWeights!.toArray()), [8, 3, 4]);
   assert.deepEqual(Array.from(g.inWeights!.toArray()), [4, 8, 3]);
+  const min = await engine.exportGraph(undefined, { weight: "w", combineEdges: "min" });
+  assert.deepEqual(Array.from(min.outWeights!.toArray()), [8, 1, 4]);
+  await assert.rejects(
+    engine.exportGraph(undefined, { weight: "w", combineEdges: "mean" as "sum" }),
+    (err) => err instanceof LanceCsrError && err.code === "InvalidArgument",
+  );
   await assert.rejects(
     engine.exportGraph(undefined, { weight: "cost" }),
     (err) => err instanceof LanceCsrError && err.code === "InvalidArgument",

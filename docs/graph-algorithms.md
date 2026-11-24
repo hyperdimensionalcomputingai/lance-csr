@@ -115,10 +115,18 @@ print(w.out_weights.to_pylist())  # [2.0, 1.0, 7.0, 5.0]
 The weight of `out_indices[i]` is `out_weights[i]`, and the same holds for the in-edges. Every included
 relationship type must have the column, and it must be numeric.
 
-The export lists each edge once, so an edge that appears in several rows needs one weight. The export sums
-them: 10 → 20 appears twice, with 3 and 4 messages, and gets 7. An undirected export does the same with an
-edge stored in both directions, so `a → b` and `b → a` become one edge carrying both weights; a self-loop's
-weight counts once.
+The export lists each edge once, so an edge that appears in several rows needs one weight, and
+`combine_edges` says how to get it. The default, `"sum"`, adds the weights, which suits counts and amounts:
+10 → 20 appears twice, with 3 and 4 messages, and gets 7. When the weight is a distance or a cost, the
+cheapest edge is usually the one that matters, and `"min"` keeps it; `"max"` keeps the largest:
+
+```python
+cheapest = weighted_engine.export_graph(weight="messages", combine_edges="min")
+print(cheapest.out_weights.to_pylist())  # [2.0, 1.0, 3.0, 5.0]
+```
+
+An undirected export applies the same rule to an edge stored in both directions, so `a → b` and `b → a`
+become one edge with one combined weight. A self-loop's weight counts once.
 
 Weights cost memory only when you ask for them. Without `weight`, the export reads no extra column and
 `out_weights` and `in_weights` are `None`.

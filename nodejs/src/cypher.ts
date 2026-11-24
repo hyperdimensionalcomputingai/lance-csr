@@ -432,20 +432,29 @@ export class CypherEngine {
    *   returns one set of arrays listing every edge in both directions.
    * @param options.weight - A numeric column of the relationship tables to export as float64
    *   edge weights, in `outWeights` and `inWeights`; every included type must have it,
-   *   case-insensitive. An edge listed more than once gets the sum of its weights. Left out, no
-   *   weights are exported, and the export needs no memory for them.
+   *   case-insensitive. Left out, no weights are exported, and the export needs no memory for
+   *   them.
+   * @param options.combineEdges - How an edge listed more than once combines its weights: `"sum"`
+   *   (the default) adds them, as for counts or amounts; `"min"` keeps the smallest, as for
+   *   distances; `"max"` the largest. In an undirected export, `a -> b` and `b -> a` are one edge
+   *   and combine the same way. Ignored without `weight`.
    * @throws {@link LanceCsrError} `InvalidArgument` if a relationship type or label isn't in
    *   the config, has no dataset, or a key or endpoint column is missing or isn't an integer
-   *   type up to `int64`, the weight column is missing or isn't numeric, or there's nothing to
-   *   export; `Runtime` if a node key appears twice within a label, a weight is null, or a scan
+   *   type up to `int64`, the weight column is missing or isn't numeric, `combineEdges` isn't
+   *   one of the three rules, or there's nothing to export; `Runtime` if a node key appears twice within a label, a weight is null, or a scan
    *   fails.
    */
   async exportGraph(
     relTypes?: string[],
-    options: { directed?: boolean; weight?: string } = {},
+    options: { directed?: boolean; weight?: string; combineEdges?: "sum" | "min" | "max" } = {},
   ): Promise<GraphExport> {
     const g = await call(() =>
-      this.#inner.exportGraph(relTypes, options.directed ?? true, options.weight),
+      this.#inner.exportGraph(
+        relTypes,
+        options.directed ?? true,
+        options.weight,
+        options.combineEdges,
+      ),
     );
     return {
       numNodes: g.numNodes,

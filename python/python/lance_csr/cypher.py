@@ -470,6 +470,7 @@ class CypherEngine:
         *,
         directed: bool = True,
         weight: str | None = None,
+        combine_edges: Literal["sum", "min", "max"] = "sum",
     ) -> GraphExport:
         """The graph as dense CSR arrays, for graph-algorithm libraries.
 
@@ -490,9 +491,14 @@ class CypherEngine:
         weight : str or None
             Keyword-only. A numeric column of the relationship tables to export as
             `float64` edge weights, in `out_weights` and `in_weights`; every included
-            type must have it, case-insensitive. An edge listed more than once gets the
-            sum of its weights. `None` (the default) exports no weights, and the export
-            then needs no memory for them.
+            type must have it, case-insensitive. `None` (the default) exports no
+            weights, and the export then needs no memory for them.
+        combine_edges : {"sum", "min", "max"}
+            Keyword-only. How an edge listed more than once combines its weights:
+            `"sum"` (the default) adds them, as for counts or amounts; `"min"` keeps the
+            smallest, as for distances; `"max"` the largest. In an undirected export,
+            `a -> b` and `b -> a` are one edge and combine the same way. Ignored without
+            `weight`.
 
         Returns
         -------
@@ -505,7 +511,7 @@ class CypherEngine:
             If a relationship type or label isn't in the config, has no dataset, or a
             key or endpoint column is missing or isn't an integer type up to `int64`
             (`uint64` isn't supported), the weight column is missing or isn't numeric,
-            or there's nothing to export.
+            `combine_edges` isn't one of the three rules, or there's nothing to export.
         RuntimeError
             If a node key appears twice within a label, a weight is null, or a scan
             fails.
@@ -529,7 +535,12 @@ class CypherEngine:
         ([0, 1, 2, 2], [1, 2])
         """
         return GraphExport._from_inner(
-            self._inner.export_graph(rel_types, directed=directed, weight=weight)
+            self._inner.export_graph(
+                rel_types,
+                directed=directed,
+                weight=weight,
+                combine_edges=combine_edges,
+            )
         )
 
     def write_node_column(

@@ -1331,19 +1331,27 @@ impl CypherEngine {
         Ok(stats.into_any().unbind())
     }
 
-    #[pyo3(signature = (rel_types=None, *, directed=true, weight=None))]
+    #[pyo3(signature = (rel_types=None, *, directed=true, weight=None, combine_edges="sum"))]
     fn export_graph(
         &self,
         py: Python,
         rel_types: Option<Vec<String>>,
         directed: bool,
         weight: Option<String>,
+        combine_edges: &str,
     ) -> PyResult<GraphExport> {
+        let combine = combine_edges
+            .parse::<lance_csr::CombineEdges>()
+            .map_err(graph_error_to_pyerr)?;
         let inner = RT
             .block_on(
                 Some(py),
-                self.inner
-                    .export_graph(rel_types.as_deref(), directed, weight.as_deref()),
+                self.inner.export_graph(
+                    rel_types.as_deref(),
+                    directed,
+                    weight.as_deref(),
+                    combine,
+                ),
             )?
             .map_err(graph_error_to_pyerr)?;
         Ok(GraphExport { inner })

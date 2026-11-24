@@ -267,11 +267,18 @@ impl CypherEngine {
         rel_types: Option<Vec<String>>,
         directed: bool,
         weight: Option<String>,
+        combine_edges: Option<String>,
     ) -> napi::Result<GraphExport> {
+        let combine = combine_edges
+            .as_deref()
+            .map(str::parse::<lance_csr::CombineEdges>)
+            .transpose()
+            .map_err(graph_error)?
+            .unwrap_or_default();
         let inner = self.inner.clone();
         let g = blocking(async move {
             inner
-                .export_graph(rel_types.as_deref(), directed, weight.as_deref())
+                .export_graph(rel_types.as_deref(), directed, weight.as_deref(), combine)
                 .await
         })
         .await?;

@@ -101,8 +101,8 @@ class GraphExport:
         """The weight of each entry in `out_indices`, as `float64`.
 
         `None` unless `export_graph` was given a `weight` column. An edge listed more
-        than once gets the sum of its weights; in an undirected export, so do `a -> b`
-        and `b -> a`.
+        than once, or in an undirected export both `a -> b` and `b -> a`, gets one
+        weight, combined by `export_graph`'s `combine_edges` rule (a sum by default).
         """
         return self._inner.out_weights
 

@@ -132,8 +132,8 @@ export interface GraphExport {
   inIndices: Vector<Uint64> | null;
   /**
    * The weight of each entry in `outIndices`; `null` unless `exportGraph` was given a `weight`
-   * column. An edge listed more than once gets the sum of its weights; in an undirected export,
-   * so do `a -> b` and `b -> a`.
+   * column. An edge listed more than once, or in an undirected export both `a -> b` and
+   * `b -> a`, gets one weight, combined by the `combineEdges` rule (a sum by default).
    */
   outWeights: Vector<Float64> | null;
   /**
