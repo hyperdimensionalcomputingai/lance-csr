@@ -140,7 +140,7 @@ The primary purpose of lance-csr is to serve as a fast, lightweight query engine
     distributed graph processing, [HDC Labs](https://hyperdimensionalcomputing.ai/contact/) builds that
     separately.
 
-- **Read-only.** The engine queries your tables; it never writes them (the experimental `persist_csr=True`
+- **Read-only.** The engine queries your tables; it never writes them (the `persist_csr=True`
   option stores only the CSR's own files beside them, and `persist_csr="load"` only reads them). Create and update your tables with
   [`pylance`](https://pypi.org/project/pylance/), LanceDB or PyArrow, then query them here.
 - **Not a server.** There's no network protocol, authentication or multi-tenant process. It's a library.
@@ -158,8 +158,7 @@ If your use case involves distributed graph query processing or graph algorithms
 engine we're building at HDC Labs. [Reach out to us](https://hyperdimensionalcomputing.ai/contact/) to learn
 more about that work.
 
-lance-csr is in **alpha**. The CSR (`use_csr=True`) is marked experimental: results are identical with and
-without it, but the API around it may change. Prebuilt wheels cover Linux x86-64 and aarch64, Apple Silicon and Windows x86-64, for CPython 3.12
+lance-csr is in **alpha**. Prebuilt wheels cover Linux x86-64 and aarch64, Apple Silicon and Windows x86-64, for CPython 3.12
 and newer; npm binaries cover the same platforms except Windows, for Node.js 22 and newer.
 
 [:fontawesome-brands-github: GitHub](https://github.com/hyperdimensionalcomputingai/lance-csr){ .md-button }

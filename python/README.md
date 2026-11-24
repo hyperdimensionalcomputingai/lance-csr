@@ -131,7 +131,7 @@ for batch in engine.execute_batches("MATCH (p:Person) RETURN p.id"):
     ...                                                # pyarrow.RecordBatch, one at a time
 ```
 
-Experimental: `CypherEngine(config, datasets, use_csr=True)` answers hops over integer ids
+`CypherEngine(config, datasets, use_csr=True)` answers hops over integer ids
 with an in-memory CSR adjacency, and fetches target rows by position instead of joining. The CSR is
 rebuilt on `checkout_latest()` when the relationship table changes, and the per-label id index when its node
 table changes. Results are identical; the CSR's memory grows with the number of edges, and building it briefly needs more.
@@ -167,8 +167,8 @@ engine.checkout_latest()       # the engine sees the new version
 
 - Reads are lazy and pinned to the version you pass in, exactly as with `lance.dataset(...)`.
 - `table.to_arrow()` also works, but loads the whole table into memory and never sees later versions.
-- Tested with LanceDB 0.40.0 on local tables, which write Lance file format 2.2. A LanceDB release that
-  bundles a newer Lance major may write files this engine cannot read.
+- We try to maintain parity with the latest versions of LanceDB and the Lance format as the ecosystem
+  advances.
 - Not supported: LanceDB Cloud (remote tables have no `to_lance()`), and tables opened through a
   namespace connection, which are rejected rather than reopened without their credentials.
   Object-store tables (S3 and similar) have not been tested.

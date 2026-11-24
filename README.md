@@ -106,7 +106,7 @@ print(result.to_pydict())  # {'name': ['Bob', 'David'], 'age': [34, 42]}
 
 Lance datasets can be passed in directly, in place of PyArrow tables. A `CypherEngine` reads them lazily, pinned
 to the version you opened, and reuses its catalog and indexes across queries. `use_csr=True` runs relationship hops
-on the CSR index, and `persist_csr=True` (experimental) stores that index inside each relationship dataset's
+on the CSR index, and `persist_csr=True` stores that index inside each relationship dataset's
 directory, so the next engine loads it instead of rebuilding it.
 
 ```python
