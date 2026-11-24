@@ -236,7 +236,8 @@ Some cases need care:
 
 - The export holds the whole graph in memory: eight bytes per edge in each direction for `indices`, plus the
   offsets and keys. A directed export of 10 million edges takes about 160 MB, and building it briefly needs
-  about as much again. Weights add eight bytes per edge in each direction, and while the export is built each
-  edge takes 16 bytes instead of eight.
+  about as much again. Weights add eight bytes per edge in each direction, and building a weighted export
+  briefly needs up to three times the memory of an unweighted one, because each edge is sorted together with its
+  weight. An unweighted export needs no memory for weights.
 - Keys and endpoints must be integers up to `int64`; string and `uint64` keys aren't supported.
 - Only one edge property is exported, as a weight; other edge properties aren't.
