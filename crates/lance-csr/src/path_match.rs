@@ -59,7 +59,7 @@ pub(crate) struct Step {
     pub relationship: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct PathSpec {
     pub variable: Option<String>,
     /// Expose typed boundary-node values alongside their property columns.
@@ -76,7 +76,7 @@ pub(crate) struct PathSpec {
 
 /// The engine's CSR for every relationship a trail walk follows. Edges are read
 /// only where the walk goes; an edge's identity is its row in the CSR.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct CsrRoute {
     /// Per step, every (type, direction) adjacency the step follows. Each type's rows are
     /// its `EdgeSource::rows`.
@@ -93,7 +93,7 @@ impl PathSpec {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct CsrHop {
     pub kind: usize,
     pub neighbors: Neighbors,
@@ -238,6 +238,34 @@ impl PathMatchNode {
             schema,
             outputs,
         })
+    }
+
+    /// This node without its path value, when no column in `used` reads the path.
+    pub(crate) fn without_unused_path(&self, used: &HashSet<String>) -> Result<Option<Self>> {
+        let Some(variable) = &self.spec.variable else {
+            return Ok(None);
+        };
+        if used.contains(&variable.to_lowercase()) {
+            return Ok(None);
+        }
+        // The path value is the last column `try_new` adds.
+        let kept = self.schema.fields().len() - 1;
+        let schema = DFSchema::new_with_metadata(
+            self.schema
+                .iter()
+                .take(kept)
+                .map(|(qualifier, field)| (qualifier.cloned(), Arc::clone(field)))
+                .collect(),
+            self.schema.metadata().clone(),
+        )?
+        .with_functional_dependencies(self.schema.functional_dependencies().clone())?;
+        let mut spec = PathSpec::clone(&self.spec);
+        spec.variable = None;
+        Ok(Some(Self {
+            spec: Arc::new(spec),
+            schema: Arc::new(schema),
+            ..self.clone()
+        }))
     }
 }
 impl PartialEq for PathMatchNode {
@@ -579,6 +607,13 @@ impl ExecutionPlan for PathMatchExec {
             self.hop_filters.clone(),
         );
         let sources = self.sources.clone();
+        let reads_edges = spec.variable.is_some()
+            || outputs.iter().any(|o| {
+                matches!(
+                    o,
+                    Output::RelationshipValue { .. } | Output::Relationship { .. }
+                )
+            });
         let out_schema = schema.clone();
         let batch_size = context.session_config().batch_size();
         let stream = futures::stream::try_unfold(
@@ -628,7 +663,9 @@ impl ExecutionPlan for PathMatchExec {
                             continue;
                         }
                         let edges = match &spec.csr {
-                            Some(_) => p.csr_edges(&spec, &mut paths).await?,
+                            Some(_) if reads_edges => p.csr_edges(&spec, &mut paths).await?,
+                            // Nothing reads relationship records: don't fetch them.
+                            Some(_) => StructArray::new_empty_fields(0, None),
                             None => p.graph.inventory.edges.clone(),
                         };
                         let indices = UInt32Array::from(rows);

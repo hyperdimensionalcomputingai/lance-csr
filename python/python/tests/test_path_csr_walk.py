@@ -162,3 +162,21 @@ def test_trail_and_shortest_path_agree_on_relationship_identity(
         "RETURN relationships(p)[0] = relationships(q)[0] AS same, p = q AS same_path"
     )
     assert engine.execute(query).to_pylist() == [{"same": True, "same_path": True}]
+
+
+@pytest.mark.parametrize("use_csr", [False, True], ids=["inventory", "csr"])
+def test_path_values_are_built_only_when_read(use_csr):
+    engine = CypherEngine(CONFIG, DATA, use_csr=use_csr)
+    path = "MATCH p = (a:P {id: 0})-[:R*1..3]->(b:P)"
+    expected = engine.execute(f"{path} RETURN count(p) AS n").to_pylist()
+    unread = ["count(*)", "count(b.id)", "count(DISTINCT b.id)"]
+    read = ["count(p)", "sum(length(p))", "count(nodes(p))", "count(relationships(p))"]
+    for ret, node in [(r, "endpoints") for r in unread] + [(r, "p") for r in read]:
+        query = f"{path} RETURN {ret} AS n"
+        assert f"PathMatchExec: {node}" in engine.explain(query), query
+    for ret in ["count(*)", "count(b.id)"]:
+        assert engine.execute(f"{path} RETURN {ret} AS n").to_pylist() == expected
+    ids = f"{path} RETURN b.id AS b, length(p) AS n"
+    assert rows(engine, f"{path} RETURN b.id AS b") == sorted(
+        repr([("b", row["b"])]) for row in engine.execute(ids).to_pylist()
+    )

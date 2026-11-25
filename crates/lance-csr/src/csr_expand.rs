@@ -3662,6 +3662,17 @@ fn prune_within(
     plan.map_children(|child| prune_within(child, used))?
         .transform_data(|node| {
             if let LogicalPlan::Extension(ext) = &node {
+                if let Some(path) = ext
+                    .node
+                    .as_any()
+                    .downcast_ref::<crate::path_match::PathMatchNode>()
+                {
+                    if let Some(pruned) = path.without_unused_path(used)? {
+                        return Ok(Transformed::yes(LogicalPlan::Extension(Extension {
+                            node: Arc::new(pruned),
+                        })));
+                    }
+                }
                 if let Some(csr) = ext.node.as_any().downcast_ref::<CsrExpandNode>() {
                     if let Some(pruned) = csr.with_target_columns(used) {
                         return Ok(Transformed::yes(LogicalPlan::Extension(Extension {
