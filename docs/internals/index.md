@@ -116,7 +116,7 @@ All paths are under
 | `csr_store.rs` | CSR files stored with `persist_csr` | lance-csr |
 | `exec_metrics.rs` | The wrapper that records each operator's metrics for `explain(..., analyze=True)` | lance-csr |
 | `csr_index.rs` | The compact CSR neighbour store | [lance-graph](https://github.com/lance-format/lance-graph); edge rows and their block packing (`PackedU64`) added in lance-csr, unused traversal helpers removed |
-| `csr_traversal.rs` | Resumable, typed variable-length walks | lance-csr |
+| `csr_expand/trail_walk.rs`, `csr_traversal.rs` | Shared CSR trail cursor and its single-segment traversal adapter | lance-csr |
 | `shortest_path.rs` | `ShortestPathNode` and `ShortestPathExec`, bidirectional and batched forward breadth-first search | lance-csr |
 | `path_match.rs`, `path_inventory.rs`, `path_value.rs` | Named paths, the edge inventory, Arrow path values | lance-csr |
 | `apply.rs` | `ApplyNode` and `ApplyExec` for CALL subqueries | lance-csr |

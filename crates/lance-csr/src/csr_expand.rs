@@ -68,7 +68,7 @@ mod trail_walk;
 use lance_table::format::Fragment;
 pub use node_lookup::NodeLookupNode;
 pub use path_exists::{Hop, PathExistsNode};
-pub(crate) use trail_walk::{Tie, TrailWalk, TrailWalkNode, WalkSegmentSpec};
+pub(crate) use trail_walk::{Tie, TrailCursor, TrailWalk, TrailWalkNode, WalkSegmentSpec};
 
 /// Yield after bounded CPU work without requiring a particular async runtime.
 pub(crate) async fn cooperative_yield() {
@@ -2402,7 +2402,7 @@ struct BatchExpansion {
     bound: Option<Int64Array>,
     row: usize,
     position: NeighborPosition,
-    walk: Option<crate::csr_traversal::TraversalCursor>,
+    walk: Option<TrailCursor>,
     /// Record each output row's edge row, for a relationship-column fetch.
     edge_rows: bool,
     /// Passing edge rows of the relationship filter, once built: others are skipped.
@@ -2586,6 +2586,9 @@ impl BatchExpansion {
         batch_size: usize,
     ) -> ExpandedRows {
         let mut chunk = ExpandedRows::default();
+        let walk = graph.walk();
+        let limit = batch_size.max(1);
+        let mut ends = Vec::new();
         let mut source_work = 0_usize;
         while self.row < self.keys.len() {
             source_work += 1;
@@ -2595,28 +2598,39 @@ impl BatchExpansion {
             let i = self.row;
             if self.keys.is_valid(i) && self.bound.as_ref().is_none_or(|b| b.is_valid(i)) {
                 let key = self.keys.value(i);
-                let walk = self
-                    .walk
-                    .get_or_insert_with(|| crate::csr_traversal::TraversalCursor::new(graph, key));
-                let mut candidates = 0usize;
-                while let Some(neighbor) = walk.next(graph).await {
-                    candidates += 1;
-                    if candidates.is_multiple_of(1024) {
+                let required = self.bound.as_ref().map(|b| b.value(i));
+                let cursor = self.walk.get_or_insert_with(|| TrailCursor::new(walk, key));
+                let mut candidates = 0_usize;
+                loop {
+                    // Yield between groups, before the cursor advances, so a dropped
+                    // future loses no end, even when every end fails the checks below.
+                    if candidates >= 1024 {
                         cooperative_yield().await;
+                        candidates = 0;
                     }
-                    if self.bound.as_ref().is_some_and(|b| b.value(i) != neighbor) {
-                        continue;
+                    // A group never exceeds the room left, so no end has to be carried over.
+                    if !cursor
+                        .next_group(walk, &[], limit - chunk.rows.len(), &mut ends)
+                        .await
+                    {
+                        break;
                     }
-                    if let Some(target) = target {
-                        let Some(position) = target.rows.position(neighbor) else {
+                    candidates += ends.len();
+                    for &neighbor in &ends {
+                        if required.is_some_and(|r| r != neighbor) {
                             continue;
-                        };
-                        chunk.target_positions.push(position);
+                        }
+                        if let Some(target) = target {
+                            let Some(position) = target.rows.position(neighbor) else {
+                                continue;
+                            };
+                            chunk.target_positions.push(position);
+                        }
+                        chunk.rows.push(i as u32);
+                        chunk.key_values.push(key);
+                        chunk.neighbor_values.push(neighbor);
                     }
-                    chunk.rows.push(i as u32);
-                    chunk.key_values.push(key);
-                    chunk.neighbor_values.push(neighbor);
-                    if chunk.rows.len() == batch_size.max(1) {
+                    if chunk.rows.len() == limit {
                         return chunk;
                     }
                 }
@@ -3482,6 +3496,7 @@ fn prune_unused_columns(plan: LogicalPlan) -> datafusion::common::Result<Transfo
 }
 
 /// `plan` with the CSR and lookup columns not in `used` dropped, visiting each node once.
+#[recursive::recursive]
 fn prune_within(
     plan: LogicalPlan,
     used: &HashSet<String>,

@@ -35,6 +35,55 @@ pub(crate) struct WalkSegmentSpec<'a> {
     pub tie: Option<Tie>,
 }
 
+impl WalkSegmentSpec<'_> {
+    /// Which alternatives occur on a schema path from start to end within this range.
+    /// Track the set of types reaching each label at each depth, without enumerating paths.
+    fn participating_types(
+        &self,
+        config: &crate::config::GraphConfig,
+        start: &str,
+    ) -> Option<HashSet<usize>> {
+        let mut steps = Vec::new();
+        for (i, name) in self.types.iter().enumerate() {
+            let mapping = config.get_relationship_mapping(name)?;
+            let src = mapping.source_label.as_deref()?.to_ascii_lowercase();
+            let dst = mapping.target_label.as_deref()?.to_ascii_lowercase();
+            if *self.direction != RelationshipDirection::Incoming {
+                steps.push((src.clone(), dst.clone(), i));
+            }
+            if *self.direction == RelationshipDirection::Incoming
+                || (*self.direction == RelationshipDirection::Undirected && src != dst)
+            {
+                steps.push((dst, src, i));
+            }
+        }
+        let start = start.to_ascii_lowercase();
+        let end = self.end_label.to_ascii_lowercase();
+        let mut frontier = HashMap::from([(start.as_str(), HashSet::new())]);
+        let mut used = HashSet::new();
+        for depth in 1..=self.max {
+            let mut next = HashMap::<&str, HashSet<usize>>::new();
+            for (from, to, i) in &steps {
+                if let Some(history) = frontier.get(from.as_str()) {
+                    let reached = next.entry(to).or_default();
+                    reached.extend(history.iter().copied());
+                    reached.insert(*i);
+                }
+            }
+            if depth >= self.min {
+                if let Some(types) = next.get(end.as_str()) {
+                    used.extend(types);
+                }
+            }
+            if next.is_empty() {
+                break;
+            }
+            frontier = next;
+        }
+        Some(used)
+    }
+}
+
 #[derive(Debug)]
 struct WalkStep {
     from: usize,
@@ -85,10 +134,23 @@ impl TrailWalk {
         let mut types: Vec<String> = Vec::new();
         let start = label(start_label)?;
         let mut segments = Vec::with_capacity(specs.len());
+        let mut segment_start = start_label;
         for spec in specs {
             let end = label(spec.end_label)?;
+            let participating = if spec.types.len() > 1 {
+                Some(spec.participating_types(config, segment_start)?)
+            } else {
+                None
+            };
+            segment_start = spec.end_label;
             let mut steps = Vec::new();
-            for name in spec.types {
+            for (i, name) in spec.types.iter().enumerate() {
+                if participating
+                    .as_ref()
+                    .is_some_and(|types| !types.contains(&i))
+                {
+                    continue;
+                }
                 let mapping = config.get_relationship_mapping(name)?;
                 let kind = &mapping.relationship_type;
                 let rel = match types.iter().position(|t| t.eq_ignore_ascii_case(kind)) {
@@ -141,6 +203,11 @@ impl TrailWalk {
             labels,
             start,
         })
+    }
+
+    /// One participating adjacency for the single-segment expansion operator.
+    pub(crate) fn first_neighbors(&self) -> Option<&Neighbors> {
+        Some(&self.segments.first()?.steps.first()?.neighbors)
     }
 
     /// Node index of the label at the end of `segment`.
@@ -197,8 +264,8 @@ impl Frame {
 
 /// A resumable walk from one start node. One frame per hop: a segment's end starts the
 /// next segment with a frame of depth 0 at the same node, so the stack also holds every
-/// boundary reached so far.
-struct TrailCursor {
+/// boundary reached so far. A one-segment walk is the variable-length expand's walker.
+pub(crate) struct TrailCursor {
     stack: Vec<Frame>,
     /// Start id and completed segment ends on the current branch.
     boundaries: Vec<i64>,
@@ -212,6 +279,12 @@ impl TrailCursor {
         }
     }
 
+    /// Frames on the stack: one per hop of the current branch, plus one per boundary.
+    #[cfg(test)]
+    pub(crate) fn depth(&self) -> usize {
+        self.stack.len()
+    }
+
     fn bound_end(&self, tie: Option<Tie>, bound: &[i64]) -> Option<i64> {
         match tie? {
             Tie::Input(i) => Some(bound[i]),
@@ -221,8 +294,8 @@ impl TrailCursor {
 
     /// Emit final endpoints with the same preceding boundaries as a group. Read a
     /// contiguous run of final-hop candidates without rebuilding its CSR iterator or
-    /// pushing a stack frame for every row.
-    async fn next_group(
+    /// pushing a stack frame for every row. At most `limit` ends per group.
+    pub(crate) async fn next_group(
         &mut self,
         walk: &TrailWalk,
         bound: &[i64],

@@ -22,6 +22,7 @@ use std::sync::Arc;
 pub(super) struct TrailIdentity<'a> {
     pub output: &'a str,
     pub stored: Option<&'a str>,
+    pub filter_fields: Vec<String>,
 }
 
 /// Bind a property filter to its physical field spelling before scan aliasing.
@@ -131,12 +132,8 @@ impl DataFusionPlanner {
 
     /// Build a qualified relationship scan with property filters.
     ///
-    /// Carry the stored row ID when the source supplies one. For other sources,
-    /// the scan computes each row's number among
-    /// the rows with the same (source, target) as walked. Parallel edges then differ, which
-    /// a path needs to tell whether two of its hops walked the same edge. Which parallel
-    /// edge gets which number does not matter: they are interchangeable, and every scan
-    /// of a table numbers them 1..n.
+    /// Carry the stored occurrence through filtering and reversal. A custom provider
+    /// without addresses numbers rows within the original, directed endpoint pair.
     pub(super) fn build_relationship_scan(
         &self,
         rel_instance: &RelationshipInstance,
@@ -156,6 +153,54 @@ impl DataFusionPlanner {
                 )
             })?;
 
+        let occurrence = match &identity {
+            Some(id) if id.stored.is_none() => {
+                let name = (0..)
+                    .map(|i| format!("#trail occurrence {i}"))
+                    .find(|name| rel_schema.field_with_name(name).is_err())
+                    .expect("an unused occurrence column");
+                let (src, dst) = Self::endpoint_columns(&rel_schema, rel_map)?;
+                let (src, dst) = (
+                    source_column(&rel_schema, &src),
+                    source_column(&rel_schema, &dst),
+                );
+                // Equal keys are interchangeable only when all these hops' predicates
+                // treat the rows alike. Give both scans the same order before filtering.
+                let mut number = row_number().partition_by(vec![src.clone(), dst.clone()]);
+                if !id.filter_fields.is_empty() {
+                    let order = id
+                        .filter_fields
+                        .iter()
+                        .map(|f| source_column(&rel_schema, f).sort(true, false))
+                        .collect();
+                    number = number.order_by(order);
+                }
+                let rank = number
+                    .build()
+                    .map_err(|e| self.plan_error("Failed to number parallel edges", e))?
+                    .alias(&name);
+                let mut fields: Vec<Expr> = rel_schema
+                    .fields()
+                    .iter()
+                    .map(|f| source_column(&rel_schema, f.name()))
+                    .collect();
+                let key = datafusion::functions::core::expr_fn::named_struct(vec![
+                    datafusion::logical_expr::lit("src"),
+                    src,
+                    datafusion::logical_expr::lit("dst"),
+                    dst,
+                    datafusion::logical_expr::lit("ordinal"),
+                    col(Column::new_unqualified(&name)),
+                ]);
+                fields.push(key.alias(&name));
+                rel_builder = rel_builder
+                    .window(vec![rank])
+                    .and_then(|b| b.project(fields))
+                    .map_err(|e| self.plan_error("Failed to identify parallel edges", e))?;
+                Some(name)
+            }
+            _ => None,
+        };
         // Apply relationship property filters (e.g., -[r {since: 2020}]->)
         for (k, v) in relationship_properties.iter() {
             let lit_expr =
@@ -173,15 +218,16 @@ impl DataFusionPlanner {
             })?;
         }
 
-        rel_builder = self.with_reversed_edges(rel_builder, &rel_schema, rel_map, direction)?;
+        let scan_schema = rel_builder.schema().inner().clone();
+        rel_builder = self.with_reversed_edges(rel_builder, &scan_schema, rel_map, direction)?;
 
         // Use unique alias from rel_instance to avoid column conflicts
-        let rel_qualified_exprs: Vec<Expr> = rel_schema
+        let rel_qualified_exprs: Vec<Expr> = scan_schema
             .fields()
             .iter()
             .map(|field| {
                 if let Some(id) = &identity {
-                    if id.stored == Some(field.name().as_str()) {
+                    if id.stored.or(occurrence.as_deref()) == Some(field.name().as_str()) {
                         return col(Column::new_unqualified(field.name())).alias(id.output);
                     }
                 }
@@ -193,33 +239,6 @@ impl DataFusionPlanner {
         rel_builder = rel_builder
             .project(rel_qualified_exprs)
             .map_err(|e| self.plan_error("Failed to project relationship columns", e))?;
-        if let Some(TrailIdentity {
-            output: rank,
-            stored: None,
-        }) = identity
-        {
-            // After the reversed copies are added: both orientations of an edge are rows of
-            // their own (source, target) group, and each group is numbered 1..n.
-            let (src, dst) = Self::endpoint_columns(&rel_schema, rel_map)?;
-            let number = row_number()
-                .partition_by(vec![
-                    col(Column::new_unqualified(qualify_column(
-                        &rel_instance.alias,
-                        &src,
-                    ))),
-                    col(Column::new_unqualified(qualify_column(
-                        &rel_instance.alias,
-                        &dst,
-                    ))),
-                ])
-                .build()
-                .map_err(|e| self.plan_error("Failed to number parallel edges", e))?
-                .alias(rank);
-            rel_builder = rel_builder
-                .window(vec![number])
-                .map_err(|e| self.plan_error("Failed to number parallel edges", e))?;
-        }
-
         rel_builder
             .build()
             .map_err(|e| self.plan_error("Failed to build relationship scan", e))

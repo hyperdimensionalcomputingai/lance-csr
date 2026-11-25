@@ -28,8 +28,11 @@ datafusion = { version = "54.0.0", default-features = false, features = [
     "datetime_expressions",
     "string_expressions",
     "parquet",
+    # Separate long trail segments can produce deeply nested join plans.
+    "recursive_protection",
 ] }
 datafusion-common = "54.0.0"
+recursive = "0.1.1"
 datafusion-expr = "54.0.0"
 datafusion-sql = "54.0.0"
 datafusion-functions-aggregate = "54.0.0"

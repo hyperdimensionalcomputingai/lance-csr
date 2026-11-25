@@ -532,7 +532,7 @@ def test_overlapping_trail_with_conflicting_node_property_types(use_csr):
     }
     engine = CypherEngine(cfg, data, use_csr=use_csr)
     query = "MATCH (:X {id:1})-[:R*1..1]->(:Y)<-[:R]-(q:X) RETURN q.id"
-    assert rows(engine.execute(query)) == [(1,), (2,)]
+    assert rows(engine.execute(query)) == [(2,)]
 
 
 @pytest.mark.parametrize("use_csr", [False, True])
@@ -555,6 +555,99 @@ def test_overlapping_trail_with_duplicate_node_keys(use_csr):
     assert rows(engine.execute(query)) == [(3,)]
 
 
+@pytest.mark.parametrize("use_csr", [False, True])
+def test_unrelated_duplicate_cannot_enable_edge_reuse(use_csr):
+    cfg = (
+        GraphConfig.builder()
+        .node_table("N", "id")
+        .rel_table("R", "N", "N", "src", "dst")
+        .build()
+    )
+    data = {
+        "N": pa.table({"id": [1, 2, 9, 9]}),
+        "R": pa.table({"src": [1], "dst": [2]}),
+    }
+    engine = CypherEngine(cfg, data, use_csr=use_csr)
+    query = "MATCH (a:N {id:1})-[:R*1..1]-(b:N)-[:R]-(c:N) RETURN c.id"
+    assert rows(engine.execute(query)) == []
+    assert rows(engine.execute(query.replace("MATCH ", "MATCH (:N {id:2}), "))) == []
+
+
+def test_unreachable_alternative_cannot_disable_indexed_trail():
+    cfg = (
+        GraphConfig.builder()
+        .node_table("N", "id")
+        .node_table("C", "id")
+        .rel_table("R", "N", "N", "src", "dst")
+        .rel_table("T", "N", "N", "src", "dst")
+        .rel_table("S", "C", "C", "src", "dst")
+        .build()
+    )
+    for ids in ([9], [9, 9], ["nine", "nine"]):
+        engine = CypherEngine(
+            cfg,
+            {
+                "N": pa.table({"id": [1, 2]}),
+                "C": pa.table({"id": ids}),
+                "R": pa.table({"src": [1], "dst": [1]}),
+                "T": pa.table({"src": [2], "dst": [2]}),
+                "S": pa.table({"src": [ids[0]], "dst": [ids[0]]}),
+            },
+            use_csr=True,
+        )
+        prefix = "MATCH (:N {id:1})-[:S|R|T*1..6]->(b:N)"
+        assert "CsrExpandExec" in engine.explain(prefix + " RETURN b.id")
+        assert "TrailWalkExec" in engine.explain(prefix + "-[:R]->(c:N) RETURN c.id")
+        assert rows(engine.execute(prefix + " RETURN b.id")) == [(1,)]
+        assert rows(engine.execute(prefix + "-[:R]->(c:N) RETURN c.id")) == []
+
+
+@pytest.mark.parametrize("use_csr", [False, True])
+@pytest.mark.parametrize("end", ["Tag", "C"])
+def test_alternating_trail_that_closes_on_its_start(use_csr, end):
+    cfg = (
+        GraphConfig.builder()
+        .node_table("Tag", "id")
+        .node_table("C", "id")
+        .rel_table("H", "Tag", "C", "src", "dst")
+        .rel_table("S", "C", end, "src", "dst")
+        .build()
+    )
+    engine = CypherEngine(
+        cfg,
+        {
+            "Tag": pa.table({"id": [1]}),
+            "C": pa.table({"id": [2]}),
+            "H": pa.table({"src": [1], "dst": [2]}),
+            "S": pa.table({"src": [2], "dst": [1 if end == "Tag" else 2]}),
+        },
+        use_csr=use_csr,
+    )
+    cycles = [(1,), (2,)] if end == "Tag" else [(2,)]
+    for low, expected in [(1, cycles), (0, sorted(cycles + [(1,), (2,)]))]:
+        q = f"MATCH (a)-[:H|S*{low}..2]->(a) RETURN a.id"
+        assert rows(engine.execute(q)) == expected
+
+
+@pytest.mark.parametrize("use_csr", [False, True])
+def test_repeated_type_in_trail_alternation(use_csr):
+    cfg = (
+        GraphConfig.builder()
+        .node_table("N", "id")
+        .rel_table("R", "N", "N", "src", "dst")
+        .build()
+    )
+    data = {
+        "N": pa.table({"id": [1, 2, 3]}),
+        "R": pa.table({"src": [1, 1, 2], "dst": [2, 2, 3]}),
+    }
+    engine = CypherEngine(cfg, data, use_csr=use_csr)
+    for tail in [" RETURN b.id", "-[:R]-(c:N) RETURN b.id, c.id"]:
+        pattern = "MATCH (:N {id:1})-[:R*1..2]->(b:N)"
+        expected = rows(engine.execute(pattern + tail))
+        assert rows(engine.execute(pattern.replace(":R*", ":R|r*") + tail)) == expected
+
+
 @pytest.mark.parametrize("on_disk", [False, True])
 def test_overlapping_trail_one_shot_and_graph_table(on_disk, tmp_path):
     cfg = (
@@ -573,18 +666,18 @@ def test_overlapping_trail_one_shot_and_graph_table(on_disk, tmp_path):
             for name, table in data.items()
         }
     pattern = "MATCH (:N {id:1})-[:R*1..1]->(:N)<-[:R]-(q:N)"
-    # Duplicate keys retain the ordinary join's per-segment edge identity.
+    # The same stored edge cannot be used for the return hop.
     query = CypherQuery(pattern + " RETURN q.id").with_config(cfg)
-    assert rows(query.execute(data)) == [(1,)]
+    assert rows(query.execute(data)) == []
     if on_disk:
-        assert rows(query.execute_with_namespace(DirNamespace(str(tmp_path)))) == [(1,)]
+        assert rows(query.execute_with_namespace(DirNamespace(str(tmp_path)))) == []
     sql = f"SELECT * FROM GRAPH_TABLE ({pattern} COLUMNS (q.id AS id))"
     engine = SqlEngine(data, cfg, use_csr=False)
-    assert rows(engine.execute(sql)) == [(1,)]
-    assert rows(engine.execute(sql)) == [(1,)]
+    assert rows(engine.execute(sql)) == []
+    assert rows(engine.execute(sql)) == []
 
 
-def test_overlapping_trail_rechecks_changed_node_snapshot(tmp_path):
+def test_unrelated_duplicate_in_new_snapshot_preserves_trail(tmp_path):
     cfg = (
         GraphConfig.builder()
         .node_table("N", "id")
@@ -599,7 +692,7 @@ def test_overlapping_trail_rechecks_changed_node_snapshot(tmp_path):
     lance.write_dataset(pa.table({"id": [3]}), tmp_path / "nodes", mode="append")
     assert rows(engine.execute(query)) == []
     engine.checkout_latest()
-    assert rows(engine.execute(query)) == [(1,)]
+    assert rows(engine.execute(query)) == []
 
 
 @pytest.mark.parametrize("use_csr", [False, True])
@@ -615,7 +708,8 @@ def test_overlapping_trail_with_unrelated_endpoint_label(use_csr):
     tables = {
         "X": pa.table({"id": [1]}),
         "Y": pa.table({"id": [2]}),
-        "Z": pa.table({"id": [3]}),
+        # The numerical ID also occurs in X, but R is only mapped from X to Y.
+        "Z": pa.table({"id": [1]}),
         "R": pa.table({"src": [1], "dst": [2]}),
     }
     engine = CypherEngine(cfg, tables, use_csr=use_csr)

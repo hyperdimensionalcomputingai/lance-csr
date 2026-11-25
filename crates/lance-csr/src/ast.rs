@@ -318,6 +318,19 @@ pub struct PathPattern {
     pub shortest: Option<ShortestPathSpec>,
 }
 
+impl RelationshipPattern {
+    /// The hop range of one segment: a single hop without a length.
+    pub(crate) fn hop_range(&self) -> [u32; 2] {
+        match &self.length {
+            None => [1, 1],
+            Some(length) => [
+                length.min.unwrap_or(1),
+                length.max.unwrap_or(crate::MAX_VARIABLE_LENGTH_HOPS),
+            ],
+        }
+    }
+}
+
 impl PathPattern {
     /// A variable-length segment can revisit an edge used by another segment of this path.
     pub(crate) fn needs_trail_across_segments(&self) -> bool {

@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright The lance-csr Authors
 
 use super::trail_joins::ChainSegment;
-use crate::ast::{NodePattern, PathPattern, PropertyValue, RelationshipPattern};
+use crate::ast::{NodePattern, PathPattern, PropertyValue};
 use crate::case_insensitive::qualify_column;
 use crate::csr_expand::{Tie, TrailWalk, TrailWalkNode, WalkSegmentSpec};
 use crate::datafusion_planner::{analysis::PlanningContext, DataFusionPlanner};
@@ -15,17 +15,6 @@ use datafusion::logical_expr::{col, Expr, Extension, LogicalPlan, LogicalPlanBui
 use std::collections::HashMap;
 use std::sync::Arc;
 
-/// The hop range of one segment: a single hop without a length.
-fn hop_range(rel: &RelationshipPattern) -> [u32; 2] {
-    match &rel.length {
-        None => [1, 1],
-        Some(length) => [
-            length.min.unwrap_or(1),
-            length.max.unwrap_or(crate::MAX_VARIABLE_LENGTH_HOPS),
-        ],
-    }
-}
-
 impl DataFusionPlanner {
     /// A path without a path variable whose variable-length segment shares a relationship
     /// type with another segment (`(a)-[:R*1..2]-(f)-[:R]-(g)`). The segments must not
@@ -35,25 +24,14 @@ impl DataFusionPlanner {
     /// joins per combination of segment lengths ([`Self::build_trail_chain`]). Either way
     /// the work follows the rows' start nodes; no edge inventory is built.
     ///
-    /// `None` leaves the pattern to the edge inventory ([`PathMatchNode`]), which then
-    /// covers only these shapes: a relationship variable on any segment, an unresolved
-    /// boundary label or start column, a range the inventory rejects, and, without the
-    /// CSR, a pattern whose segment lengths combine into more than 64 join branches or
-    /// whose labels admit no path.
+    /// If the combined chain would be too wide, plan each segment independently.
     fn build_overlapping_trail(
         &self,
         ctx: &PlanningContext,
         input: &LogicalPlan,
         path: &PathPattern,
-    ) -> Result<Option<LogicalPlan>> {
+    ) -> Result<LogicalPlan> {
         let segments = &path.segments;
-        if !path.needs_trail_across_segments()
-            || segments
-                .iter()
-                .any(|s| s.relationship.types.is_empty() || s.relationship.variable.is_some())
-        {
-            return Ok(None);
-        }
         let resolve = |node: &NodePattern| -> Option<(String, String)> {
             let variable = node.variable.clone()?;
             let label = ctx
@@ -65,29 +43,31 @@ impl DataFusionPlanner {
             self.config.get_node_mapping(&label)?;
             Some((variable, label))
         };
-        let Some((start, start_label)) = resolve(&path.start_node) else {
-            return Ok(None);
-        };
+        let (start, start_label) = resolve(&path.start_node)
+            .ok_or_else(|| GraphError::internal("a resolved trail start"))?;
         let mut ends = Vec::with_capacity(segments.len());
         for segment in segments {
-            let [min, max] = hop_range(&segment.relationship);
-            match resolve(&segment.end_node) {
-                Some(end) if min <= max && max <= crate::MAX_VARIABLE_LENGTH_HOPS => ends.push(end),
-                _ => return Ok(None),
+            let [min, max] = segment.relationship.hop_range();
+            if min > max || max > crate::MAX_VARIABLE_LENGTH_HOPS {
+                return Err(GraphError::UnsupportedFeature {
+                    feature: format!("invalid trail range {min}..{max}; variable-length paths allow at most {} hops", crate::MAX_VARIABLE_LENGTH_HOPS),
+                    location: snafu::Location::new(file!(), line!(), column!()),
+                });
             }
+            ends.push(
+                resolve(&segment.end_node)
+                    .ok_or_else(|| GraphError::internal("a resolved trail boundary"))?,
+            );
         }
         let start_map = self
             .config
             .get_node_mapping(&start_label)
             .ok_or_else(|| GraphError::internal("a resolved start label"))?;
         let start_key = qualify_column(&start, &start_map.id_field);
-        if input
+        input
             .schema()
             .field_with_unqualified_name(&start_key)
-            .is_err()
-        {
-            return Ok(None);
-        }
+            .map_err(|e| self.plan_error("Missing trail start key", e))?;
         let input = self.filter_node_properties(
             input.clone(),
             &start,
@@ -104,22 +84,22 @@ impl DataFusionPlanner {
                     .map(|(segment, (end, end_label))| ChainSegment {
                         types: &segment.relationship.types,
                         direction: &segment.relationship.direction,
-                        range: hop_range(&segment.relationship),
+                        range: segment.relationship.hop_range(),
                         properties: &segment.relationship.properties,
                         end,
                         end_label,
                     })
                     .collect();
-                match self.build_trail_chain(&input, [&start, &start_label], &chain)? {
-                    Some(plan) => plan,
-                    None => return Ok(None),
-                }
+                self.build_trail_chain(&input, [&start, &start_label], &chain, &HashMap::new())?
+                    .ok_or_else(|| {
+                        GraphError::internal("shared trail exceeds the planned branch budget")
+                    })?
             }
         };
         for (segment, (end, label)) in segments.iter().zip(&ends) {
             plan = self.filter_node_properties(plan, end, label, &segment.end_node.properties)?;
         }
-        Ok(Some(plan))
+        Ok(plan)
     }
 
     /// The CSR walk of [`Self::build_overlapping_trail`], with each new boundary node's
@@ -182,7 +162,7 @@ impl DataFusionPlanner {
                 outputs.push((s, end.as_str(), label.as_str(), key));
             }
             boundaries.push(end.to_lowercase());
-            let [min, max] = hop_range(&segment.relationship);
+            let [min, max] = segment.relationship.hop_range();
             specs.push(WalkSegmentSpec {
                 types: &segment.relationship.types,
                 direction: &segment.relationship.direction,
@@ -289,10 +269,8 @@ impl DataFusionPlanner {
         };
         let catalog = self.get_catalog()?;
         let input = self.build_operator(ctx, input)?;
-        if !node_values {
-            if let Some(plan) = self.build_overlapping_trail(ctx, &input, path)? {
-                return Ok(plan);
-            }
+        if !node_values && path.needs_trail_across_segments() {
+            return self.build_overlapping_trail(ctx, &input, path);
         }
         let mut node_labels = Vec::<String>::new();
         let mut edge_labels = Vec::<String>::new();
@@ -602,17 +580,59 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn residual_shapes_keep_the_edge_inventory() {
-        let expected = vec![vec![2, 1], vec![2, 1], vec![2, 3], vec![2, 3]];
+    async fn catalog_without_row_ids_preserves_edge_identity_across_filters_and_directions() {
+        use datafusion::prelude::SessionContext;
+        let ctx = SessionContext::new();
+        ctx.register_batch("n", ints(&[("id", vec![1, 2])]))
+            .unwrap();
+        ctx.register_batch(
+            "r",
+            ints(&[
+                ("src", vec![1, 1]),
+                ("dst", vec![2, 2]),
+                ("color", vec![0, 1]),
+            ]),
+        )
+        .unwrap();
+        let cfg = GraphConfig::builder()
+            .node_table("N", "id")
+            .rel_table("R", "N", "N", "src", "dst")
+            .build()
+            .unwrap();
+        for (steps, expected) in [
+            ("-[:R*1..1 {color:0}]->(:N)<-[:R {color:1}]-", 1),
+            ("-[:R*1..1 {color:0}]-(:N)<-[:R {color:0}]-", 0),
+            ("-[:R*1..1 {color:0}]->(:N)-[:R]-", 1),
+        ] {
+            let q = format!("MATCH (:N {{id:1}}){steps}(x:N) RETURN x.id");
+            let rows = crate::CypherQuery::new(&q)
+                .unwrap()
+                .with_config(cfg.clone())
+                .execute_with_context(ctx.clone())
+                .await
+                .unwrap();
+            assert_eq!(rows.num_rows(), expected, "{q}");
+        }
+    }
+
+    #[tokio::test]
+    async fn residual_shapes_use_separate_expansions() {
         // A relationship variable on a segment.
         let named = "MATCH (:N {id: 1})-[:R*1..2]-(f:N)-[r:R]-(g:N) RETURN f.id, g.id";
         // Without the CSR, 10 × 10 segment lengths exceed the joins' branch limit.
         let long = "MATCH (:N {id: 1})-[:R*1..10]-(f:N)-[:R*1..10]-(g:N) RETURN f.id, g.id";
         for use_csr in [false, true] {
             let engine = engine(use_csr).await;
-            for (query, inventory) in [(named, true), (long, !use_csr)] {
+            for (query, shared) in [(named, false), (long, use_csr)] {
                 let plan = engine.explain(query, HashMap::new()).await.unwrap();
-                assert_eq!(plan.contains("PathMatchExec"), inventory, "{query}: {plan}");
+                assert!(!plan.contains("PathMatchExec"), "{query}: {plan}");
+                assert_eq!(plan.contains("TrailWalkExec"), shared, "{query}: {plan}");
+                let expected = if shared {
+                    vec![vec![2, 1], vec![2, 1], vec![2, 3], vec![2, 3]]
+                } else {
+                    // Separate MATCH clauses give each segment its own edge history.
+                    rows(&engine, &query.replace("(f:N)-", "(f:N) MATCH (f)-")).await
+                };
                 assert_eq!(rows(&engine, query).await, expected, "{query}");
             }
         }

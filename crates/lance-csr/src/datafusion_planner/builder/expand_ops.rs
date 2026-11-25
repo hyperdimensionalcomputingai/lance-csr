@@ -715,84 +715,47 @@ impl DataFusionPlanner {
         } else {
             None
         };
-        if let Some(plan) = csr_plan {
-            let projection: Vec<_> = plan
-                .schema()
-                .fields()
-                .iter()
-                .filter(|f| expected_columns.contains(f.name().as_str()))
-                .map(|f| col(f.name()))
-                .collect();
-            return LogicalPlanBuilder::from(plan)
-                .project(projection)
-                .and_then(|p| p.build())
-                .map_err(|e| self.plan_error("Failed to project variable-length CSR", e));
-        }
-
-        // Generate a plan for each hop count and UNION them
-        let mut plans = Vec::new();
-
-        let paths = self.build_trail_paths(
-            ctx,
-            &input_plan,
-            [source_variable, target_variable],
-            relationship_types,
-            direction,
-            [min_hops, max_hops],
-            relationship_properties,
-            target_properties,
-        )?;
-        for mut plan in paths {
-            // Project only source and target columns to ensure consistent schema for UNION
-            // This removes intermediate node columns that vary by hop count
-            // Use the pre-computed expected column set derived from actual node schemas
-            let projection: Vec<datafusion::logical_expr::Expr> = plan
-                .schema()
-                .fields()
-                .iter()
-                .filter(|f| expected_columns.contains(f.name().as_str()))
-                .map(|f| col(f.name()))
-                .collect();
-
-            plan = LogicalPlanBuilder::from(plan)
-                .project(projection)
-                .map_err(|e| crate::error::GraphError::PlanError {
-                    message: format!("Failed to project for UNION: {}", e),
-                    location: snafu::Location::new(file!(), line!(), column!()),
-                })?
-                .build()
-                .map_err(|e| crate::error::GraphError::PlanError {
-                    message: format!("Failed to build projection: {}", e),
-                    location: snafu::Location::new(file!(), line!(), column!()),
+        let plan = match csr_plan {
+            Some(plan) => plan,
+            None => {
+                let (start_label, _) = self.get_target_node_mapping(ctx, source_variable)?;
+                let (end_label, _) = self.get_target_node_mapping(ctx, target_variable)?;
+                let first = relationship_types.first().ok_or_else(|| {
+                    crate::error::GraphError::internal("a variable-length relationship type")
                 })?;
-
-            plans.push(plan);
-        }
-
-        // UNION all plans together
-        if plans.len() == 1 {
-            plans
-                .into_iter()
-                .next()
-                .ok_or_else(|| crate::error::GraphError::internal("one plan"))
-        } else {
-            // Build UNION of all plans
-            let mut union_plan = plans[0].clone();
-            for plan in plans.into_iter().skip(1) {
-                union_plan = LogicalPlanBuilder::from(union_plan)
-                    .union(plan)
-                    .map_err(|e| crate::error::GraphError::PlanError {
-                        message: format!("Failed to UNION variable-length paths: {}", e),
-                        location: snafu::Location::new(file!(), line!(), column!()),
-                    })?
-                    .build()
-                    .map_err(|e| crate::error::GraphError::PlanError {
-                        message: format!("Failed to build UNION plan: {}", e),
-                        location: snafu::Location::new(file!(), line!(), column!()),
-                    })?;
+                ctx.next_relationship_instance(first)?;
+                let segment = super::trail_joins::ChainSegment {
+                    types: relationship_types,
+                    direction,
+                    range: [min_hops, max_hops],
+                    properties: relationship_properties,
+                    end: target_variable,
+                    end_label: &end_label,
+                };
+                self.build_trail_chain(
+                    &input_plan,
+                    [source_variable, &start_label],
+                    &[segment],
+                    target_properties,
+                )?
+                .ok_or_else(|| {
+                    crate::error::GraphError::internal(
+                        "a single trail segment has no further fallback",
+                    )
+                })?
             }
-            Ok(union_plan)
-        }
+        };
+        let projection: Vec<_> = plan
+            .schema()
+            .fields()
+            .iter()
+            .filter(|f| expected_columns.contains(f.name().as_str()))
+            .map(|f| col(f.name()))
+            .collect();
+        LogicalPlanBuilder::from(plan)
+            .project(projection)
+            .and_then(|p| p.build())
+            .map_err(|e| self.plan_error("Failed to project variable-length paths", e))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -808,7 +771,7 @@ impl DataFusionPlanner {
         max_hops: u32,
         target_properties: &HashMap<String, crate::ast::PropertyValue>,
     ) -> Result<Option<LogicalPlan>> {
-        use crate::csr_expand::{CsrExpandNode, Neighbors};
+        use crate::csr_expand::CsrExpandNode;
         use datafusion::logical_expr::Extension;
         if max_hops == 0 {
             return Ok(None);
@@ -840,16 +803,10 @@ impl DataFusionPlanner {
         {
             return Ok(None);
         }
-        let get = |forward: bool| {
-            catalog
-                .get(rel_type, forward)
-                .cloned()
-                .ok_or_else(|| crate::error::GraphError::internal("validated traversal"))
-        };
-        let adjacency = match direction {
-            RelationshipDirection::Outgoing => Neighbors::directed(get(true)?),
-            RelationshipDirection::Incoming => Neighbors::directed(get(false)?),
-            RelationshipDirection::Undirected => Neighbors::undirected(get(true)?, get(false)?),
+        // An unreachable type may be written first and have no index. The traversal
+        // already selected its participating CSR steps. Joins also handle an identity-only plan.
+        let Some(adjacency) = walk.walk().first_neighbors().cloned() else {
+            return Ok(None);
         };
         let cat = self.get_catalog()?;
         let target = target_properties
@@ -1087,6 +1044,53 @@ mod tests {
         // Should have UNION for multiple hop counts
         assert!(s.contains("Union") || s.contains("union"));
         assert!(s.contains("Join("));
+    }
+
+    #[test]
+    fn test_varlength_expand_unlabeled_type_zero_hop_target_filter() {
+        // MATCH (a:Person)-[:KNOWS*0..2]->(b:Person {name: 'Bob'}) with KNOWS mapped
+        // without endpoint labels: a chain of one segment still plans every length,
+        // the zero-hop identity included, and filters the target on each branch.
+        let vlexpand = LogicalOperator::VariableLengthExpand {
+            input: Box::new(person_scan("a")),
+            source_variable: "a".into(),
+            target_variable: "b".into(),
+            target_label: "Person".to_string(),
+            relationship_types: vec!["KNOWS".into()],
+            direction: crate::ast::RelationshipDirection::Outgoing,
+            relationship_variable: None,
+            min_length: Some(0),
+            max_length: Some(2),
+            properties: Default::default(),
+            target_properties: HashMap::from([(
+                "name".to_string(),
+                PropertyValue::String("Bob".into()),
+            )]),
+        };
+        let project = LogicalOperator::Project {
+            input: Box::new(vlexpand),
+            projections: vec![ProjectionItem {
+                expression: ValueExpression::Property(PropertyRef {
+                    variable: "b".into(),
+                    property: "name".into(),
+                }),
+                alias: None,
+            }],
+        };
+        let cfg = crate::config::GraphConfig::builder()
+            .node_table("Person", "id")
+            .with_relationship_mapping(crate::config::RelationshipMapping::new(
+                "KNOWS",
+                "src_person_id",
+                "dst_person_id",
+            ))
+            .build()
+            .unwrap();
+        let planner = DataFusionPlanner::with_catalog(cfg, make_catalog());
+        let s = format!("{:?}", planner.plan(&project).unwrap());
+        // Zero, one and two hops: three branches, each filtering its target scan.
+        assert!(s.contains("Union"), "{s}");
+        assert!(s.matches("Bob").count() >= 3, "{s}");
     }
 
     #[test]

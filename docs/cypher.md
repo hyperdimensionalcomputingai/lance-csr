@@ -390,12 +390,13 @@ RETURN length(p), nodes(p)
   `(a)-[:KNOWS]->(b)<-[:KNOWS]-(c)` therefore never matches `c = a`. Separate `MATCH` clauses may bind the
   same edge again. Edges are compared by their endpoints, so two parallel edges between the same nodes
   count as one for this single-hop check. A named path tracks edge occurrences across its segments.
-  An unnamed path can also track occurrences across segments that share a type when all boundary
-  labels resolve, the mappings have supported integer keys, and non-null node IDs are known to
-  be unique within each participating label. Shared property names must also have compatible
-  Arrow types across node tables and, separately, across relationship tables. If these conditions
-  do not hold, the ordinary joins enforce uniqueness within each variable-length segment.
-  The same per-segment rule applies across comma-separated patterns.
+  An unnamed path also tracks occurrences across segments that share a type when the relationship
+  patterns are anonymous and typed, their boundary labels resolve, and a shared walk or bounded
+  join chain can execute the pattern. Node IDs duplicated elsewhere in the graph do not affect this
+  rule. Patterns with a relationship variable, unresolved boundaries, or more than 64 join branches
+  without a suitable CSR walk use the ordinary expansions and can reuse an edge between segments.
+  A shared trail keeps its edge history within that path, including when another pattern
+  appears after a comma. Separate paths in the same clause do not share that history.
   For example, in `(p)-[:KNOWS*1..2]-(f)-[:KNOWS]-(g)` the last hop must use a
   friendship that the path from `p` to `f` has not used. Two paths reaching the same
   `f` can have different choices for that hop.

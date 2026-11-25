@@ -290,7 +290,9 @@ the node records nested inside a path or a relationship endpoint. See [path valu
 The join fallback uses Lance row addresses or original Arrow row ordinals to recognize
 an edge appearing twice. For an Arrow table the engine builds the ordinal column on its
 first use and shares it within that snapshot. A custom catalog without occurrence IDs
-can still join trails by numbering parallel rows within each pair of endpoints.
+numbers parallel rows within each pair of stored endpoints before filtering or reversing a
+hop. It orders the rows by the properties tested on that type so that each scan distinguishes
+the same parallel occurrences.
 
 For an unnamed path such as `(p)-[:KNOWS*1..2]-(f)-[:KNOWS]-(g)`, the final hop
 must know which edge occurrences the first segment used. With compatible CSR and node
@@ -302,11 +304,12 @@ Without the indexes, the planner can join one branch per combination of hop leng
 checking each hop against earlier occurrences of its type. An edge used in reverse
 still has the same identity.
 
-These plans use mapped integer keys, compatible property types and unique non-null
-node IDs per participating label. An existing node index establishes uniqueness.
-Without an index, a qualifying query checks the relevant ID columns once per pinned
-snapshot. Incompatible inputs keep ordinary expansion. Patterns needing a relationship
-value, and join plans that would exceed the branch limit, retain the path inventory.
+The shared walk and join chain both identify edges by their stored occurrences. Planning
+requires no scan for duplicate node IDs or comparison of unrelated property types. A
+relationship variable, unresolved boundary label, or more than 64 join branches without
+a suitable CSR walk leaves the segments to ordinary expansion. Those expansions track
+edge use within each variable-length segment and can reuse an edge across a boundary.
+Queries that need full path, node or relationship values continue to use the path-value planner.
 
 An unnamed, bounded undirected segment with several types can use iterative `CsrExpandExec`
 when the required indexes are available. The fallback uses `PathMatchExec` to emit boundary
