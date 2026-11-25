@@ -303,9 +303,19 @@ impl Adjacency {
     /// row is read from a `_rowaddr` column when the stream has one (a Lance scan);
     /// otherwise rows are numbered by their position in the stream.
     pub async fn build<E: fmt::Display>(
+        stream: impl futures::Stream<Item = std::result::Result<RecordBatch, E>> + Unpin,
+        from: &str,
+        to: &str,
+    ) -> Result<Self> {
+        Self::build_with_address_column(stream, from, to, Some(ROW_ADDR)).await
+    }
+
+    /// Use stream positions for in-memory input, even if a user column is named `_rowaddr`.
+    pub(crate) async fn build_with_address_column<E: fmt::Display>(
         mut stream: impl futures::Stream<Item = std::result::Result<RecordBatch, E>> + Unpin,
         from: &str,
         to: &str,
+        address_column: Option<&str>,
     ) -> Result<Self> {
         let mut edges: Vec<(i64, u64, u64)> = Vec::new();
         let mut position = 0u64;
@@ -313,8 +323,8 @@ impl Adjacency {
             let batch = batch.map_err(|e| exec_error(format!("Failed to read edges: {}", e)))?;
             let from_col = int64_column(&batch, from)?;
             let to_col = int64_column(&batch, to)?;
-            let addresses = batch
-                .column_by_name(ROW_ADDR)
+            let addresses = address_column
+                .and_then(|name| batch.column_by_name(name))
                 .map(|c| c.as_primitive::<arrow::datatypes::UInt64Type>().clone());
             for i in 0..batch.num_rows() {
                 if from_col.is_null(i) || to_col.is_null(i) {

@@ -268,6 +268,33 @@ impl EngineSource {
         })
     }
 
+    /// Inventory keys use non-null integer IDs. The estimate supplied to the join
+    /// optimizer is the row count and cannot establish this property.
+    pub(crate) async fn unique_inventory_ids(&self, column: &str) -> Result<bool> {
+        let schema = self.schema();
+        let Some(field) = schema
+            .fields()
+            .iter()
+            .find(|f| f.name().eq_ignore_ascii_case(column))
+        else {
+            return Ok(false);
+        };
+        if !is_supported_id_type(field.data_type()) {
+            return Ok(false);
+        }
+        let column = field.name().as_str();
+        let mut seen = HashSet::with_hasher(ahash::RandomState::new());
+        let mut stream = self.scan_columns(&[column]).await?;
+        while let Some(batch) = stream.try_next().await? {
+            let ids = crate::path_inventory::id_column(&batch, column)
+                .map_err(|e| exec_error(format!("Failed to check node IDs: {e}")))?;
+            if ids.iter().flatten().any(|key| !seen.insert(key)) {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
     /// Row count: free for Arrow input, from Lance metadata otherwise.
     pub(crate) async fn num_rows(&self, name: &str) -> Result<usize> {
         Ok(match self {
@@ -342,7 +369,7 @@ struct EngineState {
     plans: Mutex<VecDeque<CachedQuery>>,
     /// SQL plan templates for this snapshot, under the same rules.
     sql_plans: Mutex<VecDeque<CachedSql>>,
-    catalog: Arc<dyn GraphSourceCatalog>,
+    catalog: Arc<InMemoryCatalog>,
     context: SessionContext,
     /// CSR adjacencies by relationship type; empty unless the engine uses CSR.
     csr: HashMap<String, CsrEntry>,
@@ -778,6 +805,19 @@ async fn build_engine_state(
         catalog = catalog
             .with_node_source(&name, table_source.clone())
             .with_relationship_source(&name, table_source);
+        if let (Some(node), Some(source)) = (config.get_node_mapping(&name), sources.get(&name)) {
+            let known = options
+                .use_csr
+                .then(|| node_index.contains_key(&node.label))
+                .or_else(|| {
+                    let old = previous?;
+                    if !old.sources.get(&name)?.same_data(source) {
+                        return None;
+                    }
+                    old.catalog.verified_node_key(&name)
+                });
+            catalog = catalog.with_node_key_source(&name, &node.id_field, source.clone(), known);
+        }
         if let Some(source) = engine_source {
             catalog = catalog.with_relationship_engine_source(
                 &name,
@@ -1085,8 +1125,24 @@ async fn build_csr_entries(
             let started = std::time::Instant::now();
             // Two projected scans of the endpoint columns, one per direction.
             let scan = || source.edge_stream(src.name(), dst.name());
-            let outgoing = Adjacency::build(scan().await?, src.name(), dst.name()).await?;
-            let incoming = Adjacency::build(scan().await?, dst.name(), src.name()).await?;
+            let address_column = match source {
+                EngineSource::Lance { .. } => Some("_rowaddr"),
+                EngineSource::Arrow(_) => None,
+            };
+            let outgoing = Adjacency::build_with_address_column(
+                scan().await?,
+                src.name(),
+                dst.name(),
+                address_column,
+            )
+            .await?;
+            let incoming = Adjacency::build_with_address_column(
+                scan().await?,
+                dst.name(),
+                src.name(),
+                address_column,
+            )
+            .await?;
             let build_ms = started.elapsed().as_secs_f64() * 1e3;
             let mut store_error = None;
             if let (PersistCsr::LoadAndStore, EngineSource::Lance { dataset, .. }) =
@@ -1263,7 +1319,7 @@ impl CypherEngine {
 
     /// Parse and configure a query, reusing this snapshot's plan template when
     /// `use_cache` is set and every parameter is a scalar.
-    fn parse(
+    async fn parse(
         &self,
         text: &str,
         params: HashMap<String, JsonValue>,
@@ -1289,6 +1345,7 @@ impl CypherEngine {
         }
         let mut query = configured_query(&self.config, self.options.use_csr, state, text)?
             .with_parameters(parameters);
+        query.verify_inventory_keys(&state.catalog).await?;
         if let Some(parameter_types) = key {
             // Some operators require literal values during planning. If a template
             // cannot be built, ordinary planning preserves their existing behavior.
@@ -1322,7 +1379,8 @@ impl CypherEngine {
         params: HashMap<String, JsonValue>,
     ) -> Result<RecordBatch> {
         let state = self.snapshot();
-        self.parse(query, params, &state, true)?
+        self.parse(query, params, &state, true)
+            .await?
             .execute_with_catalog_and_context(state.catalog.clone(), state.context.clone())
             .await
     }
@@ -1340,7 +1398,8 @@ impl CypherEngine {
         params: HashMap<String, JsonValue>,
     ) -> Result<SendableRecordBatchStream> {
         let state = self.snapshot();
-        self.parse(query, params, &state, true)?
+        self.parse(query, params, &state, true)
+            .await?
             .execute_stream_with_catalog_and_context(state.catalog.clone(), state.context.clone())
             .await
     }
@@ -1348,7 +1407,8 @@ impl CypherEngine {
     /// Return the query plan, including the physical plan with pushed-down scans.
     pub async fn explain(&self, query: &str, params: HashMap<String, JsonValue>) -> Result<String> {
         let state = self.snapshot();
-        self.parse(query, params, &state, false)?
+        self.parse(query, params, &state, false)
+            .await?
             .explain_with_catalog_and_context(state.catalog.clone(), state.context.clone())
             .await
     }
@@ -1362,7 +1422,8 @@ impl CypherEngine {
     ) -> Result<String> {
         let state = self.snapshot();
         // Plan as `execute` does, template cache included, so the metrics describe its plan.
-        self.parse(query, params, &state, true)?
+        self.parse(query, params, &state, true)
+            .await?
             .explain_analyze_with_catalog_and_context(state.catalog.clone(), state.context.clone())
             .await
     }
@@ -1441,8 +1502,25 @@ impl CypherEngine {
             Some(template) => template,
             None => {
                 let templated = Arc::new(AtomicBool::new(key.is_some()));
-                self.register_graph_table(&ctx, &state, &params, templated.clone());
-                let plan = plan_read_only_sql(&ctx, sql).await?;
+                let probe = Arc::new(crate::source_catalog::InventoryProbe::new(
+                    state.catalog.clone(),
+                ));
+                self.register_graph_table(&ctx, &state, &params, templated.clone(), probe.clone());
+                let provisional = plan_read_only_sql(&ctx, sql).await;
+                let plan = if probe.verify().await? {
+                    // An unverified label had duplicate IDs. Use the ordinary joins.
+                    templated.store(key.is_some(), Ordering::Relaxed);
+                    self.register_graph_table(
+                        &ctx,
+                        &state,
+                        &params,
+                        templated.clone(),
+                        state.catalog.clone(),
+                    );
+                    plan_read_only_sql(&ctx, sql).await?
+                } else {
+                    provisional?
+                };
                 let mut refresh_sources = false;
                 if let Some(parameter_types) = key.filter(|_| templated.load(Ordering::Relaxed)) {
                     refresh_sources = crate::path_match::has_path_match(&plan).map_err(|e| {
@@ -1489,6 +1567,7 @@ impl CypherEngine {
         state: &Arc<EngineState>,
         params: &HashMap<String, JsonValue>,
         templated: Arc<std::sync::atomic::AtomicBool>,
+        catalog: Arc<dyn GraphSourceCatalog>,
     ) {
         use crate::graph_table::{GraphTableFunction, GRAPH_TABLE_FUNCTION};
         use std::sync::atomic::Ordering;
@@ -1509,16 +1588,14 @@ impl CypherEngine {
                 let mut query = configured_query(&config, use_csr, &state, text)?
                     .with_parameters(params.clone());
                 if templated.load(Ordering::Relaxed)
-                    && query
-                        .prepare_cached_plan(state.catalog.clone())
-                        .unwrap_or(false)
+                    && query.prepare_cached_plan(catalog.clone()).unwrap_or(false)
                 {
                     if let Some(plan) = query.template_plan() {
                         return Ok(plan);
                     }
                 }
                 templated.store(false, Ordering::Relaxed);
-                query.datafusion_plan(state.catalog.clone())
+                query.datafusion_plan(catalog.clone())
             })),
         );
     }
@@ -1531,7 +1608,8 @@ impl CypherEngine {
     ) -> Result<RecordBatch> {
         let state = self.snapshot();
         let candidates = self
-            .parse(query, HashMap::new(), &state, false)?
+            .parse(query, HashMap::new(), &state, false)
+            .await?
             .execute_with_catalog_and_context(state.catalog.clone(), state.context.clone())
             .await?;
         vector_search.search(&candidates).await
@@ -2094,7 +2172,7 @@ mod tests {
         let text = "MATCH (p:Person) WHERE p.id = $value RETURN p.id";
         for value in [1, 2, 3] {
             let params = HashMap::from([("value".to_string(), JsonValue::from(value))]);
-            engine.parse(text, params, &snapshot, true).unwrap();
+            engine.parse(text, params, &snapshot, true).await.unwrap();
             assert_eq!(cached(), 1);
             // The retained template keeps its first parameters: later calls looked it
             // up and rebound values rather than replacing the entry.
@@ -2106,7 +2184,7 @@ mod tests {
         // A different scalar type is a different template.
         for value in [JsonValue::Null, JsonValue::from(1.5)] {
             let params = HashMap::from([("value".to_string(), value)]);
-            engine.parse(text, params, &snapshot, true).unwrap();
+            engine.parse(text, params, &snapshot, true).await.unwrap();
         }
         assert_eq!(cached(), 3);
         // Container parameters stay on the uncached path.
@@ -2118,6 +2196,7 @@ mod tests {
                 &snapshot,
                 true,
             )
+            .await
             .unwrap();
         assert_eq!(cached(), 3);
         // Explain-style parses never cache.
@@ -2128,12 +2207,14 @@ mod tests {
                 &snapshot,
                 false,
             )
+            .await
             .unwrap();
         assert_eq!(cached(), 3);
         for limit in 0..130 {
             let text = format!("MATCH (p:Person) RETURN p.id AS id LIMIT {limit}");
             engine
                 .parse(&text, HashMap::new(), &snapshot, true)
+                .await
                 .unwrap();
         }
         assert_eq!(cached(), PLAN_CACHE_ENTRIES);
@@ -2521,6 +2602,26 @@ mod tests {
             ),
         ]);
         CypherEngine::new(config, sources, use_csr).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn inventory_key_is_lazy_and_survives_edge_only_refresh() {
+        let dir = tempfile::tempdir().unwrap();
+        let engine = lance_graph_engine(dir.path(), false).await;
+        let unique = || engine.snapshot().catalog.verified_node_key("Person");
+        assert_eq!(unique(), None);
+        engine
+            .execute("MATCH (p:Person) RETURN count(*)", HashMap::new())
+            .await
+            .unwrap();
+        assert_eq!(unique(), None);
+        let query = "MATCH (:Person)-[:KNOWS*1..1]->(:Person)<-[:KNOWS]-(q:Person) RETURN q.id";
+        engine.execute(query, HashMap::new()).await.unwrap();
+        assert_eq!(unique(), Some(true));
+        let knows = dir.path().join("knows").display().to_string();
+        write_knows(&knows, &[(2, 5)], WriteMode::Append).await;
+        engine.checkout_latest().await.unwrap();
+        assert_eq!(unique(), Some(true));
     }
 
     fn int_column(batch: &RecordBatch, name: &str) -> Vec<i64> {

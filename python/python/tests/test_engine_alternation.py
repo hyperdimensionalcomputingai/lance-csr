@@ -10,7 +10,7 @@ posts or comments. Expected answers are written out by hand.
 import lance
 import pyarrow as pa
 import pytest
-from lance_csr import CypherEngine, GraphConfig
+from lance_csr import CypherEngine, CypherQuery, DirNamespace, GraphConfig, SqlEngine
 
 RELS = {
     "postHasCreator": ("Post", "Person", [10, 11], [1, 2]),
@@ -495,3 +495,129 @@ def test_anonymous_relationships_return_all_types(datasets, use_csr):
     assert len(edges) == 12
     for row in edges:
         check_page(row["r"])
+
+
+@pytest.mark.parametrize("dtype", [pa.uint64(), pa.int32()])
+def test_arrow_csr_ignores_user_rowaddr_for_edge_identity(dtype):
+    cfg = (
+        GraphConfig.builder()
+        .node_table("N", "id")
+        .rel_table("R", "N", "N", "src", "dst")
+        .build()
+    )
+    data = {
+        "N": pa.table({"id": [1, 2, 3]}),
+        "R": pa.table(
+            {"src": [1, 2], "dst": [2, 3], "_rowaddr": pa.array([0, 0], dtype)}
+        ),
+    }
+    engine = CypherEngine(cfg, data, use_csr=True)
+    query = "MATCH (:N {id:1})-[:R*2..2]->(b:N) RETURN b.id"
+    assert rows(engine.execute(query)) == [(3,)]
+
+
+@pytest.mark.parametrize("use_csr", [False, True])
+def test_overlapping_trail_with_conflicting_node_property_types(use_csr):
+    cfg = (
+        GraphConfig.builder()
+        .node_table("X", "id")
+        .node_table("Y", "id")
+        .rel_table("R", "X", "Y", "src", "dst")
+        .build()
+    )
+    data = {
+        "X": pa.table({"id": pa.array([1, 2], pa.int32())}),
+        "Y": pa.table({"id": pa.array([10], pa.int64())}),
+        "R": pa.table({"src": pa.array([1, 2], pa.int32()), "dst": [10, 10]}),
+    }
+    engine = CypherEngine(cfg, data, use_csr=use_csr)
+    query = "MATCH (:X {id:1})-[:R*1..1]->(:Y)<-[:R]-(q:X) RETURN q.id"
+    assert rows(engine.execute(query)) == [(1,), (2,)]
+
+
+@pytest.mark.parametrize("use_csr", [False, True])
+def test_overlapping_trail_with_duplicate_node_keys(use_csr):
+    cfg = (
+        GraphConfig.builder()
+        .node_table("N", "id")
+        .rel_table("R", "N", "N", "src", "dst")
+        .build()
+    )
+    engine = CypherEngine(
+        cfg,
+        {
+            "N": pa.table({"id": [1, 2, 3, 4, 4]}),
+            "R": pa.table({"src": [1, 2], "dst": [2, 3]}),
+        },
+        use_csr=use_csr,
+    )
+    query = "MATCH (a:N {id:1})-[:R*1..1]->(b:N)-[:R]->(c:N) RETURN c.id"
+    assert rows(engine.execute(query)) == [(3,)]
+
+
+@pytest.mark.parametrize("on_disk", [False, True])
+def test_overlapping_trail_one_shot_and_graph_table(on_disk, tmp_path):
+    cfg = (
+        GraphConfig.builder()
+        .node_table("N", "id")
+        .rel_table("R", "N", "N", "src", "dst")
+        .build()
+    )
+    data = {
+        "N": pa.table({"id": [1, 2, 3, 3]}),
+        "R": pa.table({"src": [1], "dst": [2]}),
+    }
+    if on_disk:
+        data = {
+            name: lance.write_dataset(table, tmp_path / f"{name}.lance")
+            for name, table in data.items()
+        }
+    pattern = "MATCH (:N {id:1})-[:R*1..1]->(:N)<-[:R]-(q:N)"
+    # Duplicate keys retain the ordinary join's per-segment edge identity.
+    query = CypherQuery(pattern + " RETURN q.id").with_config(cfg)
+    assert rows(query.execute(data)) == [(1,)]
+    if on_disk:
+        assert rows(query.execute_with_namespace(DirNamespace(str(tmp_path)))) == [(1,)]
+    sql = f"SELECT * FROM GRAPH_TABLE ({pattern} COLUMNS (q.id AS id))"
+    engine = SqlEngine(data, cfg, use_csr=False)
+    assert rows(engine.execute(sql)) == [(1,)]
+    assert rows(engine.execute(sql)) == [(1,)]
+
+
+def test_overlapping_trail_rechecks_changed_node_snapshot(tmp_path):
+    cfg = (
+        GraphConfig.builder()
+        .node_table("N", "id")
+        .rel_table("R", "N", "N", "src", "dst")
+        .build()
+    )
+    nodes = lance.write_dataset(pa.table({"id": [1, 2, 3]}), tmp_path / "nodes")
+    edges = pa.table({"src": [1], "dst": [2]})
+    engine = CypherEngine(cfg, {"N": nodes, "R": edges}, use_csr=False)
+    query = "MATCH (:N {id:1})-[:R*1..1]->(:N)<-[:R]-(q:N) RETURN q.id"
+    assert rows(engine.execute(query)) == []
+    lance.write_dataset(pa.table({"id": [3]}), tmp_path / "nodes", mode="append")
+    assert rows(engine.execute(query)) == []
+    engine.checkout_latest()
+    assert rows(engine.execute(query)) == [(1,)]
+
+
+@pytest.mark.parametrize("use_csr", [False, True])
+def test_overlapping_trail_with_unrelated_endpoint_label(use_csr):
+    cfg = (
+        GraphConfig.builder()
+        .node_table("X", "id")
+        .node_table("Y", "id")
+        .node_table("Z", "id")
+        .rel_table("R", "X", "Y", "src", "dst")
+        .build()
+    )
+    tables = {
+        "X": pa.table({"id": [1]}),
+        "Y": pa.table({"id": [2]}),
+        "Z": pa.table({"id": [3]}),
+        "R": pa.table({"src": [1], "dst": [2]}),
+    }
+    engine = CypherEngine(cfg, tables, use_csr=use_csr)
+    query = "MATCH (:Z)-[:R*1..1]->(:Y)<-[:R]-(q:X) RETURN q.id"
+    assert rows(engine.execute(query)) == []

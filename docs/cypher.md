@@ -388,8 +388,11 @@ RETURN length(p), nodes(p)
   same edge again. Edges are compared by their endpoints, so two parallel edges between the same nodes
   count as one for this single-hop check. A named path tracks edge occurrences across its segments.
   An unnamed path can also track occurrences across segments that share a type when all boundary
-  labels resolve and the relationship mappings have integer keys. For string keys or paths in
-  separate comma-separated patterns, the variable-length check applies within each segment.
+  labels resolve, the mappings have supported integer keys, and non-null node IDs are known to
+  be unique within each participating label. Shared property names must also have compatible
+  Arrow types across node tables and, separately, across relationship tables. If these conditions
+  do not hold, the ordinary joins enforce uniqueness within each variable-length segment.
+  The same per-segment rule applies across comma-separated patterns.
 - **`count(r)` on a relationship** counts the rows where `r` matched, so an unmatched `OPTIONAL MATCH`
   counts zero. `count(DISTINCT r)` compares all of `r`'s columns: parallel edges with identical properties
   count once.

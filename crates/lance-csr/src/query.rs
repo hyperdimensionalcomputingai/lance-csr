@@ -942,6 +942,38 @@ impl CypherQuery {
             .await
     }
 
+    /// Discover relevant node keys with the graph planner before compiling or caching a
+    /// plan. Most queries cannot use the cross-segment inventory; its syntax requires `*`.
+    pub(crate) async fn verify_inventory_keys(
+        &self,
+        catalog: &crate::InMemoryCatalog,
+    ) -> Result<()> {
+        // Two typed segments require two bracketed relationships. Skip ordinary
+        // projections, count(*), and single-segment traversals before touching the catalog.
+        if !self.query_text.contains('*')
+            || self.query_text.match_indices('[').nth(1).is_none()
+            || !catalog.has_unverified_node_keys()
+        {
+            return Ok(());
+        }
+        let mut ast = self.ast.clone();
+        crate::parameter_substitution::substitute_parameters(&mut ast, &self.parameters)?;
+        loop {
+            let probe = crate::source_catalog::InventoryProbe::new(catalog);
+            let mut planner = LogicalPlanner::new(self.require_config()?)
+                .with_adjacency(self.adjacency.as_ref())
+                .with_fan_out(self.fan_out.as_ref())
+                .with_catalog(Some(&probe));
+            // Ordinary planning reports errors after semantic analysis. Revisit later
+            // scopes if discovering duplicates invalidated the provisional route.
+            let _ = planner.plan(&ast);
+            if !probe.verify().await? {
+                break;
+            }
+        }
+        Ok(())
+    }
+
     /// Helper to build catalog and context from in-memory datasets
     async fn build_catalog_and_context_from_datasets(
         &self,
@@ -1004,6 +1036,10 @@ impl CypherQuery {
             catalog = catalog
                 .with_node_source(name, table_source.clone())
                 .with_relationship_source(name, table_source);
+            if let Some(node) = self.require_config()?.get_node_mapping(name) {
+                let source = crate::engine::EngineSource::Arrow(normalized_batch.clone());
+                catalog = catalog.with_node_key_source(name, &node.id_field, source, None);
+            }
             if self
                 .require_config()?
                 .get_relationship_mapping(name)
@@ -1017,6 +1053,7 @@ impl CypherQuery {
             }
         }
 
+        self.verify_inventory_keys(&catalog).await?;
         Ok((catalog, ctx))
     }
 
@@ -1132,26 +1169,36 @@ impl CypherQuery {
                 .fields
                 .iter()
                 .any(|field| field.name.eq_ignore_ascii_case("_rowaddr"));
-            providers.insert(normalized_table_name, (provider, has_physical_address));
+            let source = crate::engine::EngineSource::Lance {
+                uri: location,
+                storage_options,
+                dataset,
+            };
+            providers.insert(
+                normalized_table_name,
+                (provider, has_physical_address, source),
+            );
         }
 
-        for (label, _) in config.iter_node_mappings() {
-            let (provider, _) = providers
-                .get(label)
-                .ok_or_else(|| GraphError::ConfigError {
-                    message: format!(
-                        "Namespace did not resolve dataset for node label '{}'",
-                        label
-                    ),
-                    location: snafu::Location::new(file!(), line!(), column!()),
-                })?;
+        for (label, mapping) in config.iter_node_mappings() {
+            let (provider, _, source) =
+                providers
+                    .get(label)
+                    .ok_or_else(|| GraphError::ConfigError {
+                        message: format!(
+                            "Namespace did not resolve dataset for node label '{}'",
+                            label
+                        ),
+                        location: snafu::Location::new(file!(), line!(), column!()),
+                    })?;
 
             let table_source = Arc::new(DefaultTableSource::new(provider.clone()));
             catalog = catalog.with_node_source(label, table_source);
+            catalog = catalog.with_node_key_source(label, &mapping.id_field, source.clone(), None);
         }
 
         for (rel_type, _) in config.iter_relationship_mappings() {
-            let (provider, has_physical_address) =
+            let (provider, has_physical_address, _) =
                 providers
                     .get(rel_type)
                     .ok_or_else(|| GraphError::ConfigError {
@@ -1172,6 +1219,7 @@ impl CypherQuery {
             }
         }
 
+        self.verify_inventory_keys(&catalog).await?;
         Ok((catalog, ctx))
     }
 

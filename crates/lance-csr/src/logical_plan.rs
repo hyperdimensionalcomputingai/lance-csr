@@ -354,38 +354,60 @@ impl<'a> LogicalPlanner<'a> {
             })
         };
         // The inventory needs typed, integer-keyed endpoints. Other ID types still use joins.
-        let supported = |kind: &str| -> Option<bool> {
+        let mut node_schemas = HashMap::new();
+        let mut edge_schemas = HashMap::new();
+        let mut supported = |kind: &str| -> Option<bool> {
             let map = self.config.get_relationship_mapping(kind)?;
+            if edge_schemas.contains_key(&map.relationship_type) {
+                return Some(true);
+            }
             let edge = catalog.relationship_source(kind)?.schema();
+            if !integer_key(&edge, &map.source_id_field)
+                || !integer_key(&edge, &map.target_id_field)
+            {
+                return Some(false);
+            }
+            edge_schemas.insert(map.relationship_type.clone(), edge);
             for label in [&map.source_label, &map.target_label] {
                 let label = label.as_deref()?;
                 let node = self.config.get_node_mapping(label)?;
-                if !integer_key(&catalog.node_source(label)?.schema(), &node.id_field) {
+                if node_schemas.contains_key(&node.label) {
+                    continue;
+                }
+                let schema = catalog.node_source(label)?.schema();
+                if !integer_key(&schema, &node.id_field) {
                     return Some(false);
                 }
+                node_schemas.insert(node.label.clone(), (schema, node.id_field.as_str()));
             }
-            Some(
-                integer_key(&edge, &map.source_id_field)
-                    && integer_key(&edge, &map.target_id_field),
-            )
+            Some(true)
         };
+        if !segments.iter().all(|s| {
+            !s.relationship.types.is_empty()
+                && (s.relationship.length.is_none() || s.relationship.variable.is_none())
+                && s.relationship
+                    .types
+                    .iter()
+                    .all(|t| supported(t) == Some(true))
+        }) {
+            return false;
+        }
         let resolved = |node: &NodePattern| {
-            node.labels.len() == 1
-                || node
-                    .variable
-                    .as_ref()
-                    .is_some_and(|v| self.variables.contains_key(v))
+            let bound = node.variable.as_ref().and_then(|v| self.variables.get(v));
+            let label = bound.or_else(|| (node.labels.len() == 1).then(|| &node.labels[0]));
+            label.is_some_and(|l| node_schemas.keys().any(|name| name.eq_ignore_ascii_case(l)))
         };
         resolved(&path.start_node)
-            && segments.iter().all(|s| {
-                resolved(&s.end_node)
-                    && !s.relationship.types.is_empty()
-                    && (s.relationship.length.is_none() || s.relationship.variable.is_none())
-                    && s.relationship
-                        .types
-                        .iter()
-                        .all(|t| supported(t) == Some(true))
-            })
+            && segments.iter().all(|s| resolved(&s.end_node))
+            && crate::path_inventory::property_fields(
+                node_schemas.values().map(|(s, _)| s.fields()),
+            )
+            .is_ok()
+            && crate::path_inventory::property_fields(edge_schemas.values().map(|s| s.fields()))
+                .is_ok()
+            && node_schemas
+                .iter()
+                .all(|(label, (_, id))| catalog.has_unique_node_ids(label, id))
     }
 
     fn retain_variable_alternation(

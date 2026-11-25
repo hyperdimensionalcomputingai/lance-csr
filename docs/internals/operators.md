@@ -294,6 +294,10 @@ can still join trails by numbering parallel rows within each pair of endpoints.
 
 For a mapped, integer-keyed path where a variable-length segment and another segment share
 a relationship type, the planner can use the inventory to track used edges across both segments.
+It checks the participating schemas for conflicting property types and requires unique non-null
+node IDs per label. An existing node index establishes uniqueness. Without an index, a qualifying
+query checks only the relevant ID columns and shares each check for the pinned catalog snapshot.
+Unverified custom sources and incompatible inputs keep the ordinary expansion plan.
 An unnamed, bounded undirected segment with several types can use iterative `CsrExpandExec`
 when the required indexes are available. The fallback uses `PathMatchExec` to emit boundary
 columns without building Arrow path values. Both operators identify each edge by its type and

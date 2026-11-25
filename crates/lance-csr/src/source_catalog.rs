@@ -3,7 +3,7 @@
 
 //! Context-free source catalog for DataFusion logical planning.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use arrow_schema::{Schema, SchemaRef};
@@ -20,6 +20,12 @@ pub type RelationshipOccurrenceTable = (Arc<dyn TableSource>, String);
 pub trait GraphSourceCatalog: Send + Sync {
     fn node_source(&self, label: &str) -> Option<Arc<dyn TableSource>>;
     fn relationship_source(&self, rel_type: &str) -> Option<Arc<dyn TableSource>>;
+
+    /// True only when the non-null IDs in this column are known to be unique for this snapshot.
+    /// An unverified source keeps the ordinary join route for overlapping unnamed path segments.
+    fn has_unique_node_ids(&self, _label: &str, _column: &str) -> bool {
+        false
+    }
 
     /// An alternate source for `rel_type` with one extra `UInt64` column that identifies each
     /// stored edge occurrence (unique and stable within the pinned snapshot), plus that
@@ -42,11 +48,84 @@ enum OccurrenceSource {
     Ready(RelationshipOccurrenceTable),
 }
 
+struct NodeKey {
+    column: String,
+    source: EngineSource,
+    unique: tokio::sync::OnceCell<bool>,
+}
+
+/// During planning, collect only the ID columns required by a candidate inventory.
+/// Optimistically plan for unique IDs. Validate against the pinned source before using that plan.
+pub(crate) struct InventoryProbe<C> {
+    catalog: C,
+    pending: Mutex<HashSet<String>>,
+}
+
+impl<C: std::borrow::Borrow<InMemoryCatalog>> InventoryProbe<C> {
+    pub(crate) fn new(catalog: C) -> Self {
+        Self {
+            catalog,
+            pending: Mutex::default(),
+        }
+    }
+
+    /// Returns true when a provisional inventory must be replaced by joins.
+    pub(crate) async fn verify(&self) -> Result<bool> {
+        let labels =
+            std::mem::take(&mut *self.pending.lock().unwrap_or_else(PoisonError::into_inner));
+        let mut needs_joins = false;
+        for label in labels {
+            let key = &self.catalog.borrow().unique_node_keys[&label];
+            let unique = key
+                .unique
+                .get_or_try_init(|| key.source.unique_inventory_ids(&key.column))
+                .await?;
+            needs_joins |= !unique;
+        }
+        Ok(needs_joins)
+    }
+}
+
+impl<C: std::borrow::Borrow<InMemoryCatalog> + Send + Sync> GraphSourceCatalog
+    for InventoryProbe<C>
+{
+    fn node_source(&self, label: &str) -> Option<Arc<dyn TableSource>> {
+        self.catalog.borrow().node_source(label)
+    }
+    fn relationship_source(&self, kind: &str) -> Option<Arc<dyn TableSource>> {
+        self.catalog.borrow().relationship_source(kind)
+    }
+    fn relationship_occurrence_source(
+        &self,
+        kind: &str,
+    ) -> Result<Option<RelationshipOccurrenceTable>> {
+        self.catalog.borrow().relationship_occurrence_source(kind)
+    }
+    fn has_unique_node_ids(&self, label: &str, column: &str) -> bool {
+        let label = label.to_lowercase();
+        let Some(key) = self.catalog.borrow().unique_node_keys.get(&label) else {
+            return false;
+        };
+        if !key.column.eq_ignore_ascii_case(column) {
+            return false;
+        }
+        if let Some(unique) = key.unique.get() {
+            return *unique;
+        }
+        self.pending
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(label);
+        true
+    }
+}
+
 /// A simple in-memory catalog useful for tests and bootstrap wiring.
 pub struct InMemoryCatalog {
     node_sources: HashMap<String, Arc<dyn TableSource>>,
     rel_sources: HashMap<String, Arc<dyn TableSource>>,
     occurrence_sources: HashMap<String, Mutex<OccurrenceSource>>,
+    unique_node_keys: HashMap<String, NodeKey>,
 }
 
 impl InMemoryCatalog {
@@ -55,6 +134,7 @@ impl InMemoryCatalog {
             node_sources: HashMap::new(),
             rel_sources: HashMap::new(),
             occurrence_sources: HashMap::new(),
+            unique_node_keys: HashMap::new(),
         }
     }
 
@@ -101,9 +181,42 @@ impl InMemoryCatalog {
         source: Arc<dyn TableSource>,
     ) -> Self {
         // Normalize key to lowercase for case-insensitive lookup
-        self.node_sources
-            .insert(label.into().to_lowercase(), source);
+        let label = label.into().to_lowercase();
+        self.unique_node_keys.remove(&label);
+        self.node_sources.insert(label, source);
         self
+    }
+
+    pub(crate) fn with_node_key_source(
+        mut self,
+        label: &str,
+        column: &str,
+        source: EngineSource,
+        known: Option<bool>,
+    ) -> Self {
+        self.unique_node_keys.insert(
+            label.to_lowercase(),
+            NodeKey {
+                column: column.into(),
+                source,
+                unique: tokio::sync::OnceCell::new_with(known),
+            },
+        );
+        self
+    }
+
+    pub(crate) fn verified_node_key(&self, label: &str) -> Option<bool> {
+        self.unique_node_keys
+            .get(&label.to_lowercase())?
+            .unique
+            .get()
+            .copied()
+    }
+
+    pub(crate) fn has_unverified_node_keys(&self) -> bool {
+        self.unique_node_keys
+            .values()
+            .any(|key| key.unique.get().is_none())
     }
 
     pub fn with_relationship_source(
@@ -131,6 +244,14 @@ impl GraphSourceCatalog for InMemoryCatalog {
     /// Note: Keys are stored as lowercase, so this is an O(1) operation.
     fn node_source(&self, label: &str) -> Option<Arc<dyn TableSource>> {
         self.node_sources.get(&label.to_lowercase()).cloned()
+    }
+
+    fn has_unique_node_ids(&self, label: &str, column: &str) -> bool {
+        self.unique_node_keys
+            .get(&label.to_lowercase())
+            .is_some_and(|key| {
+                key.column.eq_ignore_ascii_case(column) && key.unique.get() == Some(&true)
+            })
     }
 
     /// Get relationship source with case-insensitive type lookup
