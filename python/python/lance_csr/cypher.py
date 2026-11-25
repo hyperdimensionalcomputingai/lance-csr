@@ -467,7 +467,13 @@ class CypherEngine:
         return result
 
     def export_graph(
-        self, rel_types: list[str] | None = None, *, directed: bool = True
+        self,
+        rel_types: list[str] | None = None,
+        *,
+        directed: bool = True,
+        weight: str | dict[str, str] | None = None,
+        combine_edges: Literal["sum", "min", "max"] = "sum",
+        default_weight: float | None = None,
     ) -> GraphExport:
         """The graph as dense CSR arrays, for graph-algorithm libraries.
 
@@ -485,6 +491,26 @@ class CypherEngine:
         directed : bool
             Keyword-only. `True` returns out-edge and in-edge arrays; `False` returns
             one set of arrays listing every edge in both directions.
+        weight : str, dict[str, str] or None
+            Keyword-only. The numeric column holding each edge's weight, exported as
+            `float64` in `out_weights` and `in_weights`. A string names one column for
+            every included type; a dict maps relationship types to their own columns,
+            so types can store weights under different names. Names are
+            case-insensitive. A type the dict leaves out, or that lacks the shared
+            column, needs `default_weight`. An edge whose weight is null is left out
+            and counted in `dropped_edges`. `None` (the default) exports no weights,
+            and the export then needs no memory for them.
+        combine_edges : {"sum", "min", "max"}
+            Keyword-only. How an edge listed more than once combines its weights:
+            `"sum"` (the default) adds them, as for counts or amounts; `"min"` keeps the
+            smallest, as for distances; `"max"` the largest. In an undirected export,
+            `a -> b` and `b -> a` are one edge and combine the same way. Ignored without
+            `weight`.
+        default_weight : float or None
+            Keyword-only. The weight of every edge of an included type that has no
+            weight column: one the `weight` dict leaves out, or one without the shared
+            `weight` column (at least one type must have it). A column named in the
+            dict must exist even with a default. Needs `weight`.
 
         Returns
         -------
@@ -496,7 +522,11 @@ class CypherEngine:
         ValueError
             If a relationship type or label isn't in the config, has no dataset, or a
             key or endpoint column is missing or isn't an integer type up to `int64`
-            (`uint64` isn't supported), or there's nothing to export.
+            (`uint64` isn't supported), a weight column is missing or isn't numeric, an
+            included type has no weight column and there's no `default_weight`, the
+            `weight` dict names a type that isn't included, `default_weight` is given
+            without `weight`, `combine_edges` isn't one of the three rules, or there's
+            nothing to export.
         RuntimeError
             If a node key appears twice within a label, or a scan fails.
 
@@ -519,7 +549,103 @@ class CypherEngine:
         ([0, 1, 2, 2], [1, 2])
         """
         return GraphExport._from_inner(
-            self._inner.export_graph(rel_types, directed=directed)
+            self._inner.export_graph(
+                rel_types,
+                directed=directed,
+                weight=weight,
+                combine_edges=combine_edges,
+                default_weight=default_weight,
+            )
+        )
+
+    def export_subgraph[ParameterT: Parameter](
+        self,
+        query: str,
+        params: dict[str, ParameterT] | None = None,
+        *,
+        directed: bool = True,
+        weight: str | None = None,
+        combine_edges: Literal["sum", "min", "max"] = "sum",
+        default_weight: float | None = None,
+    ) -> GraphExport:
+        """The part of the graph a Cypher query selects, as dense CSR arrays.
+
+        Runs `query` and builds the same arrays as
+        [`export_graph`][lance_csr.CypherEngine.export_graph], by the same edge rules,
+        from its result: one row per edge, with the source and target node keys as the
+        first two columns. The nodes are the keys present in the result. When both
+        columns are a labeled node's key, as `RETURN a.id, b.id` with `(a:Person)` and
+        `id` its key, the ids are grouped per label as in `export_graph`, so
+        `label_ranges` is filled and
+        [`write_node_column`][lance_csr.CypherEngine.write_node_column] can write
+        results back; otherwise all keys share one id space and `label_ranges` is
+        empty. See [Graph algorithms](graph-algorithms.md#subgraphs).
+
+        Parameters
+        ----------
+        query : str
+            A Cypher query returning the source and target keys as its first two
+            columns, which must be integer types up to `int64`.
+        params : dict or None
+            Query parameters, as for [`execute`][lance_csr.CypherEngine.execute].
+        directed : bool
+            Keyword-only. `True` returns out-edge and in-edge arrays; `False` returns
+            one set of arrays listing every edge in both directions.
+        weight : str or None
+            Keyword-only. A numeric column of the result holding each edge's weight,
+            case-insensitive, exported as `float64` in `out_weights` and `in_weights`.
+            An edge whose weight is null is left out and counted in `dropped_edges`.
+        combine_edges : {"sum", "min", "max"}
+            Keyword-only. How an edge listed more than once combines its weights, as in
+            `export_graph`. Ignored without weights.
+        default_weight : float or None
+            Keyword-only. Without `weight`, the weight of every row: `1.0` makes each
+            edge's weight the number of rows that list it.
+
+        Returns
+        -------
+        GraphExport
+            Dense node ids, their keys and the CSR arrays.
+
+        Raises
+        ------
+        ValueError
+            If the query is invalid, its first two columns aren't integer keys, the
+            weight column is missing or isn't numeric, or `combine_edges` isn't one of
+            the three rules.
+        RuntimeError
+            If the query fails while running.
+
+        Examples
+        --------
+        >>> import pyarrow as pa
+        >>> from lance_csr import CypherEngine, GraphConfig
+        >>> config = (
+        ...     GraphConfig.builder()
+        ...     .node_table("Person", "id")
+        ...     .rel_table("KNOWS", "Person", "Person", "src_id", "dst_id")
+        ...     .build()
+        ... )
+        >>> engine = CypherEngine(config, {
+        ...     "Person": pa.table({"id": [10, 20, 30, 40]}),
+        ...     "KNOWS": pa.table({"src_id": [10, 20, 30], "dst_id": [20, 30, 40]}),
+        ... })
+        >>> g = engine.export_subgraph(
+        ...     "MATCH (a:Person)-[:KNOWS]->(b:Person) WHERE a.id >= 20 "
+        ...     "RETURN a.id, b.id"
+        ... )
+        >>> g.node_keys.to_pylist(), g.out_indices.to_pylist()
+        ([20, 30, 40], [1, 2])
+        """
+        return GraphExport._from_inner(
+            self._inner.export_subgraph(
+                query,
+                params,
+                directed=directed,
+                weight=weight,
+                combine_edges=combine_edges,
+                default_weight=default_weight,
+            )
         )
 
     def write_node_column(

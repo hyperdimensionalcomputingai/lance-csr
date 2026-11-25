@@ -315,6 +315,8 @@ occurrence, including when a trail traverses it in reverse.
 
 Path property values are logical expressions, so cached plans bind them before physical planning.
 The physical operator then builds predicates against the inventory's node and relationship schemas.
+The planner adds the equalities of a `WHERE all(r IN relationships(p) WHERE ...)` term to every
+relationship's property map, so the walk skips failing edges; the `WHERE` itself still runs.
 Each execution starts with fresh inventory scans that can share source batches within that execution.
 
 ## `Apply`: correlated CALL subqueries

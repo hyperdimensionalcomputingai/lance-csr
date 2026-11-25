@@ -149,7 +149,7 @@ impl PathMatchNode {
                     .iter()
                     .position(|f| f.name().eq_ignore_ascii_case(field.name()))
                     .expect("unified property");
-                fields.push(Field::new(name, field.data_type().clone(), true));
+                fields.push(field.as_ref().clone().with_name(name).with_nullable(true));
                 outputs.push(Output::Node { boundary, property });
             }
         }
@@ -161,11 +161,16 @@ impl PathMatchNode {
                 fields.push(Field::new(variable.to_lowercase(), edge_type.clone(), true));
                 outputs.push(Output::RelationshipValue { step });
                 for field in &edge_fields {
-                    fields.push(Field::new(
-                        crate::case_insensitive::qualify_column(variable, field.name()),
-                        field.data_type().clone(),
-                        true,
-                    ));
+                    fields.push(
+                        field
+                            .as_ref()
+                            .clone()
+                            .with_name(crate::case_insensitive::qualify_column(
+                                variable,
+                                field.name(),
+                            ))
+                            .with_nullable(true),
+                    );
                     outputs.push(Output::Relationship {
                         step,
                         property: edge_fields

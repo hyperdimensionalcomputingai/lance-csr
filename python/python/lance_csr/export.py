@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 if TYPE_CHECKING:
-    from pyarrow import Int64Array, UInt64Array
+    from pyarrow import DoubleArray, Int64Array, UInt64Array
 
     from ._internal import graph as _graph
 
@@ -13,7 +13,8 @@ if TYPE_CHECKING:
 @final
 class GraphExport:
     """A graph as compressed sparse rows over dense node ids, from
-    [`CypherEngine.export_graph`][lance_csr.CypherEngine.export_graph].
+    [`CypherEngine.export_graph`][lance_csr.CypherEngine.export_graph] or
+    [`CypherEngine.export_subgraph`][lance_csr.CypherEngine.export_subgraph].
 
     Graph-algorithm libraries such as icebug, igraph or scipy take a graph in this
     form: nodes numbered `0` to `num_nodes - 1`, and for each node `i` its neighbours
@@ -55,8 +56,10 @@ class GraphExport:
     def node_keys(self) -> Int64Array:
         """The key of each dense id.
 
-        Each label's nodes are in the order its table is scanned; rows with a null key
-        are left out.
+        From `export_graph`, each label's nodes are in the order its table is scanned,
+        and rows with a null key are left out. From `export_subgraph`, the keys present
+        in the query result, sorted within each label (or within the one id space
+        without labels).
         """
         return self._inner.node_keys
 
@@ -65,7 +68,8 @@ class GraphExport:
         """Each node label's dense ids, as `(start, end)` with `end` excluded.
 
         Labels get consecutive ranges in name order, so equal keys in two labels stay
-        distinct nodes.
+        distinct nodes. Empty for an `export_subgraph` whose key columns couldn't be
+        matched to labels.
         """
         return self._inner.label_ranges
 
@@ -97,10 +101,30 @@ class GraphExport:
         return self._inner.in_indices
 
     @property
-    def dropped_edges(self) -> int:
-        """Edges left out because an endpoint key isn't in its node table.
+    def out_weights(self) -> DoubleArray | None:
+        """The weight of each entry in `out_indices`, as `float64`.
 
-        A query's join between the relationship and node tables leaves them out too.
-        Edges with a null endpoint are skipped and not counted.
+        `None` unless `export_graph` was given a `weight` column. An edge listed more
+        than once, or in an undirected export both `a -> b` and `b -> a`, gets one
+        weight, combined by `export_graph`'s `combine_edges` rule (a sum by default).
+        """
+        return self._inner.out_weights
+
+    @property
+    def in_weights(self) -> DoubleArray | None:
+        """The weight of each entry in `in_indices`, as `float64`.
+
+        `None` for an undirected export, or unless `export_graph` was given a `weight`
+        column.
+        """
+        return self._inner.in_weights
+
+    @property
+    def dropped_edges(self) -> int:
+        """Edges left out because an endpoint key isn't in its node table, or, in a
+        weighted export, because the weight is null.
+
+        A query's join between the relationship and node tables leaves out the first
+        kind too. Edges with a null endpoint are skipped and not counted.
         """
         return self._inner.dropped_edges

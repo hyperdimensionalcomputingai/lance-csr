@@ -113,10 +113,10 @@ Node index
     size; wide properties and multiple active partitions still increase working memory. This does not bound
     the resident graph, the input data, or buffering in joins, sorts and aggregations elsewhere in the plan.
 
-!!! warning "Experimental"
+!!! note "Same results either way"
 
-    The CSR is marked experimental. Results are identical with it on or off (the test suite runs each
-    supported shape both ways and compares), but its API and statistics may change between releases.
+    Results are identical with the CSR on or off: the test suite runs each supported shape both ways and
+    compares.
 
 ## Which hops use it
 

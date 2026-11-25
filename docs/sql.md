@@ -80,7 +80,7 @@ it into memory, as `SqlQuery` reads every dataset on each call; with a `config` 
 Plain SQL doesn't know the graph, so every hop is a join you write. Given a `GraphConfig`, `SqlEngine` adds a
 `GRAPH_TABLE` clause, modelled on SQL/PGQ and [DuckPGQ](https://duckpgq.org/), whose pattern the Cypher planner
 plans. With `use_csr=True`, those hops run on the [CSR](csr.md), and the rest of the SQL query joins, filters and
-groups the pattern's rows like any other table. This is experimental.
+groups the pattern's rows like any other table.
 
 ```python
 from lance_csr import CypherEngine, GraphConfig
@@ -164,7 +164,7 @@ print(query.to_sql(graph, SqlDialect.PostgreSql))
 
 `SqlDialect` has `Default` (DataFusion's), `Spark`, `PostgreSql`, `MySql` and `Sqlite`.
 
-Export is experimental and supports a subset of Cypher execution. Runtime-only Cypher functions
+Export supports a subset of Cypher execution. Runtime-only Cypher functions
 raise `NotImplementedError` when no faithful SQL expression is available. This includes math wrappers such
 as `round` and `abs`, and string functions such as `left` and string `size`, when they depend on
 table values. Cypher `round(-1.5)` produces `-1.0`; DataFusion SQL `round(-1.5)` produces `-2.0`.

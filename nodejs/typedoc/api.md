@@ -278,8 +278,11 @@ without `useCsr`. Lance datasets are scanned for just those columns. See
 | Parameter | Type | Description |
 | ------ | ------ | ------ |
 | `relTypes?` | `string`[] | Relationship types to include, case-insensitive. Left out, every type whose dataset has integer endpoint columns. The nodes are those of the labels at either end of the included types. |
-| `options?` | \{ `directed?`: `boolean`; \} | - |
+| `options?` | \{ `combineEdges?`: `"sum"` \| `"min"` \| `"max"`; `defaultWeight?`: `number`; `directed?`: `boolean`; `weight?`: `string` \| `Record`\<`string`, `string`\>; \} | - |
+| `options.combineEdges?` | `"sum"` \| `"min"` \| `"max"` | How an edge listed more than once combines its weights: `"sum"` (the default) adds them, as for counts or amounts; `"min"` keeps the smallest, as for distances; `"max"` the largest. In an undirected export, `a -> b` and `b -> a` are one edge and combine the same way. Ignored without `weight`. |
+| `options.defaultWeight?` | `number` | The weight of every edge of an included type that has no weight column: one the `weight` object leaves out, or one without the shared `weight` column (at least one type must have it). A column named in the object must exist even with a default. Needs `weight`. |
 | `options.directed?` | `boolean` | `true` (the default) returns out-edge and in-edge arrays; `false` returns one set of arrays listing every edge in both directions. |
+| `options.weight?` | `string` \| `Record`\<`string`, `string`\> | The numeric column holding each edge's weight, exported as float64 in `outWeights` and `inWeights`. A string names one column for every included type; an object maps relationship types to their own columns, so types can store weights under different names. Names are case-insensitive. A type the object leaves out, or that lacks the shared column, needs `defaultWeight`. An edge whose weight is null is left out and counted in `droppedEdges`. Left out, no weights are exported, and the export needs no memory for them. |
 
 ###### Returns
 
@@ -289,8 +292,55 @@ without `useCsr`. Lance datasets are scanned for just those columns. See
 
 [LanceCsrError](#lancecsrerror) `InvalidArgument` if a relationship type or label isn't in
   the config, has no dataset, or a key or endpoint column is missing or isn't an integer
-  type up to `int64`, or there's nothing to export; `Runtime` if a node key appears twice
-  within a label, or a scan fails.
+  type up to `int64`, a weight column is missing or isn't numeric, an included type has no
+  weight column and there's no `defaultWeight`, the `weight` object names a type that isn't
+  included, `defaultWeight` is given without `weight`, `combineEdges` isn't one of the three
+  rules, or there's nothing to export; `Runtime` if a node key appears
+  twice within a label, or a scan fails.
+
+<a id="exportsubgraph"></a>
+
+##### exportSubgraph()
+
+```ts
+exportSubgraph(
+   query, 
+   params?, 
+   options?
+): Promise<GraphExport>;
+```
+
+The part of the graph a Cypher query selects, as typed arrays over dense node ids: the same
+form and edge rules as [CypherEngine.exportGraph](#exportgraph).
+
+The query returns one row per edge, with the source and target node keys as its first two
+columns. The nodes are the keys present in the result. When both columns are a labeled
+node's key, as `RETURN a.id, b.id` with `(a:Person)` and `id` its key, the ids are grouped
+per label as in `exportGraph`, so `labelRanges` is filled; otherwise all keys share one id
+space and `labelRanges` is empty. See
+[Subgraphs](https://lance-csr.hdclabs.ai/graph-algorithms/#subgraphs).
+
+###### Parameters
+
+| Parameter | Type | Description |
+| ------ | ------ | ------ |
+| `query` | `string` | A Cypher query returning the source and target keys as its first two columns, which must be integer types up to `int64`. |
+| `params?` | `Record`\<`string`, [`Parameter`](#parameter)\> \| `null` | Values for `$name` parameters, as for [CypherEngine.execute](#execute). |
+| `options?` | \{ `combineEdges?`: `"sum"` \| `"min"` \| `"max"`; `defaultWeight?`: `number`; `directed?`: `boolean`; `weight?`: `string`; \} | - |
+| `options.combineEdges?` | `"sum"` \| `"min"` \| `"max"` | How an edge listed more than once combines its weights, as in `exportGraph`. Ignored without weights. |
+| `options.defaultWeight?` | `number` | Without `weight`, the weight of every row: `1` makes each edge's weight the number of rows that list it. |
+| `options.directed?` | `boolean` | `true` (the default) returns out-edge and in-edge arrays; `false` returns one set of arrays listing every edge in both directions. |
+| `options.weight?` | `string` | A numeric column of the result holding each edge's weight, case-insensitive, exported as float64 in `outWeights` and `inWeights`. An edge whose weight is null is left out and counted in `droppedEdges`. |
+
+###### Returns
+
+`Promise`\<[`GraphExport`](#graphexport)\>
+
+###### Throws
+
+[LanceCsrError](#lancecsrerror) `InvalidArgument` if the query is invalid, its first two
+  columns aren't integer keys, the weight column is missing or isn't numeric, or
+  `combineEdges` isn't one of the three rules; `Runtime` if the query fails while running.
 
 <a id="nodeindexstats"></a>
 
@@ -1623,7 +1673,8 @@ Options for explaining a query.
 
 ### GraphExport
 
-A graph as compressed sparse rows over dense node ids, from `CypherEngine.exportGraph()`.
+A graph as compressed sparse rows over dense node ids, from `CypherEngine.exportGraph()` or
+`CypherEngine.exportSubgraph()`.
 
 Nodes are numbered `0` to `numNodes - 1`, and the neighbours of node `i` are
 `outIndices[outIndptr[i]]` up to `outIndices[outIndptr[i + 1]]`. `nodeKeys` maps each dense
@@ -1635,14 +1686,16 @@ id back to its node's key. The vectors wrap typed arrays built in Rust. See
 | Property | Type | Description |
 | ------ | ------ | ------ |
 | <a id="property-directed"></a> `directed` | `boolean` | Whether the arrays describe a directed graph. |
-| <a id="property-droppededges"></a> `droppedEdges` | `number` | Edges left out because an endpoint key isn't in its node table. Edges with a null endpoint are skipped and not counted. |
+| <a id="property-droppededges"></a> `droppedEdges` | `number` | Edges left out because an endpoint key isn't in its node table, or, in a weighted export, because the weight is null. Edges with a null endpoint are skipped and not counted. |
 | <a id="property-inindices"></a> `inIndices` | `Vector`\<`Uint64`\> \| `null` | Each node's in-neighbours, sorted, without duplicates; `null` for an undirected graph. |
 | <a id="property-inindptr"></a> `inIndptr` | `Vector`\<`Uint64`\> \| `null` | Offsets into `inIndices`; `null` for an undirected graph. |
-| <a id="property-labelranges"></a> `labelRanges` | `Record`\<`string`, \[`number`, `number`\]\> | Each node label's dense ids, as `[start, end]` with `end` excluded. Labels get consecutive ranges in name order, so equal keys in two labels stay distinct. |
-| <a id="property-nodekeys"></a> `nodeKeys` | `Vector`\<`Int64`\> | The key of each dense id. Each label's nodes are in the order its table is scanned; rows with a null key are left out. |
+| <a id="property-inweights"></a> `inWeights` | `Vector`\<`Float64`\> \| `null` | The weight of each entry in `inIndices`; `null` for an undirected export, or unless `exportGraph` was given a `weight` column. |
+| <a id="property-labelranges"></a> `labelRanges` | `Record`\<`string`, \[`number`, `number`\]\> | Each node label's dense ids, as `[start, end]` with `end` excluded. Labels get consecutive ranges in name order, so equal keys in two labels stay distinct. Empty for an `exportSubgraph` whose key columns couldn't be matched to labels. |
+| <a id="property-nodekeys"></a> `nodeKeys` | `Vector`\<`Int64`\> | The key of each dense id. From `exportGraph`, each label's nodes are in the order its table is scanned, and rows with a null key are left out. From `exportSubgraph`, the keys present in the query result, sorted within each label (or within the one id space without labels). |
 | <a id="property-numnodes"></a> `numNodes` | `number` | Number of nodes. Dense ids run from 0 to `numNodes - 1`. |
 | <a id="property-outindices"></a> `outIndices` | `Vector`\<`Uint64`\> | Each node's out-neighbours, sorted, without duplicates. An undirected graph lists every edge in both directions and a self-loop once. |
 | <a id="property-outindptr"></a> `outIndptr` | `Vector`\<`Uint64`\> | Offsets into `outIndices`, `numNodes + 1` entries. |
+| <a id="property-outweights"></a> `outWeights` | `Vector`\<`Float64`\> \| `null` | The weight of each entry in `outIndices`; `null` unless `exportGraph` was given a `weight` column. An edge listed more than once, or in an undirected export both `a -> b` and `b -> a`, gets one weight, combined by the `combineEdges` rule (a sum by default). |
 
 ***
 

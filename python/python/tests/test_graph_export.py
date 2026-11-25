@@ -49,6 +49,157 @@ def test_undirected_export():
     assert g.out_indices.to_pylist() == [2, 3, 4, 0, 1, 3, 4, 1, 3]
 
 
+WEIGHTED = EDGES.append_column("w", pa.array([1, 2, 4, 8, 16, 32, 64, 128, 256]))
+
+
+def test_weights():
+    engine = CypherEngine(CONFIG, {"Person": NODES, "KNOWS": WEIGHTED})
+    plain = engine.export_graph()
+    assert plain.out_weights is None and plain.in_weights is None
+
+    g = engine.export_graph(weight="W")
+    assert g.out_indices.equals(plain.out_indices)
+    assert g.out_weights is not None and g.in_weights is not None
+    assert g.out_weights.type == pa.float64()
+    # The duplicate 10->20 (weights 1 and 2) sums to 3.
+    assert g.out_weights.to_pylist() == [128, 3, 64, 8, 16, 4]
+    assert g.in_weights.to_pylist() == [64, 8, 128, 16, 4, 3]
+
+    # Undirected: 50->60 and 60->50 combine; the self-loop 30->30 counts once.
+    u = engine.export_graph(directed=False, weight="w")
+    assert u.in_weights is None and u.out_weights is not None
+    assert u.out_weights.to_pylist() == [192, 8, 3, 192, 8, 16, 4, 3, 4]
+
+    # min/max instead: the duplicate 10->20 has 1 and 2, 50-60 has 64 and 128.
+    low = engine.export_graph(weight="w", combine_edges="min")
+    assert low.out_weights is not None and low.out_weights.to_pylist()[1] == 1
+    high = engine.export_graph(directed=False, weight="w", combine_edges="max")
+    assert high.out_weights is not None
+    assert high.out_weights.to_pylist() == [128, 8, 2, 128, 8, 16, 4, 2, 4]
+
+    # A null weight drops its edge and counts it; unweighted exports ignore it.
+    gaps = EDGES.append_column("w", pa.array([1, None, 4, 8, 16, 32, 64, 128, 256]))
+    gappy = CypherEngine(CONFIG, {"Person": NODES, "KNOWS": gaps})
+    dropped = gappy.export_graph(weight="w")
+    assert dropped.dropped_edges == 2 and dropped.out_weights is not None
+    assert dropped.out_weights.to_pylist() == [128, 1, 64, 8, 16, 4]
+    assert gappy.export_graph().dropped_edges == 1
+
+    with pytest.raises(ValueError, match="cost"):
+        engine.export_graph(weight="cost")
+    with pytest.raises(ValueError, match="combine_edges"):
+        engine.export_graph(weight="w", combine_edges="mean")  # pyright: ignore[reportArgumentType]
+    named = EDGES.append_column("w", pa.array(["x"] * 9))
+    with pytest.raises(ValueError, match="not a numeric"):
+        CypherEngine(CONFIG, {"Person": NODES, "KNOWS": named}).export_graph(weight="w")
+
+
+def test_weights_per_type_and_default():
+    config = (
+        GraphConfig.builder()
+        .node_table("Person", "id")
+        .rel_table("KNOWS", "Person", "Person", "src", "dst")
+        .rel_table("LIKES", "Person", "Person", "src", "dst")
+        .build()
+    )
+    # KNOWS has a weight column; LIKES has only an unrelated `since`.
+    engine = CypherEngine(
+        config,
+        {
+            "Person": pa.table({"id": [1, 2, 3]}),
+            "KNOWS": pa.table({"src": [1, 2], "dst": [2, 3], "w": [5.0, 7.0]}),
+            "LIKES": pa.table({"src": [1, 3], "dst": [2, 1], "since": [2020, 2021]}),
+        },
+    )
+
+    def out_weights(**kwargs) -> list[float]:
+        g = engine.export_graph(**kwargs)
+        assert g.out_weights is not None
+        return g.out_weights.to_pylist()
+
+    # Out-edges: 1->2 (KNOWS 5 and LIKES), 2->3 (KNOWS 7), 3->1 (LIKES).
+    assert out_weights(weight="w", default_weight=1.0) == [6, 7, 1]
+    assert out_weights(weight={"KNOWS": "w", "likes": "since"}) == [2025, 7, 2021]
+    assert out_weights(weight={"KNOWS": "w"}, default_weight=2.0) == [7, 7, 2]
+    assert engine.export_graph(["LIKES"], weight={"LIKES": "since"}).num_nodes == 3
+
+    with pytest.raises(ValueError, match="'LIKES'"):
+        engine.export_graph(weight="w")
+    with pytest.raises(ValueError, match="'LIKES'"):
+        engine.export_graph(weight={"KNOWS": "w"})
+    with pytest.raises(ValueError, match="not found in 'LIKES'"):
+        engine.export_graph(weight={"LIKES": "w"}, default_weight=1.0)
+    with pytest.raises(ValueError, match="FOLLOWS"):
+        engine.export_graph(weight={"FOLLOWS": "w"}, default_weight=1.0)
+    with pytest.raises(ValueError, match="any exported"):
+        engine.export_graph(weight="cost", default_weight=1.0)
+    with pytest.raises(ValueError, match="default_weight needs weight"):
+        engine.export_graph(default_weight=1.0)
+    with pytest.raises(TypeError, match="weight"):
+        engine.export_graph(weight=3)  # pyright: ignore[reportArgumentType]
+
+
+def test_export_subgraph():
+    engine = CypherEngine(CONFIG, {"Person": NODES, "KNOWS": WEIGHTED})
+    query = (
+        "MATCH (a:Person)-[r:KNOWS]->(b:Person) WHERE a.id >= $low "
+        "RETURN a.id, b.id, r.w AS cost"
+    )
+    g = engine.export_subgraph(query, {"low": 30}, directed=False)
+    assert isinstance(g, GraphExport)
+    # 30->10, 30->30, 50->60, 60->50: the keys present, sorted.
+    assert g.node_keys.to_pylist() == [10, 30, 50, 60]
+    assert g.label_ranges == {"Person": (0, 4)}
+    assert g.out_indptr.to_pylist() == [0, 1, 3, 4, 5]
+    assert g.out_indices.to_pylist() == [1, 0, 1, 3, 2]
+    assert g.out_weights is None and g.in_indptr is None
+
+    w = engine.export_subgraph(query, {"low": 10}, weight="cost")
+    assert w.out_weights is not None
+    # The duplicate 10->20 sums 1 and 2.
+    assert w.out_weights.to_pylist() == [3, 4, 8, 16, 64, 128]
+    rows = engine.export_subgraph(query, {"low": 10}, default_weight=1.0)
+    assert rows.out_weights is not None
+    assert rows.out_weights.to_pylist() == [2, 1, 1, 1, 1, 1]
+
+    # Computed keys can't be matched to a label: one id space, no write-back.
+    unlabeled = engine.export_subgraph(
+        "MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN a.id + 0 AS s, b.id"
+    )
+    assert unlabeled.label_ranges == {}
+    with pytest.raises(ValueError, match="no node labels"):
+        engine.write_node_column(unlabeled, "x", [0] * unlabeled.num_nodes)
+
+    with pytest.raises(ValueError, match="integer key"):
+        engine.export_subgraph("MATCH (a:Person) RETURN 'x' AS s, a.id")
+    with pytest.raises(ValueError, match="first two columns"):
+        engine.export_subgraph("MATCH (a:Person) RETURN a.id")
+    with pytest.raises(ValueError, match="'price' not found"):
+        engine.export_subgraph(query, {"low": 10}, weight="price")
+
+
+def test_export_subgraph_write_back(tmp_path):
+    lance.write_dataset(NODES, tmp_path / "person.lance")
+    lance.write_dataset(EDGES, tmp_path / "knows.lance")
+    engine = CypherEngine(
+        CONFIG,
+        {
+            "Person": lance.dataset(tmp_path / "person.lance"),
+            "KNOWS": lance.dataset(tmp_path / "knows.lance"),
+        },
+    )
+    g = engine.export_subgraph(
+        "MATCH (a:Person)-[:KNOWS]->(b:Person) WHERE a.id >= 30 RETURN a.id, b.id"
+    )
+    engine.write_node_column(g, "in_sub", [True] * g.num_nodes)
+    rows = engine.execute("MATCH (p:Person) RETURN p.id, p.in_sub ORDER BY p.id")
+    # Nodes outside the subgraph get null.
+    assert rows.to_pylist() == [
+        {"p.id": key, "p.in_sub": True if key in (10, 30, 50, 60) else None}
+        for key in (10, 20, 30, 40, 50, 60)
+    ]
+
+
 def test_labels_with_colliding_keys():
     config = (
         GraphConfig.builder()
@@ -124,6 +275,30 @@ def test_icebug_pagerank_and_components():
     components = ib.components.ConnectedComponents(undirected)
     # {10, 20, 30}, {50, 60} and the isolated 40.
     assert components.run().numberOfComponents() == 3
+
+
+def test_icebug_weighted_shortest_paths():
+    ib = pytest.importorskip("icebug")
+    # 0->1 and 1->2 cost 1 each; the direct 0->2 costs 5.
+    nodes = pa.table({"id": [0, 1, 2]})
+    edges = pa.table({"src": [0, 1, 0], "dst": [1, 2, 2], "cost": [1.0, 1.0, 5.0]})
+    g = CypherEngine(CONFIG, {"Person": nodes, "KNOWS": edges}).export_graph(
+        weight="cost"
+    )
+    graph = ib.Graph.fromCSR(
+        g.num_nodes,
+        g.directed,
+        g.out_indices,
+        g.out_indptr,
+        g.in_indices,
+        g.in_indptr,
+        g.out_weights,
+        g.in_weights,
+    )
+    assert graph.isWeighted()
+    dijkstra = ib.distance.Dijkstra(graph, 0)
+    dijkstra.run()
+    assert dijkstra.getDistances() == [0.0, 1.0, 2.0]
 
 
 def test_write_node_column(tmp_path):

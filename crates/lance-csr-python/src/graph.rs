@@ -1079,6 +1079,24 @@ impl GraphExport {
     }
 
     #[getter]
+    fn out_weights<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
+        self.inner
+            .out_weights
+            .as_ref()
+            .map(|a| to_pyarrow_array(py, a))
+            .transpose()
+    }
+
+    #[getter]
+    fn in_weights<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
+        self.inner
+            .in_weights
+            .as_ref()
+            .map(|a| to_pyarrow_array(py, a))
+            .transpose()
+    }
+
+    #[getter]
     fn dropped_edges(&self) -> u64 {
         self.inner.dropped_edges
     }
@@ -1313,17 +1331,92 @@ impl CypherEngine {
         Ok(stats.into_any().unbind())
     }
 
-    #[pyo3(signature = (rel_types=None, *, directed=true))]
+    #[pyo3(signature = (
+        rel_types=None, *, directed=true, weight=None, combine_edges="sum", default_weight=None
+    ))]
     fn export_graph(
         &self,
         py: Python,
         rel_types: Option<Vec<String>>,
         directed: bool,
+        weight: Option<Bound<'_, PyAny>>,
+        combine_edges: &str,
+        default_weight: Option<f64>,
     ) -> PyResult<GraphExport> {
+        let combine = combine_edges
+            .parse::<lance_csr::CombineEdges>()
+            .map_err(graph_error_to_pyerr)?;
+        let weights = match weight {
+            None if default_weight.is_some() => {
+                return Err(PyValueError::new_err(
+                    "default_weight needs weight: name a weight column or a column per type",
+                ))
+            }
+            None => None,
+            Some(w) => {
+                let (column, per_type) = if let Ok(name) = w.extract::<String>() {
+                    (Some(name), Vec::new())
+                } else if let Ok(dict) = w.downcast::<PyDict>() {
+                    let pairs = dict
+                        .iter()
+                        .map(|(k, v)| Ok((k.extract::<String>()?, v.extract::<String>()?)))
+                        .collect::<PyResult<Vec<_>>>()
+                        .map_err(|_| {
+                            PyTypeError::new_err("weight dict must map type names to column names")
+                        })?;
+                    (None, pairs)
+                } else {
+                    return Err(PyTypeError::new_err(
+                        "weight must be a column name or a dict of type name -> column name",
+                    ));
+                };
+                Some(lance_csr::EdgeWeights {
+                    column,
+                    per_type,
+                    default: default_weight,
+                    combine,
+                })
+            }
+        };
         let inner = RT
             .block_on(
                 Some(py),
-                self.inner.export_graph(rel_types.as_deref(), directed),
+                self.inner
+                    .export_graph(rel_types.as_deref(), directed, weights.as_ref()),
+            )?
+            .map_err(graph_error_to_pyerr)?;
+        Ok(GraphExport { inner })
+    }
+
+    #[pyo3(signature = (
+        query, params=None, *, directed=true, weight=None, combine_edges="sum", default_weight=None
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn export_subgraph(
+        &self,
+        py: Python,
+        query: &str,
+        params: Option<&Bound<'_, PyDict>>,
+        directed: bool,
+        weight: Option<String>,
+        combine_edges: &str,
+        default_weight: Option<f64>,
+    ) -> PyResult<GraphExport> {
+        let combine = combine_edges
+            .parse::<lance_csr::CombineEdges>()
+            .map_err(graph_error_to_pyerr)?;
+        let weights = (weight.is_some() || default_weight.is_some()).then(|| lance_csr::EdgeWeights {
+            column: weight,
+            default: default_weight,
+            combine,
+            ..Default::default()
+        });
+        let params = python_params(params)?;
+        let inner = RT
+            .block_on(
+                Some(py),
+                self.inner
+                    .export_subgraph(query, params, directed, weights.as_ref()),
             )?
             .map_err(graph_error_to_pyerr)?;
         Ok(GraphExport { inner })

@@ -45,6 +45,86 @@ test("undirected export", async () => {
   assert.deepEqual(list(g.outIndices), [1, 2, 0, 2, 0, 1]);
 });
 
+test("edge weights only when asked for", async () => {
+  const weighted = {
+    ...datasets,
+    KNOWS: tableFromArrays({
+      src: BigInt64Array.from([10n, 10n, 20n, 30n, 10n]),
+      dst: BigInt64Array.from([20n, 20n, 30n, 10n, 99n]),
+      w: Float64Array.from([1, 2, 4, 8, 16]),
+    }),
+  };
+  const engine = await CypherEngine.create(config, weighted);
+  const plain = await engine.exportGraph();
+  assert.equal(plain.outWeights, null);
+  assert.equal(plain.inWeights, null);
+  const g = await engine.exportGraph(undefined, { weight: "w" });
+  // The duplicate 10->20 sums to 3.
+  assert.equal(g.outWeights!.type.typeId, Type.Float);
+  assert.deepEqual(Array.from(g.outWeights!.toArray()), [8, 3, 4]);
+  assert.deepEqual(Array.from(g.inWeights!.toArray()), [4, 8, 3]);
+  const min = await engine.exportGraph(undefined, { weight: "w", combineEdges: "min" });
+  assert.deepEqual(Array.from(min.outWeights!.toArray()), [8, 1, 4]);
+  await assert.rejects(
+    engine.exportGraph(undefined, { weight: "w", combineEdges: "mean" as "sum" }),
+    (err) => err instanceof LanceCsrError && err.code === "InvalidArgument",
+  );
+  await assert.rejects(
+    engine.exportGraph(undefined, { weight: "cost" }),
+    (err) => err instanceof LanceCsrError && err.code === "InvalidArgument",
+  );
+});
+
+test("weight columns per type and a default weight", async () => {
+  const mixedConfig = GraphConfig.builder()
+    .nodeTable("Person", "id")
+    .relTable("KNOWS", "Person", "Person", "src", "dst")
+    .relTable("LIKES", "Person", "Person", "src", "dst")
+    .build();
+  const engine = await CypherEngine.create(mixedConfig, {
+    Person: tableFromArrays({ id: BigInt64Array.from([1n, 2n, 3n]) }),
+    KNOWS: tableFromArrays({
+      src: BigInt64Array.from([1n, 2n]),
+      dst: BigInt64Array.from([2n, 3n]),
+      w: Float64Array.from([5, 7]),
+    }),
+    LIKES: tableFromArrays({
+      src: BigInt64Array.from([1n, 3n]),
+      dst: BigInt64Array.from([2n, 1n]),
+      since: Float64Array.from([2020, 2021]),
+    }),
+  });
+  const g = await engine.exportGraph(undefined, { weight: { KNOWS: "w" }, defaultWeight: 2 });
+  assert.deepEqual(Array.from(g.outWeights!.toArray()), [7, 7, 2]);
+  const both = await engine.exportGraph(undefined, { weight: { KNOWS: "w", LIKES: "since" } });
+  assert.deepEqual(Array.from(both.outWeights!.toArray()), [2025, 7, 2021]);
+  for (const options of [{ weight: "w" }, { defaultWeight: 1 }]) {
+    await assert.rejects(
+      engine.exportGraph(undefined, options),
+      (err) => err instanceof LanceCsrError && err.code === "InvalidArgument",
+    );
+  }
+});
+
+test("subgraph of a query", async () => {
+  const engine = await CypherEngine.create(config, datasets);
+  const query = "MATCH (a:Person)-[:KNOWS]->(b:Person) WHERE a.id >= $low RETURN a.id, b.id";
+  const g = await engine.exportSubgraph(query, { low: 20 }, { directed: false });
+  // 20->30 and 30->10: the keys present, sorted.
+  assert.deepEqual(list(g.nodeKeys), [10, 20, 30]);
+  assert.deepEqual(g.labelRanges, { Person: [0, 3] });
+  assert.deepEqual(list(g.outIndptr), [0, 1, 2, 4]);
+  assert.deepEqual(list(g.outIndices), [2, 2, 0, 1]);
+  assert.equal(g.inIndptr, null);
+  // One weight per row counts the duplicate 10->20 twice.
+  const rows = await engine.exportSubgraph(query, { low: 0 }, { defaultWeight: 1 });
+  assert.deepEqual(Array.from(rows.outWeights!.toArray()), [2, 1, 1]);
+  await assert.rejects(
+    engine.exportSubgraph("MATCH (a:Person) RETURN a.id"),
+    (err) => err instanceof LanceCsrError && err.code === "InvalidArgument",
+  );
+});
+
 test("unknown relationship type", async () => {
   const engine = await CypherEngine.create(config, datasets);
   await assert.rejects(

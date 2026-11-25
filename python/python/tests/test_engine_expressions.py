@@ -9,7 +9,7 @@ a-f, with valid edges 1->2 (twice), 1->3, 2->3, 3->3 and 5->1.
 
 import pyarrow as pa
 import pytest
-from lance_csr import CypherEngine
+from lance_csr import CypherEngine, GraphConfig
 from test_engine_csr import CONFIG, KNOWS, PEOPLE
 
 CASES = [
@@ -66,3 +66,34 @@ def test_coalesce_takes_the_first_non_null():
         "MATCH (a:Person) RETURN a.id, coalesce(a.name, a.nick, 'none') AS n"
     )
     assert rows(got) == [(1, "a"), (2, "bee"), (3, "none")]
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        # Only true passes; false and null are dropped, as in openCypher.
+        ("MATCH (n:N) WHERE n.ok RETURN n.id AS id", [1, 4]),
+        ("MATCH (n:N) WHERE NOT n.ok RETURN n.id AS id", [2]),
+        ("MATCH (n:N) WHERE n.ok AND n.x = 1 RETURN n.id AS id", [1]),
+        ("MATCH (n:N) WHERE n.x = 2 OR n.ok RETURN n.id AS id", [1, 3, 4]),
+        (
+            "MATCH (n:N) WITH collect(n) AS ns "
+            "RETURN 0 AS id, [m IN ns WHERE m.x = 1 AND m.ok | m.id] AS ids",
+            [(0, [1])],
+        ),
+        (
+            "MATCH (n:N) RETURN n.id AS id, "
+            "CASE WHEN n.ok THEN 'yes' ELSE 'no' END AS answer",
+            [(1, "yes"), (2, "no"), (3, "no"), (4, "yes")],
+        ),
+    ],
+)
+def test_bare_boolean_values_are_conditions(query, expected):
+    config = GraphConfig.builder().node_table("N", "id").build()
+    nodes = pa.table(
+        {"id": [1, 2, 3, 4], "ok": [True, False, None, True], "x": [1, 1, 2, 3]}
+    )
+    engine = CypherEngine(config, {"N": nodes})
+    rows = engine.execute(query + " ORDER BY id").to_pylist()
+    values = [tuple(r.values()) if len(r) > 1 else r["id"] for r in rows]
+    assert values == expected

@@ -86,7 +86,7 @@ pub use engine::{
     open_lance_dataset, CypherEngine, DatasetOptimizeStats, EngineSource, PersistCsr, SqlEngine,
 };
 pub use error::{GraphError, Result};
-pub use graph_export::GraphExport;
+pub use graph_export::{CombineEdges, EdgeWeights, GraphExport};
 pub use lance_vector_search::VectorSearch;
 pub use mapping::{EdgeTableMapping, GraphMapping, GraphSnapshot, NodeTableMapping, PinnedTable};
 pub use namespace::DirNamespace;

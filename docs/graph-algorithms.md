@@ -7,8 +7,20 @@ whole graph and compute one value for every node, a score or a group. Libraries 
 take the graph in the same form: compressed sparse rows (CSR) over dense node ids.
 
 [`CypherEngine.export_graph`][lance_csr.CypherEngine.export_graph] builds that form from your node and
-relationship tables. It reads only the key and endpoint columns, from the same dataset versions your queries
-see, and returns Arrow arrays that these libraries take without copying.
+relationship tables. It reads only the key and endpoint columns, plus a weight column when you ask for one,
+from the same dataset versions your queries see, and returns Arrow arrays that these libraries take without
+copying. Every parameter is optional, and all but `rel_types` are keyword-only:
+
+| Parameter | Default | What it controls |
+| --- | --- | --- |
+| `rel_types` | `None` | The relationship types to include, or every type with integer endpoints; the nodes are those of the labels at either end. See [Directed and undirected graphs](#directed-and-undirected-graphs). |
+| `directed` | `True` | `True` returns out-edge and in-edge arrays; `False` returns one set listing every edge both ways. See [Directed and undirected graphs](#directed-and-undirected-graphs). |
+| `weight` | `None` | A column name, or a dict of relationship type to column, exported as `float64` edge weights; `None` exports none. See [Weighted graphs](#weighted-graphs). |
+| `combine_edges` | `"sum"` | How an edge listed more than once combines its weights: `"sum"`, `"min"` or `"max"`. See [Weighted graphs](#weighted-graphs). |
+| `default_weight` | `None` | The weight of every edge of a type with no weight column; `None` makes such a type an error. See [Several relationship types](#several-relationship-types). |
+
+To export only the part of the graph a Cypher query selects, use `export_subgraph`, described in
+[Subgraphs](#subgraphs).
 
 ## What the export contains
 
@@ -50,7 +62,8 @@ The returned [`GraphExport`][lance_csr.GraphExport] also holds:
 | `num_nodes`, `directed` | The number of nodes and whether the arrays are directed |
 | `in_indptr`, `in_indices` | The same arrays for incoming edges; `None` for an undirected export |
 | `label_ranges` | Each node label's dense ids, as `(start, end)` with `end` excluded |
-| `dropped_edges` | Edges whose endpoint key isn't in its node table |
+| `out_weights`, `in_weights` | Edge weights, when asked for (see [Weighted graphs](#weighted-graphs)); otherwise `None` |
+| `dropped_edges` | Edges whose endpoint key isn't in its node table, or whose weight is null |
 
 The export follows the same rules as a query's join between relationship and node tables. An edge whose
 endpoint key isn't in its node table is left out (and counted in `dropped_edges`), an edge with a null endpoint is
@@ -94,6 +107,137 @@ engine2 = CypherEngine(config2, {"Person": people, "City": cities, "LIVES_IN": l
 print(engine2.export_graph().label_ranges)  # {'City': (0, 2), 'Person': (2, 6)}
 ```
 
+## Weighted graphs
+
+Some algorithms read a number on each edge as well as the edge itself: a distance for shortest paths, a
+strength for weighted PageRank or community detection. In a relationship table that number is a column, such
+as the messages sent along each `FOLLOWS` edge. Name it with `weight` and the export returns it as `float64`
+arrays that line up with `out_indices` and `in_indices`:
+
+```python
+messages = pa.table(
+    {"src": [10, 10, 20, 30, 10], "dst": [20, 30, 30, 10, 20], "messages": [3, 1, 5, 2, 4]}
+)
+weighted_engine = CypherEngine(config, {"Person": people, "FOLLOWS": messages})
+w = weighted_engine.export_graph(weight="messages")
+print(w.out_indices.to_pylist())  # [1, 0, 2, 0]
+print(w.out_weights.to_pylist())  # [2.0, 1.0, 7.0, 5.0]
+```
+
+The weight of `out_indices[i]` is `out_weights[i]`, and the same holds for the in-edges. The weight column
+must be numeric. Only the endpoint and weight columns are read, so other properties of the relationship table
+play no part.
+
+### Several relationship types
+
+When the export includes several relationship types, each needs a weight. They may store it under different
+names, or one of them may have none. A `weight` dict names the column of each type, and `default_weight` gives
+the weight of every edge of a type without a column:
+
+```python
+config3 = (
+    GraphConfig.builder()
+    .node_table("Person", "id")
+    .rel_table("FOLLOWS", "Person", "Person", "src", "dst")
+    .rel_table("MENTIONS", "Person", "Person", "src", "dst")
+    .build()
+)
+mentions = pa.table({"src": [20], "dst": [10], "times": [9]})
+mixed = CypherEngine(config3, {"Person": people, "FOLLOWS": messages, "MENTIONS": mentions})
+
+both = mixed.export_graph(weight={"FOLLOWS": "messages", "MENTIONS": "times"})
+print(both.out_weights.to_pylist())  # [2.0, 1.0, 7.0, 5.0, 9.0]
+some = mixed.export_graph(weight={"FOLLOWS": "messages"}, default_weight=1.0)
+print(some.out_weights.to_pylist())  # [2.0, 1.0, 7.0, 5.0, 1.0]
+```
+
+A string `weight` with `default_weight` works the same way: types that have the column use it, and the others
+get the default. Without `default_weight`, a type with no weight column is an error, since a guessed weight
+can change an algorithm's answer without warning. A few mistakes are errors even with a default: a column the
+dict names that doesn't exist, a dict entry for a type that isn't exported, and a string column that no type
+has. To leave a type out of the export instead, list the others in `rel_types`.
+
+When the types' weights mean different things, such as messages and mentions, make sure adding them up, or
+comparing them, makes sense for the algorithm.
+
+A null weight means the weight is unknown, and no number stands in for it safely: 1.0 would make a costly
+edge look cheap to a shortest-path search. So the export leaves the edge out and counts it in `dropped_edges`,
+as it does an edge whose endpoint is missing:
+
+```python
+gaps = pa.table({"src": [10, 20], "dst": [20, 30], "messages": [3, None]})
+partial = CypherEngine(config, {"Person": people, "FOLLOWS": gaps}).export_graph(weight="messages")
+print(partial.out_weights.to_pylist(), partial.dropped_edges)  # [3.0] 1
+```
+
+The export lists each edge once, so an edge that appears in several rows needs one weight, and
+`combine_edges` says how to get it. The default, `"sum"`, adds the weights, which suits counts and amounts:
+10 → 20 appears twice, with 3 and 4 messages, and gets 7. When the weight is a distance or a cost, the
+cheapest edge is usually the one that matters, and `"min"` keeps it; `"max"` keeps the largest:
+
+```python
+cheapest = weighted_engine.export_graph(weight="messages", combine_edges="min")
+print(cheapest.out_weights.to_pylist())  # [2.0, 1.0, 3.0, 5.0]
+```
+
+An undirected export applies the same rule to an edge stored in both directions, so `a → b` and `b → a`
+become one edge with one combined weight. A self-loop's weight counts once.
+
+Weights cost memory only when you ask for them. Without `weight`, the export reads no extra column and
+`out_weights` and `in_weights` are `None`.
+
+## Subgraphs
+
+An analysis often needs only part of the graph: the busiest accounts and their contacts, or one region's roads.
+Ranking the whole graph and filtering the scores afterwards gives a different answer, since PageRank on a
+subgraph only counts the edges inside it. [`export_subgraph`][lance_csr.CypherEngine.export_subgraph] runs a
+Cypher query that selects the edges, and builds the same arrays as `export_graph` from its result:
+
+```python
+sub = engine.export_subgraph(
+    "MATCH (a:Person)-[:FOLLOWS]->(b:Person) WHERE a.id = $who RETURN a.id, b.id",
+    {"who": 10},
+)
+print(sub.node_keys.to_pylist())  # [10, 20, 30]
+print(sub.out_indptr.to_pylist(), sub.out_indices.to_pylist())  # [0, 2, 2, 2] [1, 2]
+print(sub.label_ranges)  # {'Person': (0, 3)}
+```
+
+The query returns one row per edge, with the source and target node keys as its first two columns. The nodes are
+the keys present in the result, sorted, so Dan (40) and anyone else outside the selected edges aren't in the
+export. The edges follow the same rules as `export_graph`: an edge listed twice appears once, `directed=False`
+lists each edge both ways, and a self-loop counts once.
+
+When both key columns are a labeled node's key, as `a.id` here with `a` a `Person` and `id` its key, the export
+groups the ids per label as `export_graph` does. `label_ranges` is filled, and
+[`write_node_column`](#writing-results-back-to-lance) can write an algorithm's results back to the node table, with
+nulls for the nodes outside the subgraph. When a column is computed, or its node has no single label, all keys
+share one id space and `label_ranges` is empty; join `node_keys` to your own table instead.
+
+The options are those of `export_graph`, except that the query does the selecting, so there is no `rel_types`,
+and `weight` names a column of the query result:
+
+| Parameter | Default | What it controls |
+| --- | --- | --- |
+| `query`, `params` | | The Cypher query and its parameters, as for [`execute`][lance_csr.CypherEngine.execute]. |
+| `directed` | `True` | `True` returns out-edge and in-edge arrays; `False` returns one set listing every edge both ways. |
+| `weight` | `None` | A numeric column of the result, such as `r.cost AS cost`, exported as `float64` edge weights. |
+| `combine_edges` | `"sum"` | How an edge listed more than once combines its weights: `"sum"`, `"min"` or `"max"`. |
+| `default_weight` | `None` | Without `weight`, the weight of every row. |
+
+`default_weight=1.0` without `weight` gives each edge the number of rows that list it. That turns a result with
+repeated rows into a graph where repeated edges count more, as PageRank on a multigraph does:
+
+```python
+counted = weighted_engine.export_subgraph(
+    "MATCH (a:Person)-[:FOLLOWS]->(b:Person) RETURN a.id, b.id", default_weight=1.0
+)
+print(counted.out_weights.to_pylist())  # [2.0, 1.0, 1.0, 1.0]
+```
+
+The query's result is held in memory while the arrays are built, as with
+[`execute`][lance_csr.CypherEngine.execute].
+
 ## Running an algorithm with icebug
 
 [icebug](https://github.com/Ladybug-Memory/icebug) is a fork of [NetworKit](https://networkit.github.io/) whose
@@ -123,6 +267,10 @@ scores = pa.table({"id": g.node_keys, "pagerank": pagerank.run().scores()})
     `icebug` is a separate package (`uv add icebug`); lance-csr doesn't depend on it. Version 13.6 requires
     exactly `pyarrow==26.0.1`, imports only when `networkx` is installed, and on macOS needs OpenMP from
     Homebrew (`brew install libomp`).
+
+For a weighted graph, pass the weights after the in-edge arrays:
+`ib.Graph.fromCSR(w.num_nodes, w.directed, w.out_indices, w.out_indptr, w.in_indices, w.in_indptr,
+w.out_weights, w.in_weights)`. Algorithms such as `ib.distance.Dijkstra` then use them.
 
 Other libraries take the same arrays. For example, `scipy.sparse.csr_array((data, g.out_indices, g.out_indptr))`
 builds an adjacency matrix, after converting the arrays with `to_numpy()`, which doesn't copy them either.
@@ -185,6 +333,8 @@ Some cases need care:
 
 - The export holds the whole graph in memory: eight bytes per edge in each direction for `indices`, plus the
   offsets and keys. A directed export of 10 million edges takes about 160 MB, and building it briefly needs
-  about as much again.
+  about as much again. Weights add eight bytes per edge in each direction, and building a weighted export
+  briefly needs up to three times the memory of an unweighted one, because each edge is sorted together with its
+  weight. An unweighted export needs no memory for weights.
 - Keys and endpoints must be integers up to `int64`; string and `uint64` keys aren't supported.
-- Edge properties, such as weights, aren't exported.
+- Only one edge property is exported, as a weight; other edge properties aren't.

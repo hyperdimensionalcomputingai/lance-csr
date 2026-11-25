@@ -404,11 +404,9 @@ impl DataFusionPlanner {
         };
 
         let output = |f: &arrow_schema::Field| {
-            arrow_schema::Field::new(
-                qualify_column(rel_alias, f.name()),
-                f.data_type().clone(),
-                true,
-            )
+            f.clone()
+                .with_name(qualify_column(rel_alias, f.name()))
+                .with_nullable(true)
         };
         let node = CsrExpandNode::try_new(
             left_plan.clone(),
@@ -535,11 +533,9 @@ impl DataFusionPlanner {
             .fields()
             .iter()
             .map(|f| {
-                arrow_schema::Field::new(
-                    qualify_column(target_variable, f.name()),
-                    f.data_type().clone(),
-                    f.is_nullable(),
-                )
+                f.as_ref()
+                    .clone()
+                    .with_name(qualify_column(target_variable, f.name()))
             })
             .collect();
         Some(crate::csr_expand::TargetLookup::new(

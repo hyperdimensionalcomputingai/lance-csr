@@ -1112,7 +1112,8 @@ impl<'a> LogicalPlanner<'a> {
                     }
                 }
                 GraphPattern::Path(path) if path.variable.is_some() || inventory_alternation => {
-                    plan = Some(self.plan_inventory_path(plan, path)?)
+                    let pruned = filter.and_then(|f| with_all_relationship_equalities(path, f));
+                    plan = Some(self.plan_inventory_path(plan, pruned.as_ref().unwrap_or(path))?)
                 }
                 GraphPattern::Path(path) if path.shortest.is_some() => {
                     plan = Some(self.plan_shortest_path(plan, path)?)
@@ -2520,6 +2521,121 @@ impl<'a> LogicalPlanner<'a> {
     }
 }
 
+/// Copies `r.key = value` terms of `all(r IN relationships(p) WHERE ...)` conjuncts in
+/// `filter` into the property map of every relationship of the named path `p`, so the
+/// trail enumeration drops a failing edge as it reaches it instead of after building
+/// the whole path. The WHERE still runs, so a term left out here only costs time.
+/// Shortest paths are left alone: pruning edges would change which path is shortest.
+fn with_all_relationship_equalities(
+    path: &PathPattern,
+    filter: &BooleanExpression,
+) -> Option<PathPattern> {
+    let variable = path
+        .variable
+        .as_deref()
+        .filter(|_| path.shortest.is_none())?;
+    let mut equalities = HashMap::new();
+    for conjunct in conjuncts(filter) {
+        let BooleanExpression::Comparison {
+            left,
+            operator: ComparisonOperator::Equal,
+            right,
+        } = conjunct
+        else {
+            continue;
+        };
+        // all(...) parses as a value compared with true.
+        let all = match (left, right) {
+            (all, ValueExpression::Literal(PropertyValue::Boolean(true)))
+            | (ValueExpression::Literal(PropertyValue::Boolean(true)), all) => all,
+            _ => continue,
+        };
+        let ValueExpression::ListPredicate {
+            kind,
+            variable: element,
+            list,
+            predicate,
+        } = all
+        else {
+            continue;
+        };
+        let over_path = matches!(list.as_ref(), ValueExpression::ScalarFunction { name, args }
+            if name.eq_ignore_ascii_case("relationships")
+                && matches!(args.as_slice(), [ValueExpression::Variable(p)] if p.eq_ignore_ascii_case(variable)));
+        let ValueExpression::Boolean(predicate) = predicate.as_ref() else {
+            continue;
+        };
+        if kind != "all" || !over_path {
+            continue;
+        }
+        for term in conjuncts(predicate) {
+            let BooleanExpression::Comparison {
+                left,
+                operator: ComparisonOperator::Equal,
+                right,
+            } = term
+            else {
+                continue;
+            };
+            let field = |value: &ValueExpression| match value {
+                ValueExpression::Field { base, field } if matches!(base.as_ref(), ValueExpression::LocalVariable(v) if v == element) => {
+                    Some(field.clone())
+                }
+                _ => None,
+            };
+            let constant = |value: &ValueExpression| match value {
+                ValueExpression::Literal(
+                    v @ (PropertyValue::String(_)
+                    | PropertyValue::Integer(_)
+                    | PropertyValue::Float(_)
+                    | PropertyValue::Boolean(_)
+                    | PropertyValue::Parameter(_)),
+                ) => Some(v.clone()),
+                ValueExpression::Parameter(name) => Some(PropertyValue::Parameter(name.clone())),
+                _ => None,
+            };
+            if let Some((key, value)) = field(left)
+                .zip(constant(right))
+                .or_else(|| field(right).zip(constant(left)))
+            {
+                equalities.entry(key).or_insert(value);
+            }
+        }
+    }
+    if equalities.is_empty() {
+        return None;
+    }
+    let mut path = path.clone();
+    for segment in &mut path.segments {
+        for (key, value) in &equalities {
+            // An existing map entry already filters this key; the WHERE checks the rest.
+            if !segment
+                .relationship
+                .properties
+                .keys()
+                .any(|k| k.eq_ignore_ascii_case(key))
+            {
+                segment
+                    .relationship
+                    .properties
+                    .insert(key.clone(), value.clone());
+            }
+        }
+    }
+    Some(path)
+}
+
+fn conjuncts(expr: &BooleanExpression) -> Vec<&BooleanExpression> {
+    match expr {
+        BooleanExpression::And(a, b) => {
+            let mut all = conjuncts(a);
+            all.extend(conjuncts(b));
+            all
+        }
+        other => vec![other],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3460,6 +3576,69 @@ mod tests {
         assert!(
             matches!(*input, LogicalOperator::PathMatch { path, .. } if path.variable.is_none())
         );
+    }
+
+    /// The relationship property maps of the first PathMatch in a plan.
+    fn path_relationship_properties(query: &str) -> Vec<HashMap<String, PropertyValue>> {
+        fn find(plan: &LogicalOperator) -> Option<&PathPattern> {
+            match plan {
+                LogicalOperator::PathMatch { path, .. } => Some(path),
+                LogicalOperator::Project { input, .. } | LogicalOperator::Filter { input, .. } => {
+                    find(input)
+                }
+                _ => None,
+            }
+        }
+        let config = GraphConfig::builder()
+            .node_table("N", "id")
+            .rel_table("R", "N", "N", "src", "dst")
+            .build()
+            .unwrap();
+        let plan = LogicalPlanner::new(&config)
+            .plan(&parse_cypher_query(query).unwrap())
+            .unwrap();
+        find(&plan)
+            .expect("a path match")
+            .segments
+            .iter()
+            .map(|s| s.relationship.properties.clone())
+            .collect()
+    }
+
+    #[test]
+    fn all_relationship_equalities_filter_each_path_edge() {
+        let maps = path_relationship_properties(
+            "MATCH p = (a:N {id: 0})-[:R*1..3]->(b:N)-[:R {day: 7}]->(c:N) \
+             WHERE a.id = 0 AND all(r IN relationships(p) WHERE 5 = r.day AND r.kind = $k AND r.w > 1) \
+             RETURN count(*)",
+        );
+        assert_eq!(maps[0].get("day"), Some(&PropertyValue::Integer(5)));
+        assert_eq!(
+            maps[0].get("kind"),
+            Some(&PropertyValue::Parameter("k".into()))
+        );
+        assert!(!maps[0].contains_key("w"), "only equalities are lowered");
+        // An existing map entry stays; the WHERE still rejects the contradiction.
+        assert_eq!(maps[1].get("day"), Some(&PropertyValue::Integer(7)));
+        assert_eq!(
+            maps[1].get("kind"),
+            Some(&PropertyValue::Parameter("k".into()))
+        );
+    }
+
+    #[test]
+    fn other_path_predicates_leave_the_relationship_maps_alone() {
+        for predicate in [
+            "any(r IN relationships(p) WHERE r.day = 5)",
+            "all(r IN relationships(p) WHERE r.day = 5) OR a.id = 1",
+            "NOT all(r IN relationships(p) WHERE r.day = 5)",
+            "all(r IN relationships(p) WHERE r.day = 5 OR r.day = 6)",
+        ] {
+            let maps = path_relationship_properties(&format!(
+                "MATCH p = (a:N)-[:R*1..3]->(b:N) WHERE {predicate} RETURN count(*)"
+            ));
+            assert!(maps[0].is_empty(), "{predicate}");
+        }
     }
 
     #[test]
