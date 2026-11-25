@@ -461,7 +461,7 @@ This also applies inside `CALL` and `UNION`, and when equal-label endpoints pass
 | --- | --- |
 | Arithmetic | `+ - * / %` |
 | Comparison | `= <> != < <= > >=`, and chains such as `18 <= p.age < 65` |
-| Boolean | `AND OR NOT` |
+| Boolean | `AND OR NOT`; a boolean value is a condition on its own, as in `WHERE n.active` |
 | Strings | `STARTS WITH`, `ENDS WITH`, `CONTAINS`, and `LIKE` / `ILIKE` with SQL wildcards |
 | Lists | `IN`, literals `[1, 2]`, indexing `list[0]`, list comprehensions <code>[x IN list WHERE ... &#124; ...]</code> |
 | Maps | Literals `{k: v}` and key access `m.k` |
