@@ -78,7 +78,7 @@ pub struct GraphExport {
 
 impl From<lance_csr::GraphExport> for GraphExport {
     fn from(g: lance_csr::GraphExport) -> Self {
-        GraphExport {
+        Self {
             num_nodes: g.num_nodes as i64,
             directed: g.directed,
             node_keys: into_vec(g.node_keys).into(),
@@ -344,14 +344,13 @@ impl CypherEngine {
             .transpose()
             .map_err(graph_error)?
             .unwrap_or_default();
-        let weights = (weight.is_some() || default_weight.is_some()).then(|| {
-            lance_csr::EdgeWeights {
+        let weights =
+            (weight.is_some() || default_weight.is_some()).then(|| lance_csr::EdgeWeights {
                 column: weight,
                 default: default_weight,
                 combine,
                 ..Default::default()
-            }
-        });
+            });
         let params = params(params_json)?;
         let inner = self.inner.clone();
         let g = blocking(async move {
