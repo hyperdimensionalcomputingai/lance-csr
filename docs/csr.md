@@ -156,8 +156,8 @@ CSR is built at all: with `use_csr=False` every hop is a join.
 Named path values and `relationships(path)` need each relationship's identity and properties, which a CSR
 neighbor list doesn't hold on its own. When every relationship type and direction a named path follows has a
 CSR, the path walks it from its start node, as an explicit hop does. Each step reads the neighbors of only the
-nodes the walk reaches and checks the step's relationship equalities, from an inline `{since: 2020}` or a
-`WHERE all(r IN relationships(p) WHERE r.since = 2020)`, on just those edges. Properties are read only for the
+nodes the walk reaches and checks the step's relationship conditions, from an inline `{since: 2020}` or a
+`WHERE all(r IN relationships(p) WHERE r.since >= 2020)`, on just those edges. Properties are read only for the
 relationships of the paths returned. An edge's identity is its row in the relationship table, so parallel edges
 stay distinct, even when a path passes through `collect()` and `UNWIND`. The cost therefore follows the part of
 the graph the walk reaches rather than the size of the relationship table.

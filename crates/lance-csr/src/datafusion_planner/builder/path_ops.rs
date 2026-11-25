@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The lance-csr Authors
 
-use crate::ast::PathPattern;
 use crate::ast::RelationshipDirection;
+use crate::ast::{BooleanExpression, PathPattern};
 use crate::case_insensitive::qualify_column;
 use crate::csr_expand::{AdjacencyCatalog, Neighbors};
 use crate::datafusion_planner::{analysis::PlanningContext, DataFusionPlanner};
@@ -20,6 +20,7 @@ impl DataFusionPlanner {
         input: &LogicalOperator,
         path: &PathPattern,
         node_values: bool,
+        relationship_condition: Option<&BooleanExpression>,
     ) -> Result<LogicalPlan> {
         let error = |message: String| GraphError::UnsupportedFeature {
             feature: message,
@@ -239,6 +240,7 @@ impl DataFusionPlanner {
                         .iter()
                         .map(|segment| &segment.relationship.properties),
                 ),
+            relationship_condition.map(crate::datafusion_planner::expression::to_df_boolean_expr),
         )
         .map_err(|e| self.plan_error("Failed to plan path value", e))?;
         Ok(LogicalPlan::Extension(Extension {

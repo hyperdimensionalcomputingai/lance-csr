@@ -286,7 +286,7 @@ and direction the steps follow. The plan scans only the participating node table
 labels and properties. The walk enumerates trails depth first from each start node, resuming between output batches.
 A frame reads its node's neighbors and their edge rows from the CSR the first time the walk needs them. An undirected
 step reads the outgoing and incoming CSR separately, so each edge keeps its stored direction. The step's relationship
-equalities are compiled against each relationship table and checked by `EdgeFilterState`, the same rule
+conditions are compiled against each relationship table and checked by `EdgeFilterState`, the same rule
 `CsrExpandExec` uses: fetch the filter columns of just the edges reached and, on a Lance table, switch to one read of
 the whole column once the edges checked pass 1/256 of the relationship's edges. Both halves of an undirected step
 share one state, so they count their checks together and read the column once. An edge's identity is its CSR row,
@@ -321,8 +321,12 @@ the path, such as `length(p)`, `nodes(p)` or `WITH p AS q`, keeps the value.
 Path property values are logical expressions, so cached plans bind them before physical planning.
 The physical operator then builds node predicates against the inventory's node schema, and relationship
 predicates against the inventory's relationship schema or, on the CSR walk, each relationship table.
-The planner adds the equalities of a `WHERE all(r IN relationships(p) WHERE ...)` term to every
-relationship's property map, so the walk skips failing edges; the `WHERE` itself still runs.
+The planner turns the conjuncts `all(r IN relationships(p) WHERE x)` and `none(... WHERE x)` of the `WHERE`
+into one condition every relationship must meet, with `r.key` read as the column `key`. Only conditions on `r`'s
+properties, parameters and literals qualify. `PathMatch` ANDs it into each step's relationship predicate, so the
+walk skips failing edges; the `WHERE` itself still runs. A property a table lacks reads as null, and a condition
+that reads no column of a table is evaluated once for all its edges. Only the condition's parameters are logical
+expressions of the node, since DataFusion can't type its columns against the node's inputs.
 Each execution starts with fresh table scans that can share source batches within that execution.
 
 ## `Apply`: correlated CALL subqueries

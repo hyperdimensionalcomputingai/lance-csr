@@ -55,6 +55,11 @@ QUERIES = [
     f"MATCH p = (a:P)-[:R|S*1..3]->(b:P) "
     f"WHERE all(e IN relationships(p) WHERE e.day = 0) {PATH}",
     f"MATCH p = (a:P)-[:R|S*1..2 {{w: 3.0}}]-(b:P) {PATH}",
+    # S has no `w`, so its edges fail the first and pass the second.
+    f"MATCH p = (a:P)-[:R|S*1..3]-(b:P) "
+    f"WHERE all(e IN relationships(p) WHERE e.w < 20 AND e.day IN [0, 2]) {PATH}",
+    f"MATCH p = (a:P)-[:R|S*1..2]->(b:P) "
+    f"WHERE none(e IN relationships(p) WHERE e.w > 5 OR e.day = 1) {PATH}",
     f"MATCH p = (a:P)-[:R {{day: 2}}]->(b:P)-[:R {{day: 2}}]->(c:P) {PATH}",
     f"MATCH p = (c:C)<-[:L]-(a:P)-[:R*1..2]-(b:P) {PATH}",
     f"MATCH p = (a:P)-[:R*2..2]->(a) {PATH}",
@@ -180,3 +185,29 @@ def test_path_values_are_built_only_when_read(use_csr):
     assert rows(engine, f"{path} RETURN b.id AS b") == sorted(
         repr([("b", row["b"])]) for row in engine.execute(ids).to_pylist()
     )
+
+
+@pytest.mark.parametrize("use_csr", [False, True])
+@pytest.mark.parametrize(
+    "condition",
+    [
+        "e.day >= 1",
+        "e.day <> 1 AND e.w < 15",
+        "e.w > $w OR e.day IN [0]",
+        "e.w IS NULL",
+        "NOT e.day = 2",
+    ],
+)
+def test_relationship_conditions_prune_only_failing_paths(use_csr, condition):
+    # Under OR, all() and none() are checked only after the walk.
+    engine = CypherEngine(CONFIG, DATA, use_csr=use_csr)
+    match = "MATCH p = (a:P)-[:R|S*1..3]-(b:P) "
+    for w in [5.0, 10.0]:  # a second binding reuses the cached plan
+        for kind in ["all", "none"]:
+            pruned = f"{kind}(e IN relationships(p) WHERE {condition})"
+            got = engine.execute(f"{match} WHERE {pruned} {PATH}", {"w": w})
+            kept = f"{match} WHERE {pruned} OR a.id IS NULL {PATH}"
+            want = engine.execute(kept, {"w": w})
+            assert sorted(map(repr, got.to_pylist())) == sorted(
+                map(repr, want.to_pylist())
+            ), (pruned, w)
