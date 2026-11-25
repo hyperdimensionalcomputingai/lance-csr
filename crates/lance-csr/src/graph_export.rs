@@ -15,8 +15,9 @@
 //!   null in a weighted export, is dropped and counted;
 //! - rows: each edge is packed as `row * n + column` into a `u64`, sorted in parallel
 //!   and deduplicated, which sorts every neighbour list too; `indptr` is then a count
-//!   per row. Directed graphs also get the in-edge CSR (PageRank reads in-edges);
-//!   undirected graphs get one CSR holding both directions, a self-loop once.
+//!   per row. Directed graphs also get the in-edge CSR (PageRank reads in-edges), built
+//!   by transposing the finished out-edge CSR rather than sorting a second copy of the
+//!   edges; undirected graphs get one CSR holding both directions, a self-loop once.
 //! - weights, only when asked for: each packed key is paired with its weight (16 bytes
 //!   per edge instead of 8 while sorting), and duplicate edges are combined into one
 //!   weight by a [`CombineEdges`] rule. Unweighted exports never allocate the pairs.
@@ -296,13 +297,11 @@ pub(crate) async fn export_graph(
     // Exactly one of the key and the (key, weight) vectors is used.
     let weighted = weight.is_some();
     let (keys_cap, pairs_cap) = if weighted { (0, rows) } else { (rows, 0) };
+    // Out-edges only: directed in-edges come from transposing the out CSR, and undirected
+    // reverse edges go into the same vector.
     let mut out: Vec<u64> = Vec::with_capacity(if directed { keys_cap } else { 2 * keys_cap });
-    let mut inc: Vec<u64> = Vec::with_capacity(keys_cap);
     let mut out_w: Vec<(u64, f64)> =
         Vec::with_capacity(if directed { pairs_cap } else { 2 * pairs_cap });
-    // Undirected weighted edges go straight into `out_w`: appending a second vector
-    // would hold both at once.
-    let mut inc_w: Vec<(u64, f64)> = Vec::with_capacity(if directed { pairs_cap } else { 0 });
     let mut dropped = 0u64;
     for rel in &rels {
         let (src_map, dst_map) = (&maps[rel.src_label], &maps[rel.dst_label]);
@@ -332,19 +331,17 @@ pub(crate) async fn export_graph(
                 .collect();
             for pair in pairs {
                 match (pair, &w) {
+                    // A self-loop's reverse is itself; adding it would count its weight twice.
                     (Some((a, b, _)), None) => {
                         out.push(a * n + b);
-                        // Undirected: the reverse goes into the same CSR.
-                        inc.push(b * n + a);
+                        if !directed && a != b {
+                            out.push(b * n + a);
+                        }
                     }
                     (Some((a, b, i)), Some(w)) => {
                         let w = w.value(i);
                         out_w.push((a * n + b, w));
-                        if directed {
-                            inc_w.push((b * n + a, w));
-                        } else if a != b {
-                            // A self-loop's reverse is itself; adding it would count its
-                            // weight twice.
+                        if !directed && a != b {
                             out_w.push((b * n + a, w));
                         }
                     }
@@ -354,31 +351,24 @@ pub(crate) async fn export_graph(
         }
     }
 
-    let ((out_indptr, out_indices, out_weights), inbound) = if weighted {
-        drop((out, inc));
-        let inc_w = directed.then_some(inc_w);
-        let weighted = |pairs| {
-            let (p, i, w) = weighted_csr(n, pairs, combine);
-            (p, i, Some(w))
-        };
-        (weighted(out_w), inc_w.map(weighted))
+    let (out_indptr, out_indices, out_weights) = if weighted {
+        drop(out);
+        let (p, i, w) = weighted_csr(n, out_w, combine);
+        (p, i, Some(w))
     } else {
-        drop((out_w, inc_w));
-        let inc = if directed {
-            Some(inc)
-        } else {
-            out.append(&mut inc);
-            None
-        };
-        let unweighted = |keys| {
-            let (p, i) = csr(n, keys);
-            (p, i, None)
-        };
-        (unweighted(out), inc.map(unweighted))
+        drop(out_w);
+        let (p, i) = csr(n, out);
+        (p, i, None)
     };
-    let (in_indptr, in_indices, in_weights) = match inbound {
-        Some((p, i, w)) => (Some(p), Some(i), w),
-        None => (None, None, None),
+    let (in_indptr, in_indices, in_weights) = if directed {
+        let (p, i, w) = transpose(
+            out_indptr.values(),
+            out_indices.values(),
+            out_weights.as_ref().map(|w| w.values().as_ref()),
+        );
+        (Some(p), Some(i), w)
+    } else {
+        (None, None, None)
     };
     Ok(GraphExport {
         num_nodes: n,
@@ -395,17 +385,23 @@ pub(crate) async fn export_graph(
     })
 }
 
-/// Sort and deduplicate packed `row * n + column` keys into `(indptr, indices)`.
-fn csr(n: u64, mut packed: Vec<u64>) -> (UInt64Array, UInt64Array) {
-    packed.par_sort_unstable();
-    packed.dedup();
+/// CSR offsets, `n + 1` entries, from each entry's row in order.
+fn offsets(n: u64, rows: impl Iterator<Item = u64>) -> Vec<u64> {
     let mut indptr = vec![0u64; n as usize + 1];
-    for &key in &packed {
-        indptr[(key / n) as usize + 1] += 1;
+    for row in rows {
+        indptr[row as usize + 1] += 1;
     }
     for i in 1..indptr.len() {
         indptr[i] += indptr[i - 1];
     }
+    indptr
+}
+
+/// Sort and deduplicate packed `row * n + column` keys into `(indptr, indices)`.
+fn csr(n: u64, mut packed: Vec<u64>) -> (UInt64Array, UInt64Array) {
+    packed.par_sort_unstable();
+    packed.dedup();
+    let indptr = offsets(n, packed.iter().map(|key| key / n));
     packed
         .par_iter_mut()
         .with_min_len(4096)
@@ -428,21 +424,51 @@ fn weighted_csr(
         }
         same
     });
-    let mut indptr = vec![0u64; n as usize + 1];
-    for &(key, _) in &pairs {
-        indptr[(key / n) as usize + 1] += 1;
-    }
-    for i in 1..indptr.len() {
-        indptr[i] += indptr[i - 1];
-    }
+    let indptr = offsets(n, pairs.iter().map(|(key, _)| key / n));
     let weights: Vec<f64> = pairs.par_iter().map(|p| p.1).collect();
-    // Collected in place into the pairs' allocation, then shrunk to the final size.
+    // Collected in place into the pairs' allocation, then shrunk to the final size (measured
+    // in place on macOS: a fresh vector instead raised the peak by 8 bytes per entry).
     let mut indices: Vec<u64> = pairs.into_iter().map(|p| p.0 % n).collect();
     indices.shrink_to_fit();
     (
         UInt64Array::from(indptr),
         UInt64Array::from(indices),
         Float64Array::from(weights),
+    )
+}
+
+/// The in-edge CSR of a directed graph from its out-edge CSR, by counting and scattering.
+///
+/// Sources are visited in order, so every in-edge row comes out sorted, and the out CSR has
+/// no duplicates, so neither does the result. Each weight is the out-edge's combined weight.
+fn transpose(
+    out_indptr: &[u64],
+    out_indices: &[u64],
+    out_weights: Option<&[f64]>,
+) -> (UInt64Array, UInt64Array, Option<Float64Array>) {
+    let n = out_indptr.len() - 1;
+    // `indptr[t]` is the next free slot of row `t` while scattering; afterwards it holds
+    // the end of row `t`, which the shift below turns back into the start of row `t + 1`.
+    let mut indptr = offsets(n as u64, out_indices.iter().copied());
+    let mut indices = vec![0u64; out_indices.len()];
+    let mut weights = out_weights.map(|_| vec![0f64; out_indices.len()]);
+    for source in 0..n {
+        for edge in out_indptr[source] as usize..out_indptr[source + 1] as usize {
+            let target = out_indices[edge] as usize;
+            let slot = indptr[target] as usize;
+            indptr[target] += 1;
+            indices[slot] = source as u64;
+            if let (Some(weights), Some(out)) = (weights.as_mut(), out_weights) {
+                weights[slot] = out[edge];
+            }
+        }
+    }
+    indptr.copy_within(0..n, 1);
+    indptr[0] = 0;
+    (
+        UInt64Array::from(indptr),
+        UInt64Array::from(indices),
+        weights.map(Float64Array::from),
     )
 }
 
@@ -880,6 +906,38 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(err, GraphError::ConfigError { .. }), "{err}");
+    }
+
+    #[test]
+    fn transpose_matches_sorting_the_reversed_edges() {
+        // Random edges with duplicates and self-loops; weights tie each edge to its pair.
+        let n = 50u64;
+        let mut state = 7u64;
+        let mut next = || {
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (state >> 33) % n
+        };
+        let edges: Vec<(u64, u64)> = (0..400).map(|_| (next(), next())).collect();
+        let weight = |a: u64, b: u64| (a * 1000 + b) as f64;
+        let pairs = edges
+            .iter()
+            .map(|&(a, b)| (a * n + b, weight(a, b)))
+            .collect();
+        let (p, i, w) = weighted_csr(n, pairs, CombineEdges::Max);
+        let (tp, ti, tw) = transpose(p.values(), i.values(), Some(w.values()));
+        let (rp, ri) = csr(n, edges.iter().map(|&(a, b)| b * n + a).collect());
+        assert_eq!((&tp, &ti), (&rp, &ri));
+        // In-row `t` lists sources `s` of edges s -> t.
+        let tw = tw.unwrap();
+        for t in 0..n as usize {
+            for e in tp.value(t) as usize..tp.value(t + 1) as usize {
+                assert_eq!(tw.value(e), weight(ti.value(e), t as u64));
+            }
+        }
+        let (_, _, none) = transpose(p.values(), i.values(), None);
+        assert!(none.is_none());
     }
 
     #[tokio::test]
