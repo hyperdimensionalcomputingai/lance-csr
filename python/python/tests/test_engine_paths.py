@@ -192,3 +192,35 @@ def test_variable_length_property_map_filters_every_hop(use_csr, pattern, expect
     engine = CypherEngine(config, {"N": nodes, "R": rels}, use_csr=use_csr)
     result = engine.execute(f"MATCH {pattern} RETURN b.id AS b ORDER BY b")
     assert result.to_pydict() == {"b": expected}
+
+
+@pytest.mark.parametrize("use_csr", [False, True])
+@pytest.mark.parametrize(
+    ("predicate", "expected"),
+    [
+        # 2->3 has day 6, so the walk from 1 stops at 2.
+        ("all(r IN relationships(p) WHERE r.day = 5)", [2]),
+        ("all(r IN relationships(p) WHERE r.day = $day AND r.ok)", [2]),
+        ("all(r IN relationships(p) WHERE r.day = 6)", []),
+        # Not an equality, so it is checked after the walk.
+        ("all(r IN relationships(p) WHERE r.day >= 5)", [2, 3, 4]),
+        ("any(r IN relationships(p) WHERE r.day = 6)", [3, 4]),
+    ],
+)
+def test_all_relationships_predicate_filters_every_hop(use_csr, predicate, expected):
+    config = (
+        GraphConfig.builder()
+        .node_table("N", "id")
+        .rel_table("R", "N", "N", "src", "dst")
+        .build()
+    )
+    nodes = pa.table({"id": [1, 2, 3, 4]})
+    rels = pa.table(
+        {"src": [1, 2, 3], "dst": [2, 3, 4], "day": [5, 6, 5], "ok": [True] * 3}
+    )
+    engine = CypherEngine(config, {"N": nodes, "R": rels}, use_csr=use_csr)
+    query = (
+        f"MATCH p = (a:N {{id: 1}})-[:R*1..3]->(b:N) WHERE {predicate} "
+        "RETURN b.id AS b ORDER BY b"
+    )
+    assert engine.execute(query, {"day": 5}).to_pydict() == {"b": expected}
