@@ -46,7 +46,13 @@ impl NodeLookupNode {
         columns.sort_unstable();
         let fields = columns
             .iter()
-            .map(|(c, name)| Field::new(name, rows.schema.field(*c).data_type().clone(), true))
+            .map(|(c, name)| {
+                rows.schema
+                    .field(*c)
+                    .clone()
+                    .with_name(name)
+                    .with_nullable(true)
+            })
             .collect();
         Self::with_fields(
             input,

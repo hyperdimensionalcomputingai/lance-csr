@@ -15,7 +15,7 @@ use crate::logical_plan::LogicalPlanner;
 use crate::parser::parse_cypher_query;
 use crate::spark_dialect::build_spark_dialect;
 use arrow_array::RecordBatch;
-use arrow_schema::{Field, Schema, SchemaRef};
+use arrow_schema::{Schema, SchemaRef};
 use datafusion_sql::unparser::dialect::{
     CustomDialect, DefaultDialect, MySqlDialect, PostgreSqlDialect, SqliteDialect,
 };
@@ -82,13 +82,7 @@ pub(crate) fn normalize_schema(schema: SchemaRef) -> Result<SchemaRef> {
     let fields: Vec<_> = schema
         .fields()
         .iter()
-        .map(|f| {
-            Arc::new(Field::new(
-                f.name().to_lowercase(),
-                f.data_type().clone(),
-                f.is_nullable(),
-            ))
-        })
+        .map(|f| Arc::new(f.as_ref().clone().with_name(f.name().to_lowercase())))
         .collect();
     Ok(Arc::new(Schema::new(fields)))
 }

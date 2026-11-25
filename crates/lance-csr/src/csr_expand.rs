@@ -1535,11 +1535,7 @@ impl EdgeLookup {
             .iter()
             .map(|&c| {
                 let f = rows.schema.field(c);
-                Field::new(
-                    qualify_column(variable, f.name()),
-                    f.data_type().clone(),
-                    f.is_nullable(),
-                )
+                f.clone().with_name(qualify_column(variable, f.name()))
             })
             .collect();
         Some(Self {
