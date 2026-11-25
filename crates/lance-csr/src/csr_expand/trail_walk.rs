@@ -269,6 +269,7 @@ pub(crate) struct TrailCursor {
     stack: Vec<Frame>,
     /// Start id and completed segment ends on the current branch.
     boundaries: Vec<i64>,
+    work_since_yield: usize,
 }
 
 impl TrailCursor {
@@ -276,7 +277,16 @@ impl TrailCursor {
         Self {
             stack: vec![Frame::new(0, 0, walk.start, key, None)],
             boundaries: vec![key],
+            work_since_yield: 0,
         }
+    }
+
+    /// A new source row can reuse the previous row's frame and boundary buffers.
+    pub(crate) fn restart(&mut self, walk: &TrailWalk, key: i64) {
+        self.stack.clear();
+        self.stack.push(Frame::new(0, 0, walk.start, key, None));
+        self.boundaries.clear();
+        self.boundaries.push(key);
     }
 
     /// Frames on the stack: one per hop of the current branch, plus one per boundary.
@@ -303,15 +313,20 @@ impl TrailCursor {
         ends: &mut Vec<i64>,
     ) -> bool {
         ends.clear();
-        let mut work = 0_usize;
+        // A single segment has no intermediate boundaries. Its ends at different
+        // depths can share a batch, including on a shallow graph with a large bound.
+        let single = walk.segments.len() == 1;
         loop {
-            if work >= 1024 {
+            if self.work_since_yield >= 1024 {
+                if !ends.is_empty() {
+                    return true;
+                }
                 cooperative_yield().await;
-                work = 0;
+                self.work_since_yield = 0;
             }
-            work += 1;
+            self.work_since_yield += 1;
             let Some(top) = self.stack.len().checked_sub(1) else {
-                return false;
+                return !ends.is_empty();
             };
             let (s, depth, label, key, emit) = {
                 let frame = &mut self.stack[top];
@@ -326,11 +341,14 @@ impl TrailCursor {
             {
                 if s + 1 == walk.segments.len() {
                     ends.push(key);
-                    return true;
+                    if !single || ends.len() == limit {
+                        return true;
+                    }
+                } else {
+                    self.boundaries.push(key);
+                    self.stack.push(Frame::new(s + 1, 0, label, key, None));
+                    continue;
                 }
-                self.boundaries.push(key);
-                self.stack.push(Frame::new(s + 1, 0, label, key, None));
-                continue;
             }
             if depth == segment.max || self.stack[top].step == segment.steps.len() {
                 if depth == 0 {
@@ -344,7 +362,7 @@ impl TrailCursor {
             let (frame, ancestors) = self.stack.split_last_mut().expect("nonempty stack");
             let step = &segment.steps[frame.step];
             if final_hop {
-                let chunk = limit.min(256);
+                let chunk = (limit - ends.len()).min(256);
                 let mut visited = 0;
                 if step.from == label && step.to == segment.end {
                     for candidate in step
@@ -371,8 +389,8 @@ impl TrailCursor {
                     frame.step += 1;
                     frame.position = NeighborPosition::default();
                 }
-                work += visited;
-                if !ends.is_empty() {
+                self.work_since_yield += visited;
+                if ends.len() == limit || (!single && !ends.is_empty()) {
                     return true;
                 }
                 continue;

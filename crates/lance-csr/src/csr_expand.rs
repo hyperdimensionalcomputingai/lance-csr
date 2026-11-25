@@ -2402,7 +2402,8 @@ struct BatchExpansion {
     bound: Option<Int64Array>,
     row: usize,
     position: NeighborPosition,
-    walk: Option<TrailCursor>,
+    /// Current source row and its reusable trail cursor.
+    walk: Option<(usize, TrailCursor)>,
     /// Record each output row's edge row, for a relationship-column fetch.
     edge_rows: bool,
     /// Passing edge rows of the relationship filter, once built: others are skipped.
@@ -2599,15 +2600,14 @@ impl BatchExpansion {
             if self.keys.is_valid(i) && self.bound.as_ref().is_none_or(|b| b.is_valid(i)) {
                 let key = self.keys.value(i);
                 let required = self.bound.as_ref().map(|b| b.value(i));
-                let cursor = self.walk.get_or_insert_with(|| TrailCursor::new(walk, key));
-                let mut candidates = 0_usize;
+                let (source, cursor) = self
+                    .walk
+                    .get_or_insert_with(|| (i, TrailCursor::new(walk, key)));
+                if *source != i {
+                    cursor.restart(walk, key);
+                    *source = i;
+                }
                 loop {
-                    // Yield between groups, before the cursor advances, so a dropped
-                    // future loses no end, even when every end fails the checks below.
-                    if candidates >= 1024 {
-                        cooperative_yield().await;
-                        candidates = 0;
-                    }
                     // A group never exceeds the room left, so no end has to be carried over.
                     if !cursor
                         .next_group(walk, &[], limit - chunk.rows.len(), &mut ends)
@@ -2615,7 +2615,6 @@ impl BatchExpansion {
                     {
                         break;
                     }
-                    candidates += ends.len();
                     for &neighbor in &ends {
                         if required.is_some_and(|r| r != neighbor) {
                             continue;
@@ -2636,7 +2635,6 @@ impl BatchExpansion {
                 }
             }
             self.row += 1;
-            self.walk = None;
         }
         chunk
     }

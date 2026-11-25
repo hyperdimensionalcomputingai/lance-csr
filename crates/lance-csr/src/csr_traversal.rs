@@ -218,6 +218,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn batches_intermediate_ends_and_resumes_at_the_next_depth() {
+        let (config, catalog) = graph().await;
+        let graph = Traversal::new(
+            &config,
+            &catalog,
+            &["isSubclass".into()],
+            &RelationshipDirection::Outgoing,
+            "Class",
+            "Class",
+            0,
+            20,
+        )
+        .unwrap();
+        let walk = graph.walk();
+        let mut cursor = TrailCursor::new(walk, 1);
+        let mut ends = Vec::new();
+        assert!(cursor.next_group(walk, &[], 2, &mut ends).await);
+        assert_eq!(ends, [1, 2]);
+        assert!(cursor.next_group(walk, &[], 2, &mut ends).await);
+        assert_eq!(ends, [3, 1]);
+        assert!(!cursor.next_group(walk, &[], 2, &mut ends).await);
+        cursor.restart(walk, 2);
+        assert!(cursor.next_group(walk, &[], 2, &mut ends).await);
+        assert_eq!(ends, [2, 3]);
+        assert!(cursor.next_group(walk, &[], 2, &mut ends).await);
+        assert_eq!(ends, [1, 2]);
+        assert!(!cursor.next_group(walk, &[], 2, &mut ends).await);
+    }
+
+    #[tokio::test]
     async fn zero_hop_is_identity_and_a_cycle_can_only_be_traversed_once() {
         let (config, catalog) = graph().await;
         let subclass = |max_hops| {
