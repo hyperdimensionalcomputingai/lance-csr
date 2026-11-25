@@ -728,3 +728,63 @@ async fn parameterized_key_map_with_declared_property_projection() {
         ["Alice"]
     );
 }
+
+/// Returned properties keep their source field's metadata (here an Arrow extension
+/// name) across hops, on the CSR and on the join plan.
+#[tokio::test]
+async fn returned_properties_keep_field_metadata() {
+    let tag = |batch: RecordBatch, column: &str, name: &str| {
+        let schema = batch.schema();
+        let fields = schema.fields().iter().map(|f| {
+            let f = f.as_ref().clone();
+            if f.name() == column {
+                f.with_metadata(HashMap::from([(
+                    "ARROW:extension:name".into(),
+                    name.into(),
+                )]))
+            } else {
+                f
+            }
+        });
+        batch
+            .with_schema(Arc::new(Schema::new(fields.collect::<Vec<_>>())))
+            .unwrap()
+    };
+    let people = tag(people(), "name", "test.name");
+    let knows = tag(knows(&[(1, 2), (2, 3)]), "dst_id", "test.dst");
+    let queries = [
+        ("MATCH (p:Person) RETURN p.name AS name", "test.name"),
+        (
+            "MATCH (:Person)-[:KNOWS]->(b:Person) RETURN b.name AS name",
+            "test.name",
+        ),
+        (
+            "MATCH (:Person)-[:KNOWS]->(b:Person) RETURN b.name",
+            "test.name",
+        ),
+        (
+            "MATCH (:Person)-[:KNOWS*1..2]->(b:Person) RETURN b.name AS name",
+            "test.name",
+        ),
+        (
+            "MATCH (:Person)-[k:KNOWS]->(:Person) RETURN k.dst_id AS dst",
+            "test.dst",
+        ),
+    ];
+    for use_csr in [false, true] {
+        let sources = HashMap::from([
+            ("Person".to_string(), EngineSource::Arrow(people.clone())),
+            ("KNOWS".to_string(), EngineSource::Arrow(knows.clone())),
+        ]);
+        let engine = CypherEngine::new(config(), sources, use_csr).await.unwrap();
+        for (query, expected) in queries {
+            let batch = engine.execute(query, HashMap::new()).await.unwrap();
+            let metadata = batch.schema().field(0).metadata().clone();
+            assert_eq!(
+                metadata.get("ARROW:extension:name").map(String::as_str),
+                Some(expected),
+                "use_csr={use_csr}: {query}"
+            );
+        }
+    }
+}
