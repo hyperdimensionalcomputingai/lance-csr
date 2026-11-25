@@ -56,21 +56,7 @@ pub(crate) fn reorder_patterns(
 
     let mut scores: HashMap<&str, Selectivity> = HashMap::new();
     for node in &graph.nodes {
-        let id_field = node
-            .labels
-            .first()
-            .and_then(|label| config.get_node_mapping(label))
-            .map(|m| m.id_field.as_str());
-        let inline = node.properties.keys().map(|property| match id_field {
-            Some(id) if id.eq_ignore_ascii_case(property) => Selectivity::IdEquality,
-            _ => Selectivity::Equality,
-        });
-        let filtered = filter
-            .into_iter()
-            .flat_map(conjuncts)
-            .filter_map(|conjunct| score_conjunct(conjunct, name(node), id_field));
-        let best = inline.chain(filtered).max().unwrap_or(Selectivity::None);
-        scores.insert(name(node), best);
+        scores.insert(name(node), node_selectivity(node, filter, config));
     }
 
     // Ties keep the earliest node in the text, so equal scores never reorder.
@@ -90,6 +76,37 @@ pub(crate) fn reorder_patterns(
         return None;
     }
     Some(graph.traverse_from(start))
+}
+
+fn node_selectivity(
+    node: &NodePattern,
+    filter: Option<&BooleanExpression>,
+    config: &GraphConfig,
+) -> Selectivity {
+    let id = node
+        .labels
+        .first()
+        .and_then(|label| config.get_node_mapping(label))
+        .map(|m| m.id_field.as_str());
+    let inline = node.properties.keys().map(|key| match id {
+        Some(id) if id.eq_ignore_ascii_case(key) => Selectivity::IdEquality,
+        _ => Selectivity::Equality,
+    });
+    let filtered = filter
+        .into_iter()
+        .flat_map(conjuncts)
+        .filter_map(|expr| score_conjunct(expr, node.variable.as_deref()?, id));
+    inline.chain(filtered).max().unwrap_or(Selectivity::None)
+}
+
+/// Compare the two ends of an undivided trail using the same predicate scores as fixed hops.
+pub(crate) fn prefer_trail_end(
+    start: &NodePattern,
+    end: &NodePattern,
+    filter: Option<&BooleanExpression>,
+    config: &GraphConfig,
+) -> bool {
+    node_selectivity(end, filter, config) > node_selectivity(start, filter, config)
 }
 
 /// A graph node's variable; [`PatternGraph`] names every node, anonymous ones included.

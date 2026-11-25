@@ -621,3 +621,38 @@ def test_overlapping_trail_with_unrelated_endpoint_label(use_csr):
     engine = CypherEngine(cfg, tables, use_csr=use_csr)
     query = "MATCH (:Z)-[:R*1..1]->(:Y)<-[:R]-(q:X) RETURN q.id"
     assert rows(engine.execute(query)) == []
+
+
+@pytest.mark.parametrize("use_csr", [True, False])
+@pytest.mark.parametrize("types", ["R", "R|S"])
+def test_trail_followed_by_same_type_hop_uses_local_expansion(use_csr, types):
+    cfg = (
+        GraphConfig.builder()
+        .node_table("N", "id")
+        .rel_table("R", "N", "N", "src", "dst")
+        .rel_table("S", "N", "N", "src", "dst")
+        .build()
+    )
+    # The parallel edges are distinct. At the middle node the next hop must
+    # remember which one reached it, including when returning to node 1.
+    engine = CypherEngine(
+        cfg,
+        {
+            "S": pa.table({"src": [3], "dst": [1]}),
+            "N": pa.table({"id": [1, 2, 3, 4]}),
+            "R": pa.table({"src": [1, 1, 2, 3], "dst": [2, 2, 3, 4]}),
+        },
+        use_csr=use_csr,
+    )
+    query = f"MATCH (:N {{id:1}})-[:{types}*1..2]-(f:N)-[:R]-(g:N) RETURN f.id, g.id"
+    expected = [(2, 1), (2, 1), (2, 3), (2, 3), (3, 4), (3, 4)]
+    if types == "R|S":
+        # The S row can be followed by R even when both have the same row ordinal.
+        expected += [(3, 2), (3, 4), (2, 1), (2, 1)]
+    assert rows(engine.execute(query)) == sorted(expected)
+    assert "PathMatchExec" not in engine.explain(query)
+
+    reverse = f"MATCH (g:N)-[:R]-(f:N)-[:{types}*1..2]-(p:N {{id:1}}) RETURN f.id, g.id"
+    assert rows(engine.execute(reverse)) == sorted(expected)
+    if use_csr:
+        assert "TrailWalkExec: start=p__id" in engine.explain(reverse)

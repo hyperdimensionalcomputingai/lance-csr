@@ -292,12 +292,22 @@ an edge appearing twice. For an Arrow table the engine builds the ordinal column
 first use and shares it within that snapshot. A custom catalog without occurrence IDs
 can still join trails by numbering parallel rows within each pair of endpoints.
 
-For a mapped, integer-keyed path where a variable-length segment and another segment share
-a relationship type, the planner can use the inventory to track used edges across both segments.
-It checks the participating schemas for conflicting property types and requires unique non-null
-node IDs per label. An existing node index establishes uniqueness. Without an index, a qualifying
-query checks only the relevant ID columns and shares each check for the pinned catalog snapshot.
-Unverified custom sources and incompatible inputs keep the ordinary expansion plan.
+For an unnamed path such as `(p)-[:KNOWS*1..2]-(f)-[:KNOWS]-(g)`, the final hop
+must know which edge occurrences the first segment used. With compatible CSR and node
+indexes, the planner can start at a bound or more selective endpoint even when it is
+written last. `TrailWalkExec` starts at each input row and carries the relationship type and
+stored edge row through every segment. It emits the node IDs at segment boundaries,
+so the query can return both `f` and `g`. Node properties can be fetched by ID when used.
+Without the indexes, the planner can join one branch per combination of hop lengths,
+checking each hop against earlier occurrences of its type. An edge used in reverse
+still has the same identity.
+
+These plans use mapped integer keys, compatible property types and unique non-null
+node IDs per participating label. An existing node index establishes uniqueness.
+Without an index, a qualifying query checks the relevant ID columns once per pinned
+snapshot. Incompatible inputs keep ordinary expansion. Patterns needing a relationship
+value, and join plans that would exceed the branch limit, retain the path inventory.
+
 An unnamed, bounded undirected segment with several types can use iterative `CsrExpandExec`
 when the required indexes are available. The fallback uses `PathMatchExec` to emit boundary
 columns without building Arrow path values. Both operators identify each edge by its type and

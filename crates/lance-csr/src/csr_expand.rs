@@ -64,9 +64,11 @@ use lance::dataset::{Dataset, ProjectionRequest};
 
 mod node_lookup;
 mod path_exists;
+mod trail_walk;
 use lance_table::format::Fragment;
 pub use node_lookup::NodeLookupNode;
 pub use path_exists::{Hop, PathExistsNode};
+pub(crate) use trail_walk::{Tie, TrailWalk, TrailWalkNode, WalkSegmentSpec};
 
 /// Yield after bounded CPU work without requiring a particular async runtime.
 pub(crate) async fn cooperative_yield() {
@@ -3181,6 +3183,9 @@ impl ExtensionPlanner for CsrExtensionPlanner {
         }
         if let Some(node) = node.as_any().downcast_ref::<PathExistsNode>() {
             return Ok(Some(path_exists::plan_path_exists(node, physical_inputs)));
+        }
+        if let Some(node) = node.as_any().downcast_ref::<TrailWalkNode>() {
+            return Ok(Some(trail_walk::plan_trail_walk(node, physical_inputs)));
         }
         if node.as_any().is::<HopDegreesNode>() {
             // Not lowered by `CountCsrDegrees`: run the aggregate it wraps.

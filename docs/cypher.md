@@ -393,6 +393,9 @@ RETURN length(p), nodes(p)
   Arrow types across node tables and, separately, across relationship tables. If these conditions
   do not hold, the ordinary joins enforce uniqueness within each variable-length segment.
   The same per-segment rule applies across comma-separated patterns.
+  For example, in `(p)-[:KNOWS*1..2]-(f)-[:KNOWS]-(g)` the last hop must use a
+  friendship that the path from `p` to `f` has not used. Two paths reaching the same
+  `f` can have different choices for that hop.
 - **`count(r)` on a relationship** counts the rows where `r` matched, so an unmatched `OPTIONAL MATCH`
   counts zero. `count(DISTINCT r)` compares all of `r`'s columns: parallel edges with identical properties
   count once.

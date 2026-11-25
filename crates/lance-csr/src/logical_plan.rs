@@ -322,26 +322,14 @@ impl<'a> LogicalPlanner<'a> {
         self
     }
 
-    /// Separate expand operators share node IDs but not the used edges. Only an overlapping
-    /// variable-length segment needs the inventory to keep edge identity across boundaries.
-    fn needs_shared_path_inventory(&self, path: &PathPattern) -> bool {
+    /// Separate expand operators share node IDs but not the used edges. A path whose
+    /// variable-length segment overlaps another segment's types is planned as one trail
+    /// (`PathMatch` without a path variable), which keeps edge identity across boundaries.
+    /// The builder walks it from each start row on the CSR or as a chain of joins, and uses
+    /// the edge inventory only for the residual shapes `build_overlapping_trail` lists.
+    fn can_plan_shared_trail(&self, path: &PathPattern) -> bool {
         let segments = &path.segments;
-        if path.variable.is_some() || path.shortest.is_some() || segments.len() < 2 {
-            return false;
-        }
-        let overlapping = segments.iter().enumerate().any(|(i, a)| {
-            a.relationship.length.is_some()
-                && segments.iter().enumerate().any(|(j, b)| {
-                    i != j
-                        && a.relationship.types.iter().any(|kind| {
-                            b.relationship
-                                .types
-                                .iter()
-                                .any(|t| t.eq_ignore_ascii_case(kind))
-                        })
-                })
-        });
-        if !overlapping {
+        if !path.needs_trail_across_segments() {
             return false;
         }
         let Some(catalog) = self.catalog else {
@@ -1029,7 +1017,30 @@ impl<'a> LogicalPlanner<'a> {
             return self.plan_match_branches(base, branches, filter);
         }
         if let [GraphPattern::Path(path)] = inferred.patterns.as_slice() {
-            if self.needs_shared_path_inventory(path) {
+            if self.can_plan_shared_trail(path) {
+                // Seed an unnamed trail from the bound or more selective end, in either spelling.
+                let last = &path.segments.last().expect("overlapping segments").end_node;
+                let bound = |n: &NodePattern| {
+                    n.variable
+                        .as_ref()
+                        .is_some_and(|v| self.variables.contains_key(v))
+                };
+                if !self.wildcard_relationships
+                    && path
+                        .segments
+                        .iter()
+                        .all(|s| s.relationship.variable.is_none())
+                    && !bound(&path.start_node)
+                    && (bound(last)
+                        || crate::pattern_order::prefer_trail_end(
+                            &path.start_node,
+                            last,
+                            filter,
+                            self.config,
+                        ))
+                {
+                    return self.plan_inventory_path(base, &Self::reversed_path(path));
+                }
                 return self.plan_inventory_path(base, path);
             }
         }
