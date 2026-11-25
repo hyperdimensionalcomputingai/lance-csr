@@ -212,6 +212,7 @@ method, so your editor shows the details on hover.
 | `engine.optimize_datasets(cleanup_older_than=timedelta(days=1))` | `await engine.optimizeDatasets({ cleanupOlderThanMs: 86_400_000 })` |
 | `engine.csr_stats()`, `node_index_stats()` (keys such as `delta_edges`, `build_ms`) | `engine.csrStats()`, `nodeIndexStats()` (keys such as `deltaEdges`, `buildMs`) |
 | `engine.export_graph(rel_types, directed=False, weight="w", combine_edges="min")`, a `GraphExport` of pyarrow arrays | `await engine.exportGraph(relTypes, { directed: false, weight: "w", combineEdges: "min" })`, a `GraphExport` of apache-arrow vectors |
+| `engine.export_graph(weight={"ROAD": "km"}, default_weight=1.0)` | `await engine.exportGraph(undefined, { weight: { ROAD: "km" }, defaultWeight: 1 })` |
 | `engine.dataset_versions()`, `engine.config()` | `engine.datasetVersions()`, `engine.config()` |
 | `engine.execute_with_vector_rerank(query, search)` | `await engine.executeWithVectorRerank(query, search)` |
 | `CypherQuery(text).with_config(config).with_parameter(key, value)` | `new CypherQuery(text).withConfig(config).withParameter(key, value)` |

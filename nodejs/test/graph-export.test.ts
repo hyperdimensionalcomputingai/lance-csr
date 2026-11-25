@@ -75,6 +75,37 @@ test("edge weights only when asked for", async () => {
   );
 });
 
+test("weight columns per type and a default weight", async () => {
+  const mixedConfig = GraphConfig.builder()
+    .nodeTable("Person", "id")
+    .relTable("KNOWS", "Person", "Person", "src", "dst")
+    .relTable("LIKES", "Person", "Person", "src", "dst")
+    .build();
+  const engine = await CypherEngine.create(mixedConfig, {
+    Person: tableFromArrays({ id: BigInt64Array.from([1n, 2n, 3n]) }),
+    KNOWS: tableFromArrays({
+      src: BigInt64Array.from([1n, 2n]),
+      dst: BigInt64Array.from([2n, 3n]),
+      w: Float64Array.from([5, 7]),
+    }),
+    LIKES: tableFromArrays({
+      src: BigInt64Array.from([1n, 3n]),
+      dst: BigInt64Array.from([2n, 1n]),
+      since: Float64Array.from([2020, 2021]),
+    }),
+  });
+  const g = await engine.exportGraph(undefined, { weight: { KNOWS: "w" }, defaultWeight: 2 });
+  assert.deepEqual(Array.from(g.outWeights!.toArray()), [7, 7, 2]);
+  const both = await engine.exportGraph(undefined, { weight: { KNOWS: "w", LIKES: "since" } });
+  assert.deepEqual(Array.from(both.outWeights!.toArray()), [2025, 7, 2021]);
+  for (const options of [{ weight: "w" }, { defaultWeight: 1 }]) {
+    await assert.rejects(
+      engine.exportGraph(undefined, options),
+      (err) => err instanceof LanceCsrError && err.code === "InvalidArgument",
+    );
+  }
+});
+
 test("unknown relationship type", async () => {
   const engine = await CypherEngine.create(config, datasets);
   await assert.rejects(

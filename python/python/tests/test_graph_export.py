@@ -94,6 +94,51 @@ def test_weights():
         CypherEngine(CONFIG, {"Person": NODES, "KNOWS": named}).export_graph(weight="w")
 
 
+def test_weights_per_type_and_default():
+    config = (
+        GraphConfig.builder()
+        .node_table("Person", "id")
+        .rel_table("KNOWS", "Person", "Person", "src", "dst")
+        .rel_table("LIKES", "Person", "Person", "src", "dst")
+        .build()
+    )
+    # KNOWS has a weight column; LIKES has only an unrelated `since`.
+    engine = CypherEngine(
+        config,
+        {
+            "Person": pa.table({"id": [1, 2, 3]}),
+            "KNOWS": pa.table({"src": [1, 2], "dst": [2, 3], "w": [5.0, 7.0]}),
+            "LIKES": pa.table({"src": [1, 3], "dst": [2, 1], "since": [2020, 2021]}),
+        },
+    )
+
+    def out_weights(**kwargs) -> list[float]:
+        g = engine.export_graph(**kwargs)
+        assert g.out_weights is not None
+        return g.out_weights.to_pylist()
+
+    # Out-edges: 1->2 (KNOWS 5 and LIKES), 2->3 (KNOWS 7), 3->1 (LIKES).
+    assert out_weights(weight="w", default_weight=1.0) == [6, 7, 1]
+    assert out_weights(weight={"KNOWS": "w", "likes": "since"}) == [2025, 7, 2021]
+    assert out_weights(weight={"KNOWS": "w"}, default_weight=2.0) == [7, 7, 2]
+    assert engine.export_graph(["LIKES"], weight={"LIKES": "since"}).num_nodes == 3
+
+    with pytest.raises(ValueError, match="'LIKES'"):
+        engine.export_graph(weight="w")
+    with pytest.raises(ValueError, match="'LIKES'"):
+        engine.export_graph(weight={"KNOWS": "w"})
+    with pytest.raises(ValueError, match="not found in 'LIKES'"):
+        engine.export_graph(weight={"LIKES": "w"}, default_weight=1.0)
+    with pytest.raises(ValueError, match="FOLLOWS"):
+        engine.export_graph(weight={"FOLLOWS": "w"}, default_weight=1.0)
+    with pytest.raises(ValueError, match="any exported"):
+        engine.export_graph(weight="cost", default_weight=1.0)
+    with pytest.raises(ValueError, match="default_weight needs weight"):
+        engine.export_graph(default_weight=1.0)
+    with pytest.raises(TypeError, match="weight"):
+        engine.export_graph(weight=3)  # pyright: ignore[reportArgumentType]
+
+
 def test_labels_with_colliding_keys():
     config = (
         GraphConfig.builder()

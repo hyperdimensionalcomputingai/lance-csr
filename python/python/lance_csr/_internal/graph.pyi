@@ -165,8 +165,9 @@ class CypherEngine:
         rel_types: list[str] | None = None,
         *,
         directed: bool = True,
-        weight: str | None = None,
+        weight: str | dict[str, str] | None = None,
         combine_edges: Literal["sum", "min", "max"] = "sum",
+        default_weight: float | None = None,
     ) -> GraphExport: ...
     def write_node_column(
         self,

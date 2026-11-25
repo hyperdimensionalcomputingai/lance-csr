@@ -21,6 +21,8 @@
 //! - weights, only when asked for: each packed key is paired with its weight (16 bytes
 //!   per edge instead of 8 while sorting), and duplicate edges are combined into one
 //!   weight by a [`CombineEdges`] rule. Unweighted exports never allocate the pairs.
+//!   [`EdgeWeights`] names a column per relationship type, or one shared column, and a
+//!   default weight for types without one.
 
 use std::collections::HashMap;
 
@@ -104,13 +106,44 @@ impl std::str::FromStr for CombineEdges {
     }
 }
 
+/// Which column holds each relationship type's edge weights, and how repeated edges combine.
+#[derive(Debug, Clone, Default)]
+pub struct EdgeWeights {
+    /// The weight column of every type not in `per_type`, case-insensitive. With `default`
+    /// set, a type without this column gets the default instead, as long as some type has it.
+    pub column: Option<String>,
+    /// Weight columns by relationship type, both case-insensitive; a named column must exist.
+    pub per_type: Vec<(String, String)>,
+    /// The weight of every edge of a type that has no weight column. `None` makes such a type
+    /// an error.
+    pub default: Option<f64>,
+    /// How an edge listed more than once combines its weights.
+    pub combine: CombineEdges,
+}
+
+impl EdgeWeights {
+    /// One column for every exported relationship type.
+    pub fn column(name: impl Into<String>) -> Self {
+        Self {
+            column: Some(name.into()),
+            ..Self::default()
+        }
+    }
+}
+
+/// Where a relationship type's weights come from.
+enum RelWeight {
+    Column(String),
+    Constant(f64),
+}
+
 /// One relationship type to export: its dataset and the labels at both ends.
 struct RelSource<'a> {
     name: String,
     source: &'a EngineSource,
     src: String,
     dst: String,
-    weight: Option<String>,
+    weight: Option<RelWeight>,
     src_label: usize,
     dst_label: usize,
 }
@@ -118,15 +151,13 @@ struct RelSource<'a> {
 /// Build the export from `sources` (the engine's pinned snapshot).
 ///
 /// `rel_types` `None` takes every relationship type whose dataset is registered and
-/// whose endpoints are integers. `weight` names a numeric column every exported
-/// relationship type must have; `combine` merges the weights of a repeated edge.
+/// whose endpoints are integers. `weights` says where each type's edge weights come from.
 pub(crate) async fn export_graph(
     config: &GraphConfig,
     sources: &HashMap<String, EngineSource>,
     rel_types: Option<&[String]>,
     directed: bool,
-    weight: Option<&str>,
-    combine: CombineEdges,
+    weights: Option<&EdgeWeights>,
 ) -> Result<GraphExport> {
     let find_source = |name: &str| {
         sources
@@ -216,24 +247,7 @@ pub(crate) async fn export_graph(
             }
             Ok(field.name().clone())
         };
-        let weight = weight
-            .map(|name| -> Result<String> {
-                let field = schema
-                    .fields()
-                    .iter()
-                    .find(|f| f.name().eq_ignore_ascii_case(name))
-                    .ok_or_else(|| {
-                        config_error(format!("Weight column '{name}' not found in '{rel}'"))
-                    })?;
-                if !field.data_type().is_numeric() {
-                    return Err(config_error(format!(
-                        "Weight column '{name}' of '{rel}' is {}, not a numeric type",
-                        field.data_type()
-                    )));
-                }
-                Ok(field.name().clone())
-            })
-            .transpose()?;
+        let weight = weights.map(|w| rel_weight(w, rel, &schema)).transpose()?;
         rels.push(RelSource {
             name: rel.clone(),
             source,
@@ -243,6 +257,25 @@ pub(crate) async fn export_graph(
             src_label: labels.binary_search(src_label).expect("collected above"),
             dst_label: labels.binary_search(dst_label).expect("collected above"),
         });
+    }
+
+    if let Some(w) = weights {
+        for (rel_type, _) in &w.per_type {
+            if !rels.iter().any(|r| r.name.eq_ignore_ascii_case(rel_type)) {
+                return Err(config_error(format!(
+                    "Weight column given for '{rel_type}', which isn't an exported relationship type"
+                )));
+            }
+        }
+        // A shared column that no type has is a typo, not a reason to use the default.
+        let any_column = rels
+            .iter()
+            .any(|r| matches!(r.weight, Some(RelWeight::Column(_))));
+        if let (Some(name), false) = (&w.column, any_column) {
+            return Err(config_error(format!(
+                "Weight column '{name}' not found in any exported relationship type"
+            )));
+        }
     }
 
     // Node keys -> dense ids, one map per label.
@@ -295,7 +328,7 @@ pub(crate) async fn export_graph(
         rows += rel.source.num_rows(&rel.name).await?;
     }
     // Exactly one of the key and the (key, weight) vectors is used.
-    let weighted = weight.is_some();
+    let weighted = weights.is_some();
     let (keys_cap, pairs_cap) = if weighted { (0, rows) } else { (rows, 0) };
     // Out-edges only: directed in-edges come from transposing the out CSR, and undirected
     // reverse edges go into the same vector.
@@ -306,13 +339,18 @@ pub(crate) async fn export_graph(
     for rel in &rels {
         let (src_map, dst_map) = (&maps[rel.src_label], &maps[rel.dst_label]);
         let mut columns = vec![rel.src.as_str(), rel.dst.as_str()];
-        columns.extend(rel.weight.as_deref());
+        let (weight_column, constant) = match &rel.weight {
+            Some(RelWeight::Column(name)) => (Some(name.as_str()), 0.0),
+            Some(RelWeight::Constant(value)) => (None, *value),
+            None => (None, 0.0),
+        };
+        columns.extend(weight_column);
         let mut stream = rel.source.scan_columns(&columns).await?;
         while let Some(batch) = stream.next().await {
             let batch = batch?;
             let s = int64(batch.column(0), &rel.src, &rel.name)?;
             let d = int64(batch.column(1), &rel.dst, &rel.name)?;
-            let w = match &rel.weight {
+            let w = match weight_column {
                 Some(name) => Some(float64(batch.column(2), name, &rel.name)?),
                 None => None,
             };
@@ -330,22 +368,23 @@ pub(crate) async fn export_graph(
                 })
                 .collect();
             for pair in pairs {
-                match (pair, &w) {
-                    // A self-loop's reverse is itself; adding it would count its weight twice.
-                    (Some((a, b, _)), None) => {
-                        out.push(a * n + b);
-                        if !directed && a != b {
-                            out.push(b * n + a);
-                        }
+                let Some((a, b, i)) = pair else {
+                    dropped += 1;
+                    continue;
+                };
+                // A self-loop's reverse is itself; adding it would count its weight twice.
+                let reverse = !directed && a != b;
+                if weighted {
+                    let w = w.as_ref().map_or(constant, |w| w.value(i));
+                    out_w.push((a * n + b, w));
+                    if reverse {
+                        out_w.push((b * n + a, w));
                     }
-                    (Some((a, b, i)), Some(w)) => {
-                        let w = w.value(i);
-                        out_w.push((a * n + b, w));
-                        if !directed && a != b {
-                            out_w.push((b * n + a, w));
-                        }
+                } else {
+                    out.push(a * n + b);
+                    if reverse {
+                        out.push(b * n + a);
                     }
-                    (None, _) => dropped += 1,
                 }
             }
         }
@@ -353,6 +392,7 @@ pub(crate) async fn export_graph(
 
     let (out_indptr, out_indices, out_weights) = if weighted {
         drop(out);
+        let combine = weights.map(|w| w.combine).unwrap_or_default();
         let (p, i, w) = weighted_csr(n, out_w, combine);
         (p, i, Some(w))
     } else {
@@ -589,6 +629,46 @@ pub(crate) async fn write_node_column(
     Ok(updated)
 }
 
+/// Where `rel`'s weights come from: its column in `per_type`, else the shared column, else
+/// the default. A column named for this type must exist and be numeric.
+fn rel_weight(
+    weights: &EdgeWeights,
+    rel: &str,
+    schema: &arrow::datatypes::Schema,
+) -> Result<RelWeight> {
+    let named = weights
+        .per_type
+        .iter()
+        .find(|(t, _)| t.eq_ignore_ascii_case(rel))
+        .map(|(_, column)| column);
+    let (name, required) = match (named, &weights.column) {
+        (Some(name), _) => (Some(name), true),
+        (None, Some(name)) => (Some(name), weights.default.is_none()),
+        (None, None) => (None, false),
+    };
+    let field = name.and_then(|name| {
+        schema
+            .fields()
+            .iter()
+            .find(|f| f.name().eq_ignore_ascii_case(name))
+    });
+    match (field, name, weights.default) {
+        (Some(field), _, _) if !field.data_type().is_numeric() => Err(config_error(format!(
+            "Weight column '{}' of '{rel}' is {}, not a numeric type",
+            field.name(),
+            field.data_type()
+        ))),
+        (Some(field), _, _) => Ok(RelWeight::Column(field.name().clone())),
+        (None, Some(name), _) if required => Err(config_error(format!(
+            "Weight column '{name}' not found in '{rel}'"
+        ))),
+        (None, _, Some(value)) => Ok(RelWeight::Constant(value)),
+        (None, _, None) => Err(config_error(format!(
+            "No weight column for '{rel}'; name one for it or set a default weight"
+        ))),
+    }
+}
+
 fn field_type(schema: &arrow::datatypes::Schema, name: &str) -> Option<DataType> {
     schema
         .fields()
@@ -715,10 +795,7 @@ mod tests {
     async fn directed_export_matches_hand_built_csr() {
         let (nodes, edges) = people();
         let engine = arrow_engine(person_config(), vec![("Person", nodes), ("KNOWS", edges)]).await;
-        let g = engine
-            .export_graph(None, true, None, CombineEdges::Sum)
-            .await
-            .unwrap();
+        let g = engine.export_graph(None, true, None).await.unwrap();
         // Dense ids follow row order: 60->0, 10->1, 50->2, 30->3, 20->4, 40->5.
         assert_eq!(g.node_keys.values().to_vec(), vec![60, 10, 50, 30, 20, 40]);
         assert_eq!(g.num_nodes, 6);
@@ -741,7 +818,7 @@ mod tests {
         let (nodes, edges) = people();
         let engine = arrow_engine(person_config(), vec![("Person", nodes), ("KNOWS", edges)]).await;
         let g = engine
-            .export_graph(Some(&["knows".to_string()]), false, None, CombineEdges::Sum)
+            .export_graph(Some(&["knows".to_string()]), false, None)
             .await
             .unwrap();
         assert!(!g.directed && g.in_indptr.is_none() && g.in_indices.is_none());
@@ -774,14 +851,11 @@ mod tests {
         let engine = arrow_engine(person_config(), vec![("Person", nodes), ("KNOWS", edges)]).await;
 
         // Unweighted: no weight arrays, same CSR as without the column.
-        let plain = engine
-            .export_graph(None, true, None, CombineEdges::Sum)
-            .await
-            .unwrap();
+        let plain = engine.export_graph(None, true, None).await.unwrap();
         assert!(plain.out_weights.is_none() && plain.in_weights.is_none());
 
         let g = engine
-            .export_graph(None, true, Some("W"), CombineEdges::Sum)
+            .export_graph(None, true, Some(&EdgeWeights::column("W")))
             .await
             .unwrap();
         assert_eq!(
@@ -805,13 +879,10 @@ mod tests {
 
         // Undirected: 50->60 and 60->50 become one edge, the self-loop's weight counts once.
         let u = engine
-            .export_graph(None, false, Some("w"), CombineEdges::Sum)
+            .export_graph(None, false, Some(&EdgeWeights::column("w")))
             .await
             .unwrap();
-        let plain = engine
-            .export_graph(None, false, None, CombineEdges::Sum)
-            .await
-            .unwrap();
+        let plain = engine.export_graph(None, false, None).await.unwrap();
         assert_eq!(
             (&u.out_indptr, &u.out_indices),
             (&plain.out_indptr, &plain.out_indices)
@@ -833,13 +904,27 @@ mod tests {
             (CombineEdges::Max, 2.0, 128.0),
         ] {
             let g = engine
-                .export_graph(None, true, Some("w"), combine)
+                .export_graph(
+                    None,
+                    true,
+                    Some(&EdgeWeights {
+                        combine,
+                        ..EdgeWeights::column("w")
+                    }),
+                )
                 .await
                 .unwrap();
             assert_eq!(weights(&g.out_weights)[1], dup, "{combine:?}");
             assert_eq!(weights(&g.in_weights)[5], dup, "{combine:?}");
             let u = engine
-                .export_graph(None, false, Some("w"), combine)
+                .export_graph(
+                    None,
+                    false,
+                    Some(&EdgeWeights {
+                        combine,
+                        ..EdgeWeights::column("w")
+                    }),
+                )
                 .await
                 .unwrap();
             assert_eq!(
@@ -861,7 +946,7 @@ mod tests {
         let (nodes, edges) = weighted_people(w);
         let engine = arrow_engine(person_config(), vec![("Person", nodes), ("KNOWS", edges)]).await;
         let g = engine
-            .export_graph(None, true, Some("w"), CombineEdges::Sum)
+            .export_graph(None, true, Some(&EdgeWeights::column("w")))
             .await
             .unwrap();
         // 10->99 and the two null weights; the null endpoint isn't counted.
@@ -870,11 +955,133 @@ mod tests {
         assert_eq!(values(&g.out_indices), vec![2, 4, 0, 3, 3]);
         assert_eq!(weights(&g.out_weights), vec![128.0, 1.0, 64.0, 16.0, 4.0]);
         // Without `weight`, the column is ignored and nothing extra is dropped.
-        let plain = engine
-            .export_graph(None, true, None, CombineEdges::Sum)
-            .await
-            .unwrap();
+        let plain = engine.export_graph(None, true, None).await.unwrap();
         assert_eq!(plain.dropped_edges, 1);
+    }
+
+    /// KNOWS has a weight column `w`; LIKES has none, only an unrelated `since`.
+    async fn mixed_engine() -> CypherEngine {
+        let config = GraphConfig::builder()
+            .node_table("Person", "id")
+            .rel_table("KNOWS", "Person", "Person", "src", "dst")
+            .rel_table("LIKES", "Person", "Person", "src", "dst")
+            .build()
+            .unwrap();
+        let knows = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("src", DataType::Int64, true),
+                Field::new("dst", DataType::Int64, true),
+                Field::new("w", DataType::Float64, true),
+            ])),
+            vec![
+                Arc::new(Int64Array::from(vec![1, 2])),
+                Arc::new(Int64Array::from(vec![2, 3])),
+                Arc::new(arrow::array::Float64Array::from(vec![5.0, 7.0])),
+            ],
+        )
+        .unwrap();
+        let likes = batch(&[
+            ("src", vec![Some(1), Some(3)]),
+            ("dst", vec![Some(2), Some(1)]),
+            ("since", vec![Some(2020), Some(2021)]),
+        ]);
+        let nodes = batch(&[("id", vec![Some(1), Some(2), Some(3)])]);
+        arrow_engine(
+            config,
+            vec![("Person", nodes), ("KNOWS", knows), ("LIKES", likes)],
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn weights_per_type_and_default() {
+        let engine = mixed_engine().await;
+        // Out-edges by dense id: 1->2 (KNOWS 5, and LIKES), 2->3 (KNOWS 7), 3->1 (LIKES).
+        let export = |w: EdgeWeights| {
+            let engine = &engine;
+            async move { engine.export_graph(None, true, Some(&w)).await }
+        };
+        let per_type = |pairs: &[(&str, &str)]| -> Vec<(String, String)> {
+            pairs
+                .iter()
+                .map(|(t, c)| (t.to_string(), c.to_string()))
+                .collect()
+        };
+
+        // A shared column with a default: LIKES edges get the default.
+        let g = export(EdgeWeights {
+            default: Some(1.0),
+            ..EdgeWeights::column("w")
+        })
+        .await
+        .unwrap();
+        assert_eq!(values(&g.out_indices), vec![1, 2, 0]);
+        assert_eq!(weights(&g.out_weights), vec![6.0, 7.0, 1.0]);
+
+        // A column per type, any name.
+        let g = export(EdgeWeights {
+            per_type: per_type(&[("knows", "w"), ("LIKES", "SINCE")]),
+            ..EdgeWeights::default()
+        })
+        .await
+        .unwrap();
+        assert_eq!(weights(&g.out_weights), vec![2025.0, 7.0, 2021.0]);
+
+        // Some types named, a default for the rest.
+        let g = export(EdgeWeights {
+            per_type: per_type(&[("KNOWS", "w")]),
+            default: Some(2.0),
+            ..EdgeWeights::default()
+        })
+        .await
+        .unwrap();
+        assert_eq!(weights(&g.out_weights), vec![7.0, 7.0, 2.0]);
+        assert_eq!(weights(&g.in_weights), vec![2.0, 7.0, 7.0]);
+
+        // Errors: a type without a weight and no default; a column named for a type that
+        // lacks it, even with a default; a type that isn't exported; a shared column no
+        // type has.
+        for w in [
+            EdgeWeights::column("w"),
+            EdgeWeights {
+                per_type: per_type(&[("KNOWS", "w")]),
+                ..EdgeWeights::default()
+            },
+            EdgeWeights {
+                per_type: per_type(&[("LIKES", "w")]),
+                default: Some(1.0),
+                ..EdgeWeights::default()
+            },
+            EdgeWeights {
+                per_type: per_type(&[("FOLLOWS", "w")]),
+                default: Some(1.0),
+                ..EdgeWeights::default()
+            },
+            EdgeWeights {
+                default: Some(1.0),
+                ..EdgeWeights::column("cost")
+            },
+        ] {
+            let err = export(w.clone()).await.unwrap_err();
+            assert!(
+                matches!(err, GraphError::ConfigError { .. }),
+                "{w:?}: {err}"
+            );
+        }
+
+        // Only LIKES: the default is every weight.
+        let g = engine
+            .export_graph(
+                Some(&["LIKES".to_string()]),
+                true,
+                Some(&EdgeWeights {
+                    per_type: per_type(&[("KNOWS", "w")]),
+                    default: Some(3.0),
+                    ..EdgeWeights::default()
+                }),
+            )
+            .await;
+        assert!(g.is_err(), "KNOWS isn't exported");
     }
 
     #[tokio::test]
@@ -882,7 +1089,7 @@ mod tests {
         let (nodes, edges) = weighted_people(powers_of_two());
         let engine = arrow_engine(person_config(), vec![("Person", nodes), ("KNOWS", edges)]).await;
         let err = engine
-            .export_graph(None, true, Some("cost"), CombineEdges::Sum)
+            .export_graph(None, true, Some(&EdgeWeights::column("cost")))
             .await
             .unwrap_err();
         assert!(matches!(err, GraphError::ConfigError { .. }), "{err}");
@@ -902,7 +1109,7 @@ mod tests {
         let (nodes, _) = people();
         let engine = arrow_engine(person_config(), vec![("Person", nodes), ("KNOWS", names)]).await;
         let err = engine
-            .export_graph(None, true, Some("w"), CombineEdges::Sum)
+            .export_graph(None, true, Some(&EdgeWeights::column("w")))
             .await
             .unwrap_err();
         assert!(matches!(err, GraphError::ConfigError { .. }), "{err}");
@@ -969,10 +1176,7 @@ mod tests {
             ],
         )
         .await;
-        let g = engine
-            .export_graph(None, true, None, CombineEdges::Sum)
-            .await
-            .unwrap();
+        let g = engine.export_graph(None, true, None).await.unwrap();
         // City 0..2, Person 2..4.
         assert_eq!(
             g.label_ranges,
@@ -992,16 +1196,13 @@ mod tests {
             vec![("Person", duplicate), ("KNOWS", edges.clone())],
         )
         .await;
-        let err = engine
-            .export_graph(None, true, None, CombineEdges::Sum)
-            .await
-            .unwrap_err();
+        let err = engine.export_graph(None, true, None).await.unwrap_err();
         assert!(matches!(err, GraphError::ExecutionError { .. }), "{err}");
 
         let (nodes, _) = people();
         let engine = arrow_engine(person_config(), vec![("Person", nodes), ("KNOWS", edges)]).await;
         let err = engine
-            .export_graph(Some(&["LIKES".to_string()]), true, None, CombineEdges::Sum)
+            .export_graph(Some(&["LIKES".to_string()]), true, None)
             .await
             .unwrap_err();
         assert!(matches!(err, GraphError::ConfigError { .. }), "{err}");
@@ -1024,10 +1225,7 @@ mod tests {
             ],
         )
         .await;
-        let err = engine
-            .export_graph(None, true, None, CombineEdges::Sum)
-            .await
-            .unwrap_err();
+        let err = engine.export_graph(None, true, None).await.unwrap_err();
         assert!(matches!(err, GraphError::ConfigError { .. }), "{err}");
     }
 
@@ -1070,14 +1268,8 @@ mod tests {
             .unwrap();
         let arrow = arrow_engine(person_config(), vec![("Person", nodes), ("KNOWS", edges)]).await;
         let (a, b) = (
-            lance
-                .export_graph(None, true, None, CombineEdges::Sum)
-                .await
-                .unwrap(),
-            arrow
-                .export_graph(None, true, None, CombineEdges::Sum)
-                .await
-                .unwrap(),
+            lance.export_graph(None, true, None).await.unwrap(),
+            arrow.export_graph(None, true, None).await.unwrap(),
         );
         assert_eq!(a.node_keys, b.node_keys);
         assert_eq!(
@@ -1096,7 +1288,7 @@ mod tests {
         assert_eq!(
             values(
                 &lance
-                    .export_graph(None, true, None, CombineEdges::Sum)
+                    .export_graph(None, true, None)
                     .await
                     .unwrap()
                     .out_indptr
@@ -1104,10 +1296,7 @@ mod tests {
             6
         );
         lance.checkout_latest().await.unwrap();
-        let g = lance
-            .export_graph(None, true, None, CombineEdges::Sum)
-            .await
-            .unwrap();
+        let g = lance.export_graph(None, true, None).await.unwrap();
         assert_eq!(values(&g.out_indptr), vec![0, 1, 2, 3, 5, 6, 7]);
         assert_eq!(values(&g.out_indices)[6], 0);
     }
@@ -1134,10 +1323,7 @@ mod tests {
         let engine = CypherEngine::new(person_config(), sources, true)
             .await
             .unwrap();
-        let g = engine
-            .export_graph(None, true, None, CombineEdges::Sum)
-            .await
-            .unwrap();
+        let g = engine.export_graph(None, true, None).await.unwrap();
         let degree = |g: &GraphExport| -> ArrayRef {
             let p = g.out_indptr.values();
             Arc::new(Int64Array::from_iter_values(
@@ -1237,10 +1423,7 @@ mod tests {
         let engine = CypherEngine::new(person_config(), sources, true)
             .await
             .unwrap();
-        let g = engine
-            .export_graph(None, true, None, CombineEdges::Sum)
-            .await
-            .unwrap();
+        let g = engine.export_graph(None, true, None).await.unwrap();
         let ones: ArrayRef = Arc::new(Int64Array::from(vec![1; g.num_nodes as usize]));
         engine
             .write_node_column(&g, "x", &ones, false)

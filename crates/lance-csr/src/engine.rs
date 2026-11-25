@@ -1608,24 +1608,23 @@ impl CypherEngine {
     /// `rel_types` `None` exports every relationship type whose dataset has integer
     /// endpoints. See [`crate::graph_export`] for how ids and rows are laid out.
     ///
-    /// `weight` names a numeric column of the relationship tables to export as `f64`
-    /// edge weights, and `combine` sets how a repeated edge merges its weights (it's
-    /// ignored without `weight`). `None` exports no weights and allocates nothing for them.
+    /// `weights` says which numeric column of each relationship table to export as `f64`
+    /// edge weights, the weight of types without one, and how a repeated edge merges its
+    /// weights. `None` exports no weights and allocates nothing for them.
     ///
     /// Sorting the edges is CPU-bound and runs on rayon's pool; as with the CSR
     /// build, call it from a blocking thread in an application with its own runtime.
     ///
     /// # Errors
     /// [`GraphError::ConfigError`] for an unknown relationship type or label, a missing
-    /// or non-integer key or endpoint column, a missing or non-numeric weight column, or
-    /// nothing to export; [`GraphError::ExecutionError`] for a repeated node key or a
+    /// or non-integer key or endpoint column, a missing or non-numeric weight column, a type
+    /// with no weight column and no default, or nothing to export; [`GraphError::ExecutionError`] for a repeated node key or a
     /// failed scan. An edge with a null weight is dropped and counted in `dropped_edges`.
     pub async fn export_graph(
         &self,
         rel_types: Option<&[String]>,
         directed: bool,
-        weight: Option<&str>,
-        combine: crate::graph_export::CombineEdges,
+        weights: Option<&crate::graph_export::EdgeWeights>,
     ) -> Result<crate::graph_export::GraphExport> {
         let snapshot = self.snapshot();
         crate::graph_export::export_graph(
@@ -1633,8 +1632,7 @@ impl CypherEngine {
             &snapshot.sources,
             rel_types,
             directed,
-            weight,
-            combine,
+            weights,
         )
         .await
     }

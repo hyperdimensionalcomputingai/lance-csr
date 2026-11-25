@@ -278,10 +278,11 @@ without `useCsr`. Lance datasets are scanned for just those columns. See
 | Parameter | Type | Description |
 | ------ | ------ | ------ |
 | `relTypes?` | `string`[] | Relationship types to include, case-insensitive. Left out, every type whose dataset has integer endpoint columns. The nodes are those of the labels at either end of the included types. |
-| `options?` | \{ `combineEdges?`: `"sum"` \| `"min"` \| `"max"`; `directed?`: `boolean`; `weight?`: `string`; \} | - |
+| `options?` | \{ `combineEdges?`: `"sum"` \| `"min"` \| `"max"`; `defaultWeight?`: `number`; `directed?`: `boolean`; `weight?`: `string` \| `Record`\<`string`, `string`\>; \} | - |
 | `options.combineEdges?` | `"sum"` \| `"min"` \| `"max"` | How an edge listed more than once combines its weights: `"sum"` (the default) adds them, as for counts or amounts; `"min"` keeps the smallest, as for distances; `"max"` the largest. In an undirected export, `a -> b` and `b -> a` are one edge and combine the same way. Ignored without `weight`. |
+| `options.defaultWeight?` | `number` | The weight of every edge of an included type that has no weight column: one the `weight` object leaves out, or one without the shared `weight` column (at least one type must have it). A column named in the object must exist even with a default. Needs `weight`. |
 | `options.directed?` | `boolean` | `true` (the default) returns out-edge and in-edge arrays; `false` returns one set of arrays listing every edge in both directions. |
-| `options.weight?` | `string` | A numeric column of the relationship tables to export as float64 edge weights, in `outWeights` and `inWeights`; every included type must have it, case-insensitive. An edge whose weight is null is left out and counted in `droppedEdges`. Left out, no weights are exported, and the export needs no memory for them. |
+| `options.weight?` | `string` \| `Record`\<`string`, `string`\> | The numeric column holding each edge's weight, exported as float64 in `outWeights` and `inWeights`. A string names one column for every included type; an object maps relationship types to their own columns, so types can store weights under different names. Names are case-insensitive. A type the object leaves out, or that lacks the shared column, needs `defaultWeight`. An edge whose weight is null is left out and counted in `droppedEdges`. Left out, no weights are exported, and the export needs no memory for them. |
 
 ###### Returns
 
@@ -291,8 +292,10 @@ without `useCsr`. Lance datasets are scanned for just those columns. See
 
 [LanceCsrError](#lancecsrerror) `InvalidArgument` if a relationship type or label isn't in
   the config, has no dataset, or a key or endpoint column is missing or isn't an integer
-  type up to `int64`, the weight column is missing or isn't numeric, `combineEdges` isn't
-  one of the three rules, or there's nothing to export; `Runtime` if a node key appears
+  type up to `int64`, a weight column is missing or isn't numeric, an included type has no
+  weight column and there's no `defaultWeight`, the `weight` object names a type that isn't
+  included, `defaultWeight` is given without `weight`, `combineEdges` isn't one of the three
+  rules, or there's nothing to export; `Runtime` if a node key appears
   twice within a label, or a scan fails.
 
 <a id="nodeindexstats"></a>

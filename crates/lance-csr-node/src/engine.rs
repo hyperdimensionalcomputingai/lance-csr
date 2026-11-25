@@ -10,7 +10,7 @@ use lance_csr::engine::{
     CypherEngine as RustCypherEngine, EngineOptions, PersistCsr, MAX_TARGET_PARTITIONS,
 };
 use lance_csr::SqlEngine as RustSqlEngine;
-use napi::bindgen_prelude::{BigInt64Array, BigUint64Array, Buffer, Float64Array};
+use napi::bindgen_prelude::{BigInt64Array, BigUint64Array, Buffer, Either, Float64Array};
 use napi_derive::napi;
 use tokio::sync::Mutex;
 
@@ -266,8 +266,9 @@ impl CypherEngine {
         &self,
         rel_types: Option<Vec<String>>,
         directed: bool,
-        weight: Option<String>,
+        weight: Option<Either<String, HashMap<String, String>>>,
         combine_edges: Option<String>,
+        default_weight: Option<f64>,
     ) -> napi::Result<GraphExport> {
         let combine = combine_edges
             .as_deref()
@@ -275,10 +276,30 @@ impl CypherEngine {
             .transpose()
             .map_err(graph_error)?
             .unwrap_or_default();
+        let weights = match weight {
+            None if default_weight.is_some() => {
+                return Err(invalid(
+                    "defaultWeight needs weight: name a weight column or a column per type",
+                ))
+            }
+            None => None,
+            Some(w) => {
+                let (column, per_type) = match w {
+                    Either::A(name) => (Some(name), Vec::new()),
+                    Either::B(map) => (None, map.into_iter().collect()),
+                };
+                Some(lance_csr::EdgeWeights {
+                    column,
+                    per_type,
+                    default: default_weight,
+                    combine,
+                })
+            }
+        };
         let inner = self.inner.clone();
         let g = blocking(async move {
             inner
-                .export_graph(rel_types.as_deref(), directed, weight.as_deref(), combine)
+                .export_graph(rel_types.as_deref(), directed, weights.as_ref())
                 .await
         })
         .await?;

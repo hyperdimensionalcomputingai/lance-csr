@@ -112,8 +112,41 @@ print(w.out_indices.to_pylist())  # [1, 0, 2, 0]
 print(w.out_weights.to_pylist())  # [2.0, 1.0, 7.0, 5.0]
 ```
 
-The weight of `out_indices[i]` is `out_weights[i]`, and the same holds for the in-edges. Every included
-relationship type must have the column, and it must be numeric.
+The weight of `out_indices[i]` is `out_weights[i]`, and the same holds for the in-edges. The weight column
+must be numeric. Only the endpoint and weight columns are read, so other properties of the relationship table
+play no part.
+
+### Several relationship types
+
+When the export includes several relationship types, each needs a weight. They may store it under different
+names, or one of them may have none. A `weight` dict names the column of each type, and `default_weight` gives
+the weight of every edge of a type without a column:
+
+```python
+config3 = (
+    GraphConfig.builder()
+    .node_table("Person", "id")
+    .rel_table("FOLLOWS", "Person", "Person", "src", "dst")
+    .rel_table("MENTIONS", "Person", "Person", "src", "dst")
+    .build()
+)
+mentions = pa.table({"src": [20], "dst": [10], "times": [9]})
+mixed = CypherEngine(config3, {"Person": people, "FOLLOWS": messages, "MENTIONS": mentions})
+
+both = mixed.export_graph(weight={"FOLLOWS": "messages", "MENTIONS": "times"})
+print(both.out_weights.to_pylist())  # [2.0, 1.0, 7.0, 5.0, 9.0]
+some = mixed.export_graph(weight={"FOLLOWS": "messages"}, default_weight=1.0)
+print(some.out_weights.to_pylist())  # [2.0, 1.0, 7.0, 5.0, 1.0]
+```
+
+A string `weight` with `default_weight` works the same way: types that have the column use it, and the others
+get the default. Without `default_weight`, a type with no weight column is an error, since a guessed weight
+can change an algorithm's answer without warning. A few mistakes are errors even with a default: a column the
+dict names that doesn't exist, a dict entry for a type that isn't exported, and a string column that no type
+has. To leave a type out of the export instead, list the others in `rel_types`.
+
+When the types' weights mean different things, such as messages and mentions, make sure adding them up, or
+comparing them, makes sense for the algorithm.
 
 A null weight means the weight is unknown, and no number stands in for it safely: 1.0 would make a costly
 edge look cheap to a shortest-path search. So the export leaves the edge out and counts it in `dropped_edges`,

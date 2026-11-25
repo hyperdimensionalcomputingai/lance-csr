@@ -469,8 +469,9 @@ class CypherEngine:
         rel_types: list[str] | None = None,
         *,
         directed: bool = True,
-        weight: str | None = None,
+        weight: str | dict[str, str] | None = None,
         combine_edges: Literal["sum", "min", "max"] = "sum",
+        default_weight: float | None = None,
     ) -> GraphExport:
         """The graph as dense CSR arrays, for graph-algorithm libraries.
 
@@ -488,18 +489,26 @@ class CypherEngine:
         directed : bool
             Keyword-only. `True` returns out-edge and in-edge arrays; `False` returns
             one set of arrays listing every edge in both directions.
-        weight : str or None
-            Keyword-only. A numeric column of the relationship tables to export as
-            `float64` edge weights, in `out_weights` and `in_weights`; every included
-            type must have it, case-insensitive. An edge whose weight is null is left
-            out and counted in `dropped_edges`. `None` (the default) exports no
-            weights, and the export then needs no memory for them.
+        weight : str, dict[str, str] or None
+            Keyword-only. The numeric column holding each edge's weight, exported as
+            `float64` in `out_weights` and `in_weights`. A string names one column for
+            every included type; a dict maps relationship types to their own columns,
+            so types can store weights under different names. Names are
+            case-insensitive. A type the dict leaves out, or that lacks the shared
+            column, needs `default_weight`. An edge whose weight is null is left out
+            and counted in `dropped_edges`. `None` (the default) exports no weights,
+            and the export then needs no memory for them.
         combine_edges : {"sum", "min", "max"}
             Keyword-only. How an edge listed more than once combines its weights:
             `"sum"` (the default) adds them, as for counts or amounts; `"min"` keeps the
             smallest, as for distances; `"max"` the largest. In an undirected export,
             `a -> b` and `b -> a` are one edge and combine the same way. Ignored without
             `weight`.
+        default_weight : float or None
+            Keyword-only. The weight of every edge of an included type that has no
+            weight column: one the `weight` dict leaves out, or one without the shared
+            `weight` column (at least one type must have it). A column named in the
+            dict must exist even with a default. Needs `weight`.
 
         Returns
         -------
@@ -511,8 +520,11 @@ class CypherEngine:
         ValueError
             If a relationship type or label isn't in the config, has no dataset, or a
             key or endpoint column is missing or isn't an integer type up to `int64`
-            (`uint64` isn't supported), the weight column is missing or isn't numeric,
-            `combine_edges` isn't one of the three rules, or there's nothing to export.
+            (`uint64` isn't supported), a weight column is missing or isn't numeric, an
+            included type has no weight column and there's no `default_weight`, the
+            `weight` dict names a type that isn't included, `default_weight` is given
+            without `weight`, `combine_edges` isn't one of the three rules, or there's
+            nothing to export.
         RuntimeError
             If a node key appears twice within a label, or a scan fails.
 
@@ -540,6 +552,7 @@ class CypherEngine:
                 directed=directed,
                 weight=weight,
                 combine_edges=combine_edges,
+                default_weight=default_weight,
             )
         )
 
