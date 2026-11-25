@@ -308,6 +308,15 @@ For an unnamed, bounded undirected segment with several types, the same operator
 boundary columns and skips building the Arrow path value for each trail. It still tracks edge
 occurrences during traversal, on whichever route the segment takes.
 
+A named path whose variable the query never reads runs the same way. Building a path value costs
+far more than the walk when a query only counts paths or returns their end nodes: on the LDBC SF1
+graph, the 86K paths of `MATCH p = (a:Person {ID: 1131})-[:knows*1..3]->(b:Person) RETURN count(*)`
+made about 100 MB of path values that nothing read. So the `prune_csr_target_columns` optimizer rule,
+which already drops unused `CsrExpand` columns, also drops the path column from a `PathMatch` when no
+expression in the plan references it. The node then shows as `PathMatchExec: endpoints` and, on the
+CSR walk, reads no relationship records unless a relationship variable needs them. Any reference to
+the path, such as `length(p)`, `nodes(p)` or `WITH p AS q`, keeps the value.
+
 Path property values are logical expressions, so cached plans bind them before physical planning.
 The physical operator then builds node predicates against the inventory's node schema, and relationship
 predicates against the inventory's relationship schema or, on the CSR walk, each relationship table.

@@ -448,6 +448,8 @@ relationship endpoints identify one node; duplicate IDs raise an error. Expandin
 a mixed-label value remains unsupported.
 
 A path value needs the properties of its nodes, so each execution reads the participating node tables in full.
+A query that names a path but never reads it, such as `MATCH p = ... RETURN count(*)`, builds no path
+values and, on the CSR walk, reads no relationship properties.
 With `use_csr=True`, a named path reads relationships only where its walk goes (see
 [the CSR index](csr.md#which-hops-use-it)). Shortest paths, and paths over a relationship type without a CSR,
 also read the relationship tables into a query-local inventory, whose memory grows with the graph.
