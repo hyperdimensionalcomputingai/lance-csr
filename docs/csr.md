@@ -168,7 +168,8 @@ that pass.
 
 Shortest paths, and named paths over a relationship type without a CSR, use a query-local inventory of edge
 occurrences instead. The inventory reads the participating relationship tables in full, and bounded traversal
-batches do not bound it. Both routes read the participating node tables in full. See
+batches do not bound it. Where a CSR exists, the inventory names each relationship by the same row the walk uses,
+so a named path and a shortest path in one query agree on which relationships are equal. Both routes read the participating node tables in full. See
 [path values](cypher.md#path-values).
 Shortest-path queries within one node label that only read length or node keys keep the CSR route below.
 Relationships crossing labels use typed identities, even for these queries, to distinguish equal keys

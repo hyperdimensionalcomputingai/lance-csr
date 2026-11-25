@@ -84,7 +84,7 @@ pub(crate) async fn cooperative_yield() {
 }
 
 /// Lance's row-address column (`lance_core::ROW_ADDR`, not re-exported by `lance`).
-const ROW_ADDR: &str = "_rowaddr";
+pub(crate) const ROW_ADDR: &str = "_rowaddr";
 
 use crate::case_insensitive::qualify_column;
 
@@ -1214,6 +1214,68 @@ impl EdgeRows {
 
     pub(crate) fn schema(&self) -> &SchemaRef {
         &self.schema
+    }
+
+    /// Every row, with a [`ROW_ADDR`] column holding the position [`Adjacency`] stores
+    /// for it (row address on Lance, row index in memory), so a full read and a CSR walk
+    /// name each edge the same way.
+    pub(crate) async fn read_all(&self) -> Result<RecordBatch> {
+        let (batch, addresses): (RecordBatch, ArrayRef) = match &self.data {
+            TableData::Memory(batch) => (
+                batch.clone(),
+                Arc::new(arrow::array::UInt64Array::from_iter_values(
+                    0..batch.num_rows() as u64,
+                )),
+            ),
+            TableData::Lance(dataset) => {
+                let scan_error =
+                    |e: lance::Error| exec_error(format!("Failed to scan edges: {}", e));
+                let mut scanner = dataset.scan();
+                scanner.with_row_address();
+                let mut stream = scanner.try_into_stream().await.map_err(scan_error)?;
+                let mut read = Vec::new();
+                while let Some(batch) = stream.next().await {
+                    read.push(batch.map_err(scan_error)?);
+                    cooperative_yield().await;
+                }
+                let schema = read.first().map_or_else(
+                    || {
+                        let mut fields: Vec<Field> = self
+                            .schema
+                            .fields()
+                            .iter()
+                            .map(|f| f.as_ref().clone())
+                            .collect();
+                        fields.push(Field::new(ROW_ADDR, DataType::UInt64, true));
+                        Arc::new(Schema::new(fields))
+                    },
+                    |b| b.schema(),
+                );
+                let read = arrow::compute::concat_batches(&schema, &read)
+                    .map_err(|e| exec_error(e.to_string()))?;
+                let index = read
+                    .schema()
+                    .index_of(ROW_ADDR)
+                    .map_err(|e| exec_error(e.to_string()))?;
+                let addresses = read.column(index).clone();
+                let mut columns = read.columns().to_vec();
+                columns.remove(index);
+                let batch = RecordBatch::try_new(self.schema.clone(), columns)
+                    .map_err(|e| exec_error(e.to_string()))?;
+                (batch, addresses)
+            }
+        };
+        let mut fields: Vec<Field> = batch
+            .schema()
+            .fields()
+            .iter()
+            .map(|f| f.as_ref().clone())
+            .collect();
+        fields.push(Field::new(ROW_ADDR, DataType::UInt64, false));
+        let mut columns = batch.columns().to_vec();
+        columns.push(addresses);
+        RecordBatch::try_new(Arc::new(Schema::new(fields)), columns)
+            .map_err(|e| exec_error(e.to_string()))
     }
 
     pub(crate) async fn take(&self, rows: &[u64], columns: &[usize]) -> Result<Vec<ArrayRef>> {

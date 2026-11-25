@@ -295,7 +295,9 @@ relationship predicates inside recursive joins over CSR adjacency lists, so the 
 the relationship table's size.
 
 Otherwise, for shortest paths or a relationship type without a CSR, `PathMatchExec: p edge inventory` builds one
-immutable, query-local edge inventory in which an edge's identity is its actual scanned occurrence. It enumerates
+immutable, query-local edge inventory in which an edge's identity is its actual occurrence. For a relationship type
+the engine has a CSR for, the inventory reads the rows the CSR stores, with their CSR rows, so a trail and a shortest
+path in the same query name each edge the same way; otherwise the identity is the row's position in the scan. It enumerates
 trails over the inventory the same way and reuses the bidirectional breadth-first search on a bipartite node/edge
 graph for shortest paths. Path values keep properties in a marked child, so user property names can't
 collide with identity metadata. When an untyped match combines branches, the planner merges those

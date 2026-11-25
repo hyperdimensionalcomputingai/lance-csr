@@ -134,3 +134,31 @@ def test_shortest_paths_keep_the_edge_inventory():
     query = "MATCH p = shortestPath((a:P {id: 0})-[:R*1..3]->(b:P {id: 4})) RETURN p"
     assert "csr walk" not in engine.explain(query)
     assert "edge inventory" in engine.explain(query)
+
+
+@pytest.mark.parametrize("lazy", [False, True], ids=["memory", "lance"])
+@pytest.mark.parametrize("use_csr", [False, True], ids=["inventory", "csr"])
+def test_trail_and_shortest_path_agree_on_relationship_identity(
+    tmp_path, lazy, use_csr
+):
+    # A trail walks the CSR and a shortest path uses the inventory: both must name the
+    # same edge the same way, even when Lance row addresses skip deleted rows.
+    config = (
+        GraphConfig.builder()
+        .node_table("P", "id")
+        .rel_table("R", "P", "P", "src", "dst")
+        .build()
+    )
+    data = {
+        "P": pa.table({"id": list(range(8))}),
+        "R": pa.table({"src": list(range(7)), "dst": list(range(1, 8))}),
+    }
+    if lazy:
+        data = lance_tables(tmp_path, data, {"R": "src = 0"})
+    engine = CypherEngine(config, data, use_csr=use_csr)
+    query = (
+        "MATCH p = (a:P {id: 4})-[:R]->(b:P {id: 5}) "
+        "MATCH q = shortestPath((a)-[:R*1..3]->(b)) "
+        "RETURN relationships(p)[0] = relationships(q)[0] AS same, p = q AS same_path"
+    )
+    assert engine.execute(query).to_pylist() == [{"same": True, "same_path": True}]

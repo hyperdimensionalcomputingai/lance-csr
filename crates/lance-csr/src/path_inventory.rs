@@ -21,7 +21,7 @@ use futures::{lock::Mutex, StreamExt};
 /// One source scan per query, shared even by distinct named-path operators.
 pub(crate) type SourceBatches = Arc<Mutex<HashMap<(bool, String), RecordBatch>>>;
 
-use crate::csr_expand::{cooperative_yield, is_supported_id_type};
+use crate::csr_expand::{cooperative_yield, is_supported_id_type, EdgeRows, ROW_ADDR};
 use crate::path_value::{entity_type, struct_array};
 
 #[derive(Debug, Clone)]
@@ -39,6 +39,23 @@ pub(crate) struct EdgeSource {
     pub source_id: String,
     pub target_id: String,
     pub schema: Arc<Schema>,
+    /// The engine's rows for this type when it has a CSR. Every path route then reads the
+    /// type from them, so a relationship's identity is the same on all routes.
+    pub rows: Option<Arc<EdgeRows>>,
+}
+
+/// A relationship's `{label, id}` identity, shared by every path route.
+pub(crate) fn relationship_identity(labels: Vec<&str>, ids: Vec<i64>) -> StructArray {
+    StructArray::from(vec![
+        (
+            Arc::new(Field::new("label", DataType::Utf8, false)),
+            Arc::new(StringArray::from(labels)) as ArrayRef,
+        ),
+        (
+            Arc::new(Field::new("id", DataType::Int64, false)),
+            Arc::new(Int64Array::from(ids)) as ArrayRef,
+        ),
+    ])
 }
 
 pub(crate) fn property_fields<'a>(schemas: impl IntoIterator<Item = &'a Fields>) -> Result<Fields> {
@@ -128,21 +145,47 @@ impl Inventory {
         context: Arc<TaskContext>,
         sources: &SourceBatches,
     ) -> Result<Self> {
-        let mut batches = Vec::with_capacity(plans.len());
-        let source_keys = node_sources
+        // Plans scan the node tables, then the relationship tables without engine rows.
+        let mut batches = Vec::with_capacity(node_sources.len() + edge_sources.len());
+        let mut plans = plans.iter();
+        let keyed = node_sources
             .iter()
-            .map(|s| (false, s.label.to_lowercase()))
-            .chain(edge_sources.iter().map(|s| (true, s.label.to_lowercase())));
-        for (plan, key) in plans.iter().zip(source_keys) {
+            .map(|s| (false, s.label.to_lowercase(), None))
+            .chain(
+                edge_sources
+                    .iter()
+                    .map(|s| (true, s.label.to_lowercase(), s.rows.as_ref())),
+            );
+        for (edge, label, rows) in keyed {
+            let key = (edge, label);
             let mut sources = sources.lock().await;
+            let plan = if rows.is_none() {
+                Some(plans.next().ok_or_else(|| {
+                    datafusion::common::DataFusionError::Internal(
+                        "path source without a scan".into(),
+                    )
+                })?)
+            } else {
+                None
+            };
             if !sources.contains_key(&key) {
-                let mut stream = plan.execute(0, context.clone())?;
-                let mut read = Vec::new();
-                while let Some(batch) = stream.next().await {
-                    read.push(batch?);
-                    cooperative_yield().await;
-                }
-                sources.insert(key.clone(), concat_batches(&plan.schema(), &read)?);
+                let batch = match (rows, plan) {
+                    (Some(rows), _) => rows
+                        .read_all()
+                        .await
+                        .map_err(|e| datafusion::common::DataFusionError::External(Box::new(e)))?,
+                    (None, Some(plan)) => {
+                        let mut stream = plan.execute(0, context.clone())?;
+                        let mut read = Vec::new();
+                        while let Some(batch) = stream.next().await {
+                            read.push(batch?);
+                            cooperative_yield().await;
+                        }
+                        concat_batches(&plan.schema(), &read)?
+                    }
+                    (None, None) => unreachable!("a scan or engine rows"),
+                };
+                sources.insert(key.clone(), batch);
             }
             batches.push(sources[&key].clone());
         }
@@ -211,6 +254,10 @@ impl Inventory {
             let batch = &batches[node_sources.len() + kind];
             let sources = id_column(batch, &source.source_id)?;
             let targets = id_column(batch, &source.target_id)?;
+            // Engine rows carry the identity the CSR uses; a plain scan numbers its rows.
+            let row_ids = batch
+                .column_by_name(ROW_ADDR)
+                .map(|ids| ids.as_primitive::<arrow::datatypes::UInt64Type>().clone());
             for row in 0..batch.num_rows() {
                 let edge = u32::try_from(endpoints.len()).map_err(|_| {
                     datafusion::common::DataFusionError::Execution(
@@ -241,7 +288,11 @@ impl Inventory {
                 }
                 endpoints.push(ends);
                 edge_types.push(kind);
-                occurrence_ids.push(row as i64);
+                occurrence_ids.push(
+                    row_ids
+                        .as_ref()
+                        .map_or(row as i64, |ids| ids.value(row) as i64),
+                );
                 labels.push(source.label.as_str());
                 if row % 4096 == 4095 {
                     cooperative_yield().await;
@@ -250,16 +301,7 @@ impl Inventory {
             edge_batches.push(properties(batch, &edge_fields)?);
         }
         let edge_properties = concat_batches(&Arc::new(Schema::new(edge_fields)), &edge_batches)?;
-        let identity = StructArray::from(vec![
-            (
-                Arc::new(Field::new("label", DataType::Utf8, false)),
-                Arc::new(StringArray::from(labels)) as ArrayRef,
-            ),
-            (
-                Arc::new(Field::new("id", DataType::Int64, false)),
-                Arc::new(Int64Array::from(occurrence_ids)) as ArrayRef,
-            ),
-        ]);
+        let identity = relationship_identity(labels, occurrence_ids);
         let starts = UInt32Array::from_iter(endpoints.iter().map(|p| p.map(|(a, _)| a)));
         let ends = UInt32Array::from_iter(endpoints.iter().map(|p| p.map(|(_, b)| b)));
         let edges = struct_array(

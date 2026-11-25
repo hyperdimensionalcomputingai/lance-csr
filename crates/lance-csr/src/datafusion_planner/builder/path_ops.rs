@@ -118,12 +118,19 @@ impl DataFusionPlanner {
                 source_id: mapping.source_id_field.clone(),
                 target_id: mapping.target_id_field.clone(),
                 schema,
+                rows: self
+                    .adjacency
+                    .as_ref()
+                    .and_then(|catalog| catalog.edges(label).cloned()),
             });
-            edge_plans.push(
-                LogicalPlanBuilder::scan(label.to_lowercase(), source, None)
-                    .and_then(|b| b.build())
-                    .map_err(|e| self.plan_error("Failed to scan path edges", e))?,
-            );
+            // A type with engine rows is read from them, by either route; see `EdgeSource::rows`.
+            if edges.last().is_some_and(|e| e.rows.is_none()) {
+                edge_plans.push(
+                    LogicalPlanBuilder::scan(label.to_lowercase(), source, None)
+                        .and_then(|b| b.build())
+                        .map_err(|e| self.plan_error("Failed to scan path edges", e))?,
+                );
+            }
         }
         let mut bindings = Vec::new();
         for node in
@@ -248,10 +255,9 @@ fn csr_route(
     edges: &[EdgeSource],
     steps: &[Step],
 ) -> Option<CsrRoute> {
-    let rows = labels
-        .iter()
-        .map(|label| catalog.edges(label).cloned())
-        .collect::<Option<Vec<_>>>()?;
+    if edges.iter().any(|e| e.rows.is_none()) {
+        return None;
+    }
     let steps = steps
         .iter()
         .map(|step| {
@@ -282,5 +288,5 @@ fn csr_route(
             Some(hops)
         })
         .collect::<Option<Vec<_>>>()?;
-    Some(CsrRoute { steps, rows })
+    Some(CsrRoute { steps })
 }

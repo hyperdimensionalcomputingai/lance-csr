@@ -36,7 +36,8 @@ use crate::csr_expand::{
     cooperative_yield, mask_after, Adjacency, CompiledFilter, EdgeFilterState, EdgeRows, Neighbors,
 };
 use crate::path_inventory::{
-    id_column, properties, property_fields, EdgeSource, Inventory, NodeSource, SourceBatches,
+    id_column, properties, property_fields, relationship_identity, EdgeSource, Inventory,
+    NodeSource, SourceBatches,
 };
 use crate::path_value::{entity_type, path_type, paths_array, PathRows};
 
@@ -77,10 +78,19 @@ pub(crate) struct PathSpec {
 /// only where the walk goes; an edge's identity is its row in the CSR.
 #[derive(Debug)]
 pub(crate) struct CsrRoute {
-    /// Per step, every (type, direction) adjacency the step follows.
+    /// Per step, every (type, direction) adjacency the step follows. Each type's rows are
+    /// its `EdgeSource::rows`.
     pub steps: Vec<Vec<CsrHop>>,
-    /// Per relationship type (`PathSpec::edges` order), the rows its CSR stores.
-    pub rows: Vec<Arc<EdgeRows>>,
+}
+
+impl PathSpec {
+    /// The engine rows of relationship type `kind`, which the CSR route requires.
+    fn rows(&self, kind: usize) -> &EdgeRows {
+        self.edges[kind]
+            .rows
+            .as_deref()
+            .expect("csr route has engine rows")
+    }
 }
 
 #[derive(Debug)]
@@ -437,7 +447,7 @@ pub(crate) fn plan_path_match(
                     if filters.is_empty() {
                         return Ok(HopFilter::All);
                     }
-                    let table = node.spec.csr.as_ref().expect("csr route").rows[hop.kind].schema();
+                    let table = node.spec.rows(hop.kind).schema();
                     let mut terms = Vec::new();
                     for (key, value) in filters {
                         let Some(field) = table
@@ -845,7 +855,7 @@ impl CsrEdges {
 /// filter and reach a node of the inventory, read once per batch. Filters read only these
 /// edges' columns.
 async fn csr_candidates(
-    csr: &CsrRoute,
+    spec: &PathSpec,
     graph: &Ready,
     edges: &mut CsrEdges,
     stage: usize,
@@ -854,6 +864,7 @@ async fn csr_candidates(
     if let Some(candidates) = edges.candidates.get(&(stage, node)) {
         return Ok(candidates.clone());
     }
+    let csr = spec.csr.as_ref().expect("csr route");
     let key = graph.node_keys.value(node as usize);
     let label = graph.inventory.node_labels[node as usize];
     let mut candidates = Vec::new();
@@ -891,7 +902,7 @@ async fn csr_candidates(
             ));
         }
         if let HopFilter::Where(filter) = filter {
-            let rows = &csr.rows[hop.kind];
+            let rows = spec.rows(hop.kind);
             let edge_rows: Vec<u64> = candidates[first..].iter().map(|(_, e)| e.row).collect();
             let keep = state
                 .keep(rows, &edge_rows, filter, mask_after(rows, &hop.neighbors))
@@ -950,7 +961,6 @@ impl Pending {
     /// Relationship values for the edges of `paths`, read from their tables now. Renumbers
     /// each path's edges to their positions in the returned array.
     async fn csr_edges(&mut self, spec: &PathSpec, paths: &mut [PathRows]) -> Result<StructArray> {
-        let csr = spec.csr.as_ref().expect("csr route");
         let used: Vec<u32> = paths
             .iter_mut()
             .flat_map(|p| p.edges.iter_mut())
@@ -969,7 +979,7 @@ impl Pending {
         let error = |e: crate::error::GraphError| {
             datafusion::common::DataFusionError::External(Box::new(e))
         };
-        for (kind, rows) in csr.rows.iter().enumerate() {
+        for kind in 0..spec.edges.len() {
             let ids: Vec<u32> = distinct
                 .iter()
                 .copied()
@@ -982,6 +992,7 @@ impl Pending {
             if edges.is_empty() {
                 continue;
             }
+            let rows = spec.rows(kind);
             let edge_rows: Vec<u64> = edges.iter().map(|e| e.row).collect();
             let columns: Vec<usize> = (0..rows.schema().fields().len()).collect();
             let batch = RecordBatch::try_new(
@@ -990,23 +1001,10 @@ impl Pending {
             )?;
             let ends =
                 |end: fn(&CsrEdge) -> u32| UInt32Array::from_iter_values(edges.iter().map(end));
-            let identity = StructArray::from(vec![
-                (
-                    Arc::new(Field::new("label", arrow_schema::DataType::Utf8, false)),
-                    Arc::new(arrow::array::StringArray::from(vec![
-                        spec.edges[kind]
-                            .label
-                            .as_str();
-                        edges.len()
-                    ])) as ArrayRef,
-                ),
-                (
-                    Arc::new(Field::new("id", arrow_schema::DataType::Int64, false)),
-                    Arc::new(Int64Array::from_iter_values(
-                        edge_rows.iter().map(|&r| r as i64),
-                    )) as ArrayRef,
-                ),
-            ]);
+            let identity = relationship_identity(
+                vec![spec.edges[kind].label.as_str(); edges.len()],
+                edge_rows.iter().map(|&r| r as i64).collect(),
+            );
             let properties = properties(&batch, &self.graph.edge_fields)?;
             let part = self.edges.records.len();
             self.edges.record.extend(
@@ -1222,10 +1220,10 @@ impl Walk {
                 self.pop();
                 continue;
             }
-            let (edge, node) = if let Some(csr) = &spec.csr {
+            let (edge, node) = if spec.csr.is_some() {
                 if frame.candidates.is_none() {
                     frame.candidates =
-                        Some(csr_candidates(csr, graph, edges, frame.stage, frame.node).await?);
+                        Some(csr_candidates(spec, graph, edges, frame.stage, frame.node).await?);
                 }
                 let candidates = frame.candidates.as_ref().expect("fetched");
                 let Some(&(node, edge)) = candidates.get(frame.next) else {
@@ -1401,6 +1399,7 @@ mod tests {
                 source_id: "src".into(),
                 target_id: "dst".into(),
                 schema: edge_batch.schema(),
+                rows: None,
             }],
             bindings: vec![binding("a"), binding("b")],
             steps: vec![Step {
