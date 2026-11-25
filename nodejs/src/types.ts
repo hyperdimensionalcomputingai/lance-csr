@@ -5,6 +5,7 @@
  */
 
 import {
+  type Float64,
   type Int64,
   RecordBatch,
   Table,
@@ -130,8 +131,19 @@ export interface GraphExport {
    */
   inIndices: Vector<Uint64> | null;
   /**
-   * Edges left out because an endpoint key isn't in its node table. Edges with a null
-   * endpoint are skipped and not counted.
+   * The weight of each entry in `outIndices`; `null` unless `exportGraph` was given a `weight`
+   * column. An edge listed more than once, or in an undirected export both `a -> b` and
+   * `b -> a`, gets one weight, combined by the `combineEdges` rule (a sum by default).
+   */
+  outWeights: Vector<Float64> | null;
+  /**
+   * The weight of each entry in `inIndices`; `null` for an undirected export, or unless
+   * `exportGraph` was given a `weight` column.
+   */
+  inWeights: Vector<Float64> | null;
+  /**
+   * Edges left out because an endpoint key isn't in its node table, or, in a weighted export,
+   * because the weight is null. Edges with a null endpoint are skipped and not counted.
    */
   droppedEdges: number;
 }

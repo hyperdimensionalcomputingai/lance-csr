@@ -43,3 +43,9 @@
   height: auto;
   margin: 0.5rem 0 1rem;
 }
+
+/* Names in a table's first column (parameters, fields) break only at spaces, not mid-word. */
+.md-typeset td:first-child code {
+  overflow-wrap: normal;
+  word-break: normal;
+}

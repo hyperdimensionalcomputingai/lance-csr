@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 if TYPE_CHECKING:
-    from pyarrow import Int64Array, UInt64Array
+    from pyarrow import DoubleArray, Int64Array, UInt64Array
 
     from ._internal import graph as _graph
 
@@ -97,10 +97,30 @@ class GraphExport:
         return self._inner.in_indices
 
     @property
-    def dropped_edges(self) -> int:
-        """Edges left out because an endpoint key isn't in its node table.
+    def out_weights(self) -> DoubleArray | None:
+        """The weight of each entry in `out_indices`, as `float64`.
 
-        A query's join between the relationship and node tables leaves them out too.
-        Edges with a null endpoint are skipped and not counted.
+        `None` unless `export_graph` was given a `weight` column. An edge listed more
+        than once, or in an undirected export both `a -> b` and `b -> a`, gets one
+        weight, combined by `export_graph`'s `combine_edges` rule (a sum by default).
+        """
+        return self._inner.out_weights
+
+    @property
+    def in_weights(self) -> DoubleArray | None:
+        """The weight of each entry in `in_indices`, as `float64`.
+
+        `None` for an undirected export, or unless `export_graph` was given a `weight`
+        column.
+        """
+        return self._inner.in_weights
+
+    @property
+    def dropped_edges(self) -> int:
+        """Edges left out because an endpoint key isn't in its node table, or, in a
+        weighted export, because the weight is null.
+
+        A query's join between the relationship and node tables leaves out the first
+        kind too. Edges with a null endpoint are skipped and not counted.
         """
         return self._inner.dropped_edges

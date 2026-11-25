@@ -5,6 +5,7 @@ from typing import Any, ClassVar, Literal, Protocol, Self, TypedDict, TypeVar, f
 from lance import LanceDataset
 from pyarrow import (
     Array,
+    DoubleArray,
     Int64Array,
     RecordBatch,
     RecordBatchReader,
@@ -160,7 +161,13 @@ class CypherEngine:
         self, *, cleanup_older_than: timedelta | None = None
     ) -> dict[str, _DatasetOptimizeStats]: ...
     def export_graph(
-        self, rel_types: list[str] | None = None, *, directed: bool = True
+        self,
+        rel_types: list[str] | None = None,
+        *,
+        directed: bool = True,
+        weight: str | dict[str, str] | None = None,
+        combine_edges: Literal["sum", "min", "max"] = "sum",
+        default_weight: float | None = None,
     ) -> GraphExport: ...
     def write_node_column(
         self,
@@ -240,6 +247,10 @@ class GraphExport:
     def in_indptr(self) -> UInt64Array | None: ...
     @property
     def in_indices(self) -> UInt64Array | None: ...
+    @property
+    def out_weights(self) -> DoubleArray | None: ...
+    @property
+    def in_weights(self) -> DoubleArray | None: ...
     @property
     def dropped_edges(self) -> int: ...
 
