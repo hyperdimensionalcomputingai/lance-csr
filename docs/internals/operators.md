@@ -288,7 +288,8 @@ A frame reads its node's neighbors and their edge rows from the CSR the first ti
 step reads the outgoing and incoming CSR separately, so each edge keeps its stored direction. The step's relationship
 equalities are compiled against each relationship table and checked by `EdgeFilterState`, the same rule
 `CsrExpandExec` uses: fetch the filter columns of just the edges reached and, on a Lance table, switch to one read of
-the whole column once the edges checked pass 1/256 of the relationship's edges. An edge's identity is its CSR row,
+the whole column once the edges checked pass 1/256 of the relationship's edges. Both halves of an undirected step
+share one state, so they count their checks together and read the column once. An edge's identity is its CSR row,
 numbered per input batch so a trail can refuse to reuse one. Relationship records (properties, identity, start and
 end nodes) are built only for the edges of the paths in an output batch. This follows Kùzu's design, which evaluates
 relationship predicates inside recursive joins over CSR adjacency lists, so the work follows the frontier instead of

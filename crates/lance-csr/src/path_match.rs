@@ -370,7 +370,7 @@ struct Ready {
     node_keys: Int64Array,
     shortest: Option<(Neighbors, Neighbors)>,
     /// CSR route only: per step and hop, its filter and what that filter has checked.
-    hops: Vec<Vec<(HopFilter, EdgeFilterState)>>,
+    hops: Vec<Vec<(HopFilter, Arc<EdgeFilterState>)>>,
     /// CSR route only: the inventory has no edges, so relationship values are built here.
     edge_type: arrow_schema::DataType,
     edge_fields: arrow_schema::Fields,
@@ -708,15 +708,23 @@ impl Ready {
         let edge_fields = property_fields(spec.edges.iter().map(|s| s.schema.fields()))?;
         let node_type = inventory.nodes.data_type().clone();
         let edge_type = entity_type(edge_fields.clone(), "relationship", Some(&node_type));
-        let hops = hop_filters
-            .iter()
-            .map(|filters| {
-                filters
-                    .iter()
-                    .map(|f| (f.clone(), EdgeFilterState::default()))
-                    .collect()
-            })
-            .collect();
+        // Hops of one step over the same table share a state: the two halves of an
+        // undirected step then count their checks together and read one mask.
+        let hops = match &spec.csr {
+            Some(csr) => csr
+                .steps
+                .iter()
+                .zip(hop_filters)
+                .map(|(step, filters)| {
+                    let mut states: HashMap<usize, Arc<EdgeFilterState>> = HashMap::new();
+                    step.iter()
+                        .zip(filters)
+                        .map(|(hop, f)| (f.clone(), states.entry(hop.kind).or_default().clone()))
+                        .collect()
+                })
+                .collect(),
+            None => Vec::new(),
+        };
         let mask =
             |p: &Option<Arc<dyn PhysicalExpr>>, batch: &RecordBatch| -> Result<BooleanArray> {
                 match p {
