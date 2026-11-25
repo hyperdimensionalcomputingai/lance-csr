@@ -7,8 +7,17 @@ whole graph and compute one value for every node, a score or a group. Libraries 
 take the graph in the same form: compressed sparse rows (CSR) over dense node ids.
 
 [`CypherEngine.export_graph`][lance_csr.CypherEngine.export_graph] builds that form from your node and
-relationship tables. It reads only the key and endpoint columns, from the same dataset versions your queries
-see, and returns Arrow arrays that these libraries take without copying.
+relationship tables. It reads only the key and endpoint columns, plus a weight column when you ask for one,
+from the same dataset versions your queries see, and returns Arrow arrays that these libraries take without
+copying. Every parameter is optional, and all but `rel_types` are keyword-only:
+
+| Parameter | Default | What it controls |
+| --- | --- | --- |
+| `rel_types` | `None` | The relationship types to include, or every type with integer endpoints; the nodes are those of the labels at either end. See [Directed and undirected graphs](#directed-and-undirected-graphs). |
+| `directed` | `True` | `True` returns out-edge and in-edge arrays; `False` returns one set listing every edge both ways. See [Directed and undirected graphs](#directed-and-undirected-graphs). |
+| `weight` | `None` | A column name, or a dict of relationship type to column, exported as `float64` edge weights; `None` exports none. See [Weighted graphs](#weighted-graphs). |
+| `combine_edges` | `"sum"` | How an edge listed more than once combines its weights: `"sum"`, `"min"` or `"max"`. See [Weighted graphs](#weighted-graphs). |
+| `default_weight` | `None` | The weight of every edge of a type with no weight column; `None` makes such a type an error. See [Several relationship types](#several-relationship-types). |
 
 ## What the export contains
 
