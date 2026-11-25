@@ -376,7 +376,7 @@ RETURN length(p), nodes(p)
   once each path is complete.
 - **Variable-length alternation** follows each relationship type's configured endpoint labels. With
   suitable CSR and node indexes, a mixed path such as `[:hasType|isSubclassOf*1..3]` stays in one operator.
-  Named paths also support typed variable-length alternation through their edge inventory.
+  Named paths also support typed variable-length alternation.
   A standalone undirected segment with an explicit upper bound and multiple types, such as
   `MATCH (a:Person)-[:KNOWS|WORKS_WITH*1..3]-(b:Person) RETURN b.id`, can change
   direction at each hop. Its endpoints need known labels and integer keys. Each stored
@@ -440,18 +440,22 @@ Entity records store user properties in `__lance_csr_properties` and `{label, id
 in `__lance_csr_identity`. Relationship records also carry the node records `__lance_csr_start` and
 `__lance_csr_end`. These metadata fields are distinct from user properties, even if a property has the
 same name. `keys(entity)` lists only non-null user properties; `keys(map)` includes null-valued keys.
-Prefer the Cypher property and endpoint functions when writing queries. Relationship identities identify actual occurrences within this query's inventory, not persistent
+Prefer the Cypher property and endpoint functions when writing queries. Relationship identities identify actual occurrences within this query, not persistent
 IDs that can be compared across queries or snapshots. Rich paths support the same signed integer and
 `uint8`/`uint16`/`uint32` keys as the CSR. Mixed labels may share compatible properties; conflicting Arrow
 property types fail explicitly. Non-null node IDs must be unique within each participating label so
 relationship endpoints identify one node; duplicate IDs raise an error. Expanding a graph pattern from
 a mixed-label value remains unsupported.
 
-A path value needs a query-local inventory of the participating node and relationship tables, including
-properties. It therefore materializes those tables, even with `use_csr=True`. Traversal output is emitted
-in batches and named ordinary paths keep a cursor per hop, but inventory memory grows with the graph.
-Rich path queries can reuse a query template. Each execution binds its current parameters and creates
-an inventory from its own snapshot. A reader opened before `checkout_latest()` retains the old snapshot.
+A path value needs the properties of its nodes, so each execution reads the participating node tables in full.
+A query that names a path but never reads it, such as `MATCH p = ... RETURN count(*)`, builds no path
+values and, on the CSR walk, reads no relationship properties.
+With `use_csr=True`, a named path reads relationships only where its walk goes (see
+[the CSR index](csr.md#which-hops-use-it)). Shortest paths, and paths over a relationship type without a CSR,
+also read the relationship tables into a query-local inventory, whose memory grows with the graph.
+Traversal output is emitted in batches and named ordinary paths keep a cursor per hop.
+Rich path queries can reuse a query template. Each execution binds its current parameters and reads
+from its own snapshot. A reader opened before `checkout_latest()` retains the old snapshot.
 Queries asking only for shortest-path length, node keys or path null checks, including homogeneous node-property
 comprehensions and paths carried through `WITH` aliases, retain the usual CSR execution route when
 the relationship joins the same node label. Cross-label shortest paths use typed identities even for

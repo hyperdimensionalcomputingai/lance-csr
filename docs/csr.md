@@ -153,10 +153,24 @@ conditions above always runs on the CSR, even when a join would be about as fast
 [when it helps](#when-it-helps). `use_csr` is set once, for the whole engine, because it decides whether the
 CSR is built at all: with `use_csr=False` every hop is a join.
 
-Named path values and `relationships(path)` use a query-local inventory of actual edge occurrences because
-CSR neighbors do not carry edge identity or properties. This also preserves parallel edges when a path
-passes through `collect()` and `UNWIND`. The inventory materializes the participating node and relationship
-tables; bounded traversal batches do not bound that inventory. See [path values](cypher.md#path-values).
+Named path values and `relationships(path)` need each relationship's identity and properties, which a CSR
+neighbor list doesn't hold on its own. When every relationship type and direction a named path follows has a
+CSR, the path walks it from its start node, as an explicit hop does. Each step reads the neighbors of only the
+nodes the walk reaches and checks the step's relationship equalities, from an inline `{since: 2020}` or a
+`WHERE all(r IN relationships(p) WHERE r.since = 2020)`, on just those edges. Properties are read only for the
+relationships of the paths returned. An edge's identity is its row in the relationship table, so parallel edges
+stay distinct, even when a path passes through `collect()` and `UNWIND`. The cost therefore follows the part of
+the graph the walk reaches rather than the size of the relationship table.
+
+This design follows [Kùzu](https://github.com/kuzudb/kuzu), which evaluates relationship predicates inside its
+recursive joins over CSR adjacency lists, so a filtered variable-length pattern only extends paths along edges
+that pass.
+
+Shortest paths, and named paths over a relationship type without a CSR, use a query-local inventory of edge
+occurrences instead. The inventory reads the participating relationship tables in full, and bounded traversal
+batches do not bound it. Where a CSR exists, the inventory names each relationship by the same row the walk uses,
+so a named path and a shortest path in one query agree on which relationships are equal. Both routes read the participating node tables in full. See
+[path values](cypher.md#path-values).
 Shortest-path queries within one node label that only read length or node keys keep the CSR route below.
 Relationships crossing labels use typed identities, even for these queries, to distinguish equal keys
 from different labels.

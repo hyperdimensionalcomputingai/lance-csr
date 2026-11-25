@@ -498,6 +498,69 @@ async fn named_path_endpoint_labels_ignore_case() {
 }
 
 #[tokio::test]
+async fn named_paths_build_path_values_only_when_read() {
+    let cfg = GraphConfig::builder()
+        .node_table("Person", "id")
+        .rel_table("KNOWS", "Person", "Person", "src_id", "dst_id")
+        .build()
+        .unwrap();
+    let edges = [(1, 2), (2, 3), (3, 1), (1, 3), (3, 4), (2, 2)];
+    let path = "MATCH p = (a:Person {id: 1})-[:KNOWS*1..3]->(b:Person)";
+    // (return clause, whether it reads the path)
+    let cases = [
+        ("RETURN count(*) AS n", false),
+        ("RETURN count(b.id) AS n", false),
+        ("WITH b, p RETURN count(b) AS n", false),
+        ("RETURN count(p) AS n", true),
+        ("RETURN count(length(p)) AS n", true),
+        ("RETURN count(nodes(p)) AS n", true),
+        ("RETURN count(relationships(p)) AS n", true),
+        ("WITH p AS q RETURN count(q) AS n", true),
+    ];
+    for use_csr in [false, true] {
+        let engine = CypherEngine::new(
+            cfg.clone(),
+            HashMap::from([
+                ("Person".into(), EngineSource::Arrow(people())),
+                ("KNOWS".into(), EngineSource::Arrow(knows(&edges))),
+            ]),
+            use_csr,
+        )
+        .await
+        .unwrap();
+        let count = |query: String| {
+            let engine = &engine;
+            async move {
+                let batch = engine.execute(&query, HashMap::new()).await.unwrap();
+                let n = batch.column_by_name("n").unwrap();
+                n.as_any().downcast_ref::<Int64Array>().unwrap().value(0)
+            }
+        };
+        let expected = count(format!("{path} RETURN count(p) AS n")).await;
+        assert!(expected > 4, "use_csr={use_csr}");
+        for (ret, reads_path) in cases {
+            let query = format!("{path} {ret}");
+            assert_eq!(
+                count(query.clone()).await,
+                expected,
+                "use_csr={use_csr} {query}"
+            );
+            let plan = engine.explain(&query, HashMap::new()).await.unwrap();
+            let walk = if use_csr {
+                "csr walk"
+            } else {
+                "edge inventory"
+            };
+            let node = if reads_path { "p" } else { "endpoints" };
+            assert!(
+                plan.contains(&format!("PathMatchExec: {node} {walk}")),
+                "use_csr={use_csr} {query}\n{plan}"
+            );
+        }
+    }
+}
+
+#[tokio::test]
 async fn anonymous_patterns_keep_mixed_label_identity_and_query_semantics() {
     use arrow_array::{cast::AsArray, StructArray};
     for use_csr in [false, true] {

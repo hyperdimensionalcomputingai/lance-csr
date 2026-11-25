@@ -2,12 +2,14 @@
 // SPDX-FileCopyrightText: Copyright The lance-csr Authors
 
 use crate::ast::PathPattern;
+use crate::ast::RelationshipDirection;
 use crate::case_insensitive::qualify_column;
+use crate::csr_expand::{AdjacencyCatalog, Neighbors};
 use crate::datafusion_planner::{analysis::PlanningContext, DataFusionPlanner};
 use crate::error::{GraphError, Result};
 use crate::logical_plan::LogicalOperator;
 use crate::path_inventory::{EdgeSource, NodeSource};
-use crate::path_match::{Binding, PathMatchNode, PathSpec, Step};
+use crate::path_match::{Binding, CsrHop, CsrRoute, PathMatchNode, PathSpec, Step};
 use datafusion::logical_expr::{Extension, LogicalPlan, LogicalPlanBuilder};
 use std::sync::Arc;
 
@@ -82,6 +84,7 @@ impl DataFusionPlanner {
             );
         }
         let mut edges = Vec::new();
+        let mut edge_plans = Vec::new();
         for label in &edge_labels {
             let mapping = self.get_relationship_mapping(label)?;
             let source = catalog
@@ -115,12 +118,19 @@ impl DataFusionPlanner {
                 source_id: mapping.source_id_field.clone(),
                 target_id: mapping.target_id_field.clone(),
                 schema,
+                rows: self
+                    .adjacency
+                    .as_ref()
+                    .and_then(|catalog| catalog.edges(label).cloned()),
             });
-            plans.push(
-                LogicalPlanBuilder::scan(label.to_lowercase(), source, None)
-                    .and_then(|b| b.build())
-                    .map_err(|e| self.plan_error("Failed to scan path edges", e))?,
-            );
+            // A type with engine rows is read from them, by either route; see `EdgeSource::rows`.
+            if edges.last().is_some_and(|e| e.rows.is_none()) {
+                edge_plans.push(
+                    LogicalPlanBuilder::scan(label.to_lowercase(), source, None)
+                        .and_then(|b| b.build())
+                        .map_err(|e| self.plan_error("Failed to scan path edges", e))?,
+                );
+            }
         }
         let mut bindings = Vec::new();
         for node in
@@ -188,6 +198,14 @@ impl DataFusionPlanner {
                 relationship: rel.variable.clone(),
             });
         }
+        let csr = self
+            .adjacency
+            .as_ref()
+            .filter(|_| shortest.is_none())
+            .and_then(|catalog| csr_route(catalog, &edge_labels, &edges, &steps));
+        if csr.is_none() {
+            plans.extend(edge_plans);
+        }
         let variable = match &path.shortest {
             Some(shortest) => Some(
                 shortest
@@ -207,6 +225,7 @@ impl DataFusionPlanner {
                 bindings,
                 steps,
                 shortest,
+                csr,
             },
             std::sync::Arc::clone(&ctx.path_sources),
             std::iter::once(&path.start_node.properties)
@@ -226,4 +245,48 @@ impl DataFusionPlanner {
             node: Arc::new(node),
         }))
     }
+}
+
+/// The engine's CSR for every type and direction the steps follow, or `None` if one is
+/// missing (the edge inventory then serves the path).
+fn csr_route(
+    catalog: &AdjacencyCatalog,
+    labels: &[String],
+    edges: &[EdgeSource],
+    steps: &[Step],
+) -> Option<CsrRoute> {
+    if edges.iter().any(|e| e.rows.is_none()) {
+        return None;
+    }
+    let steps = steps
+        .iter()
+        .map(|step| {
+            let mut hops = Vec::new();
+            for &kind in &step.types {
+                let (label, edge) = (&labels[kind], &edges[kind]);
+                let halves: &[(bool, bool)] = match step.direction {
+                    RelationshipDirection::Outgoing => &[(true, false)],
+                    RelationshipDirection::Incoming => &[(false, false)],
+                    RelationshipDirection::Undirected => &[(true, false), (false, true)],
+                };
+                for &(outgoing, second) in halves {
+                    let (from, to) = if outgoing {
+                        (edge.source_label, edge.target_label)
+                    } else {
+                        (edge.target_label, edge.source_label)
+                    };
+                    hops.push(CsrHop {
+                        kind,
+                        neighbors: Neighbors::directed(catalog.get(label, outgoing)?.clone()),
+                        from,
+                        to,
+                        reversed: !outgoing,
+                        skip_self_loops: second && from == to,
+                    });
+                }
+            }
+            Some(hops)
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(CsrRoute { steps })
 }
