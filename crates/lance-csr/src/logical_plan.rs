@@ -718,10 +718,20 @@ impl<'a> LogicalPlanner<'a> {
             ValueExpression::Variable(list) => self.node_lists.get(list).cloned(),
             _ => None,
         };
+        let mut expression = unwind_clause.expression.clone();
+        // Comprehensions become operators on the input rows, as in WITH and RETURN.
+        let base = if crate::ast::needs_relational_evaluation(&expression) {
+            let input = base.unwrap_or(LogicalOperator::SingleRow);
+            let saved = self.seed_source.replace(input.clone());
+            let rewritten = self.rewrite_exists_in_value(input, &mut expression);
+            self.seed_source = saved;
+            Some(rewritten?)
+        } else {
+            base
+        };
         // A list of node ids unwinds to nodes; anything else to plain values.
         let kind = label.clone().unwrap_or_else(|| "Unwound".to_string());
         self.variables.insert(unwind_clause.alias.clone(), kind);
-        let mut expression = unwind_clause.expression.clone();
         self.resolve_value(&mut expression);
 
         Ok(LogicalOperator::Unwind {
@@ -2499,6 +2509,28 @@ fn conjuncts(expr: &BooleanExpression) -> Vec<&BooleanExpression> {
 mod tests {
     use super::*;
     use crate::{parser::parse_cypher_query, NodeMapping};
+
+    #[test]
+    fn unwind_lowers_list_comprehension() {
+        let config = GraphConfig::default();
+        let query =
+            parse_cypher_query("UNWIND [x IN [1, 2, 3] WHERE x > 1] AS y RETURN y").unwrap();
+        let LogicalOperator::Project { input, .. } =
+            LogicalPlanner::new(&config).plan(&query).unwrap()
+        else {
+            panic!("expected projection");
+        };
+        let LogicalOperator::Unwind {
+            input: Some(input),
+            expression,
+            ..
+        } = *input
+        else {
+            panic!("expected unwind");
+        };
+        assert_eq!(expression, ValueExpression::Variable("__list_1".into()));
+        assert!(matches!(*input, LogicalOperator::ListComprehension { .. }));
+    }
 
     #[test]
     fn return_alias_shadows_node_only_after_projection() {
