@@ -371,6 +371,9 @@ RETURN length(p), nodes(p)
   expansion for the whole range; the join fallback uses one branch per length. A property map on a
   variable-length relationship, such as `[:KNOWS*1..3 {since: 2020}]`, must hold for every relationship
   on the path; a zero-hop match has none to check. Such a path uses the join fallback.
+  On a named path, `WHERE all(r IN relationships(p) WHERE r.since = 2020)` filters the same way:
+  equalities on `r` drop a failing relationship during the walk, and other conditions are checked
+  once each path is complete.
 - **Variable-length alternation** follows each relationship type's configured endpoint labels. With
   suitable CSR and node indexes, a mixed path such as `[:hasType|isSubclassOf*1..3]` stays in one operator.
   Named paths also support typed variable-length alternation through their edge inventory.
@@ -461,7 +464,7 @@ This also applies inside `CALL` and `UNION`, and when equal-label endpoints pass
 | --- | --- |
 | Arithmetic | `+ - * / %` |
 | Comparison | `= <> != < <= > >=`, and chains such as `18 <= p.age < 65` |
-| Boolean | `AND OR NOT` |
+| Boolean | `AND OR NOT`; a boolean value is a condition on its own, as in `WHERE n.active` |
 | Strings | `STARTS WITH`, `ENDS WITH`, `CONTAINS`, and `LIKE` / `ILIKE` with SQL wildcards |
 | Lists | `IN`, literals `[1, 2]`, indexing `list[0]`, list comprehensions <code>[x IN list WHERE ... &#124; ...]</code> |
 | Maps | Literals `{k: v}` and key access `m.k` |

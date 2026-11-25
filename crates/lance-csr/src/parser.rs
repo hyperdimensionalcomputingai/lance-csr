@@ -692,9 +692,51 @@ fn where_clause(input: &str) -> IResult<&str, WhereClause> {
     let (input, _) = multispace0(input)?;
     let (input, _) = tag_no_case("WHERE")(input)?;
     let (input, _) = multispace1(input)?;
-    let (input, expression) = boolean_expression(input)?;
+    let (input, expression) = predicate(input)?;
 
     Ok((input, WhereClause { expression }))
+}
+
+/// A condition of its own (`WHERE`, `WHEN`), where a bare value such as `n.active` also
+/// counts.
+fn predicate(input: &str) -> IResult<&str, BooleanExpression> {
+    alt((boolean_expression, bare_boolean))(input)
+}
+
+/// A value used as a condition, read as `value = true` (as `all(...)` is), so null and
+/// false both fail.
+fn bare_boolean(input: &str) -> IResult<&str, BooleanExpression> {
+    let (input, _) = multispace0(input)?;
+    map(value_expression, |left| BooleanExpression::Comparison {
+        left,
+        operator: ComparisonOperator::Equal,
+        right: ValueExpression::Literal(PropertyValue::Boolean(true)),
+    })(input)
+}
+
+/// An operand of AND, OR or NOT. A bare value qualifies after one of those keywords or
+/// before AND/OR, but not alone, so `RETURN n.name` stays a value.
+fn boolean_operand(after_keyword: bool) -> impl FnMut(&str) -> IResult<&str, BooleanExpression> {
+    move |input| {
+        if let Ok(parsed) = boolean_not_expression(input) {
+            return Ok(parsed);
+        }
+        let (rest, expr) = bare_boolean(input)?;
+        let before_keyword = tuple((
+            multispace1,
+            alt((tag_no_case("AND"), tag_no_case("OR"))),
+            multispace1,
+        ))(rest)
+        .is_ok();
+        if after_keyword || before_keyword {
+            Ok((rest, expr))
+        } else {
+            Err(nom::Err::Error(nom::error::Error::new(
+                input,
+                nom::error::ErrorKind::Verify,
+            )))
+        }
+    }
 }
 
 // Parse a boolean expression with OR precedence
@@ -703,10 +745,10 @@ fn boolean_expression(input: &str) -> IResult<&str, BooleanExpression> {
 }
 
 fn boolean_or_expression(input: &str) -> IResult<&str, BooleanExpression> {
-    let (input, first) = boolean_and_expression(input)?;
+    let (input, first) = boolean_and_expression(false)(input)?;
     let (input, rest) = many0(preceded(
         tuple((multispace0, tag_no_case("OR"), multispace1)),
-        boolean_and_expression,
+        boolean_and_expression(true),
     ))(input)?;
     let expr = rest.into_iter().fold(first, |acc, item| {
         BooleanExpression::Or(Box::new(acc), Box::new(item))
@@ -714,16 +756,20 @@ fn boolean_or_expression(input: &str) -> IResult<&str, BooleanExpression> {
     Ok((input, expr))
 }
 
-fn boolean_and_expression(input: &str) -> IResult<&str, BooleanExpression> {
-    let (input, first) = boolean_not_expression(input)?;
-    let (input, rest) = many0(preceded(
-        tuple((multispace0, tag_no_case("AND"), multispace1)),
-        boolean_not_expression,
-    ))(input)?;
-    let expr = rest.into_iter().fold(first, |acc, item| {
-        BooleanExpression::And(Box::new(acc), Box::new(item))
-    });
-    Ok((input, expr))
+fn boolean_and_expression(
+    after_keyword: bool,
+) -> impl FnMut(&str) -> IResult<&str, BooleanExpression> {
+    move |input| {
+        let (input, first) = boolean_operand(after_keyword)(input)?;
+        let (input, rest) = many0(preceded(
+            tuple((multispace0, tag_no_case("AND"), multispace1)),
+            boolean_operand(true),
+        ))(input)?;
+        let expr = rest.into_iter().fold(first, |acc, item| {
+            BooleanExpression::And(Box::new(acc), Box::new(item))
+        });
+        Ok((input, expr))
+    }
 }
 
 fn boolean_not_expression(input: &str) -> IResult<&str, BooleanExpression> {
@@ -732,7 +778,7 @@ fn boolean_not_expression(input: &str) -> IResult<&str, BooleanExpression> {
         map(
             preceded(
                 tuple((tag_no_case("NOT"), multispace1)),
-                boolean_not_expression,
+                boolean_operand(true),
             ),
             |expr| BooleanExpression::Not(Box::new(expr)),
         ),
@@ -1216,7 +1262,7 @@ fn case_expression(input: &str) -> IResult<&str, ValueExpression> {
     let (input, operand) = opt(terminated(expression, peek(keyword("WHEN"))))(input)?;
     let (input, whens) = match &operand {
         None => many1(tuple((
-            preceded(keyword("WHEN"), boolean_expression),
+            preceded(keyword("WHEN"), predicate),
             preceded(keyword("THEN"), expression),
         )))(input)?,
         Some(operand) => {
@@ -2926,6 +2972,48 @@ mod tests {
             "9".repeat(400)
         );
         assert!(parse_cypher_query(&huge).is_err());
+    }
+
+    #[test]
+    fn bare_values_are_conditions() {
+        let is_true = |v: &str| BooleanExpression::Comparison {
+            left: ValueExpression::Property(PropertyRef::new("n", v)),
+            operator: ComparisonOperator::Equal,
+            right: ValueExpression::Literal(PropertyValue::Boolean(true)),
+        };
+        let x_is_1 = BooleanExpression::Comparison {
+            left: ValueExpression::Property(PropertyRef::new("n", "x")),
+            operator: ComparisonOperator::Equal,
+            right: ValueExpression::Literal(PropertyValue::Integer(1)),
+        };
+        let and = |a, b| BooleanExpression::And(Box::new(a), Box::new(b));
+        let or = |a, b| BooleanExpression::Or(Box::new(a), Box::new(b));
+        for (condition, expected) in [
+            ("n.ok", is_true("ok")),
+            ("NOT n.ok", BooleanExpression::Not(Box::new(is_true("ok")))),
+            ("n.ok AND n.x = 1", and(is_true("ok"), x_is_1.clone())),
+            ("n.x = 1 AND n.ok", and(x_is_1.clone(), is_true("ok"))),
+            ("n.ok OR n.done", or(is_true("ok"), is_true("done"))),
+            (
+                "n.x = 1 OR n.ok AND n.done",
+                or(x_is_1, and(is_true("ok"), is_true("done"))),
+            ),
+        ] {
+            let query = parse_cypher_query(&format!("MATCH (n:N) WHERE {condition} RETURN n"))
+                .unwrap_or_else(|e| panic!("{condition}: {e}"));
+            assert_eq!(
+                query.where_clause.unwrap().expression,
+                expected,
+                "{condition}"
+            );
+        }
+        // A value on its own in a projection stays a value.
+        let query = parse_cypher_query("MATCH (n:N) RETURN n.name, n.x ORDER BY n.x").unwrap();
+        assert!(query
+            .return_clause
+            .items
+            .iter()
+            .all(|item| matches!(item.expression, ValueExpression::Property(_))));
     }
 
     #[test]
