@@ -76,6 +76,28 @@ pub struct GraphExport {
     pub dropped_edges: i64,
 }
 
+impl From<lance_csr::GraphExport> for GraphExport {
+    fn from(g: lance_csr::GraphExport) -> Self {
+        Self {
+            num_nodes: g.num_nodes as i64,
+            directed: g.directed,
+            node_keys: into_vec(g.node_keys).into(),
+            label_ranges: g
+                .label_ranges
+                .into_iter()
+                .map(|(label, start, end)| (label, vec![start as i64, end as i64]))
+                .collect(),
+            out_indptr: into_vec(g.out_indptr).into(),
+            out_indices: into_vec(g.out_indices).into(),
+            in_indptr: g.in_indptr.map(|a| into_vec(a).into()),
+            in_indices: g.in_indices.map(|a| into_vec(a).into()),
+            out_weights: g.out_weights.map(|a| into_vec(a).into()),
+            in_weights: g.in_weights.map(|a| into_vec(a).into()),
+            dropped_edges: g.dropped_edges as i64,
+        }
+    }
+}
+
 /// The array's values as a `Vec`, without copying when the buffer is uniquely owned.
 fn into_vec<T: arrow_array::types::ArrowPrimitiveType>(
     array: arrow_array::PrimitiveArray<T>,
@@ -303,23 +325,41 @@ impl CypherEngine {
                 .await
         })
         .await?;
-        Ok(GraphExport {
-            num_nodes: g.num_nodes as i64,
-            directed: g.directed,
-            node_keys: into_vec(g.node_keys).into(),
-            label_ranges: g
-                .label_ranges
-                .into_iter()
-                .map(|(label, start, end)| (label, vec![start as i64, end as i64]))
-                .collect(),
-            out_indptr: into_vec(g.out_indptr).into(),
-            out_indices: into_vec(g.out_indices).into(),
-            in_indptr: g.in_indptr.map(|a| into_vec(a).into()),
-            in_indices: g.in_indices.map(|a| into_vec(a).into()),
-            out_weights: g.out_weights.map(|a| into_vec(a).into()),
-            in_weights: g.in_weights.map(|a| into_vec(a).into()),
-            dropped_edges: g.dropped_edges as i64,
+        Ok(g.into())
+    }
+
+    #[napi]
+    pub async fn export_subgraph(
+        &self,
+        query: String,
+        params_json: Option<String>,
+        directed: bool,
+        weight: Option<String>,
+        combine_edges: Option<String>,
+        default_weight: Option<f64>,
+    ) -> napi::Result<GraphExport> {
+        let combine = combine_edges
+            .as_deref()
+            .map(str::parse::<lance_csr::CombineEdges>)
+            .transpose()
+            .map_err(graph_error)?
+            .unwrap_or_default();
+        let weights =
+            (weight.is_some() || default_weight.is_some()).then(|| lance_csr::EdgeWeights {
+                column: weight,
+                default: default_weight,
+                combine,
+                ..Default::default()
+            });
+        let params = params(params_json)?;
+        let inner = self.inner.clone();
+        let g = blocking(async move {
+            inner
+                .export_subgraph(&query, params, directed, weights.as_ref())
+                .await
         })
+        .await?;
+        Ok(g.into())
     }
 
     #[napi]

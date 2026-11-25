@@ -470,21 +470,57 @@ export class CypherEngine {
         options.defaultWeight,
       ),
     );
-    return {
-      numNodes: g.numNodes,
-      directed: g.directed,
-      nodeKeys: makeVector(g.nodeKeys),
-      labelRanges: Object.fromEntries(
-        Object.entries(g.labelRanges).map(([label, [start, end]]) => [label, [start!, end!]]),
+    return fromNative(g);
+  }
+
+  /**
+   * The part of the graph a Cypher query selects, as typed arrays over dense node ids: the same
+   * form and edge rules as {@link CypherEngine.exportGraph}.
+   *
+   * The query returns one row per edge, with the source and target node keys as its first two
+   * columns. The nodes are the keys present in the result. When both columns are a labeled
+   * node's key, as `RETURN a.id, b.id` with `(a:Person)` and `id` its key, the ids are grouped
+   * per label as in `exportGraph`, so `labelRanges` is filled; otherwise all keys share one id
+   * space and `labelRanges` is empty. See
+   * [Subgraphs](https://lance-csr.hdclabs.ai/graph-algorithms/#subgraphs).
+   *
+   * @param query - A Cypher query returning the source and target keys as its first two
+   *   columns, which must be integer types up to `int64`.
+   * @param params - Values for `$name` parameters, as for {@link CypherEngine.execute}.
+   * @param options.directed - `true` (the default) returns out-edge and in-edge arrays; `false`
+   *   returns one set of arrays listing every edge in both directions.
+   * @param options.weight - A numeric column of the result holding each edge's weight,
+   *   case-insensitive, exported as float64 in `outWeights` and `inWeights`. An edge whose
+   *   weight is null is left out and counted in `droppedEdges`.
+   * @param options.combineEdges - How an edge listed more than once combines its weights, as in
+   *   `exportGraph`. Ignored without weights.
+   * @param options.defaultWeight - Without `weight`, the weight of every row: `1` makes each
+   *   edge's weight the number of rows that list it.
+   * @throws {@link LanceCsrError} `InvalidArgument` if the query is invalid, its first two
+   *   columns aren't integer keys, the weight column is missing or isn't numeric, or
+   *   `combineEdges` isn't one of the three rules; `Runtime` if the query fails while running.
+   */
+  async exportSubgraph(
+    query: string,
+    params?: Record<string, Parameter> | null,
+    options: {
+      directed?: boolean;
+      weight?: string;
+      combineEdges?: "sum" | "min" | "max";
+      defaultWeight?: number;
+    } = {},
+  ): Promise<GraphExport> {
+    const g = await call(() =>
+      this.#inner.exportSubgraph(
+        query,
+        parametersJson(params),
+        options.directed ?? true,
+        options.weight,
+        options.combineEdges,
+        options.defaultWeight,
       ),
-      outIndptr: makeVector(g.outIndptr),
-      outIndices: makeVector(g.outIndices),
-      inIndptr: g.inIndptr ? makeVector(g.inIndptr) : null,
-      inIndices: g.inIndices ? makeVector(g.inIndices) : null,
-      outWeights: g.outWeights ? makeVector(g.outWeights) : null,
-      inWeights: g.inWeights ? makeVector(g.inWeights) : null,
-      droppedEdges: g.droppedEdges,
-    };
+    );
+    return fromNative(g);
   }
 
   /** The pinned version of each Lance dataset, keyed by dataset name. Arrow inputs aren't listed. */
@@ -709,4 +745,23 @@ export class CypherQuery {
   toString(): string {
     return `CypherQuery(${JSON.stringify(this.#query)})`;
   }
+}
+
+/** The native export as apache-arrow vectors over the same typed arrays. */
+function fromNative(g: native.GraphExport): GraphExport {
+  return {
+    numNodes: g.numNodes,
+    directed: g.directed,
+    nodeKeys: makeVector(g.nodeKeys),
+    labelRanges: Object.fromEntries(
+      Object.entries(g.labelRanges).map(([label, [start, end]]) => [label, [start!, end!]]),
+    ),
+    outIndptr: makeVector(g.outIndptr),
+    outIndices: makeVector(g.outIndices),
+    inIndptr: g.inIndptr ? makeVector(g.inIndptr) : null,
+    inIndices: g.inIndices ? makeVector(g.inIndices) : null,
+    outWeights: g.outWeights ? makeVector(g.outWeights) : null,
+    inWeights: g.inWeights ? makeVector(g.inWeights) : null,
+    droppedEdges: g.droppedEdges,
+  };
 }

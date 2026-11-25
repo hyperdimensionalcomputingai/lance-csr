@@ -139,6 +139,67 @@ def test_weights_per_type_and_default():
         engine.export_graph(weight=3)  # pyright: ignore[reportArgumentType]
 
 
+def test_export_subgraph():
+    engine = CypherEngine(CONFIG, {"Person": NODES, "KNOWS": WEIGHTED})
+    query = (
+        "MATCH (a:Person)-[r:KNOWS]->(b:Person) WHERE a.id >= $low "
+        "RETURN a.id, b.id, r.w AS cost"
+    )
+    g = engine.export_subgraph(query, {"low": 30}, directed=False)
+    assert isinstance(g, GraphExport)
+    # 30->10, 30->30, 50->60, 60->50: the keys present, sorted.
+    assert g.node_keys.to_pylist() == [10, 30, 50, 60]
+    assert g.label_ranges == {"Person": (0, 4)}
+    assert g.out_indptr.to_pylist() == [0, 1, 3, 4, 5]
+    assert g.out_indices.to_pylist() == [1, 0, 1, 3, 2]
+    assert g.out_weights is None and g.in_indptr is None
+
+    w = engine.export_subgraph(query, {"low": 10}, weight="cost")
+    assert w.out_weights is not None
+    # The duplicate 10->20 sums 1 and 2.
+    assert w.out_weights.to_pylist() == [3, 4, 8, 16, 64, 128]
+    rows = engine.export_subgraph(query, {"low": 10}, default_weight=1.0)
+    assert rows.out_weights is not None
+    assert rows.out_weights.to_pylist() == [2, 1, 1, 1, 1, 1]
+
+    # Computed keys can't be matched to a label: one id space, no write-back.
+    unlabeled = engine.export_subgraph(
+        "MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN a.id + 0 AS s, b.id"
+    )
+    assert unlabeled.label_ranges == {}
+    with pytest.raises(ValueError, match="no node labels"):
+        engine.write_node_column(unlabeled, "x", [0] * unlabeled.num_nodes)
+
+    with pytest.raises(ValueError, match="integer key"):
+        engine.export_subgraph("MATCH (a:Person) RETURN 'x' AS s, a.id")
+    with pytest.raises(ValueError, match="first two columns"):
+        engine.export_subgraph("MATCH (a:Person) RETURN a.id")
+    with pytest.raises(ValueError, match="'price' not found"):
+        engine.export_subgraph(query, {"low": 10}, weight="price")
+
+
+def test_export_subgraph_write_back(tmp_path):
+    lance.write_dataset(NODES, tmp_path / "person.lance")
+    lance.write_dataset(EDGES, tmp_path / "knows.lance")
+    engine = CypherEngine(
+        CONFIG,
+        {
+            "Person": lance.dataset(tmp_path / "person.lance"),
+            "KNOWS": lance.dataset(tmp_path / "knows.lance"),
+        },
+    )
+    g = engine.export_subgraph(
+        "MATCH (a:Person)-[:KNOWS]->(b:Person) WHERE a.id >= 30 RETURN a.id, b.id"
+    )
+    engine.write_node_column(g, "in_sub", [True] * g.num_nodes)
+    rows = engine.execute("MATCH (p:Person) RETURN p.id, p.in_sub ORDER BY p.id")
+    # Nodes outside the subgraph get null.
+    assert rows.to_pylist() == [
+        {"p.id": key, "p.in_sub": True if key in (10, 30, 50, 60) else None}
+        for key in (10, 20, 30, 40, 50, 60)
+    ]
+
+
 def test_labels_with_colliding_keys():
     config = (
         GraphConfig.builder()

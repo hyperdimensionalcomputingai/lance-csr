@@ -169,6 +169,16 @@ class CypherEngine:
         combine_edges: Literal["sum", "min", "max"] = "sum",
         default_weight: float | None = None,
     ) -> GraphExport: ...
+    def export_subgraph(
+        self,
+        query: str,
+        params: dict[str, Any] | None = None,
+        *,
+        directed: bool = True,
+        weight: str | None = None,
+        combine_edges: Literal["sum", "min", "max"] = "sum",
+        default_weight: float | None = None,
+    ) -> GraphExport: ...
     def write_node_column(
         self,
         export: GraphExport,

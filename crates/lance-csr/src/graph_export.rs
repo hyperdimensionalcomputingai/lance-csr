@@ -320,22 +320,13 @@ pub(crate) async fn export_graph(
         )));
     }
 
-    // Edges as packed `row * n + column` keys, both orientations at once.
-    // Sized from row counts (Lance metadata): growing by doubling would peak at
-    // several times the final size while copying.
+    // Row counts (Lance metadata) size the edge vectors.
     let mut rows = 0;
     for rel in &rels {
         rows += rel.source.num_rows(&rel.name).await?;
     }
-    // Exactly one of the key and the (key, weight) vectors is used.
-    let weighted = weights.is_some();
-    let (keys_cap, pairs_cap) = if weighted { (0, rows) } else { (rows, 0) };
-    // Out-edges only: directed in-edges come from transposing the out CSR, and undirected
-    // reverse edges go into the same vector.
-    let mut out: Vec<u64> = Vec::with_capacity(if directed { keys_cap } else { 2 * keys_cap });
-    let mut out_w: Vec<(u64, f64)> =
-        Vec::with_capacity(if directed { pairs_cap } else { 2 * pairs_cap });
-    let mut dropped = 0u64;
+    let combine = weights.map(|w| w.combine).unwrap_or_default();
+    let mut edges = EdgeBuilder::new(n, directed, weights.is_some(), rows);
     for rel in &rels {
         let (src_map, dst_map) = (&maps[rel.src_label], &maps[rel.dst_label]);
         let mut columns = vec![rel.src.as_str(), rel.dst.as_str()];
@@ -354,75 +345,325 @@ pub(crate) async fn export_graph(
                 Some(name) => Some(float64(batch.column(2), name, &rel.name)?),
                 None => None,
             };
-            let pairs: Vec<Option<(u64, u64, usize)>> = (0..batch.num_rows())
-                .into_par_iter()
-                .with_min_len(4096)
-                .filter(|&i| s.is_valid(i) && d.is_valid(i))
-                .map(|i| {
-                    // A null weight drops the edge, as a missing endpoint does: no weight
-                    // is a safe stand-in for an unknown one.
-                    if w.as_ref().is_some_and(|w| w.is_null(i)) {
-                        return None;
-                    }
-                    Some((*src_map.get(&s.value(i))?, *dst_map.get(&d.value(i))?, i))
-                })
-                .collect();
-            for pair in pairs {
-                let Some((a, b, i)) = pair else {
-                    dropped += 1;
-                    continue;
-                };
-                // A self-loop's reverse is itself; adding it would count its weight twice.
-                let reverse = !directed && a != b;
-                if weighted {
-                    let w = w.as_ref().map_or(constant, |w| w.value(i));
-                    out_w.push((a * n + b, w));
-                    if reverse {
-                        out_w.push((b * n + a, w));
-                    }
-                } else {
-                    out.push(a * n + b);
-                    if reverse {
-                        out.push(b * n + a);
-                    }
+            edges.add(&s, &d, src_map, dst_map, w.as_ref(), constant);
+        }
+    }
+    Ok(edges.finish(Int64Array::from(node_keys), label_ranges, combine))
+}
+
+/// The node label of each of a query's first two RETURN columns, when both are a node's key.
+///
+/// `a.id` resolves to `Person` when the MATCH binds `a` to the single label `Person` and `id`
+/// is that label's key column. Anything else (an unlabeled or multi-label node, a computed
+/// expression, a WITH stage or UNION that may rebind variables) gives `None`: the keys are
+/// then one key space without labels.
+pub(crate) fn returned_labels(
+    config: &GraphConfig,
+    query: &crate::ast::CypherQuery,
+) -> Option<[String; 2]> {
+    use crate::ast::{GraphPattern, NodePattern, ReadingClause, ValueExpression};
+    if query.with_clause.is_some()
+        || !query.further_with_stages.is_empty()
+        || !query.union_branches.is_empty()
+    {
+        return None;
+    }
+    let mut labels: HashMap<String, Vec<String>> = HashMap::new();
+    let mut note = |node: &NodePattern| {
+        if let Some(variable) = &node.variable {
+            labels
+                .entry(variable.clone())
+                .or_default()
+                .extend(node.labels.iter().cloned());
+        }
+    };
+    for clause in &query.reading_clauses {
+        let ReadingClause::Match(m) = clause else {
+            continue;
+        };
+        for pattern in &m.patterns {
+            match pattern {
+                GraphPattern::Node(node) => note(node),
+                GraphPattern::Path(path) => {
+                    note(&path.start_node);
+                    path.segments.iter().for_each(|s| note(&s.end_node));
+                }
+            }
+        }
+    }
+    let resolve = |i: usize| -> Option<String> {
+        let ValueExpression::Property(p) = &query.return_clause.items.get(i)?.expression else {
+            return None;
+        };
+        let mut names = labels.get(&p.variable)?.clone();
+        names.sort_by_key(|l| l.to_lowercase());
+        names.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
+        let [label] = names.as_slice() else {
+            return None;
+        };
+        let mapping = config.get_node_mapping(label)?;
+        mapping
+            .id_field
+            .eq_ignore_ascii_case(&p.property)
+            .then(|| mapping.label.clone())
+    };
+    Some([resolve(0)?, resolve(1)?])
+}
+
+/// Build an export from a query result whose first two columns are the source and target
+/// keys. With `labels`, each column's keys are that label's nodes and ids are grouped per
+/// label as in [`export_graph`]; without, all keys share one id space.
+pub(crate) fn export_rows(
+    rows: &arrow::array::RecordBatch,
+    labels: Option<[String; 2]>,
+    directed: bool,
+    weights: Option<&EdgeWeights>,
+) -> Result<GraphExport> {
+    const TABLE: &str = "the query result";
+    let schema = rows.schema();
+    if schema.fields().len() < 2 {
+        return Err(config_error(
+            "The query must return the source and target keys as its first two columns".to_string(),
+        ));
+    }
+    let mut ends = Vec::with_capacity(2);
+    for field in &schema.fields()[..2] {
+        if !is_supported_id_type(field.data_type()) {
+            return Err(config_error(format!(
+                "Column '{}' of {TABLE} is {}, not an integer key type the export supports",
+                field.name(),
+                field.data_type()
+            )));
+        }
+        ends.push(int64(rows.column(ends.len()), field.name(), TABLE)?);
+    }
+    let (s, d) = (&ends[0], &ends[1]);
+    let (weight, constant) = match weights {
+        None => (None, 0.0),
+        Some(w) if !w.per_type.is_empty() => {
+            return Err(config_error(
+                "A subgraph's weights come from a column of the query result: name one, not \
+                 one per relationship type"
+                    .to_string(),
+            ))
+        }
+        Some(EdgeWeights {
+            column: Some(name), ..
+        }) => {
+            let (i, field) = schema
+                .fields()
+                .iter()
+                .enumerate()
+                .find(|(_, f)| f.name().eq_ignore_ascii_case(name))
+                .ok_or_else(|| {
+                    config_error(format!("Weight column '{name}' not found in {TABLE}"))
+                })?;
+            if !field.data_type().is_numeric() {
+                return Err(config_error(format!(
+                    "Weight column '{name}' of {TABLE} is {}, not a numeric type",
+                    field.data_type()
+                )));
+            }
+            (Some(float64(rows.column(i), name, TABLE)?), 0.0)
+        }
+        Some(EdgeWeights {
+            default: Some(value),
+            ..
+        }) => (None, *value),
+        Some(_) => {
+            return Err(config_error(
+                "Edge weights need a weight column or a default weight".to_string(),
+            ))
+        }
+    };
+
+    // Each id space's keys: the endpoints present, sorted. One space per label (in label
+    // name order, as in `export_graph`), or one for all keys.
+    let valid = |i: &usize| s.is_valid(*i) && d.is_valid(*i);
+    let column_keys = |column: &Int64Array| -> Vec<i64> {
+        (0..rows.num_rows())
+            .filter(valid)
+            .map(|i| column.value(i))
+            .collect()
+    };
+    let mut spaces: Vec<(Option<String>, Vec<i64>)> = match &labels {
+        Some([a, b]) if a == b => {
+            let mut keys = column_keys(s);
+            keys.extend(column_keys(d));
+            vec![(Some(a.clone()), keys)]
+        }
+        Some([a, b]) => {
+            let mut spaces = vec![
+                (Some(a.clone()), column_keys(s)),
+                (Some(b.clone()), column_keys(d)),
+            ];
+            spaces.sort_by(|x, y| x.0.cmp(&y.0));
+            spaces
+        }
+        None => {
+            let mut keys = column_keys(s);
+            keys.extend(column_keys(d));
+            vec![(None, keys)]
+        }
+    };
+    let mut node_keys = Vec::new();
+    let mut label_ranges = Vec::new();
+    let mut maps = Vec::with_capacity(spaces.len());
+    for (label, keys) in &mut spaces {
+        keys.par_sort_unstable();
+        keys.dedup();
+        let start = node_keys.len() as u64;
+        let mut map = FastMap::with_capacity_and_hasher(keys.len(), RandomState::default());
+        for &key in keys.iter() {
+            map.insert(key, node_keys.len() as u64);
+            node_keys.push(key);
+        }
+        if let Some(label) = label {
+            label_ranges.push((label.clone(), start, node_keys.len() as u64));
+        }
+        maps.push(map);
+    }
+    drop(spaces);
+    let n = node_keys.len() as u64;
+    if n > u64::from(u32::MAX) {
+        // `row * n + column` must fit in a u64.
+        return Err(exec_error(format!(
+            "{n} nodes is more than the export supports"
+        )));
+    }
+    // The source column's map comes first unless the labels are ordered the other way.
+    let (src_map, dst_map) = match (&labels, maps.as_slice()) {
+        (Some([a, b]), [first, second]) if a > b => (second, first),
+        (_, [first, second]) => (first, second),
+        (_, [only]) => (only, only),
+        _ => unreachable!("one or two id spaces"),
+    };
+    let mut builder = EdgeBuilder::new(n, directed, weights.is_some(), rows.num_rows());
+    builder.add(s, d, src_map, dst_map, weight.as_ref(), constant);
+    let combine = weights.map(|w| w.combine).unwrap_or_default();
+    Ok(builder.finish(Int64Array::from(node_keys), label_ranges, combine))
+}
+
+/// Edges mapped to dense ids, collected for the CSR build.
+///
+/// Out-edges only: a directed graph's in-edges come from transposing the out CSR, and an
+/// undirected graph's reverse edges go into the same vector. Exactly one of the packed-key
+/// and the `(key, weight)` vectors is used, so an unweighted build allocates nothing for
+/// weights.
+struct EdgeBuilder {
+    n: u64,
+    directed: bool,
+    weighted: bool,
+    out: Vec<u64>,
+    out_w: Vec<(u64, f64)>,
+    dropped: u64,
+}
+
+impl EdgeBuilder {
+    /// `rows` sizes the vectors up front: growing by doubling would peak at several times
+    /// the final size while copying.
+    fn new(n: u64, directed: bool, weighted: bool, rows: usize) -> Self {
+        let rows = if directed { rows } else { 2 * rows };
+        let (keys, pairs) = if weighted { (0, rows) } else { (rows, 0) };
+        Self {
+            n,
+            directed,
+            weighted,
+            out: Vec::with_capacity(keys),
+            out_w: Vec::with_capacity(pairs),
+            dropped: 0,
+        }
+    }
+
+    /// Add one batch of edges. A null endpoint skips the edge; an endpoint key missing from
+    /// its map, or a null weight, drops it and counts it. Without a weight column, a weighted
+    /// build gives every edge `constant`.
+    fn add(
+        &mut self,
+        s: &Int64Array,
+        d: &Int64Array,
+        src_map: &FastMap<i64, u64>,
+        dst_map: &FastMap<i64, u64>,
+        w: Option<&Float64Array>,
+        constant: f64,
+    ) {
+        let pairs: Vec<Option<(u64, u64, usize)>> = (0..s.len())
+            .into_par_iter()
+            .with_min_len(4096)
+            .filter(|&i| s.is_valid(i) && d.is_valid(i))
+            .map(|i| {
+                // A null weight drops the edge, as a missing endpoint does: no weight
+                // is a safe stand-in for an unknown one.
+                if w.is_some_and(|w| w.is_null(i)) {
+                    return None;
+                }
+                Some((*src_map.get(&s.value(i))?, *dst_map.get(&d.value(i))?, i))
+            })
+            .collect();
+        let n = self.n;
+        for pair in pairs {
+            let Some((a, b, i)) = pair else {
+                self.dropped += 1;
+                continue;
+            };
+            // A self-loop's reverse is itself; adding it would count its weight twice.
+            let reverse = !self.directed && a != b;
+            if self.weighted {
+                let w = w.map_or(constant, |w| w.value(i));
+                self.out_w.push((a * n + b, w));
+                if reverse {
+                    self.out_w.push((b * n + a, w));
+                }
+            } else {
+                self.out.push(a * n + b);
+                if reverse {
+                    self.out.push(b * n + a);
                 }
             }
         }
     }
 
-    let (out_indptr, out_indices, out_weights) = if weighted {
-        drop(out);
-        let combine = weights.map(|w| w.combine).unwrap_or_default();
-        let (p, i, w) = weighted_csr(n, out_w, combine);
-        (p, i, Some(w))
-    } else {
-        drop(out_w);
-        let (p, i) = csr(n, out);
-        (p, i, None)
-    };
-    let (in_indptr, in_indices, in_weights) = if directed {
-        let (p, i, w) = transpose(
-            out_indptr.values(),
-            out_indices.values(),
-            out_weights.as_ref().map(|w| w.values().as_ref()),
-        );
-        (Some(p), Some(i), w)
-    } else {
-        (None, None, None)
-    };
-    Ok(GraphExport {
-        num_nodes: n,
-        directed,
-        node_keys: Int64Array::from(node_keys),
-        label_ranges,
-        out_indptr,
-        out_indices,
-        in_indptr,
-        in_indices,
-        out_weights,
-        in_weights,
-        dropped_edges: dropped,
-    })
+    /// Sort, deduplicate (combining weights by `combine`) and build the CSR arrays.
+    fn finish(
+        self,
+        node_keys: Int64Array,
+        label_ranges: Vec<(String, u64, u64)>,
+        combine: CombineEdges,
+    ) -> GraphExport {
+        let (n, directed) = (self.n, self.directed);
+        let (out_indptr, out_indices, out_weights) = if self.weighted {
+            drop(self.out);
+            let (p, i, w) = weighted_csr(n, self.out_w, combine);
+            (p, i, Some(w))
+        } else {
+            drop(self.out_w);
+            let (p, i) = csr(n, self.out);
+            (p, i, None)
+        };
+        let (in_indptr, in_indices, in_weights) = if directed {
+            let (p, i, w) = transpose(
+                out_indptr.values(),
+                out_indices.values(),
+                out_weights.as_ref().map(|w| w.values().as_ref()),
+            );
+            (Some(p), Some(i), w)
+        } else {
+            (None, None, None)
+        };
+        GraphExport {
+            num_nodes: n,
+            directed,
+            node_keys,
+            label_ranges,
+            out_indptr,
+            out_indices,
+            in_indptr,
+            in_indices,
+            out_weights,
+            in_weights,
+            dropped_edges: self.dropped,
+        }
+    }
 }
 
 /// CSR offsets, `n + 1` entries, from each entry's row in order.
@@ -533,6 +774,14 @@ pub(crate) async fn write_node_column(
             export.num_nodes,
             values.len()
         )));
+    }
+
+    if export.label_ranges.is_empty() {
+        return Err(config_error(
+            "This export has no node labels (its query's keys couldn't be matched to labels), \
+             so there is no node table to write to; join its node_keys to your table instead"
+                .to_string(),
+        ));
     }
 
     // Check every label first: a Lance dataset, and a column name that isn't its key.
@@ -1082,6 +1331,140 @@ mod tests {
             )
             .await;
         assert!(g.is_err(), "KNOWS isn't exported");
+    }
+
+    #[tokio::test]
+    async fn subgraph_of_a_query_by_the_export_rules() {
+        let (nodes, edges) = weighted_people(powers_of_two());
+        let engine = arrow_engine(person_config(), vec![("Person", nodes), ("KNOWS", edges)]).await;
+        let sub = |q: &str, directed: bool, w: Option<EdgeWeights>| {
+            let engine = &engine;
+            let q = q.to_string();
+            async move {
+                engine
+                    .export_subgraph(&q, HashMap::new(), directed, w.as_ref())
+                    .await
+            }
+        };
+        let all = "MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN a.id, b.id";
+
+        // The query's join drops 10->99 and the null endpoint; the nodes are the keys present,
+        // sorted: 10, 20, 30, 50, 60. The isolated 40 isn't in the subgraph.
+        let g = sub(all, true, None).await.unwrap();
+        assert_eq!(g.node_keys.values().to_vec(), vec![10, 20, 30, 50, 60]);
+        assert_eq!(g.label_ranges, vec![("Person".to_string(), 0, 5)]);
+        assert_eq!(values(&g.out_indptr), vec![0, 1, 2, 4, 5, 6]);
+        assert_eq!(values(&g.out_indices), vec![1, 2, 0, 2, 4, 3]);
+        assert_eq!(
+            values(g.in_indices.as_ref().unwrap()),
+            vec![2, 0, 1, 2, 4, 3]
+        );
+        assert_eq!(g.dropped_edges, 0);
+
+        // A filter selects the subgraph.
+        let g = sub(
+            "MATCH (a:Person)-[:KNOWS]->(b:Person) WHERE a.id >= 30 RETURN a.id, b.id",
+            false,
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(g.node_keys.values().to_vec(), vec![10, 30, 50, 60]);
+        assert_eq!(values(&g.out_indptr), vec![0, 1, 3, 4, 5]);
+        assert_eq!(values(&g.out_indices), vec![1, 0, 1, 3, 2]);
+
+        // A weight column of the result: the duplicate 10->20 sums 1 and 2.
+        let g = sub(
+            "MATCH (a:Person)-[r:KNOWS]->(b:Person) RETURN a.id, b.id, r.w AS cost",
+            true,
+            Some(EdgeWeights::column("COST")),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            weights(&g.out_weights),
+            vec![3.0, 4.0, 8.0, 16.0, 64.0, 128.0]
+        );
+        // One weight per row counts the rows behind each edge.
+        let g = sub(
+            all,
+            true,
+            Some(EdgeWeights {
+                default: Some(1.0),
+                ..EdgeWeights::default()
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(weights(&g.out_weights), vec![2.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
+
+        // Keys that aren't a labeled node's key: one id space, no labels.
+        let g = sub(
+            "MATCH (a:Person)-[:KNOWS]->(b) RETURN a.id, b.id",
+            true,
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(g.label_ranges.is_empty());
+        assert_eq!(g.node_keys.values().to_vec(), vec![10, 20, 30, 50, 60]);
+
+        // Errors: a non-integer key column, weights per relationship type, a missing column.
+        for (q, w) in [
+            (
+                "MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN 'x' AS s, b.id",
+                None,
+            ),
+            (
+                all,
+                Some(EdgeWeights {
+                    per_type: vec![("KNOWS".to_string(), "w".to_string())],
+                    ..EdgeWeights::default()
+                }),
+            ),
+            (all, Some(EdgeWeights::column("cost"))),
+            ("MATCH (a:Person) RETURN a.id", None),
+        ] {
+            let err = sub(q, true, w).await.unwrap_err();
+            assert!(matches!(err, GraphError::ConfigError { .. }), "{q}: {err}");
+        }
+    }
+
+    #[tokio::test]
+    async fn subgraph_labels_keep_colliding_keys_apart() {
+        let config = GraphConfig::builder()
+            .node_table("Person", "id")
+            .node_table("City", "id")
+            .rel_table("LIVES_IN", "Person", "City", "src", "dst")
+            .build()
+            .unwrap();
+        let ids = || batch(&[("id", vec![Some(1), Some(2), Some(3)])]);
+        let lives_in = batch(&[
+            ("src", vec![Some(1), Some(2), Some(3)]),
+            ("dst", vec![Some(2), Some(1), Some(2)]),
+        ]);
+        let engine = arrow_engine(
+            config,
+            vec![("Person", ids()), ("City", ids()), ("LIVES_IN", lives_in)],
+        )
+        .await;
+        let g = engine
+            .export_subgraph(
+                "MATCH (p:Person)-[:LIVES_IN]->(c:City) WHERE p.id <= 2 RETURN p.id, c.id",
+                HashMap::new(),
+                true,
+                None,
+            )
+            .await
+            .unwrap();
+        // City 1, 2 then Person 1, 2: equal keys, distinct nodes.
+        assert_eq!(
+            g.label_ranges,
+            vec![("City".to_string(), 0, 2), ("Person".to_string(), 2, 4)]
+        );
+        assert_eq!(g.node_keys.values().to_vec(), vec![1, 2, 1, 2]);
+        assert_eq!(values(&g.out_indptr), vec![0, 0, 0, 1, 2]);
+        assert_eq!(values(&g.out_indices), vec![1, 0]);
     }
 
     #[tokio::test]
