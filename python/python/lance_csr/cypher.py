@@ -556,6 +556,96 @@ class CypherEngine:
             )
         )
 
+    def export_subgraph[ParameterT: Parameter](
+        self,
+        query: str,
+        params: dict[str, ParameterT] | None = None,
+        *,
+        directed: bool = True,
+        weight: str | None = None,
+        combine_edges: Literal["sum", "min", "max"] = "sum",
+        default_weight: float | None = None,
+    ) -> GraphExport:
+        """The part of the graph a Cypher query selects, as dense CSR arrays.
+
+        Runs `query` and builds the same arrays as
+        [`export_graph`][lance_csr.CypherEngine.export_graph], by the same edge rules,
+        from its result: one row per edge, with the source and target node keys as the
+        first two columns. The nodes are the keys present in the result. When both
+        columns are a labeled node's key, as `RETURN a.id, b.id` with `(a:Person)` and
+        `id` its key, the ids are grouped per label as in `export_graph`, so
+        `label_ranges` is filled and
+        [`write_node_column`][lance_csr.CypherEngine.write_node_column] can write
+        results back; otherwise all keys share one id space and `label_ranges` is
+        empty. See [Graph algorithms](graph-algorithms.md#subgraphs).
+
+        Parameters
+        ----------
+        query : str
+            A Cypher query returning the source and target keys as its first two
+            columns, which must be integer types up to `int64`.
+        params : dict or None
+            Query parameters, as for [`execute`][lance_csr.CypherEngine.execute].
+        directed : bool
+            Keyword-only. `True` returns out-edge and in-edge arrays; `False` returns
+            one set of arrays listing every edge in both directions.
+        weight : str or None
+            Keyword-only. A numeric column of the result holding each edge's weight,
+            case-insensitive, exported as `float64` in `out_weights` and `in_weights`.
+            An edge whose weight is null is left out and counted in `dropped_edges`.
+        combine_edges : {"sum", "min", "max"}
+            Keyword-only. How an edge listed more than once combines its weights, as in
+            `export_graph`. Ignored without weights.
+        default_weight : float or None
+            Keyword-only. Without `weight`, the weight of every row: `1.0` makes each
+            edge's weight the number of rows that list it.
+
+        Returns
+        -------
+        GraphExport
+            Dense node ids, their keys and the CSR arrays.
+
+        Raises
+        ------
+        ValueError
+            If the query is invalid, its first two columns aren't integer keys, the
+            weight column is missing or isn't numeric, or `combine_edges` isn't one of
+            the three rules.
+        RuntimeError
+            If the query fails while running.
+
+        Examples
+        --------
+        >>> import pyarrow as pa
+        >>> from lance_csr import CypherEngine, GraphConfig
+        >>> config = (
+        ...     GraphConfig.builder()
+        ...     .node_table("Person", "id")
+        ...     .rel_table("KNOWS", "Person", "Person", "src_id", "dst_id")
+        ...     .build()
+        ... )
+        >>> engine = CypherEngine(config, {
+        ...     "Person": pa.table({"id": [10, 20, 30, 40]}),
+        ...     "KNOWS": pa.table({"src_id": [10, 20, 30], "dst_id": [20, 30, 40]}),
+        ... })
+        >>> g = engine.export_subgraph(
+        ...     "MATCH (a:Person)-[:KNOWS]->(b:Person) WHERE a.id >= 20 "
+        ...     "RETURN a.id, b.id"
+        ... )
+        >>> g.node_keys.to_pylist(), g.out_indices.to_pylist()
+        ([20, 30, 40], [1, 2])
+        """
+        return GraphExport._from_inner(
+            self._inner.export_subgraph(
+                query,
+                params,
+                directed=directed,
+                weight=weight,
+                combine_edges=combine_edges,
+                default_weight=default_weight,
+            )
+        )
+
     def write_node_column(
         self,
         export: GraphExport,

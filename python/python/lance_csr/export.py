@@ -13,7 +13,8 @@ if TYPE_CHECKING:
 @final
 class GraphExport:
     """A graph as compressed sparse rows over dense node ids, from
-    [`CypherEngine.export_graph`][lance_csr.CypherEngine.export_graph].
+    [`CypherEngine.export_graph`][lance_csr.CypherEngine.export_graph] or
+    [`CypherEngine.export_subgraph`][lance_csr.CypherEngine.export_subgraph].
 
     Graph-algorithm libraries such as icebug, igraph or scipy take a graph in this
     form: nodes numbered `0` to `num_nodes - 1`, and for each node `i` its neighbours
@@ -55,8 +56,10 @@ class GraphExport:
     def node_keys(self) -> Int64Array:
         """The key of each dense id.
 
-        Each label's nodes are in the order its table is scanned; rows with a null key
-        are left out.
+        From `export_graph`, each label's nodes are in the order its table is scanned,
+        and rows with a null key are left out. From `export_subgraph`, the keys present
+        in the query result, sorted within each label (or within the one id space
+        without labels).
         """
         return self._inner.node_keys
 
@@ -65,7 +68,8 @@ class GraphExport:
         """Each node label's dense ids, as `(start, end)` with `end` excluded.
 
         Labels get consecutive ranges in name order, so equal keys in two labels stay
-        distinct nodes.
+        distinct nodes. Empty for an `export_subgraph` whose key columns couldn't be
+        matched to labels.
         """
         return self._inner.label_ranges
 

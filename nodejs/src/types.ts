@@ -95,7 +95,8 @@ export interface CsrStats {
 }
 
 /**
- * A graph as compressed sparse rows over dense node ids, from `CypherEngine.exportGraph()`.
+ * A graph as compressed sparse rows over dense node ids, from `CypherEngine.exportGraph()` or
+ * `CypherEngine.exportSubgraph()`.
  *
  * Nodes are numbered `0` to `numNodes - 1`, and the neighbours of node `i` are
  * `outIndices[outIndptr[i]]` up to `outIndices[outIndptr[i + 1]]`. `nodeKeys` maps each dense
@@ -108,13 +109,15 @@ export interface GraphExport {
   /** Whether the arrays describe a directed graph. */
   directed: boolean;
   /**
-   * The key of each dense id. Each label's nodes are in the order its table is scanned; rows
-   * with a null key are left out.
+   * The key of each dense id. From `exportGraph`, each label's nodes are in the order its table
+   * is scanned, and rows with a null key are left out. From `exportSubgraph`, the keys present
+   * in the query result, sorted within each label (or within the one id space without labels).
    */
   nodeKeys: Vector<Int64>;
   /**
    * Each node label's dense ids, as `[start, end]` with `end` excluded. Labels get consecutive
-   * ranges in name order, so equal keys in two labels stay distinct.
+   * ranges in name order, so equal keys in two labels stay distinct. Empty for an
+   * `exportSubgraph` whose key columns couldn't be matched to labels.
    */
   labelRanges: Record<string, [number, number]>;
   /** Offsets into `outIndices`, `numNodes + 1` entries. */

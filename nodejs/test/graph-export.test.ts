@@ -106,6 +106,25 @@ test("weight columns per type and a default weight", async () => {
   }
 });
 
+test("subgraph of a query", async () => {
+  const engine = await CypherEngine.create(config, datasets);
+  const query = "MATCH (a:Person)-[:KNOWS]->(b:Person) WHERE a.id >= $low RETURN a.id, b.id";
+  const g = await engine.exportSubgraph(query, { low: 20 }, { directed: false });
+  // 20->30 and 30->10: the keys present, sorted.
+  assert.deepEqual(list(g.nodeKeys), [10, 20, 30]);
+  assert.deepEqual(g.labelRanges, { Person: [0, 3] });
+  assert.deepEqual(list(g.outIndptr), [0, 1, 2, 4]);
+  assert.deepEqual(list(g.outIndices), [2, 2, 0, 1]);
+  assert.equal(g.inIndptr, null);
+  // One weight per row counts the duplicate 10->20 twice.
+  const rows = await engine.exportSubgraph(query, { low: 0 }, { defaultWeight: 1 });
+  assert.deepEqual(Array.from(rows.outWeights!.toArray()), [2, 1, 1]);
+  await assert.rejects(
+    engine.exportSubgraph("MATCH (a:Person) RETURN a.id"),
+    (err) => err instanceof LanceCsrError && err.code === "InvalidArgument",
+  );
+});
+
 test("unknown relationship type", async () => {
   const engine = await CypherEngine.create(config, datasets);
   await assert.rejects(

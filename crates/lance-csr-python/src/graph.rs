@@ -1388,6 +1388,40 @@ impl CypherEngine {
         Ok(GraphExport { inner })
     }
 
+    #[pyo3(signature = (
+        query, params=None, *, directed=true, weight=None, combine_edges="sum", default_weight=None
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn export_subgraph(
+        &self,
+        py: Python,
+        query: &str,
+        params: Option<&Bound<'_, PyDict>>,
+        directed: bool,
+        weight: Option<String>,
+        combine_edges: &str,
+        default_weight: Option<f64>,
+    ) -> PyResult<GraphExport> {
+        let combine = combine_edges
+            .parse::<lance_csr::CombineEdges>()
+            .map_err(graph_error_to_pyerr)?;
+        let weights = (weight.is_some() || default_weight.is_some()).then(|| lance_csr::EdgeWeights {
+            column: weight,
+            default: default_weight,
+            combine,
+            ..Default::default()
+        });
+        let params = python_params(params)?;
+        let inner = RT
+            .block_on(
+                Some(py),
+                self.inner
+                    .export_subgraph(query, params, directed, weights.as_ref()),
+            )?
+            .map_err(graph_error_to_pyerr)?;
+        Ok(GraphExport { inner })
+    }
+
     #[pyo3(signature = (export, column, values, *, overwrite=false))]
     fn write_node_column(
         &self,

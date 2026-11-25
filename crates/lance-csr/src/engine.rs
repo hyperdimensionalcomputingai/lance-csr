@@ -1618,8 +1618,9 @@ impl CypherEngine {
     /// # Errors
     /// [`GraphError::ConfigError`] for an unknown relationship type or label, a missing
     /// or non-integer key or endpoint column, a missing or non-numeric weight column, a type
-    /// with no weight column and no default, or nothing to export; [`GraphError::ExecutionError`] for a repeated node key or a
-    /// failed scan. An edge with a null weight is dropped and counted in `dropped_edges`.
+    /// with no weight column and no default, or nothing to export;
+    /// [`GraphError::ExecutionError`] for a repeated node key or a failed scan. An edge with a
+    /// null weight is dropped and counted in `dropped_edges`.
     pub async fn export_graph(
         &self,
         rel_types: Option<&[String]>,
@@ -1635,6 +1636,37 @@ impl CypherEngine {
             weights,
         )
         .await
+    }
+
+    /// The part of the graph a Cypher query selects, as dense CSR arrays: the same form and
+    /// edge rules as [`CypherEngine::export_graph`].
+    ///
+    /// The query's first two RETURN columns are the source and target node keys, one row per
+    /// edge. The nodes are the keys present. When both columns are a labeled node's key
+    /// (`RETURN a.id, b.id` with `(a:Person)`, and `id` its key), ids are grouped per label as
+    /// in `export_graph`, so `label_ranges` is filled and [`CypherEngine::write_node_column`]
+    /// works; otherwise all keys share one id space and `label_ranges` is empty. `weights`
+    /// names a column of the result (not one per relationship type), or sets one weight per
+    /// row with `default`.
+    ///
+    /// # Errors
+    /// Any error of [`CypherEngine::execute`]; [`GraphError::ConfigError`] when the first two
+    /// columns aren't integer keys, the weight column is missing or isn't numeric, or weights
+    /// are given per relationship type.
+    pub async fn export_subgraph(
+        &self,
+        query: &str,
+        params: HashMap<String, JsonValue>,
+        directed: bool,
+        weights: Option<&crate::graph_export::EdgeWeights>,
+    ) -> Result<crate::graph_export::GraphExport> {
+        let state = self.snapshot();
+        let parsed = self.parse(query, params, &state, true)?;
+        let labels = crate::graph_export::returned_labels(&self.config, parsed.ast());
+        let rows = parsed
+            .execute_with_catalog_and_context(state.catalog.clone(), state.context.clone())
+            .await?;
+        crate::graph_export::export_rows(&rows, labels, directed, weights)
     }
 
     /// Add `column` to the node tables of `export`, from `values` indexed by dense id, and pin the

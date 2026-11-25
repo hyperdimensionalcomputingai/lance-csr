@@ -19,6 +19,9 @@ copying. Every parameter is optional, and all but `rel_types` are keyword-only:
 | `combine_edges` | `"sum"` | How an edge listed more than once combines its weights: `"sum"`, `"min"` or `"max"`. See [Weighted graphs](#weighted-graphs). |
 | `default_weight` | `None` | The weight of every edge of a type with no weight column; `None` makes such a type an error. See [Several relationship types](#several-relationship-types). |
 
+To export only the part of the graph a Cypher query selects, use `export_subgraph`, described in
+[Subgraphs](#subgraphs).
+
 ## What the export contains
 
 A CSR numbers the nodes `0` to `n - 1`, its *dense ids*, and stores the edges in two arrays:
@@ -182,6 +185,58 @@ become one edge with one combined weight. A self-loop's weight counts once.
 
 Weights cost memory only when you ask for them. Without `weight`, the export reads no extra column and
 `out_weights` and `in_weights` are `None`.
+
+## Subgraphs
+
+An analysis often needs only part of the graph: the busiest accounts and their contacts, or one region's roads.
+Ranking the whole graph and filtering the scores afterwards gives a different answer, since PageRank on a
+subgraph only counts the edges inside it. [`export_subgraph`][lance_csr.CypherEngine.export_subgraph] runs a
+Cypher query that selects the edges, and builds the same arrays as `export_graph` from its result:
+
+```python
+sub = engine.export_subgraph(
+    "MATCH (a:Person)-[:FOLLOWS]->(b:Person) WHERE a.id = $who RETURN a.id, b.id",
+    {"who": 10},
+)
+print(sub.node_keys.to_pylist())  # [10, 20, 30]
+print(sub.out_indptr.to_pylist(), sub.out_indices.to_pylist())  # [0, 2, 2, 2] [1, 2]
+print(sub.label_ranges)  # {'Person': (0, 3)}
+```
+
+The query returns one row per edge, with the source and target node keys as its first two columns. The nodes are
+the keys present in the result, sorted, so Dan (40) and anyone else outside the selected edges aren't in the
+export. The edges follow the same rules as `export_graph`: an edge listed twice appears once, `directed=False`
+lists each edge both ways, and a self-loop counts once.
+
+When both key columns are a labeled node's key, as `a.id` here with `a` a `Person` and `id` its key, the export
+groups the ids per label as `export_graph` does. `label_ranges` is filled, and
+[`write_node_column`](#writing-results-back-to-lance) can write an algorithm's results back to the node table, with
+nulls for the nodes outside the subgraph. When a column is computed, or its node has no single label, all keys
+share one id space and `label_ranges` is empty; join `node_keys` to your own table instead.
+
+The options are those of `export_graph`, except that the query does the selecting, so there is no `rel_types`,
+and `weight` names a column of the query result:
+
+| Parameter | Default | What it controls |
+| --- | --- | --- |
+| `query`, `params` | | The Cypher query and its parameters, as for [`execute`][lance_csr.CypherEngine.execute]. |
+| `directed` | `True` | `True` returns out-edge and in-edge arrays; `False` returns one set listing every edge both ways. |
+| `weight` | `None` | A numeric column of the result, such as `r.cost AS cost`, exported as `float64` edge weights. |
+| `combine_edges` | `"sum"` | How an edge listed more than once combines its weights: `"sum"`, `"min"` or `"max"`. |
+| `default_weight` | `None` | Without `weight`, the weight of every row. |
+
+`default_weight=1.0` without `weight` gives each edge the number of rows that list it. That turns a result with
+repeated rows into a graph where repeated edges count more, as PageRank on a multigraph does:
+
+```python
+counted = weighted_engine.export_subgraph(
+    "MATCH (a:Person)-[:FOLLOWS]->(b:Person) RETURN a.id, b.id", default_weight=1.0
+)
+print(counted.out_weights.to_pylist())  # [2.0, 1.0, 1.0, 1.0]
+```
+
+The query's result is held in memory while the arrays are built, as with
+[`execute`][lance_csr.CypherEngine.execute].
 
 ## Running an algorithm with icebug
 
