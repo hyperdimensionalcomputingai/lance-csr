@@ -278,23 +278,40 @@ ProjectionExec: expr=[p__length@6 as length(p)]
 ## `PathMatch`: named paths with real edge identity
 
 CSR neighbours don't carry edge identity or properties, but `MATCH p = ...` with `relationships(p)` needs both, and
-parallel edges must stay distinct even through `collect()` and `UNWIND`. `PathMatchExec` builds one immutable,
-query-local edge inventory in which an edge's identity is its actual scanned occurrence. It enumerates trails over the
-inventory, resuming between output batches, and reuses the bidirectional breadth-first search on a bipartite
-node/edge graph for shortest paths. Path values keep properties in a marked child, so user property names can't
+parallel edges must stay distinct even through `collect()` and `UNWIND`. `PathMatchExec` has two routes, chosen at
+planning time.
+
+The CSR walk (`PathMatchExec: p csr walk`) is used for trails when the engine has a CSR for every relationship type
+and direction the steps follow. The plan scans only the participating node tables, into a node inventory of keys,
+labels and properties. The walk enumerates trails depth first from each start node, resuming between output batches.
+A frame reads its node's neighbors and their edge rows from the CSR the first time the walk needs them. An undirected
+step reads the outgoing and incoming CSR separately, so each edge keeps its stored direction. The step's relationship
+equalities are compiled against each relationship table and checked by `EdgeFilterState`, the same rule
+`CsrExpandExec` uses: fetch the filter columns of just the edges reached and, on a Lance table, switch to one read of
+the whole column once the edges checked pass 1/256 of the relationship's edges. An edge's identity is its CSR row,
+numbered per input batch so a trail can refuse to reuse one. Relationship records (properties, identity, start and
+end nodes) are built only for the edges of the paths in an output batch. This follows Kùzu's design, which evaluates
+relationship predicates inside recursive joins over CSR adjacency lists, so the work follows the frontier instead of
+the relationship table's size.
+
+Otherwise, for shortest paths or a relationship type without a CSR, `PathMatchExec: p edge inventory` builds one
+immutable, query-local edge inventory in which an edge's identity is its actual scanned occurrence. It enumerates
+trails over the inventory the same way and reuses the bidirectional breadth-first search on a bipartite node/edge
+graph for shortest paths. Path values keep properties in a marked child, so user property names can't
 collide with identity metadata. When an untyped match combines branches, the planner merges those
 marked property fields by name before casting each branch to the common schema. This also preserves
 the node records nested inside a path or a relationship endpoint. See [path values](../cypher.md#path-values).
 
 For an unnamed, bounded undirected segment with several types, the same operator emits
-boundary columns and skips building the Arrow path value for each trail. It still builds the
-inventory of participating tables and tracks edge occurrences during traversal.
+boundary columns and skips building the Arrow path value for each trail. It still tracks edge
+occurrences during traversal, on whichever route the segment takes.
 
 Path property values are logical expressions, so cached plans bind them before physical planning.
-The physical operator then builds predicates against the inventory's node and relationship schemas.
+The physical operator then builds node predicates against the inventory's node schema, and relationship
+predicates against the inventory's relationship schema or, on the CSR walk, each relationship table.
 The planner adds the equalities of a `WHERE all(r IN relationships(p) WHERE ...)` term to every
 relationship's property map, so the walk skips failing edges; the `WHERE` itself still runs.
-Each execution starts with fresh inventory scans that can share source batches within that execution.
+Each execution starts with fresh table scans that can share source batches within that execution.
 
 ## `Apply`: correlated CALL subqueries
 

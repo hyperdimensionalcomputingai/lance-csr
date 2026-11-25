@@ -81,7 +81,7 @@ pub(crate) fn id_column(batch: &RecordBatch, name: &str) -> Result<Int64Array> {
         .clone())
 }
 
-fn properties(batch: &RecordBatch, fields: &Fields) -> Result<RecordBatch> {
+pub(crate) fn properties(batch: &RecordBatch, fields: &Fields) -> Result<RecordBatch> {
     let columns = fields
         .iter()
         .map(|f| {
@@ -116,7 +116,7 @@ pub(crate) struct Inventory {
     pub node_labels: Vec<usize>,
     pub edge_types: Vec<usize>,
     pub endpoints: Vec<Option<(u32, u32)>>,
-    pub by_key: HashMap<(usize, i64), u32>,
+    pub by_key: HashMap<(usize, i64), u32, ahash::RandomState>,
     pub neighbors: Vec<Vec<EdgeRef>>,
 }
 
@@ -150,7 +150,7 @@ impl Inventory {
         let edge_fields = property_fields(edge_sources.iter().map(|s| s.schema.fields()))?;
         let node_type = entity_type(node_fields.clone(), "node", None);
         let edge_type = entity_type(edge_fields.clone(), "relationship", Some(&node_type));
-        let mut by_key = HashMap::new();
+        let mut by_key = HashMap::default();
         let mut node_labels = Vec::new();
         let mut labels = Vec::new();
         let mut ids = Vec::new();
