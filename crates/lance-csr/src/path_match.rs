@@ -17,7 +17,7 @@ use arrow::array::{
 };
 use arrow::compute::take;
 use arrow_schema::{Field, Schema, SchemaRef};
-use datafusion::common::tree_node::{Transformed, TransformedResult, TreeNodeRecursion};
+use datafusion::common::tree_node::{Transformed, TransformedResult, TreeNode, TreeNodeRecursion};
 use datafusion::common::{DFSchema, DFSchemaRef, Result};
 use datafusion::execution::session_state::SessionState;
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
@@ -113,6 +113,8 @@ pub(crate) struct PathMatchNode {
     sources: SourceBatches,
     // Node bindings first, then relationship steps, in traversal order.
     filters: Vec<Vec<(String, Expr)>>,
+    /// A condition every relationship of the path meets, over its property columns.
+    relationship_condition: Option<Expr>,
     schema: DFSchemaRef,
     outputs: Vec<Output>,
 }
@@ -141,6 +143,7 @@ impl PathMatchNode {
         spec: PathSpec,
         sources: SourceBatches,
         properties: impl IntoIterator<Item = &'a HashMap<String, PropertyValue>>,
+        relationship_condition: Option<Expr>,
     ) -> Result<Self> {
         let filters = properties
             .into_iter()
@@ -235,6 +238,7 @@ impl PathMatchNode {
             spec: Arc::new(spec),
             sources,
             filters,
+            relationship_condition,
             schema,
             outputs,
         })
@@ -273,6 +277,7 @@ impl PartialEq for PathMatchNode {
         self.inputs == other.inputs
             && Arc::ptr_eq(&self.spec, &other.spec)
             && self.filters == other.filters
+            && self.relationship_condition == other.relationship_condition
     }
 }
 impl Eq for PathMatchNode {}
@@ -281,6 +286,7 @@ impl Hash for PathMatchNode {
         self.inputs.hash(state);
         Arc::as_ptr(&self.spec).hash(state);
         self.filters.hash(state);
+        self.relationship_condition.hash(state);
     }
 }
 impl PartialOrd for PathMatchNode {
@@ -302,11 +308,13 @@ impl UserDefinedLogicalNodeCore for PathMatchNode {
         &self.schema
     }
     fn expressions(&self) -> Vec<Expr> {
-        // The property columns belong to the inventory, so only expose the values.
+        // The property columns belong to the inventory, so only expose the values and
+        // the condition's parameters, which DataFusion binds per execution.
         self.filters
             .iter()
             .flatten()
             .map(|(_, value)| value.clone())
+            .chain(placeholders(self.relationship_condition.as_ref()))
             .collect()
     }
     fn prevent_predicate_push_down_columns(&self) -> HashSet<String> {
@@ -343,17 +351,67 @@ impl UserDefinedLogicalNodeCore for PathMatchNode {
     }
     fn with_exprs_and_inputs(&self, exprs: Vec<Expr>, inputs: Vec<LogicalPlan>) -> Result<Self> {
         let mut node = self.clone();
-        if exprs.len() != node.filters.iter().map(Vec::len).sum::<usize>() {
+        let values = node.filters.iter().map(Vec::len).sum::<usize>();
+        if exprs.len() != values + placeholders(node.relationship_condition.as_ref()).len() {
             return datafusion::common::internal_err!(
-                "PathMatch expected one expression per property"
+                "PathMatch expected one expression per property and parameter"
             );
         }
-        for ((_, value), expr) in node.filters.iter_mut().flatten().zip(exprs) {
+        let mut exprs = exprs.into_iter();
+        for ((_, value), expr) in node.filters.iter_mut().flatten().zip(exprs.by_ref()) {
             *value = expr;
+        }
+        if let Some(condition) = node.relationship_condition.take() {
+            // Placeholders are leaves, so post-order meets them in `placeholders`' order.
+            node.relationship_condition = Some(
+                condition
+                    .transform_up(|e| match e {
+                        Expr::Placeholder(_) => {
+                            Ok(Transformed::yes(exprs.next().expect("counted above")))
+                        }
+                        e => Ok(Transformed::no(e)),
+                    })
+                    .data()?,
+            );
         }
         node.inputs = inputs;
         Ok(node)
     }
+}
+
+/// The parameters in `condition`, in tree order.
+fn placeholders(condition: Option<&Expr>) -> Vec<Expr> {
+    let mut found = Vec::new();
+    if let Some(condition) = condition {
+        condition
+            .apply(|e| {
+                if matches!(e, Expr::Placeholder(_)) {
+                    found.push(e.clone());
+                }
+                Ok(TreeNodeRecursion::Continue)
+            })
+            .expect("visiting does not fail");
+    }
+    found
+}
+
+/// `condition` with its columns named as in `fields`; a property they lack is null.
+fn on_fields(condition: &Expr, fields: &arrow_schema::Fields) -> Result<Expr> {
+    condition
+        .clone()
+        .transform(|e| match &e {
+            Expr::Column(c) => Ok(Transformed::yes(
+                match fields
+                    .iter()
+                    .find(|f| f.name().eq_ignore_ascii_case(&c.name))
+                {
+                    Some(f) => Expr::Column(datafusion::common::Column::from_name(f.name())),
+                    None => datafusion::logical_expr::lit(datafusion::common::ScalarValue::Null),
+                },
+            )),
+            _ => Ok(Transformed::no(e)),
+        })
+        .data()
 }
 
 pub(crate) fn has_path_match(plan: &LogicalPlan) -> Result<bool> {
@@ -450,14 +508,21 @@ pub(crate) fn plan_path_match(
         .iter()
         .enumerate()
         .map(|(index, properties)| {
-            let schema = if index < node.spec.bindings.len() {
-                &nodes
+            let (schema, condition) = if index < node.spec.bindings.len() {
+                (&nodes, None)
             } else {
-                &edges
+                let condition = node.relationship_condition.as_ref();
+                (
+                    &edges,
+                    condition
+                        .map(|c| on_fields(c, edges.fields()))
+                        .transpose()?,
+                )
             };
             properties
                 .iter()
                 .map(|(key, value)| col(key.clone()).eq(value.clone()))
+                .chain(condition)
                 .reduce(Expr::and)
                 .map(|expr| state.create_physical_expr(expr, schema))
                 .transpose()
@@ -472,7 +537,7 @@ pub(crate) fn plan_path_match(
             let filters = &node.filters[node.spec.bindings.len() + step];
             hops.iter()
                 .map(|hop| {
-                    if filters.is_empty() {
+                    if filters.is_empty() && node.relationship_condition.is_none() {
                         return Ok(HopFilter::All);
                     }
                     let table = node.spec.rows(hop.kind).schema();
@@ -490,7 +555,31 @@ pub(crate) fn plan_path_match(
                                 .eq(value.clone()),
                         );
                     }
+                    if let Some(condition) = &node.relationship_condition {
+                        terms.push(on_fields(condition, table.fields())?);
+                    }
                     let filter = terms.into_iter().reduce(Expr::and).expect("filtered");
+                    if filter.column_refs().is_empty() {
+                        // The table lacks every property the condition reads, so the
+                        // condition is the same for all its edges.
+                        let one = RecordBatch::try_new_with_options(
+                            Arc::new(Schema::empty()),
+                            vec![],
+                            &arrow::array::RecordBatchOptions::new().with_row_count(Some(1)),
+                        )?;
+                        let value = state
+                            .create_physical_expr(filter, &DFSchema::empty())?
+                            .evaluate(&one)?
+                            .into_array(1)?;
+                        let pass = value
+                            .as_boolean_opt()
+                            .is_some_and(|v| v.is_valid(0) && v.value(0));
+                        return Ok(if pass {
+                            HopFilter::All
+                        } else {
+                            HopFilter::None
+                        });
+                    }
                     Ok(HopFilter::Where(CompiledFilter::new(
                         &filter,
                         &HashMap::new(),
