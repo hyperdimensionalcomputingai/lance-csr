@@ -202,8 +202,13 @@ def test_variable_length_property_map_filters_every_hop(use_csr, pattern, expect
         ("all(r IN relationships(p) WHERE r.day = 5)", [2]),
         ("all(r IN relationships(p) WHERE r.day = $day AND r.ok)", [2]),
         ("all(r IN relationships(p) WHERE r.day = 6)", []),
-        # Not an equality, so it is checked after the walk.
         ("all(r IN relationships(p) WHERE r.day >= 5)", [2, 3, 4]),
+        ("all(r IN relationships(p) WHERE r.day < $day + 1)", [2]),
+        ("all(r IN relationships(p) WHERE r.day <> 6 AND r.ok)", [2]),
+        ("all(r IN relationships(p) WHERE r.day IN [5, 7])", [2]),
+        ("all(r IN relationships(p) WHERE r.day = 5 OR r.day = 6)", [2, 3, 4]),
+        ("none(r IN relationships(p) WHERE r.day = 6)", [2]),
+        # Not a condition on every relationship, so it is checked after the walk.
         ("any(r IN relationships(p) WHERE r.day = 6)", [3, 4]),
     ],
 )

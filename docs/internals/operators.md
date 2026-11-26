@@ -277,22 +277,49 @@ ProjectionExec: expr=[p__length@6 as length(p)]
 
 ## `PathMatch`: named paths with real edge identity
 
-The CSR walk uses the relationship type and stored edge row to recognize a repeated hop.
-`MATCH p = ...` with `relationships(p)` also returns the ordered relationships and their properties.
-Parallel edges stay distinct through `collect()` and `UNWIND`. `PathMatchExec` builds one immutable,
-query-local edge inventory in which an edge's identity is its actual scanned occurrence. It enumerates trails over the
-inventory, resuming between output batches, and reuses the bidirectional breadth-first search on a bipartite
-node/edge graph for shortest paths. Path values keep properties in a marked child, so user property names can't
+CSR neighbours don't carry edge identity or properties, but `MATCH p = ...` with `relationships(p)` needs both, and
+parallel edges must stay distinct even through `collect()` and `UNWIND`. `PathMatchExec` has two routes, chosen at
+planning time.
+
+The CSR walk (`PathMatchExec: p csr walk`) is used for trails when the engine has a CSR for every relationship type
+and direction the steps follow. The plan scans only the participating node tables, into a node inventory of keys,
+labels and properties. The walk enumerates trails depth first from each start node, resuming between output batches.
+A frame reads its node's neighbors and their edge rows from the CSR the first time the walk needs them. An undirected
+step reads the outgoing and incoming CSR separately, so each edge keeps its stored direction. The step's relationship
+conditions are compiled against each relationship table and checked by `EdgeFilterState`, the same rule
+`CsrExpandExec` uses: fetch the filter columns of just the edges reached and, on a Lance table, switch to one read of
+the whole column once the edges checked pass 1/256 of the relationship's edges. Both halves of an undirected step
+share one state, so they count their checks together and read the column once. An edge's identity is its CSR row,
+numbered per input batch so a trail can refuse to reuse one. Relationship records (properties, identity, start and
+end nodes) are built only for the edges of the paths in an output batch. This follows Kùzu's design, which evaluates
+relationship predicates inside recursive joins over CSR adjacency lists, so the work follows the frontier instead of
+the relationship table's size.
+
+Otherwise, for shortest paths or a relationship type without a CSR, `PathMatchExec: p edge inventory` builds one
+immutable, query-local edge inventory in which an edge's identity is its actual occurrence. For a relationship type
+the engine has a CSR for, the inventory reads the rows the CSR stores, with their CSR rows, so a trail and a shortest
+path in the same query name each edge the same way; otherwise the identity is the row's position in the scan. It enumerates
+trails over the inventory the same way and reuses the bidirectional breadth-first search on a bipartite node/edge
+graph for shortest paths. Path values keep properties in a marked child, so user property names can't
 collide with identity metadata. When an untyped match combines branches, the planner merges those
 marked property fields by name before casting each branch to the common schema. This also preserves
 the node records nested inside a path or a relationship endpoint. See [path values](../cypher.md#path-values).
 
-The join fallback uses Lance row addresses or original Arrow row ordinals to recognize
-an edge appearing twice. For an Arrow table the engine builds the ordinal column on its
-first use and shares it within that snapshot. A custom catalog without occurrence IDs
-numbers parallel rows within each pair of stored endpoints before filtering or reversing a
-hop. It orders the rows by the properties tested on that type so that each scan distinguishes
-the same parallel occurrences.
+An unnamed, bounded undirected segment with several types uses iterative `CsrExpandExec`
+when the engine has the CSR and node indexes it needs. Otherwise `PathMatchExec` emits boundary
+columns and skips building the Arrow path value for each trail. Both operators identify each edge
+by its type and occurrence, including when a trail traverses it in reverse.
+
+A named path whose variable the query never reads runs the same way. Building a path value costs
+far more than the walk when a query only counts paths or returns their end nodes: on the LDBC SF1
+graph, the 86K paths of `MATCH p = (a:Person {ID: 1131})-[:knows*1..3]->(b:Person) RETURN count(*)`
+made about 100 MB of path values that nothing read. So the `prune_csr_target_columns` optimizer rule,
+which already drops unused `CsrExpand` columns, also drops the path column from a `PathMatch` when no
+expression in the plan references it. The node then shows as `PathMatchExec: endpoints` and, on the
+CSR walk, reads no relationship records unless a relationship variable needs them. Any reference to
+the path, such as `length(p)`, `nodes(p)` or `WITH p AS q`, keeps the value.
+
+### Trails across segments of an unnamed path
 
 For an unnamed path such as `(p)-[:KNOWS*1..2]-(f)-[:KNOWS]-(g)`, the final hop
 must know which edge occurrences the first segment used. With compatible CSR and node
@@ -304,23 +331,29 @@ Without the indexes, the planner can join one branch per combination of hop leng
 checking each hop against earlier occurrences of its type. An edge used in reverse
 still has the same identity.
 
-The shared walk and join chain both identify edges by their stored occurrences. Planning
-requires no scan for duplicate node IDs or comparison of unrelated property types. A
+The join chain uses Lance row addresses or original Arrow row ordinals to recognize
+an edge appearing twice. For an Arrow table the engine builds the ordinal column on its
+first use and shares it within that snapshot. A custom catalog without occurrence IDs
+numbers parallel rows within each pair of stored endpoints before filtering or reversing a
+hop. It orders the rows by the properties tested on that type so that each scan distinguishes
+the same parallel occurrences.
+
+Planning the shared walk or join chain depends only on the pattern and the indexes, never on the
+data: it requires no scan for duplicate node IDs or comparison of unrelated property types. A
 relationship variable, unresolved boundary label, or more than 64 join branches without
 a suitable CSR walk leaves the segments to ordinary expansion. Those expansions track
 edge use within each variable-length segment and can reuse an edge across a boundary.
-Queries that need full path, node or relationship values continue to use the path-value planner.
-
-An unnamed, bounded undirected segment with several types can use iterative `CsrExpandExec`
-when the required indexes are available. The fallback uses `PathMatchExec` to emit boundary
-columns without building Arrow path values. Both operators identify each edge by its type and
-occurrence, including when a trail traverses it in reverse.
 
 Path property values are logical expressions, so cached plans bind them before physical planning.
-The physical operator then builds predicates against the inventory's node and relationship schemas.
-The planner adds the equalities of a `WHERE all(r IN relationships(p) WHERE ...)` term to every
-relationship's property map, so the walk skips failing edges; the `WHERE` itself still runs.
-Each execution starts with fresh inventory scans that can share source batches within that execution.
+The physical operator then builds node predicates against the inventory's node schema, and relationship
+predicates against the inventory's relationship schema or, on the CSR walk, each relationship table.
+The planner turns the conjuncts `all(r IN relationships(p) WHERE x)` and `none(... WHERE x)` of the `WHERE`
+into one condition every relationship must meet, with `r.key` read as the column `key`. Only conditions on `r`'s
+properties, parameters and literals qualify. `PathMatch` ANDs it into each step's relationship predicate, so the
+walk skips failing edges; the `WHERE` itself still runs. A property a table lacks reads as null, and a condition
+that reads no column of a table is evaluated once for all its edges. Only the condition's parameters are logical
+expressions of the node, since DataFusion can't type its columns against the node's inputs.
+Each execution starts with fresh table scans that can share source batches within that execution.
 
 ## `Apply`: correlated CALL subqueries
 

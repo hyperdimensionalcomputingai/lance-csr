@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The lance-csr Authors
 
-//! Rich paths use an immutable edge inventory, resumable trail enumeration, and the
-//! existing bidirectional BFS on a bipartite node/edge graph for shortest paths.
+//! Rich paths enumerate trails resumably, either by walking the engine's CSR, checking
+//! relationship filters only on the edges reached (the approach Kùzu takes for filtered
+//! recursive joins), or over an immutable edge inventory. Shortest paths use the existing
+//! bidirectional BFS on a bipartite node/edge graph of the inventory.
 
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
@@ -10,10 +12,12 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use arrow::array::{Array, ArrayRef, AsArray, BooleanArray, Int64Array, RecordBatch, UInt32Array};
+use arrow::array::{
+    Array, ArrayRef, AsArray, BooleanArray, Int64Array, RecordBatch, StructArray, UInt32Array,
+};
 use arrow::compute::take;
 use arrow_schema::{Field, Schema, SchemaRef};
-use datafusion::common::tree_node::{Transformed, TransformedResult, TreeNodeRecursion};
+use datafusion::common::tree_node::{Transformed, TransformedResult, TreeNode, TreeNodeRecursion};
 use datafusion::common::{DFSchema, DFSchemaRef, Result};
 use datafusion::execution::session_state::SessionState;
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
@@ -28,9 +32,12 @@ use datafusion::physical_plan::{
 use futures::{lock::Mutex, StreamExt};
 
 use crate::ast::{PropertyValue, RelationshipDirection};
-use crate::csr_expand::{cooperative_yield, Adjacency, Neighbors};
+use crate::csr_expand::{
+    cooperative_yield, mask_after, Adjacency, CompiledFilter, EdgeFilterState, EdgeRows, Neighbors,
+};
 use crate::path_inventory::{
-    id_column, property_fields, EdgeSource, Inventory, NodeSource, SourceBatches,
+    id_column, properties, property_fields, relationship_identity, EdgeSource, Inventory,
+    NodeSource, SourceBatches,
 };
 use crate::path_value::{entity_type, path_type, paths_array, PathRows};
 
@@ -52,7 +59,7 @@ pub(crate) struct Step {
     pub relationship: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct PathSpec {
     pub variable: Option<String>,
     /// Expose typed boundary-node values alongside their property columns.
@@ -63,6 +70,40 @@ pub(crate) struct PathSpec {
     pub steps: Vec<Step>,
     /// Some(all): exactly one shortest-path segment, with both endpoints bound.
     pub shortest: Option<bool>,
+    /// Walk the engine's CSR instead of building an edge inventory.
+    pub csr: Option<CsrRoute>,
+}
+
+/// The engine's CSR for every relationship a trail walk follows. Edges are read
+/// only where the walk goes; an edge's identity is its row in the CSR.
+#[derive(Debug, Clone)]
+pub(crate) struct CsrRoute {
+    /// Per step, every (type, direction) adjacency the step follows. Each type's rows are
+    /// its `EdgeSource::rows`.
+    pub steps: Vec<Vec<CsrHop>>,
+}
+
+impl PathSpec {
+    /// The engine rows of relationship type `kind`, which the CSR route requires.
+    fn rows(&self, kind: usize) -> &EdgeRows {
+        self.edges[kind]
+            .rows
+            .as_deref()
+            .expect("csr route has engine rows")
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct CsrHop {
+    pub kind: usize,
+    pub neighbors: Neighbors,
+    /// Labels of the node a hop leaves and the node it reaches.
+    pub from: usize,
+    pub to: usize,
+    /// The adjacency is keyed by target: the edge runs from `to` to `from`.
+    pub reversed: bool,
+    /// The incoming half of an undirected step: the outgoing half already matched self-loops.
+    pub skip_self_loops: bool,
 }
 
 #[derive(Clone)]
@@ -72,6 +113,8 @@ pub(crate) struct PathMatchNode {
     sources: SourceBatches,
     // Node bindings first, then relationship steps, in traversal order.
     filters: Vec<Vec<(String, Expr)>>,
+    /// A condition every relationship of the path meets, over its property columns.
+    relationship_condition: Option<Expr>,
     schema: DFSchemaRef,
     outputs: Vec<Output>,
 }
@@ -100,6 +143,7 @@ impl PathMatchNode {
         spec: PathSpec,
         sources: SourceBatches,
         properties: impl IntoIterator<Item = &'a HashMap<String, PropertyValue>>,
+        relationship_condition: Option<Expr>,
     ) -> Result<Self> {
         let filters = properties
             .into_iter()
@@ -194,9 +238,38 @@ impl PathMatchNode {
             spec: Arc::new(spec),
             sources,
             filters,
+            relationship_condition,
             schema,
             outputs,
         })
+    }
+
+    /// This node without its path value, when no column in `used` reads the path.
+    pub(crate) fn without_unused_path(&self, used: &HashSet<String>) -> Result<Option<Self>> {
+        let Some(variable) = &self.spec.variable else {
+            return Ok(None);
+        };
+        if used.contains(&variable.to_lowercase()) {
+            return Ok(None);
+        }
+        // The path value is the last column `try_new` adds.
+        let kept = self.schema.fields().len() - 1;
+        let schema = DFSchema::new_with_metadata(
+            self.schema
+                .iter()
+                .take(kept)
+                .map(|(qualifier, field)| (qualifier.cloned(), Arc::clone(field)))
+                .collect(),
+            self.schema.metadata().clone(),
+        )?
+        .with_functional_dependencies(self.schema.functional_dependencies().clone())?;
+        let mut spec = PathSpec::clone(&self.spec);
+        spec.variable = None;
+        Ok(Some(Self {
+            spec: Arc::new(spec),
+            schema: Arc::new(schema),
+            ..self.clone()
+        }))
     }
 }
 impl PartialEq for PathMatchNode {
@@ -204,6 +277,7 @@ impl PartialEq for PathMatchNode {
         self.inputs == other.inputs
             && Arc::ptr_eq(&self.spec, &other.spec)
             && self.filters == other.filters
+            && self.relationship_condition == other.relationship_condition
     }
 }
 impl Eq for PathMatchNode {}
@@ -212,6 +286,7 @@ impl Hash for PathMatchNode {
         self.inputs.hash(state);
         Arc::as_ptr(&self.spec).hash(state);
         self.filters.hash(state);
+        self.relationship_condition.hash(state);
     }
 }
 impl PartialOrd for PathMatchNode {
@@ -233,11 +308,13 @@ impl UserDefinedLogicalNodeCore for PathMatchNode {
         &self.schema
     }
     fn expressions(&self) -> Vec<Expr> {
-        // The property columns belong to the inventory, so only expose the values.
+        // The property columns belong to the inventory, so only expose the values and
+        // the condition's parameters, which DataFusion binds per execution.
         self.filters
             .iter()
             .flatten()
             .map(|(_, value)| value.clone())
+            .chain(placeholders(self.relationship_condition.as_ref()))
             .collect()
     }
     fn prevent_predicate_push_down_columns(&self) -> HashSet<String> {
@@ -265,6 +342,8 @@ impl UserDefinedLogicalNodeCore for PathMatchNode {
             self.spec.variable.as_deref().unwrap_or("endpoints"),
             if self.spec.shortest.is_some() {
                 "shortest edge inventory"
+            } else if self.spec.csr.is_some() {
+                "trail csr walk"
             } else {
                 "trail edge inventory"
             }
@@ -272,17 +351,67 @@ impl UserDefinedLogicalNodeCore for PathMatchNode {
     }
     fn with_exprs_and_inputs(&self, exprs: Vec<Expr>, inputs: Vec<LogicalPlan>) -> Result<Self> {
         let mut node = self.clone();
-        if exprs.len() != node.filters.iter().map(Vec::len).sum::<usize>() {
+        let values = node.filters.iter().map(Vec::len).sum::<usize>();
+        if exprs.len() != values + placeholders(node.relationship_condition.as_ref()).len() {
             return datafusion::common::internal_err!(
-                "PathMatch expected one expression per property"
+                "PathMatch expected one expression per property and parameter"
             );
         }
-        for ((_, value), expr) in node.filters.iter_mut().flatten().zip(exprs) {
+        let mut exprs = exprs.into_iter();
+        for ((_, value), expr) in node.filters.iter_mut().flatten().zip(exprs.by_ref()) {
             *value = expr;
+        }
+        if let Some(condition) = node.relationship_condition.take() {
+            // Placeholders are leaves, so post-order meets them in `placeholders`' order.
+            node.relationship_condition = Some(
+                condition
+                    .transform_up(|e| match e {
+                        Expr::Placeholder(_) => {
+                            Ok(Transformed::yes(exprs.next().expect("counted above")))
+                        }
+                        e => Ok(Transformed::no(e)),
+                    })
+                    .data()?,
+            );
         }
         node.inputs = inputs;
         Ok(node)
     }
+}
+
+/// The parameters in `condition`, in tree order.
+fn placeholders(condition: Option<&Expr>) -> Vec<Expr> {
+    let mut found = Vec::new();
+    if let Some(condition) = condition {
+        condition
+            .apply(|e| {
+                if matches!(e, Expr::Placeholder(_)) {
+                    found.push(e.clone());
+                }
+                Ok(TreeNodeRecursion::Continue)
+            })
+            .expect("visiting does not fail");
+    }
+    found
+}
+
+/// `condition` with its columns named as in `fields`; a property they lack is null.
+fn on_fields(condition: &Expr, fields: &arrow_schema::Fields) -> Result<Expr> {
+    condition
+        .clone()
+        .transform(|e| match &e {
+            Expr::Column(c) => Ok(Transformed::yes(
+                match fields
+                    .iter()
+                    .find(|f| f.name().eq_ignore_ascii_case(&c.name))
+                {
+                    Some(f) => Expr::Column(datafusion::common::Column::from_name(f.name())),
+                    None => datafusion::logical_expr::lit(datafusion::common::ScalarValue::Null),
+                },
+            )),
+            _ => Ok(Transformed::no(e)),
+        })
+        .data()
 }
 
 pub(crate) fn has_path_match(plan: &LogicalPlan) -> Result<bool> {
@@ -323,7 +452,23 @@ struct Ready {
     inventory: Inventory,
     nodes_allowed: Vec<BooleanArray>,
     edges_allowed: Vec<BooleanArray>,
+    /// Each node's key, by inventory position.
+    node_keys: Int64Array,
     shortest: Option<(Neighbors, Neighbors)>,
+    /// CSR route only: per step and hop, its filter and what that filter has checked.
+    hops: Vec<Vec<(HopFilter, Arc<EdgeFilterState>)>>,
+    /// CSR route only: the inventory has no edges, so relationship values are built here.
+    edge_type: arrow_schema::DataType,
+    edge_fields: arrow_schema::Fields,
+}
+
+/// A step's relationship filter, compiled for one hop's table.
+#[derive(Debug, Clone)]
+enum HopFilter {
+    All,
+    /// The table lacks a filtered property, so no edge has a value equal to it.
+    None,
+    Where(CompiledFilter),
 }
 
 struct PathMatchExec {
@@ -336,6 +481,8 @@ struct PathMatchExec {
     schema: SchemaRef,
     properties: Arc<PlanProperties>,
     predicates: Vec<Option<Arc<dyn PhysicalExpr>>>,
+    /// CSR route only: per step and hop, its relationship filter.
+    hop_filters: Vec<Vec<HopFilter>>,
     ready: Arc<Mutex<Option<Arc<Ready>>>>,
 }
 
@@ -361,17 +508,86 @@ pub(crate) fn plan_path_match(
         .iter()
         .enumerate()
         .map(|(index, properties)| {
-            let schema = if index < node.spec.bindings.len() {
-                &nodes
+            let (schema, condition) = if index < node.spec.bindings.len() {
+                (&nodes, None)
             } else {
-                &edges
+                let condition = node.relationship_condition.as_ref();
+                (
+                    &edges,
+                    condition
+                        .map(|c| on_fields(c, edges.fields()))
+                        .transpose()?,
+                )
             };
             properties
                 .iter()
                 .map(|(key, value)| col(key.clone()).eq(value.clone()))
+                .chain(condition)
                 .reduce(Expr::and)
                 .map(|expr| state.create_physical_expr(expr, schema))
                 .transpose()
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let hop_filters = node
+        .spec
+        .csr
+        .iter()
+        .flat_map(|csr| csr.steps.iter().enumerate())
+        .map(|(step, hops)| {
+            let filters = &node.filters[node.spec.bindings.len() + step];
+            hops.iter()
+                .map(|hop| {
+                    if filters.is_empty() && node.relationship_condition.is_none() {
+                        return Ok(HopFilter::All);
+                    }
+                    let table = node.spec.rows(hop.kind).schema();
+                    let mut terms = Vec::new();
+                    for (key, value) in filters {
+                        let Some(field) = table
+                            .fields()
+                            .iter()
+                            .find(|f| f.name().eq_ignore_ascii_case(key))
+                        else {
+                            return Ok(HopFilter::None);
+                        };
+                        terms.push(
+                            Expr::Column(datafusion::common::Column::from_name(field.name()))
+                                .eq(value.clone()),
+                        );
+                    }
+                    if let Some(condition) = &node.relationship_condition {
+                        terms.push(on_fields(condition, table.fields())?);
+                    }
+                    let filter = terms.into_iter().reduce(Expr::and).expect("filtered");
+                    if filter.column_refs().is_empty() {
+                        // The table lacks every property the condition reads, so the
+                        // condition is the same for all its edges.
+                        let one = RecordBatch::try_new_with_options(
+                            Arc::new(Schema::empty()),
+                            vec![],
+                            &arrow::array::RecordBatchOptions::new().with_row_count(Some(1)),
+                        )?;
+                        let value = state
+                            .create_physical_expr(filter, &DFSchema::empty())?
+                            .evaluate(&one)?
+                            .into_array(1)?;
+                        let pass = value
+                            .as_boolean_opt()
+                            .is_some_and(|v| v.is_valid(0) && v.value(0));
+                        return Ok(if pass {
+                            HopFilter::All
+                        } else {
+                            HopFilter::None
+                        });
+                    }
+                    Ok(HopFilter::Where(CompiledFilter::new(
+                        &filter,
+                        &HashMap::new(),
+                        table,
+                        state,
+                    )?))
+                })
+                .collect::<Result<Vec<_>>>()
         })
         .collect::<Result<Vec<_>>>()?;
     let schema = Arc::new(node.schema.as_arrow().clone());
@@ -390,6 +606,7 @@ pub(crate) fn plan_path_match(
         schema,
         properties,
         predicates,
+        hop_filters,
         ready: Arc::new(Mutex::new(None)),
     }))
 }
@@ -407,8 +624,13 @@ impl DisplayAs for PathMatchExec {
     fn fmt_as(&self, _: DisplayFormatType, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "PathMatchExec: {} edge inventory",
-            self.spec.variable.as_deref().unwrap_or("endpoints")
+            "PathMatchExec: {} {}",
+            self.spec.variable.as_deref().unwrap_or("endpoints"),
+            if self.spec.csr.is_some() {
+                "csr walk"
+            } else {
+                "edge inventory"
+            }
         )
     }
 }
@@ -453,6 +675,7 @@ impl ExecutionPlan for PathMatchExec {
             schema: self.schema.clone(),
             properties,
             predicates: self.predicates.clone(),
+            hop_filters: self.hop_filters.clone(),
             ready: self.ready.clone(),
         }))
     }
@@ -463,27 +686,36 @@ impl ExecutionPlan for PathMatchExec {
     ) -> Result<SendableRecordBatchStream> {
         let (input, input_time) =
             crate::exec_metrics::time_input(self.inputs[0].execute(partition, context.clone())?);
-        let (cell, plans, spec, outputs, schema, predicates) = (
+        let (cell, plans, spec, outputs, schema, predicates, hop_filters) = (
             self.ready.clone(),
             self.inputs[1..].to_vec(),
             self.spec.clone(),
             self.outputs.clone(),
             self.schema.clone(),
             self.predicates.clone(),
+            self.hop_filters.clone(),
         );
         let sources = self.sources.clone();
+        let reads_edges = spec.variable.is_some()
+            || outputs.iter().any(|o| {
+                matches!(
+                    o,
+                    Output::RelationshipValue { .. } | Output::Relationship { .. }
+                )
+            });
         let out_schema = schema.clone();
         let batch_size = context.session_config().batch_size();
         let stream = futures::stream::try_unfold(
             (input, None::<Pending>),
             move |(mut input, mut pending)| {
-                let (cell, plans, spec, outputs, schema, predicates, context) = (
+                let (cell, plans, spec, outputs, schema, predicates, hop_filters, context) = (
                     cell.clone(),
                     plans.clone(),
                     spec.clone(),
                     outputs.clone(),
                     schema.clone(),
                     predicates.clone(),
+                    hop_filters.clone(),
                     context.clone(),
                 );
                 let sources = sources.clone();
@@ -502,6 +734,7 @@ impl ExecutionPlan for PathMatchExec {
                                             &spec,
                                             &plans,
                                             &predicates,
+                                            &hop_filters,
                                             context.clone(),
                                             &sources,
                                         )
@@ -513,11 +746,17 @@ impl ExecutionPlan for PathMatchExec {
                             pending = Some(Pending::new(batch, graph, &spec)?);
                         }
                         let p = pending.as_mut().unwrap();
-                        let (rows, paths) = p.next(&spec, batch_size).await?;
+                        let (rows, mut paths) = p.next(&spec, batch_size).await?;
                         if rows.is_empty() {
                             pending = None;
                             continue;
                         }
+                        let edges = match &spec.csr {
+                            Some(_) if reads_edges => p.csr_edges(&spec, &mut paths).await?,
+                            // Nothing reads relationship records: don't fetch them.
+                            Some(_) => StructArray::new_empty_fields(0, None),
+                            None => p.graph.inventory.edges.clone(),
+                        };
                         let indices = UInt32Array::from(rows);
                         let mut columns: Vec<ArrayRef> = p
                             .batch
@@ -538,7 +777,7 @@ impl ExecutionPlan for PathMatchExec {
                                     let positions = UInt32Array::from_iter_values(
                                         paths.iter().map(|p| p.edges[p.boundaries[*step]]),
                                     );
-                                    columns.push(take(&p.graph.inventory.edges, &positions, None)?);
+                                    columns.push(take(&edges, &positions, None)?);
                                     continue;
                                 }
                                 Output::Node { boundary, property } => (
@@ -548,7 +787,7 @@ impl ExecutionPlan for PathMatchExec {
                                     ),
                                 ),
                                 Output::Relationship { step, property } => (
-                                    p.graph.inventory.edge_properties.column(*property),
+                                    edges.column(0).as_struct().column(*property),
                                     UInt32Array::from_iter_values(
                                         paths.iter().map(|p| p.edges[p.boundaries[*step]]),
                                     ),
@@ -557,11 +796,7 @@ impl ExecutionPlan for PathMatchExec {
                             columns.push(take(array, &positions, None)?);
                         }
                         if spec.variable.is_some() {
-                            columns.push(paths_array(
-                                &paths,
-                                &p.graph.inventory.nodes,
-                                &p.graph.inventory.edges,
-                            )?);
+                            columns.push(paths_array(&paths, &p.graph.inventory.nodes, &edges)?);
                         }
                         let batch = RecordBatch::try_new(schema, columns)?;
                         return Ok(Some((batch, (input, pending))));
@@ -585,10 +820,37 @@ impl Ready {
         spec: &PathSpec,
         plans: &[Arc<dyn ExecutionPlan>],
         predicates: &[Option<Arc<dyn PhysicalExpr>>],
+        hop_filters: &[Vec<HopFilter>],
         context: Arc<TaskContext>,
         sources: &SourceBatches,
     ) -> Result<Self> {
-        let inventory = Inventory::build(&spec.nodes, &spec.edges, plans, context, sources).await?;
+        // The CSR route reads no relationship table up front: its plans scan only nodes.
+        let edges = if spec.csr.is_some() {
+            &[][..]
+        } else {
+            &spec.edges
+        };
+        let inventory = Inventory::build(&spec.nodes, edges, plans, context, sources).await?;
+        let edge_fields = property_fields(spec.edges.iter().map(|s| s.schema.fields()))?;
+        let node_type = inventory.nodes.data_type().clone();
+        let edge_type = entity_type(edge_fields.clone(), "relationship", Some(&node_type));
+        // Hops of one step over the same table share a state: the two halves of an
+        // undirected step then count their checks together and read one mask.
+        let hops = match &spec.csr {
+            Some(csr) => csr
+                .steps
+                .iter()
+                .zip(hop_filters)
+                .map(|(step, filters)| {
+                    let mut states: HashMap<usize, Arc<EdgeFilterState>> = HashMap::new();
+                    step.iter()
+                        .zip(filters)
+                        .map(|(hop, f)| (f.clone(), states.entry(hop.kind).or_default().clone()))
+                        .collect()
+                })
+                .collect(),
+            None => Vec::new(),
+        };
         let mask =
             |p: &Option<Arc<dyn PhysicalExpr>>, batch: &RecordBatch| -> Result<BooleanArray> {
                 match p {
@@ -606,6 +868,7 @@ impl Ready {
             .collect::<Result<Vec<_>>>()?;
         let edges_allowed = predicates[spec.bindings.len()..]
             .iter()
+            .filter(|_| spec.csr.is_none())
             .map(|p| mask(p, &inventory.edge_properties))
             .collect::<Result<Vec<_>>>()?;
         let shortest = if spec.shortest.is_some() {
@@ -667,13 +930,132 @@ impl Ready {
         } else {
             None
         };
+        let node_keys = inventory
+            .nodes
+            .column(1)
+            .as_struct()
+            .column(1)
+            .as_primitive::<arrow::datatypes::Int64Type>()
+            .clone();
         Ok(Self {
             inventory,
             nodes_allowed,
             edges_allowed,
             shortest,
+            hops,
+            edge_type,
+            edge_fields,
+            node_keys,
         })
     }
+}
+
+/// An edge a CSR walk can enter: its type, CSR row and inventory endpoints.
+#[derive(Clone, Copy)]
+struct CsrEdge {
+    kind: usize,
+    row: u64,
+    source: u32,
+    target: u32,
+}
+
+/// Numbers the CSR edges a batch's walks enter, so a trail can check reuse and paths
+/// can refer to edges as the inventory route does. Also keeps each (step, node)'s
+/// candidates: trails reach the same node many times, and the list never changes.
+#[derive(Default)]
+struct CsrEdges {
+    ids: HashMap<(usize, u64), u32, ahash::RandomState>,
+    edges: Vec<CsrEdge>,
+    candidates: HashMap<(usize, u32), Candidates, ahash::RandomState>,
+    /// Relationship records built for returned paths, kept for the batch's later output.
+    records: Vec<ArrayRef>,
+    /// Per edge id, its record's (part, offset) in `records`.
+    record: HashMap<u32, (usize, usize), ahash::RandomState>,
+}
+
+/// (next node, edge id) pairs a frame can take.
+type Candidates = Arc<[(u32, u32)]>;
+
+impl CsrEdges {
+    fn id(&mut self, edge: CsrEdge) -> u32 {
+        *self.ids.entry((edge.kind, edge.row)).or_insert_with(|| {
+            self.edges.push(edge);
+            (self.edges.len() - 1) as u32
+        })
+    }
+}
+
+/// The edges a step can take from `node`, through the engine's CSR, that pass the step's
+/// filter and reach a node of the inventory, read once per batch. Filters read only these
+/// edges' columns.
+async fn csr_candidates(
+    spec: &PathSpec,
+    graph: &Ready,
+    edges: &mut CsrEdges,
+    stage: usize,
+    node: u32,
+) -> Result<Candidates> {
+    if let Some(candidates) = edges.candidates.get(&(stage, node)) {
+        return Ok(candidates.clone());
+    }
+    let csr = spec.csr.as_ref().expect("csr route");
+    let key = graph.node_keys.value(node as usize);
+    let label = graph.inventory.node_labels[node as usize];
+    let mut candidates = Vec::new();
+    for (hop, (filter, state)) in csr.steps[stage].iter().zip(&graph.hops[stage]) {
+        if hop.from != label || matches!(filter, HopFilter::None) {
+            continue;
+        }
+        let first = candidates.len();
+        let mut position = Default::default();
+        for (neighbor, row) in hop
+            .neighbors
+            .candidates_from::<true>(key, &mut position)
+            .flatten()
+        {
+            let neighbor = neighbor as i64;
+            if hop.skip_self_loops && neighbor == key {
+                continue;
+            }
+            let Some(&next) = graph.inventory.by_key.get(&(hop.to, neighbor)) else {
+                continue;
+            };
+            let (source, target) = if hop.reversed {
+                (next, node)
+            } else {
+                (node, next)
+            };
+            candidates.push((
+                next,
+                CsrEdge {
+                    kind: hop.kind,
+                    row,
+                    source,
+                    target,
+                },
+            ));
+        }
+        if let HopFilter::Where(filter) = filter {
+            let rows = spec.rows(hop.kind);
+            let edge_rows: Vec<u64> = candidates[first..].iter().map(|(_, e)| e.row).collect();
+            let keep = state
+                .keep(rows, &edge_rows, filter, mask_after(rows, &hop.neighbors))
+                .await
+                .map_err(|e| datafusion::common::DataFusionError::External(Box::new(e)))?;
+            let mut keep = keep.into_iter();
+            let mut index = 0;
+            candidates.retain(|_| {
+                index += 1;
+                index <= first || keep.next().unwrap_or(false)
+            });
+        }
+    }
+    let candidates: Candidates = candidates
+        .into_iter()
+        .map(|(next, edge)| (next, edges.id(edge)))
+        .collect();
+    edges.candidates.insert((stage, node), candidates.clone());
+    Ok(candidates)
 }
 
 struct Pending {
@@ -683,6 +1065,8 @@ struct Pending {
     row: usize,
     walk: Option<Walk>,
     shortest: Option<ShortestPaths>,
+    /// CSR route only: the edges this batch's walks entered.
+    edges: CsrEdges,
 }
 impl Pending {
     fn new(batch: RecordBatch, graph: Arc<Ready>, spec: &PathSpec) -> Result<Self> {
@@ -705,7 +1089,85 @@ impl Pending {
             row: 0,
             walk: None,
             shortest: None,
+            edges: CsrEdges::default(),
         })
+    }
+    /// Relationship values for the edges of `paths`, read from their tables now. Renumbers
+    /// each path's edges to their positions in the returned array.
+    async fn csr_edges(&mut self, spec: &PathSpec, paths: &mut [PathRows]) -> Result<StructArray> {
+        let used: Vec<u32> = paths
+            .iter_mut()
+            .flat_map(|p| p.edges.iter_mut())
+            .enumerate()
+            .map(|(position, edge)| std::mem::replace(edge, position as u32))
+            .collect();
+        // Paths share edges: read and build each edge once per input batch, by type, then
+        // pick every path's records from those parts.
+        let mut distinct: Vec<u32> = used
+            .iter()
+            .copied()
+            .filter(|id| !self.edges.record.contains_key(id))
+            .collect();
+        distinct.sort_unstable_by_key(|&id| (self.edges.edges[id as usize].kind, id));
+        distinct.dedup();
+        let error = |e: crate::error::GraphError| {
+            datafusion::common::DataFusionError::External(Box::new(e))
+        };
+        for kind in 0..spec.edges.len() {
+            let ids: Vec<u32> = distinct
+                .iter()
+                .copied()
+                .filter(|&id| self.edges.edges[id as usize].kind == kind)
+                .collect();
+            let edges: Vec<CsrEdge> = ids
+                .iter()
+                .map(|&id| self.edges.edges[id as usize])
+                .collect();
+            if edges.is_empty() {
+                continue;
+            }
+            let rows = spec.rows(kind);
+            let edge_rows: Vec<u64> = edges.iter().map(|e| e.row).collect();
+            let columns: Vec<usize> = (0..rows.schema().fields().len()).collect();
+            let batch = RecordBatch::try_new(
+                rows.schema().clone(),
+                rows.take(&edge_rows, &columns).await.map_err(error)?,
+            )?;
+            let ends =
+                |end: fn(&CsrEdge) -> u32| UInt32Array::from_iter_values(edges.iter().map(end));
+            let identity = relationship_identity(
+                vec![spec.edges[kind].label.as_str(); edges.len()],
+                edge_rows.iter().map(|&r| r as i64).collect(),
+            );
+            let properties = properties(&batch, &self.graph.edge_fields)?;
+            let part = self.edges.records.len();
+            self.edges.record.extend(
+                ids.iter()
+                    .enumerate()
+                    .map(|(offset, &id)| (id, (part, offset))),
+            );
+            self.edges
+                .records
+                .push(Arc::new(crate::path_value::struct_array(
+                    &self.graph.edge_type,
+                    vec![
+                        Arc::new(StructArray::from(properties)),
+                        Arc::new(identity),
+                        take(&self.graph.inventory.nodes, &ends(|e| e.source), None)?,
+                        take(&self.graph.inventory.nodes, &ends(|e| e.target), None)?,
+                    ],
+                )));
+        }
+        if used.is_empty() {
+            return Ok(arrow::array::new_empty_array(&self.graph.edge_type)
+                .as_struct()
+                .clone());
+        }
+        let parts: Vec<&dyn Array> = self.edges.records.iter().map(|a| a.as_ref()).collect();
+        let positions: Vec<(usize, usize)> = used.iter().map(|id| self.edges.record[id]).collect();
+        Ok(arrow::compute::interleave(&parts, &positions)?
+            .as_struct()
+            .clone())
     }
     fn bound(&self, spec: &PathSpec) -> Option<Vec<Option<u32>>> {
         self.keys
@@ -772,7 +1234,11 @@ impl Pending {
             let path = if let Some(search) = &mut self.shortest {
                 search.next().await
             } else {
-                self.walk.as_mut().unwrap().next(spec, &self.graph).await
+                self.walk
+                    .as_mut()
+                    .unwrap()
+                    .next(spec, &self.graph, &mut self.edges)
+                    .await?
             };
             if let Some(path) = path {
                 rows.push(self.row as u32);
@@ -799,6 +1265,8 @@ struct Frame {
     next: usize,
     advanced: bool,
     entered: bool,
+    /// CSR route only: the edges this frame can take, read when it first needs one.
+    candidates: Option<Candidates>,
 }
 struct Walk {
     frames: Vec<Frame>,
@@ -815,6 +1283,7 @@ impl Walk {
                 next: 0,
                 advanced: false,
                 entered: false,
+                candidates: None,
             }],
             path: PathRows {
                 nodes: vec![source],
@@ -833,7 +1302,12 @@ impl Walk {
             self.path.boundaries.pop();
         }
     }
-    async fn next(&mut self, spec: &PathSpec, graph: &Ready) -> Option<PathRows> {
+    async fn next(
+        &mut self,
+        spec: &PathSpec,
+        graph: &Ready,
+        edges: &mut CsrEdges,
+    ) -> Result<Option<PathRows>> {
         let mut work = 0_usize;
         while let Some(frame) = self.frames.last_mut() {
             work += 1;
@@ -843,7 +1317,7 @@ impl Walk {
             if frame.stage == spec.steps.len() {
                 if !frame.advanced {
                     frame.advanced = true;
-                    return Some(self.path.clone());
+                    return Ok(Some(self.path.clone()));
                 }
                 self.pop();
                 continue;
@@ -869,6 +1343,7 @@ impl Walk {
                         next: 0,
                         advanced: false,
                         entered: false,
+                        candidates: None,
                     };
                     self.path.boundaries.push(self.path.nodes.len() - 1);
                     self.frames.push(next);
@@ -879,38 +1354,58 @@ impl Walk {
                 self.pop();
                 continue;
             }
-            let Some(edge) = graph.inventory.neighbors[frame.node as usize].get(frame.next) else {
-                self.pop();
-                continue;
+            let (edge, node) = if spec.csr.is_some() {
+                if frame.candidates.is_none() {
+                    frame.candidates =
+                        Some(csr_candidates(spec, graph, edges, frame.stage, frame.node).await?);
+                }
+                let candidates = frame.candidates.as_ref().expect("fetched");
+                let Some(&(node, edge)) = candidates.get(frame.next) else {
+                    self.pop();
+                    continue;
+                };
+                frame.next += 1;
+                if self.path.edges.contains(&edge) {
+                    continue;
+                }
+                (edge, node)
+            } else {
+                let Some(edge) = graph.inventory.neighbors[frame.node as usize].get(frame.next)
+                else {
+                    self.pop();
+                    continue;
+                };
+                frame.next += 1;
+                let direction = match step.direction {
+                    RelationshipDirection::Outgoing => edge.outgoing,
+                    RelationshipDirection::Incoming => !edge.outgoing || edge.node == frame.node,
+                    RelationshipDirection::Undirected => true,
+                };
+                if !direction
+                    || !step
+                        .types
+                        .contains(&graph.inventory.edge_types[edge.edge as usize])
+                    || self.path.edges.contains(&edge.edge)
+                    || !allowed(&graph.edges_allowed[frame.stage], edge.edge)
+                {
+                    continue;
+                }
+                (edge.edge, edge.node)
             };
-            frame.next += 1;
-            let direction = match step.direction {
-                RelationshipDirection::Outgoing => edge.outgoing,
-                RelationshipDirection::Incoming => !edge.outgoing || edge.node == frame.node,
-                RelationshipDirection::Undirected => true,
-            };
-            if !direction
-                || !step
-                    .types
-                    .contains(&graph.inventory.edge_types[edge.edge as usize])
-                || self.path.edges.contains(&edge.edge)
-                || !allowed(&graph.edges_allowed[frame.stage], edge.edge)
-            {
-                continue;
-            }
             let next = Frame {
                 stage: frame.stage,
                 hops: frame.hops + 1,
-                node: edge.node,
+                node,
                 next: 0,
                 advanced: false,
                 entered: true,
+                candidates: None,
             };
-            self.path.nodes.push(edge.node);
-            self.path.edges.push(edge.edge);
+            self.path.nodes.push(node);
+            self.path.edges.push(edge);
             self.frames.push(next);
         }
-        None
+        Ok(None)
     }
 }
 
@@ -1038,6 +1533,7 @@ mod tests {
                 source_id: "src".into(),
                 target_id: "dst".into(),
                 schema: edge_batch.schema(),
+                rows: None,
             }],
             bindings: vec![binding("a"), binding("b")],
             steps: vec![Step {
@@ -1048,6 +1544,7 @@ mod tests {
                 relationship: None,
             }],
             shortest,
+            csr: None,
         };
         let ctx = SessionContext::new();
         let mut plans = Vec::new();
@@ -1064,6 +1561,7 @@ mod tests {
             &spec,
             &plans,
             &[None, None, None],
+            &[],
             ctx.task_ctx(),
             &Default::default(),
         )
@@ -1077,7 +1575,11 @@ mod tests {
         let (spec, graph) = graph(&[(1, 2), (1, 2), (2, 3), (3, 3)], 20, None).await;
         let mut walk = Walk::new(0, vec![Some(0), None]);
         let mut paths = Vec::new();
-        while let Some(path) = walk.next(&spec, &graph).await {
+        while let Some(path) = walk
+            .next(&spec, &graph, &mut Default::default())
+            .await
+            .unwrap()
+        {
             paths.push(path);
         }
         assert_eq!(paths.len(), 7); // identity, two one-hop, two two-hop, two with self-loop
@@ -1138,8 +1640,13 @@ mod tests {
     async fn rejected_hub_yields_before_scanning_all_edges() {
         let (spec, graph) = graph(&(2..100_002).map(|n| (1, n)).collect::<Vec<_>>(), 1, None).await;
         let mut walk = Walk::new(0, vec![Some(0), Some(0)]);
-        assert!(walk.next(&spec, &graph).await.is_some()); // zero hop
-        let mut next = Box::pin(walk.next(&spec, &graph));
+        assert!(walk
+            .next(&spec, &graph, &mut Default::default())
+            .await
+            .unwrap()
+            .is_some()); // zero hop
+        let mut edges = CsrEdges::default();
+        let mut next = Box::pin(walk.next(&spec, &graph, &mut edges));
         assert!(futures::poll!(next.as_mut()).is_pending());
         drop(next);
         assert!(walk.frames[0].next > 0 && walk.frames[0].next <= 1024);

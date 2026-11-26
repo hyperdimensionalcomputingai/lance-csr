@@ -86,7 +86,7 @@ pub(crate) async fn cooperative_yield() {
 }
 
 /// Lance's row-address column (`lance_core::ROW_ADDR`, not re-exported by `lance`).
-const ROW_ADDR: &str = "_rowaddr";
+pub(crate) const ROW_ADDR: &str = "_rowaddr";
 
 use crate::case_insensitive::qualify_column;
 
@@ -1224,7 +1224,73 @@ impl EdgeRows {
         matches!(self.data, TableData::Memory(_))
     }
 
-    async fn take(&self, rows: &[u64], columns: &[usize]) -> Result<Vec<ArrayRef>> {
+    pub(crate) fn schema(&self) -> &SchemaRef {
+        &self.schema
+    }
+
+    /// Every row, with a [`ROW_ADDR`] column holding the position [`Adjacency`] stores
+    /// for it (row address on Lance, row index in memory), so a full read and a CSR walk
+    /// name each edge the same way.
+    pub(crate) async fn read_all(&self) -> Result<RecordBatch> {
+        let (batch, addresses): (RecordBatch, ArrayRef) = match &self.data {
+            TableData::Memory(batch) => (
+                batch.clone(),
+                Arc::new(arrow::array::UInt64Array::from_iter_values(
+                    0..batch.num_rows() as u64,
+                )),
+            ),
+            TableData::Lance(dataset) => {
+                let scan_error =
+                    |e: lance::Error| exec_error(format!("Failed to scan edges: {}", e));
+                let mut scanner = dataset.scan();
+                scanner.with_row_address();
+                let mut stream = scanner.try_into_stream().await.map_err(scan_error)?;
+                let mut read = Vec::new();
+                while let Some(batch) = stream.next().await {
+                    read.push(batch.map_err(scan_error)?);
+                    cooperative_yield().await;
+                }
+                let schema = read.first().map_or_else(
+                    || {
+                        let mut fields: Vec<Field> = self
+                            .schema
+                            .fields()
+                            .iter()
+                            .map(|f| f.as_ref().clone())
+                            .collect();
+                        fields.push(Field::new(ROW_ADDR, DataType::UInt64, true));
+                        Arc::new(Schema::new(fields))
+                    },
+                    |b| b.schema(),
+                );
+                let read = arrow::compute::concat_batches(&schema, &read)
+                    .map_err(|e| exec_error(e.to_string()))?;
+                let index = read
+                    .schema()
+                    .index_of(ROW_ADDR)
+                    .map_err(|e| exec_error(e.to_string()))?;
+                let addresses = read.column(index).clone();
+                let mut columns = read.columns().to_vec();
+                columns.remove(index);
+                let batch = RecordBatch::try_new(self.schema.clone(), columns)
+                    .map_err(|e| exec_error(e.to_string()))?;
+                (batch, addresses)
+            }
+        };
+        let mut fields: Vec<Field> = batch
+            .schema()
+            .fields()
+            .iter()
+            .map(|f| f.as_ref().clone())
+            .collect();
+        fields.push(Field::new(ROW_ADDR, DataType::UInt64, false));
+        let mut columns = batch.columns().to_vec();
+        columns.push(addresses);
+        RecordBatch::try_new(Arc::new(Schema::new(fields)), columns)
+            .map_err(|e| exec_error(e.to_string()))
+    }
+
+    pub(crate) async fn take(&self, rows: &[u64], columns: &[usize]) -> Result<Vec<ArrayRef>> {
         self.data.take(&self.schema, rows, columns, true).await
     }
 
@@ -1383,10 +1449,62 @@ impl EdgeMask {
 /// Shared by an operator's partitions: edges expanded before the relationship filter
 /// ran, and the filter's mask once that count made a full read worthwhile.
 #[derive(Default)]
-struct EdgeFilterState {
+pub(crate) struct EdgeFilterState {
     expanded: std::sync::atomic::AtomicU64,
     mask: std::sync::OnceLock<Arc<EdgeMask>>,
     building: futures::lock::Mutex<()>,
+}
+
+impl EdgeFilterState {
+    /// Count `checked` more edges and, once the count reaches `mask_after`, read
+    /// `filter`'s columns whole into a mask. Returns the mask when there is one; the
+    /// check that crosses the threshold already uses it.
+    async fn mask_if_due(
+        &self,
+        rows: &EdgeRows,
+        filter: &CompiledFilter,
+        checked: u64,
+        mask_after: u64,
+    ) -> Result<Option<&Arc<EdgeMask>>> {
+        use std::sync::atomic::Ordering::Relaxed;
+        if self.mask.get().is_none()
+            && self.expanded.fetch_add(checked, Relaxed) + checked >= mask_after
+        {
+            let _building = self.building.lock().await;
+            if self.mask.get().is_none() {
+                let _ = self.mask.set(Arc::new(rows.mask(filter).await?));
+            }
+        }
+        Ok(self.mask.get())
+    }
+
+    /// Which of `edge_rows` pass `filter`: the filter columns of just these rows, until
+    /// [`Self::mask_if_due`] switches to the mask.
+    pub(crate) async fn keep(
+        &self,
+        rows: &EdgeRows,
+        edge_rows: &[u64],
+        filter: &CompiledFilter,
+        mask_after: u64,
+    ) -> Result<Vec<bool>> {
+        let checked = edge_rows.len() as u64;
+        if let Some(mask) = self.mask_if_due(rows, filter, checked, mask_after).await? {
+            return Ok(edge_rows.iter().map(|&r| mask.contains(r)).collect());
+        }
+        let columns = rows.take(edge_rows, &filter.columns).await?;
+        filter.keep(columns).map_err(|e| exec_error(e.to_string()))
+    }
+}
+
+/// When a named path's [`EdgeFilterState`] switches to a whole-column mask, by the same
+/// rule as [`CsrExpandExec`]: never in memory, where each check gathers from loaded
+/// arrays; the shared mask only beats scattered Lance reads.
+pub(crate) fn mask_after(rows: &EdgeRows, neighbors: &Neighbors) -> u64 {
+    if rows.in_memory() {
+        u64::MAX
+    } else {
+        (neighbors.num_edges() / EDGE_MASK_FRACTION).max(1)
+    }
 }
 
 impl fmt::Debug for EdgeFilterState {
@@ -1613,7 +1731,7 @@ pub struct TargetLookup {
 /// A moved target or relationship filter compiled for one query: evaluated on just
 /// the columns it reads, for the candidate rows of each batch.
 #[derive(Debug, Clone)]
-struct CompiledFilter {
+pub(crate) struct CompiledFilter {
     predicate: Arc<dyn PhysicalExpr>,
     /// Table column indices the predicate reads, ascending (`schema`'s order).
     columns: Vec<usize>,
@@ -1623,7 +1741,7 @@ struct CompiledFilter {
 impl CompiledFilter {
     /// Compile `filter`, an expression over qualified columns such as `b__name`,
     /// against `table`'s own columns; `raw` maps each qualified name to its column.
-    fn new(
+    pub(crate) fn new(
         filter: &Expr,
         raw: &HashMap<String, String>,
         table: &Schema,
@@ -3061,6 +3179,8 @@ impl ExecutionPlan for CsrExpandExec {
                     if let (Some(edge), Some(compiled)) = (&edge, filter) {
                         // Decide before fetching: a chunk that crosses the threshold is
                         // filtered by the new mask, without its own scattered fetch.
+                        // Same rule as `EdgeFilterState::mask_if_due`, kept inline: awaiting
+                        // that helper here slowed IC12 by 10% and custom query 30 by 6%.
                         use std::sync::atomic::Ordering::Relaxed;
                         let expanded = chunk.rows.len() as u64;
                         if edge_state.expanded.fetch_add(expanded, Relaxed) + expanded >= mask_after
@@ -3570,6 +3690,17 @@ fn prune_within(
     plan.map_children(|child| prune_within(child, used))?
         .transform_data(|node| {
             if let LogicalPlan::Extension(ext) = &node {
+                if let Some(path) = ext
+                    .node
+                    .as_any()
+                    .downcast_ref::<crate::path_match::PathMatchNode>()
+                {
+                    if let Some(pruned) = path.without_unused_path(used)? {
+                        return Ok(Transformed::yes(LogicalPlan::Extension(Extension {
+                            node: Arc::new(pruned),
+                        })));
+                    }
+                }
                 if let Some(csr) = ext.node.as_any().downcast_ref::<CsrExpandNode>() {
                     if let Some(pruned) = csr.with_target_columns(used) {
                         return Ok(Transformed::yes(LogicalPlan::Extension(Extension {
@@ -4834,5 +4965,67 @@ mod tests {
             reverse: Some(reverse),
         };
         assert_eq!([1, 2, 3].map(|key| undirected.degree_bound(key)), [3, 2, 1]);
+    }
+
+    #[tokio::test]
+    async fn edge_filter_keeps_the_same_rows_per_edge_and_by_mask() {
+        use arrow::array::RecordBatchIterator;
+        let edges = RecordBatch::try_from_iter([
+            (
+                "src",
+                Arc::new(Int64Array::from((0..7).collect::<Vec<_>>())) as ArrayRef,
+            ),
+            (
+                "day",
+                Arc::new(Int64Array::from(vec![5, 1, 5, 5, 2, 5, 3])) as ArrayRef,
+            ),
+        ])
+        .unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("edges.lance");
+        let reader = RecordBatchIterator::new(vec![Ok(edges.clone())], edges.schema());
+        let params = lance::dataset::WriteParams {
+            max_rows_per_file: 3,
+            ..Default::default()
+        };
+        let mut dataset = Dataset::write(reader, path.to_str().unwrap(), Some(params))
+            .await
+            .unwrap();
+        dataset.delete("src = 3").await.unwrap();
+        let state = datafusion::prelude::SessionContext::new().state();
+        let filter = Expr::Column(Column::from_name("day")).eq(datafusion::prelude::lit(5_i64));
+        // Rows 0, 1, 2 in fragment 0; 4, 5 in fragment 1 (3 deleted); 6 in fragment 2.
+        let addresses = [0, 1, 2, (1 << 32) | 1, (1 << 32) | 2, 2 << 32];
+        let expected = [true, false, true, false, true, false];
+        for rows in [
+            EdgeRows::from_lance(Arc::new(dataset.clone())),
+            EdgeRows::from_batch(edges.clone()),
+        ] {
+            let compiled =
+                CompiledFilter::new(&filter, &HashMap::new(), rows.schema(), &state).unwrap();
+            let addresses: Vec<u64> = if rows.in_memory() {
+                vec![0, 1, 2, 4, 5, 6]
+            } else {
+                addresses.to_vec()
+            };
+            // Per edge: the threshold is never reached.
+            let lazy = EdgeFilterState::default();
+            for (row, keep) in addresses.iter().zip(expected) {
+                assert_eq!(
+                    lazy.keep(&rows, &[*row], &compiled, u64::MAX)
+                        .await
+                        .unwrap(),
+                    [keep]
+                );
+            }
+            assert!(lazy.mask.get().is_none());
+            // By mask: the first check crosses the threshold.
+            let masked = EdgeFilterState::default();
+            assert_eq!(
+                masked.keep(&rows, &addresses, &compiled, 1).await.unwrap(),
+                expected
+            );
+            assert!(masked.mask.get().is_some());
+        }
     }
 }
