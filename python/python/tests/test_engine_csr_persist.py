@@ -29,6 +29,7 @@ QUERIES = [
     "MATCH (a:Person)<-[:KNOWS]-(b:Person) RETURN a.id, b.name",
     "MATCH (a:Person)-[:KNOWS]->(b:Person)-[:KNOWS]->(c:Person) RETURN count(*) AS n",
     "MATCH (a:Person)-[r:KNOWS]->(b:Person) RETURN a.id, b.id, r.since",
+    "MATCH (s:Person {id:2})-[:KNOWS*2..3]-(q:Person) RETURN q.id",
 ]
 
 

@@ -403,7 +403,7 @@ async fn build_adjacency(
         let (edges, context) = (edges.clone(), context.clone());
         async move {
             let stream = edges.execute(0, context)?;
-            Adjacency::build(stream, &from, &to)
+            Adjacency::build_with_address_column(stream, &from, &to, None)
                 .await
                 .map(Arc::new)
                 .map_err(|e| datafusion::common::DataFusionError::External(Box::new(e)))

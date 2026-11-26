@@ -95,7 +95,9 @@ def test_csr_walk_matches_edge_inventory(tmp_path, lazy):
     csr = CypherEngine(CONFIG, data, use_csr=True)
     inventory = CypherEngine(CONFIG, data)
     for query in QUERIES:
-        assert "csr walk" in csr.explain(query), query
+        # An unnamed multi-type segment takes iterative CsrExpand instead.
+        route = "csr walk" if query.startswith("MATCH p =") else "CsrExpandExec"
+        assert route in csr.explain(query), query
         assert rows(csr, query) == rows(inventory, query), query
 
 

@@ -118,3 +118,49 @@ pub fn bench_grouped_two_hop(c: &mut Criterion) {
     }
     group.finish();
 }
+
+/// Keep the per-seed workload fixed while unrelated nodes and edges grow.
+pub fn bench_seeded_trail(c: &mut Criterion) {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let config = GraphConfig::builder()
+        .node_table("N", "id")
+        .rel_table("R", "N", "N", "src", "dst")
+        .build()
+        .unwrap();
+    let query = "MATCH (:N {id:0})-[:R*1..2]-(f:N)-[:R]-(g:N) RETURN count(*)";
+    let mut group = c.benchmark_group("seeded_trail");
+    for size in [10_000_i64, 100_000] {
+        let nodes = batch(&[("id", (0..size).collect())]);
+        let edges = batch(&[
+            ("src", (0..size).flat_map(|i| [i, i]).collect()),
+            (
+                "dst",
+                (0..size)
+                    .flat_map(|i| [(i + 1) % size, (i + 2) % size])
+                    .collect(),
+            ),
+        ]);
+        for (mode, csr) in [("csr", true), ("joins", false)] {
+            let sources = HashMap::from([
+                ("N".into(), EngineSource::Arrow(nodes.clone())),
+                ("R".into(), EngineSource::Arrow(edges.clone())),
+            ]);
+            let engine = rt
+                .block_on(CypherEngine::new(config.clone(), sources, csr))
+                .unwrap();
+            let execute = || rt.block_on(engine.execute(query, HashMap::new())).unwrap();
+            let result = execute();
+            // Four choices on the first hop, three on each following hop.
+            let count = result
+                .column(0)
+                .as_any()
+                .downcast_ref::<Int64Array>()
+                .unwrap();
+            assert_eq!(count.value(0), 4 * 3 + 4 * 3 * 3);
+            group.bench_function(BenchmarkId::new(mode, size), |b| {
+                b.iter(|| black_box(execute()))
+            });
+        }
+    }
+    group.finish();
+}

@@ -22,6 +22,7 @@ mod expand_ops;
 mod helpers;
 mod join_builder;
 mod path_ops;
+mod trail_joins;
 
 use super::DataFusionPlanner;
 use crate::error::Result;

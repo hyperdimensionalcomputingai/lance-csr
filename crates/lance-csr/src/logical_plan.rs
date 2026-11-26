@@ -315,16 +315,90 @@ impl<'a> LogicalPlanner<'a> {
         self
     }
 
-    fn retain_variable_alternation(&self, patterns: &[GraphPattern]) -> bool {
+    /// Decide at graph planning time so a residual shape keeps its ordinary expansions,
+    /// with the same relationship aliases, projections and input scope as any other MATCH.
+    fn can_plan_shared_trail(&self, path: &PathPattern) -> bool {
+        use crate::csr_expand::{TrailWalk, WalkSegmentSpec};
+        use crate::pattern_alternatives::{segment_sequences, Enumerated, MAX_BRANCHES};
+
+        if self.wildcard_relationships || !path.needs_trail_across_segments() {
+            return false;
+        }
+        let label = |node: &NodePattern| {
+            let label = node
+                .variable
+                .as_ref()
+                .and_then(|v| self.variables.get(v))
+                .or_else(|| (node.labels.len() == 1).then(|| &node.labels[0]))?;
+            self.config
+                .get_node_mapping(label)
+                .map(|mapping| mapping.label.as_str())
+        };
+        let Some(start) = label(&path.start_node) else {
+            return false;
+        };
+        let mut specs = Vec::with_capacity(path.segments.len());
+        for segment in &path.segments {
+            let rel = &segment.relationship;
+            let Some(end_label) = label(&segment.end_node) else {
+                return false;
+            };
+            if rel.variable.is_some() || rel.types.is_empty() {
+                return false;
+            }
+            let [min, max] = rel.hop_range();
+            if min > max || max > crate::MAX_VARIABLE_LENGTH_HOPS {
+                return false;
+            }
+            specs.push(WalkSegmentSpec {
+                types: &rel.types,
+                direction: &rel.direction,
+                end_label,
+                min,
+                max,
+                tie: None,
+            });
+        }
+        // Check actual typed sequences: a long heterogeneous range can still have only one branch.
+        let mut budget = MAX_BRANCHES;
+        let mut from = start;
+        for spec in &specs {
+            match segment_sequences(
+                self.config,
+                spec.types,
+                spec.direction,
+                [spec.min, spec.max],
+                [&[from], &[spec.end_label]],
+                budget,
+                false,
+            ) {
+                Ok(Enumerated::Found(sequences)) if sequences.is_empty() => return true,
+                Ok(Enumerated::Found(sequences)) => budget /= sequences.len(),
+                _ => {
+                    return self.adjacency.is_some_and(|catalog| {
+                        path.segments
+                            .iter()
+                            .all(|s| s.relationship.properties.is_empty())
+                            && TrailWalk::new(self.config, catalog, start, &specs).is_some()
+                    })
+                }
+            }
+            from = spec.end_label;
+        }
+        true
+    }
+
+    fn retain_variable_alternation(
+        &self,
+        patterns: &[GraphPattern],
+        bounded_undirected: bool,
+    ) -> bool {
         if patterns
             .iter()
             .all(|p| matches!(p, GraphPattern::Path(path) if path.variable.is_some()))
         {
             return true;
         }
-        let Some(catalog) = self.adjacency else {
-            return false;
-        };
         let labels = |n: &NodePattern| -> Vec<String> {
             n.variable
                 .as_ref()
@@ -348,34 +422,46 @@ impl<'a> LogicalPlanner<'a> {
                     return true;
                 }
                 if rel.variable.is_some()
-                    || !rel.properties.is_empty()
-                    || rel.direction == RelationshipDirection::Undirected
+                    || (rel.direction == RelationshipDirection::Undirected
+                        && (!bounded_undirected || !rel.properties.is_empty()))
                     || (range.min == Some(1) && range.max == Some(1))
                 {
                     return false;
                 }
                 let (starts, ends) = (labels(start), labels(&segment.end_node));
-                let (Some(start), Some(end)) = (starts.first(), ends.first()) else {
+                let (Some(first), Some(last)) = (starts.first(), ends.first()) else {
                     return false;
                 };
-                if starts
-                    .iter()
-                    .chain(&ends)
-                    .any(|l| catalog.nodes(l).is_none())
-                {
-                    return false;
-                }
-                crate::csr_traversal::Traversal::new(
-                    self.config,
-                    catalog,
-                    &rel.types,
-                    &rel.direction,
-                    start,
-                    end,
-                    0,
-                    0,
-                )
-                .is_some()
+                let [min, max] = rel.hop_range();
+                let csr = max <= crate::MAX_VARIABLE_LENGTH_HOPS
+                    && rel.properties.is_empty()
+                    && self.adjacency.is_some_and(|catalog| {
+                        starts
+                            .iter()
+                            .chain(&ends)
+                            .all(|l| catalog.nodes(l).is_some())
+                            && crate::csr_traversal::Traversal::new(
+                                self.config,
+                                catalog,
+                                &rel.types,
+                                &rel.direction,
+                                first,
+                                last,
+                                min,
+                                max,
+                            )
+                            .is_some()
+                    });
+                // Without the CSR walk, the planner joins the valid type sequences itself
+                // when both ends have one label (otherwise the unroller handles the segment).
+                csr || (rel.direction != RelationshipDirection::Undirected
+                    && starts.len() == 1
+                    && ends.len() == 1
+                    && rel.types.iter().all(|t| {
+                        self.config
+                            .get_relationship_mapping(t)
+                            .is_some_and(|m| m.source_label.is_some() && m.target_label.is_some())
+                    }))
             })
         })
     }
@@ -923,9 +1009,41 @@ impl<'a> LogicalPlanner<'a> {
             ),
             ..match_clause.clone()
         };
-        let inventory_alternation = match_clause.is_bounded_undirected_alternation();
+        if let Some(branches) = crate::pattern_alternatives::trail_label_branches(
+            &inferred.patterns,
+            self.config,
+            &self.variables,
+        )? {
+            return self.plan_match_branches(base, branches, filter);
+        }
+        if let [GraphPattern::Path(path)] = inferred.patterns.as_slice() {
+            if path.needs_trail_across_segments() {
+                let last = &path.segments.last().expect("overlapping segments").end_node;
+                let bound = |n: &NodePattern| {
+                    n.variable
+                        .as_ref()
+                        .is_some_and(|v| self.variables.contains_key(v))
+                };
+                let reverse = !bound(&path.start_node)
+                    && (bound(last)
+                        || crate::pattern_order::prefer_trail_end(
+                            &path.start_node,
+                            last,
+                            filter,
+                            self.config,
+                        ));
+                let reversed = reverse.then(|| Self::reversed_path(path));
+                let oriented = reversed.as_ref().unwrap_or(path);
+                if self.can_plan_shared_trail(oriented) {
+                    return self.plan_inventory_path(base, oriented, None);
+                }
+            }
+        }
+        let bounded_undirected = match_clause.is_bounded_undirected_alternation();
         let match_clause = &inferred;
-        let retain_variable = self.retain_variable_alternation(&match_clause.patterns);
+        let retain_variable =
+            self.retain_variable_alternation(&match_clause.patterns, bounded_undirected);
+        let inventory_alternation = bounded_undirected && !retain_variable;
         if !inventory_alternation
             && crate::pattern_alternatives::needs_expansion(
                 &match_clause.patterns,
@@ -1007,6 +1125,11 @@ impl<'a> LogicalPlanner<'a> {
                     path.variable = Some(format!("_path_value_{}", self.variables.len()));
                     plan = Some(self.plan_inventory_path(plan, &path, None)?);
                 }
+                GraphPattern::Path(path)
+                    if patterns.len() > 1 && self.can_plan_shared_trail(path) =>
+                {
+                    plan = Some(self.plan_inventory_path(plan, path, None)?);
+                }
                 GraphPattern::Path(path) => plan = Some(self.plan_path(plan, path)?),
             }
         }
@@ -1041,6 +1164,11 @@ impl<'a> LogicalPlanner<'a> {
         // Whether each variable seen in this clause was variable-length.
         let mut seen: HashMap<String, bool> = HashMap::new();
         for rel in relationships(&mut patterns) {
+            if rel.length.is_some() && rel.types.len() > 1 {
+                let mut unique = HashSet::new();
+                rel.types
+                    .retain(|kind| unique.insert(kind.to_ascii_lowercase()));
+            }
             let Some(var) = rel.variable.as_ref() else {
                 continue;
             };
@@ -1099,6 +1227,7 @@ impl<'a> LogicalPlanner<'a> {
             }
             // The path operator already keeps the edges of one path apart, by edge row.
             let path_operator = path.variable.is_some()
+                || (patterns.len() > 1 && self.can_plan_shared_trail(path))
                 || (self.rich_paths
                     && path
                         .segments

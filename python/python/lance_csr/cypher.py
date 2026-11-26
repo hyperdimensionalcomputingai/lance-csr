@@ -83,7 +83,9 @@ class CypherEngine:
         not read here.
     use_csr : bool
         Build the experimental [CSR index](csr.md) for relationship types with integer
-        endpoints, and node indexes for labels with unique integer keys.
+        endpoints, and node indexes for labels with unique integer keys. With either
+        setting, each hop of a variable-length segment uses a different stored
+        relationship. Parallel relationships between the same nodes count separately.
     target_partitions : int or None
         Keyword-only. A target from 1 to 1024 for DataFusion query partitioning; `None`
         keeps DataFusion's default. `checkout_latest` preserves it. It is not a thread

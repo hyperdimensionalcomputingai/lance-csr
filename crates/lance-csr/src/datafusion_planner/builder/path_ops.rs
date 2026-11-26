@@ -1,19 +1,265 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The lance-csr Authors
 
-use crate::ast::RelationshipDirection;
-use crate::ast::{BooleanExpression, PathPattern};
+use super::trail_joins::ChainSegment;
+use crate::ast::{
+    BooleanExpression, NodePattern, PathPattern, PropertyValue, RelationshipDirection,
+};
 use crate::case_insensitive::qualify_column;
-use crate::csr_expand::{AdjacencyCatalog, Neighbors};
+use crate::csr_expand::{
+    AdjacencyCatalog, Neighbors, Tie, TrailWalk, TrailWalkNode, WalkSegmentSpec,
+};
 use crate::datafusion_planner::{analysis::PlanningContext, DataFusionPlanner};
 use crate::error::{GraphError, Result};
 use crate::logical_plan::LogicalOperator;
 use crate::path_inventory::{EdgeSource, NodeSource};
 use crate::path_match::{Binding, CsrHop, CsrRoute, PathMatchNode, PathSpec, Step};
-use datafusion::logical_expr::{Extension, LogicalPlan, LogicalPlanBuilder};
+use datafusion::common::Column;
+use datafusion::logical_expr::{col, Expr, Extension, LogicalPlan, LogicalPlanBuilder};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 impl DataFusionPlanner {
+    /// A path without a path variable whose variable-length segment shares a relationship
+    /// type with another segment (`(a)-[:R*1..2]-(f)-[:R]-(g)`). The segments must not
+    /// share an edge, so they are planned as one trail instead of separate expansions: a
+    /// CSR walk seeded at each start row ([`TrailWalkNode`]) when every type and label is
+    /// indexed and no segment filters relationship properties, otherwise one chain of
+    /// joins per combination of segment lengths ([`Self::build_trail_chain`]). Either way
+    /// the work follows the rows' start nodes; no edge inventory is built.
+    ///
+    /// If the combined chain would be too wide, plan each segment independently.
+    fn build_overlapping_trail(
+        &self,
+        ctx: &PlanningContext,
+        input: &LogicalPlan,
+        path: &PathPattern,
+    ) -> Result<LogicalPlan> {
+        let segments = &path.segments;
+        let resolve = |node: &NodePattern| -> Option<(String, String)> {
+            let variable = node.variable.clone()?;
+            let label = ctx
+                .analysis
+                .var_to_label
+                .get(&variable)
+                .or_else(|| node.labels.first())?
+                .clone();
+            self.config.get_node_mapping(&label)?;
+            Some((variable, label))
+        };
+        let (start, start_label) = resolve(&path.start_node)
+            .ok_or_else(|| GraphError::internal("a resolved trail start"))?;
+        let mut ends = Vec::with_capacity(segments.len());
+        for segment in segments {
+            let [min, max] = segment.relationship.hop_range();
+            if min > max || max > crate::MAX_VARIABLE_LENGTH_HOPS {
+                return Err(GraphError::UnsupportedFeature {
+                    feature: format!("invalid trail range {min}..{max}; variable-length paths allow at most {} hops", crate::MAX_VARIABLE_LENGTH_HOPS),
+                    location: snafu::Location::new(file!(), line!(), column!()),
+                });
+            }
+            ends.push(
+                resolve(&segment.end_node)
+                    .ok_or_else(|| GraphError::internal("a resolved trail boundary"))?,
+            );
+        }
+        let start_map = self
+            .config
+            .get_node_mapping(&start_label)
+            .ok_or_else(|| GraphError::internal("a resolved start label"))?;
+        let start_key = qualify_column(&start, &start_map.id_field);
+        input
+            .schema()
+            .field_with_unqualified_name(&start_key)
+            .map_err(|e| self.plan_error("Missing trail start key", e))?;
+        let input = self.filter_node_properties(
+            input.clone(),
+            &start,
+            &start_label,
+            &path.start_node.properties,
+        )?;
+        let walked = self.try_build_trail_walk(&input, [&start, &start_label], path, &ends)?;
+        let mut plan = match walked {
+            Some(plan) => plan,
+            None => {
+                let chain: Vec<ChainSegment> = segments
+                    .iter()
+                    .zip(&ends)
+                    .map(|(segment, (end, end_label))| ChainSegment {
+                        types: &segment.relationship.types,
+                        direction: &segment.relationship.direction,
+                        range: segment.relationship.hop_range(),
+                        properties: &segment.relationship.properties,
+                        end,
+                        end_label,
+                    })
+                    .collect();
+                self.build_trail_chain(&input, [&start, &start_label], &chain, &HashMap::new())?
+                    .ok_or_else(|| {
+                        GraphError::internal("shared trail exceeds the planned branch budget")
+                    })?
+            }
+        };
+        for (segment, (end, label)) in segments.iter().zip(&ends) {
+            plan = self.filter_node_properties(plan, end, label, &segment.end_node.properties)?;
+        }
+        Ok(plan)
+    }
+
+    /// The CSR walk of [`Self::build_overlapping_trail`], with each new boundary node's
+    /// other columns looked up through its node index (and dropped when unused). `None`
+    /// when a type, direction or label has no index, a segment filters relationship
+    /// properties, or a start or bound column is not an integer id.
+    fn try_build_trail_walk(
+        &self,
+        input: &LogicalPlan,
+        [start, start_label]: [&str; 2],
+        path: &PathPattern,
+        ends: &[(String, String)],
+    ) -> Result<Option<LogicalPlan>> {
+        let Some(catalog) = &self.adjacency else {
+            return Ok(None);
+        };
+        if path
+            .segments
+            .iter()
+            .any(|s| !s.relationship.properties.is_empty())
+        {
+            return Ok(None);
+        }
+        let schema = input.schema();
+        let id_column = |name: &str| {
+            schema
+                .field_with_unqualified_name(name)
+                .ok()
+                .map(|f| crate::csr_expand::is_supported_id_type(f.data_type()))
+        };
+        let node_map = |label: &str| {
+            self.config
+                .get_node_mapping(label)
+                .ok_or_else(|| GraphError::internal("a resolved boundary label"))
+        };
+        let start_key = qualify_column(start, &node_map(start_label)?.id_field);
+        if id_column(&start_key) != Some(true) {
+            return Ok(None);
+        }
+        // Boundary k is the start for k = 0, else the end of segment k - 1.
+        let mut boundaries = vec![start.to_lowercase()];
+        let mut bound = Vec::new();
+        let mut specs = Vec::with_capacity(path.segments.len());
+        let mut outputs = Vec::new();
+        for (s, (segment, (end, label))) in path.segments.iter().zip(ends).enumerate() {
+            let key = qualify_column(end, &node_map(label)?.id_field);
+            let tie = if let Some(k) = boundaries.iter().position(|b| *b == end.to_lowercase()) {
+                Some(Tie::Boundary(k))
+            } else {
+                match id_column(&key) {
+                    Some(true) => {
+                        bound.push(key.clone());
+                        Some(Tie::Input(bound.len() - 1))
+                    }
+                    Some(false) => return Ok(None),
+                    None => None,
+                }
+            };
+            if tie.is_none() {
+                outputs.push((s, end.as_str(), label.as_str(), key));
+            }
+            boundaries.push(end.to_lowercase());
+            let [min, max] = segment.relationship.hop_range();
+            specs.push(WalkSegmentSpec {
+                types: &segment.relationship.types,
+                direction: &segment.relationship.direction,
+                end_label: label,
+                min,
+                max,
+                tie,
+            });
+        }
+        let Some(walk) = TrailWalk::new(&self.config, catalog, start_label, &specs) else {
+            return Ok(None);
+        };
+        let walk = Arc::new(walk);
+        let cat = self.get_catalog()?;
+        let mut fields = Vec::with_capacity(outputs.len());
+        for (_, _, label, key) in &outputs {
+            let id = &node_map(label)?.id_field;
+            let source = cat
+                .node_source(label)
+                .ok_or_else(|| GraphError::internal("an indexed boundary label's table"))?;
+            let schema = source.schema();
+            let field = schema
+                .fields()
+                .iter()
+                .find(|f| f.name().eq_ignore_ascii_case(id))
+                .ok_or_else(|| GraphError::internal("a boundary node's id column"))?;
+            fields.push(field.as_ref().clone().with_name(key).with_nullable(true));
+        }
+        let node = TrailWalkNode::try_new(input.clone(), start_key, bound, walk.clone(), fields)?;
+        let mut plan = LogicalPlan::Extension(Extension {
+            node: Arc::new(node),
+        });
+        for (s, end, label, key) in outputs {
+            let id = &node_map(label)?.id_field;
+            let rows = walk.end_rows(s).clone();
+            let wanted: Vec<(String, String)> = rows
+                .schema()
+                .fields()
+                .iter()
+                .filter(|f| !f.name().eq_ignore_ascii_case(id))
+                .map(|f| (qualify_column(end, f.name()), f.name().clone()))
+                .collect();
+            if wanted.is_empty() {
+                continue;
+            }
+            let lookup = crate::csr_expand::NodeLookupNode::try_new(
+                plan,
+                key,
+                end.to_lowercase(),
+                rows,
+                &wanted,
+            )?;
+            plan = LogicalPlan::Extension(Extension {
+                node: Arc::new(lookup),
+            });
+        }
+        Ok(Some(plan))
+    }
+
+    /// `plan` keeping the rows whose node `variable` has the inline property values.
+    fn filter_node_properties(
+        &self,
+        plan: LogicalPlan,
+        variable: &str,
+        label: &str,
+        properties: &HashMap<String, PropertyValue>,
+    ) -> Result<LogicalPlan> {
+        let schema = self.get_catalog()?.node_source(label).map(|s| s.schema());
+        let Some(predicate) = properties
+            .iter()
+            .map(|(key, value)| {
+                let field = schema
+                    .as_ref()
+                    .and_then(|s| {
+                        s.fields()
+                            .iter()
+                            .find(|f| f.name().eq_ignore_ascii_case(key))
+                    })
+                    .map_or(key.as_str(), |f| f.name().as_str());
+                let value = self
+                    .unresolved_value_expr(&crate::ast::ValueExpression::Literal(value.clone()));
+                col(Column::new_unqualified(qualify_column(variable, field))).eq(value)
+            })
+            .reduce(Expr::and)
+        else {
+            return Ok(plan);
+        };
+        LogicalPlanBuilder::from(plan)
+            .filter(predicate)
+            .and_then(|b| b.build())
+            .map_err(|e| self.plan_error("Failed to filter path node properties", e))
+    }
+
     pub(crate) fn build_path_match(
         &self,
         ctx: &mut PlanningContext,
@@ -28,6 +274,9 @@ impl DataFusionPlanner {
         };
         let catalog = self.get_catalog()?;
         let input = self.build_operator(ctx, input)?;
+        if !node_values && path.needs_trail_across_segments() {
+            return self.build_overlapping_trail(ctx, &input, path);
+        }
         let mut node_labels = Vec::<String>::new();
         let mut edge_labels = Vec::<String>::new();
         for segment in &path.segments {
@@ -291,4 +540,168 @@ fn csr_route(
         })
         .collect::<Option<Vec<_>>>()?;
     Some(CsrRoute { steps })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    use arrow_array::{Array, Int64Array, RecordBatch};
+    use arrow_schema::{DataType, Field, Schema};
+
+    use crate::{CypherEngine, EngineSource, GraphConfig};
+
+    fn ints(columns: &[(&str, Vec<i64>)]) -> RecordBatch {
+        let fields: Vec<Field> = columns
+            .iter()
+            .map(|(name, _)| Field::new(*name, DataType::Int64, false))
+            .collect();
+        let arrays = columns
+            .iter()
+            .map(|(_, values)| Arc::new(Int64Array::from(values.clone())) as _)
+            .collect();
+        RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays).unwrap()
+    }
+
+    /// Nodes 1, 2, 3; `R` edges 1->2 twice (parallel, so distinct) and 2->3.
+    async fn engine(use_csr: bool) -> CypherEngine {
+        let config = GraphConfig::builder()
+            .node_table("N", "id")
+            .rel_table("R", "N", "N", "src", "dst")
+            .build()
+            .unwrap();
+        let sources = HashMap::from([
+            (
+                "N".to_string(),
+                EngineSource::Arrow(ints(&[("id", vec![1, 2, 3])])),
+            ),
+            (
+                "R".to_string(),
+                EngineSource::Arrow(ints(&[("src", vec![1, 1, 2]), ("dst", vec![2, 2, 3])])),
+            ),
+        ]);
+        CypherEngine::new(config, sources, use_csr).await.unwrap()
+    }
+
+    async fn rows(engine: &CypherEngine, query: &str) -> Vec<Vec<i64>> {
+        let batch = engine.execute(query, HashMap::new()).await.unwrap();
+        let columns: Vec<&Int64Array> = batch
+            .columns()
+            .iter()
+            .map(|c| c.as_any().downcast_ref::<Int64Array>().unwrap())
+            .collect();
+        let mut out: Vec<Vec<i64>> = (0..batch.num_rows())
+            .map(|i| columns.iter().map(|c| c.value(i)).collect())
+            .collect();
+        out.sort();
+        out
+    }
+
+    /// The rows of `query` with and without the CSR, which must agree. Neither plan may
+    /// build the edge inventory; the CSR plan walks the pattern from each start row.
+    async fn trail(query: &str) -> Vec<Vec<i64>> {
+        let mut results = Vec::new();
+        for use_csr in [false, true] {
+            let engine = engine(use_csr).await;
+            let plan = engine.explain(query, HashMap::new()).await.unwrap();
+            assert!(!plan.contains("PathMatchExec"), "{query}: {plan}");
+            assert_eq!(plan.contains("TrailWalkExec"), use_csr, "{query}: {plan}");
+            results.push(rows(&engine, query).await);
+        }
+        assert_eq!(results[0], results[1], "{query}");
+        results.remove(0)
+    }
+
+    #[tokio::test]
+    async fn hop_after_a_trail_of_its_type_keeps_the_edges_apart() {
+        // From 2 the last hop returns to 1 over the parallel edge the trail did not take.
+        let query = "MATCH (:N {id: 1})-[:R*1..2]-(f:N)-[:R]-(g:N)";
+        assert_eq!(
+            trail(&format!("{query} RETURN f.id, g.id")).await,
+            vec![vec![2, 1], vec![2, 1], vec![2, 3], vec![2, 3]]
+        );
+        assert_eq!(
+            trail(&format!("{query} RETURN count(*)")).await,
+            vec![vec![4]]
+        );
+    }
+
+    #[tokio::test]
+    async fn segments_in_different_directions_and_of_zero_length() {
+        let query = "MATCH (:N {id: 1})-[:R*0..1]->(f:N)<-[:R]-(g:N) RETURN f.id, g.id";
+        assert_eq!(trail(query).await, vec![vec![2, 1], vec![2, 1]]);
+        let query = "MATCH (:N {id: 3})<-[:R]-(f:N)<-[:R*1..2]-(g:N) RETURN f.id, g.id";
+        assert_eq!(trail(query).await, vec![vec![2, 1], vec![2, 1]]);
+    }
+
+    #[tokio::test]
+    async fn segment_ends_bound_in_the_pattern_or_by_earlier_rows() {
+        let query = "MATCH (a:N {id: 1})-[:R*1..2]-(f:N)-[:R]-(a) RETURN f.id";
+        assert_eq!(trail(query).await, vec![vec![2], vec![2]]);
+        let query = "MATCH (g:N {id: 3}) \
+                     MATCH (:N {id: 1})-[:R*1..2]-(f:N)-[:R]-(g) RETURN f.id, g.id";
+        assert_eq!(trail(query).await, vec![vec![2, 3], vec![2, 3]]);
+        let query = "MATCH (:N {id: 1})-[:R*1..2]-(f:N {id: 2})-[:R]-(g:N) RETURN g.id";
+        assert_eq!(trail(query).await, vec![vec![1], vec![1], vec![3], vec![3]]);
+    }
+
+    #[tokio::test]
+    async fn catalog_without_row_ids_preserves_edge_identity_across_filters_and_directions() {
+        use datafusion::prelude::SessionContext;
+        let ctx = SessionContext::new();
+        ctx.register_batch("n", ints(&[("id", vec![1, 2])]))
+            .unwrap();
+        ctx.register_batch(
+            "r",
+            ints(&[
+                ("src", vec![1, 1]),
+                ("dst", vec![2, 2]),
+                ("color", vec![0, 1]),
+            ]),
+        )
+        .unwrap();
+        let cfg = GraphConfig::builder()
+            .node_table("N", "id")
+            .rel_table("R", "N", "N", "src", "dst")
+            .build()
+            .unwrap();
+        for (steps, expected) in [
+            ("-[:R*1..1 {color:0}]->(:N)<-[:R {color:1}]-", 1),
+            ("-[:R*1..1 {color:0}]-(:N)<-[:R {color:0}]-", 0),
+            ("-[:R*1..1 {color:0}]->(:N)-[:R]-", 1),
+        ] {
+            let q = format!("MATCH (:N {{id:1}}){steps}(x:N) RETURN x.id");
+            let rows = crate::CypherQuery::new(&q)
+                .unwrap()
+                .with_config(cfg.clone())
+                .execute_with_context(ctx.clone())
+                .await
+                .unwrap();
+            assert_eq!(rows.num_rows(), expected, "{q}");
+        }
+    }
+
+    #[tokio::test]
+    async fn residual_shapes_use_separate_expansions() {
+        // A relationship variable on a segment.
+        let named = "MATCH (:N {id: 1})-[:R*1..2]-(f:N)-[r:R]-(g:N) RETURN f.id, g.id";
+        // Without the CSR, 10 × 10 segment lengths exceed the joins' branch limit.
+        let long = "MATCH (:N {id: 1})-[:R*1..10]-(f:N)-[:R*1..10]-(g:N) RETURN f.id, g.id";
+        for use_csr in [false, true] {
+            let engine = engine(use_csr).await;
+            for (query, shared) in [(named, false), (long, use_csr)] {
+                let plan = engine.explain(query, HashMap::new()).await.unwrap();
+                assert!(!plan.contains("PathMatchExec"), "{query}: {plan}");
+                assert_eq!(plan.contains("TrailWalkExec"), shared, "{query}: {plan}");
+                let expected = if shared {
+                    vec![vec![2, 1], vec![2, 1], vec![2, 3], vec![2, 3]]
+                } else {
+                    // Separate MATCH clauses give each segment its own edge history.
+                    rows(&engine, &query.replace("(f:N)-", "(f:N) MATCH (f)-")).await
+                };
+                assert_eq!(rows(&engine, query).await, expected, "{query}");
+            }
+        }
+    }
 }

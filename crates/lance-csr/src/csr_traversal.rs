@@ -2,31 +2,19 @@
 // SPDX-FileCopyrightText: Copyright The Lance Authors
 
 //! Resumable variable-length walks over immutable, typed CSR snapshots.
-
-use std::sync::Arc;
+//!
+//! A variable-length expand is a one-segment [`TrailWalk`]: the same depth-first search,
+//! edge identity, last-hop batching and cooperative yields as a multi-segment pattern.
 
 use crate::ast::RelationshipDirection;
 use crate::config::GraphConfig;
-use crate::csr_expand::{
-    cooperative_yield, AdjacencyCatalog, NeighborPosition, Neighbors, NodeRows,
-};
-
-#[derive(Debug)]
-struct Step {
-    from: usize,
-    to: usize,
-    adjacency: Neighbors,
-}
+use crate::csr_expand::{AdjacencyCatalog, TrailWalk, WalkSegmentSpec};
 
 #[derive(Debug)]
 pub(crate) struct Traversal {
-    steps: Vec<Step>,
-    nodes: Vec<Arc<NodeRows>>,
-    start: usize,
-    target: usize,
+    walk: TrailWalk,
     pub min_hops: u32,
     pub max_hops: u32,
-    undirected: bool,
 }
 
 impl Traversal {
@@ -42,163 +30,47 @@ impl Traversal {
         min_hops: u32,
         max_hops: u32,
     ) -> Option<Self> {
-        let mut labels: Vec<String> = Vec::new();
-        let mut nodes = Vec::new();
-        let mut label = |name: &str| -> Option<usize> {
-            if let Some(index) = labels.iter().position(|l| l.eq_ignore_ascii_case(name)) {
-                return Some(index);
-            }
-            nodes.push(catalog.nodes(name)?.clone());
-            labels.push(name.to_owned());
-            Some(labels.len() - 1)
-        };
-        let (start, target) = (label(source_label)?, label(target_label)?);
-        let mut steps = Vec::new();
-        for name in types {
-            let mapping = config.get_relationship_mapping(name)?;
-            let (from, to) = (
-                label(mapping.source_label.as_deref()?)?,
-                label(mapping.target_label.as_deref()?)?,
-            );
-            match direction {
-                RelationshipDirection::Outgoing => steps.push(Step {
-                    from,
-                    to,
-                    adjacency: Neighbors::directed(catalog.get(name, true)?.clone()),
-                }),
-                RelationshipDirection::Incoming => steps.push(Step {
-                    from: to,
-                    to: from,
-                    adjacency: Neighbors::directed(catalog.get(name, false)?.clone()),
-                }),
-                RelationshipDirection::Undirected if from == to => steps.push(Step {
-                    from,
-                    to,
-                    adjacency: Neighbors::undirected(
-                        catalog.get(name, true)?.clone(),
-                        catalog.get(name, false)?.clone(),
-                    ),
-                }),
-                RelationshipDirection::Undirected => {
-                    steps.push(Step {
-                        from,
-                        to,
-                        adjacency: Neighbors::directed(catalog.get(name, true)?.clone()),
-                    });
-                    steps.push(Step {
-                        from: to,
-                        to: from,
-                        adjacency: Neighbors::directed(catalog.get(name, false)?.clone()),
-                    });
-                }
-            }
+        if types.is_empty() {
+            return None;
         }
-        (!steps.is_empty()).then_some(Self {
-            steps,
-            nodes,
-            start,
-            target,
+        let segment = WalkSegmentSpec {
+            types,
+            direction,
+            end_label: target_label,
+            min: min_hops,
+            max: max_hops,
+            tie: None,
+        };
+        let walk = TrailWalk::new(config, catalog, source_label, &[segment])?;
+        Some(Self {
+            walk,
             min_hops,
             max_hops,
-            undirected: *direction == RelationshipDirection::Undirected,
         })
     }
-}
 
-struct Frame {
-    label: usize,
-    key: i64,
-    step: usize,
-    position: NeighborPosition,
-    emit: bool,
-}
-
-impl Frame {
-    fn new(label: usize, key: i64) -> Self {
-        Self {
-            label,
-            key,
-            step: 0,
-            position: NeighborPosition::default(),
-            emit: true,
-        }
-    }
-}
-
-pub(crate) struct TraversalCursor {
-    stack: Vec<Frame>,
-}
-
-impl TraversalCursor {
-    pub fn new(graph: &Traversal, key: i64) -> Self {
-        Self {
-            stack: vec![Frame::new(graph.start, key)],
-        }
-    }
-
-    /// Keep one frame per hop, and cooperate even when candidate edges produce no rows.
-    pub async fn next(&mut self, graph: &Traversal) -> Option<i64> {
-        let mut work = 0;
-        while !self.stack.is_empty() {
-            if work == 1024 {
-                cooperative_yield().await;
-                work = 0;
-            }
-            work += 1;
-            let depth = self.stack.len() as u32 - 1;
-            let frame = self.stack.last_mut().expect("nonempty stack");
-            if frame.emit {
-                frame.emit = false;
-                if depth >= graph.min_hops && frame.label == graph.target {
-                    return Some(frame.key);
-                }
-            }
-            if depth == graph.max_hops || frame.step == graph.steps.len() {
-                self.stack.pop();
-                continue;
-            }
-            let step = &graph.steps[frame.step];
-            let next = (step.from == frame.label)
-                .then(|| {
-                    step.adjacency
-                        .candidates_from::<false>(frame.key, &mut frame.position)
-                        .next()
-                })
-                .flatten();
-            let key = match next {
-                Some(Some((key, _))) => key as i64,
-                Some(None) => continue,
-                None => {
-                    frame.step += 1;
-                    frame.position = NeighborPosition::default();
-                    continue;
-                }
-            };
-            if graph.nodes[step.to].position(key).is_none() {
-                continue;
-            }
-            // Preserve the existing undirected immediate-backtracking rule, using typed ids.
-            // shortcut: full relationship uniqueness needs edge row ids, as on the join path.
-            if graph.undirected
-                && self.stack.len() >= 2
-                && self.stack[self.stack.len() - 2].label == step.to
-                && self.stack[self.stack.len() - 2].key == key
-            {
-                continue;
-            }
-            self.stack.push(Frame::new(step.to, key));
-        }
-        None
+    pub(crate) fn walk(&self) -> &TrailWalk {
+        &self.walk
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::csr_expand::Adjacency;
+    use crate::csr_expand::{Adjacency, NodeRows, TrailCursor};
     use arrow::array::{Int64Array, RecordBatch};
     use arrow::datatypes::{DataType, Field, Schema};
     use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
+    use std::sync::Arc;
+
+    /// The next end, one at a time.
+    async fn next(cursor: &mut TrailCursor, graph: &Traversal) -> Option<i64> {
+        let mut ends = Vec::new();
+        cursor
+            .next_group(graph.walk(), &[], 1, &mut ends)
+            .await
+            .then(|| ends[0])
+    }
 
     async fn graph() -> (GraphConfig, AdjacencyCatalog) {
         let config = GraphConfig::builder()
@@ -263,16 +135,38 @@ mod tests {
             3,
         )
         .unwrap();
-        let mut cursor = TraversalCursor::new(&walk, 1);
+        let mut cursor = TrailCursor::new(walk.walk(), 1);
         let mut out = Vec::new();
-        while let Some(key) = cursor.next(&walk).await {
+        while let Some(key) = next(&mut cursor, &walk).await {
             out.push(key);
-            assert!(cursor.stack.len() <= 4);
+            assert!(cursor.depth() <= 4);
         }
         out.sort();
         // Tag 1 and Class 1 are different nodes; no extra zero-hop Class 1 result.
         assert_eq!(out, vec![1, 1, 2, 2, 3, 3]);
-        assert!(cursor.stack.is_empty());
+        assert_eq!(cursor.depth(), 0);
+    }
+
+    #[tokio::test]
+    async fn last_hop_groups_ends_up_to_the_limit() {
+        let (config, catalog) = graph().await;
+        // Tag 1 has two parallel hasType edges to Class 1: one group, two ends.
+        let walk = Traversal::new(
+            &config,
+            &catalog,
+            &["hasType".into()],
+            &RelationshipDirection::Outgoing,
+            "Tag",
+            "Class",
+            1,
+            1,
+        )
+        .unwrap();
+        let mut cursor = TrailCursor::new(walk.walk(), 1);
+        let mut ends = Vec::new();
+        assert!(cursor.next_group(walk.walk(), &[], 8, &mut ends).await);
+        assert_eq!(ends, vec![1, 1]);
+        assert!(!cursor.next_group(walk.walk(), &[], 8, &mut ends).await);
     }
 
     #[tokio::test]
@@ -315,18 +209,18 @@ mod tests {
             1,
         )
         .unwrap();
-        let mut cursor = TraversalCursor::new(&walk, 1);
-        let mut next = Box::pin(cursor.next(&walk));
-        assert!(futures::poll!(next.as_mut()).is_pending());
-        drop(next);
-        assert_eq!(cursor.next(&walk).await, Some(1));
-        assert_eq!(cursor.next(&walk).await, None);
+        let mut cursor = TrailCursor::new(walk.walk(), 1);
+        let mut pending = Box::pin(next(&mut cursor, &walk));
+        assert!(futures::poll!(pending.as_mut()).is_pending());
+        drop(pending);
+        assert_eq!(next(&mut cursor, &walk).await, Some(1));
+        assert_eq!(next(&mut cursor, &walk).await, None);
     }
 
     #[tokio::test]
-    async fn zero_hop_is_identity_and_depth_bound_survives_cycles() {
+    async fn batches_intermediate_ends_and_resumes_at_the_next_depth() {
         let (config, catalog) = graph().await;
-        let walk = Traversal::new(
+        let graph = Traversal::new(
             &config,
             &catalog,
             &["isSubclass".into()],
@@ -337,19 +231,49 @@ mod tests {
             20,
         )
         .unwrap();
-        let mut cursor = TraversalCursor::new(&walk, 1);
-        for depth in 0..=20 {
-            assert_eq!(cursor.next(&walk).await, Some(1 + depth % 3));
-            assert_eq!(cursor.stack.len(), depth as usize + 1);
-        }
-        assert_eq!(cursor.next(&walk).await, None);
-        let zero = Traversal {
-            max_hops: 0,
-            ..walk
+        let walk = graph.walk();
+        let mut cursor = TrailCursor::new(walk, 1);
+        let mut ends = Vec::new();
+        assert!(cursor.next_group(walk, &[], 2, &mut ends).await);
+        assert_eq!(ends, [1, 2]);
+        assert!(cursor.next_group(walk, &[], 2, &mut ends).await);
+        assert_eq!(ends, [3, 1]);
+        assert!(!cursor.next_group(walk, &[], 2, &mut ends).await);
+        cursor.restart(walk, 2);
+        assert!(cursor.next_group(walk, &[], 2, &mut ends).await);
+        assert_eq!(ends, [2, 3]);
+        assert!(cursor.next_group(walk, &[], 2, &mut ends).await);
+        assert_eq!(ends, [1, 2]);
+        assert!(!cursor.next_group(walk, &[], 2, &mut ends).await);
+    }
+
+    #[tokio::test]
+    async fn zero_hop_is_identity_and_a_cycle_can_only_be_traversed_once() {
+        let (config, catalog) = graph().await;
+        let subclass = |max_hops| {
+            Traversal::new(
+                &config,
+                &catalog,
+                &["isSubclass".into()],
+                &RelationshipDirection::Outgoing,
+                "Class",
+                "Class",
+                0,
+                max_hops,
+            )
+            .unwrap()
         };
-        let mut cursor = TraversalCursor::new(&zero, 2);
-        assert_eq!(cursor.next(&zero).await, Some(2));
-        assert_eq!(cursor.next(&zero).await, None);
+        let walk = subclass(20);
+        let mut cursor = TrailCursor::new(walk.walk(), 1);
+        for depth in 0..=3 {
+            assert_eq!(next(&mut cursor, &walk).await, Some(1 + depth % 3));
+            assert_eq!(cursor.depth(), depth as usize + 1);
+        }
+        assert_eq!(next(&mut cursor, &walk).await, None);
+        let zero = subclass(0);
+        let mut cursor = TrailCursor::new(zero.walk(), 2);
+        assert_eq!(next(&mut cursor, &zero).await, Some(2));
+        assert_eq!(next(&mut cursor, &zero).await, None);
     }
 
     #[tokio::test]
@@ -371,10 +295,17 @@ mod tests {
             2,
         )
         .unwrap();
-        let mut cursor = TraversalCursor::new(&walk, 1);
-        let mut next = Box::pin(cursor.next(&walk));
-        assert!(futures::poll!(&mut next).is_pending());
-        drop(next);
-        assert!(cursor.stack.len() <= 3);
+        let mut cursor = TrailCursor::new(walk.walk(), 1);
+        let mut pending = Box::pin(next(&mut cursor, &walk));
+        assert!(futures::poll!(&mut pending).is_pending());
+        drop(pending);
+        assert!(cursor.depth() <= 3);
+    }
+
+    #[tokio::test]
+    async fn untyped_walk_declines() {
+        let (config, catalog) = graph().await;
+        let direction = RelationshipDirection::Outgoing;
+        assert!(Traversal::new(&config, &catalog, &[], &direction, "Tag", "Class", 1, 2).is_none());
     }
 }

@@ -305,9 +305,10 @@ collide with identity metadata. When an untyped match combines branches, the pla
 marked property fields by name before casting each branch to the common schema. This also preserves
 the node records nested inside a path or a relationship endpoint. See [path values](../cypher.md#path-values).
 
-For an unnamed, bounded undirected segment with several types, the same operator emits
-boundary columns and skips building the Arrow path value for each trail. It still tracks edge
-occurrences during traversal, on whichever route the segment takes.
+An unnamed, bounded undirected segment with several types uses iterative `CsrExpandExec`
+when the engine has the CSR and node indexes it needs. Otherwise `PathMatchExec` emits boundary
+columns and skips building the Arrow path value for each trail. Both operators identify each edge
+by its type and occurrence, including when a trail traverses it in reverse.
 
 A named path whose variable the query never reads runs the same way. Building a path value costs
 far more than the walk when a query only counts paths or returns their end nodes: on the LDBC SF1
@@ -317,6 +318,31 @@ which already drops unused `CsrExpand` columns, also drops the path column from 
 expression in the plan references it. The node then shows as `PathMatchExec: endpoints` and, on the
 CSR walk, reads no relationship records unless a relationship variable needs them. Any reference to
 the path, such as `length(p)`, `nodes(p)` or `WITH p AS q`, keeps the value.
+
+### Trails across segments of an unnamed path
+
+For an unnamed path such as `(p)-[:KNOWS*1..2]-(f)-[:KNOWS]-(g)`, the final hop
+must know which edge occurrences the first segment used. With compatible CSR and node
+indexes, the planner can start at a bound or more selective endpoint even when it is
+written last. `TrailWalkExec` starts at each input row and carries the relationship type and
+stored edge row through every segment. It emits the node IDs at segment boundaries,
+so the query can return both `f` and `g`. Node properties can be fetched by ID when used.
+Without the indexes, the planner can join one branch per combination of hop lengths,
+checking each hop against earlier occurrences of its type. An edge used in reverse
+still has the same identity.
+
+The join chain uses Lance row addresses or original Arrow row ordinals to recognize
+an edge appearing twice. For an Arrow table the engine builds the ordinal column on its
+first use and shares it within that snapshot. A custom catalog without occurrence IDs
+numbers parallel rows within each pair of stored endpoints before filtering or reversing a
+hop. It orders the rows by the properties tested on that type so that each scan distinguishes
+the same parallel occurrences.
+
+Planning the shared walk or join chain depends only on the pattern and the indexes, never on the
+data: it requires no scan for duplicate node IDs or comparison of unrelated property types. A
+relationship variable, unresolved boundary label, or more than 64 join branches without
+a suitable CSR walk leaves the segments to ordinary expansion. Those expansions track
+edge use within each variable-length segment and can reuse an edge across a boundary.
 
 Path property values are logical expressions, so cached plans bind them before physical planning.
 The physical operator then builds node predicates against the inventory's node schema, and relationship

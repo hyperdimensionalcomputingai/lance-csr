@@ -64,9 +64,11 @@ use lance::dataset::{Dataset, ProjectionRequest};
 
 mod node_lookup;
 mod path_exists;
+mod trail_walk;
 use lance_table::format::Fragment;
 pub use node_lookup::NodeLookupNode;
 pub use path_exists::{Hop, PathExistsNode};
+pub(crate) use trail_walk::{Tie, TrailCursor, TrailWalk, TrailWalkNode, WalkSegmentSpec};
 
 /// Yield after bounded CPU work without requiring a particular async runtime.
 pub(crate) async fn cooperative_yield() {
@@ -303,9 +305,19 @@ impl Adjacency {
     /// row is read from a `_rowaddr` column when the stream has one (a Lance scan);
     /// otherwise rows are numbered by their position in the stream.
     pub async fn build<E: fmt::Display>(
+        stream: impl futures::Stream<Item = std::result::Result<RecordBatch, E>> + Unpin,
+        from: &str,
+        to: &str,
+    ) -> Result<Self> {
+        Self::build_with_address_column(stream, from, to, Some(ROW_ADDR)).await
+    }
+
+    /// Use stream positions for in-memory input, even if a user column is named `_rowaddr`.
+    pub(crate) async fn build_with_address_column<E: fmt::Display>(
         mut stream: impl futures::Stream<Item = std::result::Result<RecordBatch, E>> + Unpin,
         from: &str,
         to: &str,
+        address_column: Option<&str>,
     ) -> Result<Self> {
         let mut edges: Vec<(i64, u64, u64)> = Vec::new();
         let mut position = 0u64;
@@ -313,8 +325,8 @@ impl Adjacency {
             let batch = batch.map_err(|e| exec_error(format!("Failed to read edges: {}", e)))?;
             let from_col = int64_column(&batch, from)?;
             let to_col = int64_column(&batch, to)?;
-            let addresses = batch
-                .column_by_name(ROW_ADDR)
+            let addresses = address_column
+                .and_then(|name| batch.column_by_name(name))
                 .map(|c| c.as_primitive::<arrow::datatypes::UInt64Type>().clone());
             for i in 0..batch.num_rows() {
                 if from_col.is_null(i) || to_col.is_null(i) {
@@ -2508,7 +2520,8 @@ struct BatchExpansion {
     bound: Option<Int64Array>,
     row: usize,
     position: NeighborPosition,
-    walk: Option<crate::csr_traversal::TraversalCursor>,
+    /// Current source row and its reusable trail cursor.
+    walk: Option<(usize, TrailCursor)>,
     /// Record each output row's edge row, for a relationship-column fetch.
     edge_rows: bool,
     /// Passing edge rows of the relationship filter, once built: others are skipped.
@@ -2692,6 +2705,9 @@ impl BatchExpansion {
         batch_size: usize,
     ) -> ExpandedRows {
         let mut chunk = ExpandedRows::default();
+        let walk = graph.walk();
+        let limit = batch_size.max(1);
+        let mut ends = Vec::new();
         let mut source_work = 0_usize;
         while self.row < self.keys.len() {
             source_work += 1;
@@ -2701,34 +2717,42 @@ impl BatchExpansion {
             let i = self.row;
             if self.keys.is_valid(i) && self.bound.as_ref().is_none_or(|b| b.is_valid(i)) {
                 let key = self.keys.value(i);
-                let walk = self
+                let required = self.bound.as_ref().map(|b| b.value(i));
+                let (source, cursor) = self
                     .walk
-                    .get_or_insert_with(|| crate::csr_traversal::TraversalCursor::new(graph, key));
-                let mut candidates = 0usize;
-                while let Some(neighbor) = walk.next(graph).await {
-                    candidates += 1;
-                    if candidates.is_multiple_of(1024) {
-                        cooperative_yield().await;
+                    .get_or_insert_with(|| (i, TrailCursor::new(walk, key)));
+                if *source != i {
+                    cursor.restart(walk, key);
+                    *source = i;
+                }
+                loop {
+                    // A group never exceeds the room left, so no end has to be carried over.
+                    if !cursor
+                        .next_group(walk, &[], limit - chunk.rows.len(), &mut ends)
+                        .await
+                    {
+                        break;
                     }
-                    if self.bound.as_ref().is_some_and(|b| b.value(i) != neighbor) {
-                        continue;
-                    }
-                    if let Some(target) = target {
-                        let Some(position) = target.rows.position(neighbor) else {
+                    for &neighbor in &ends {
+                        if required.is_some_and(|r| r != neighbor) {
                             continue;
-                        };
-                        chunk.target_positions.push(position);
+                        }
+                        if let Some(target) = target {
+                            let Some(position) = target.rows.position(neighbor) else {
+                                continue;
+                            };
+                            chunk.target_positions.push(position);
+                        }
+                        chunk.rows.push(i as u32);
+                        chunk.key_values.push(key);
+                        chunk.neighbor_values.push(neighbor);
                     }
-                    chunk.rows.push(i as u32);
-                    chunk.key_values.push(key);
-                    chunk.neighbor_values.push(neighbor);
-                    if chunk.rows.len() == batch_size.max(1) {
+                    if chunk.rows.len() == limit {
                         return chunk;
                     }
                 }
             }
             self.row += 1;
-            self.walk = None;
         }
         chunk
     }
@@ -3288,6 +3312,9 @@ impl ExtensionPlanner for CsrExtensionPlanner {
         if let Some(node) = node.as_any().downcast_ref::<PathExistsNode>() {
             return Ok(Some(path_exists::plan_path_exists(node, physical_inputs)));
         }
+        if let Some(node) = node.as_any().downcast_ref::<TrailWalkNode>() {
+            return Ok(Some(trail_walk::plan_trail_walk(node, physical_inputs)));
+        }
         if node.as_any().is::<HopDegreesNode>() {
             // Not lowered by `CountCsrDegrees`: run the aggregate it wraps.
             return Ok(Some(physical_inputs[0].clone()));
@@ -3587,6 +3614,7 @@ fn prune_unused_columns(plan: LogicalPlan) -> datafusion::common::Result<Transfo
 }
 
 /// `plan` with the CSR and lookup columns not in `used` dropped, visiting each node once.
+#[recursive::recursive]
 fn prune_within(
     plan: LogicalPlan,
     used: &HashSet<String>,

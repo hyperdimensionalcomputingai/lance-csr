@@ -452,6 +452,7 @@ criterion_group!(
     bench_cypher_execution,
     bench_query_templates,
     bench_comprehension_counts,
-    grouped_two_hop::bench_grouped_two_hop
+    grouped_two_hop::bench_grouped_two_hop,
+    grouped_two_hop::bench_seeded_trail
 );
 criterion_main!(benches);

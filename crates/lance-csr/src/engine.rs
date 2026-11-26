@@ -112,6 +112,59 @@ impl EngineSource {
         })
     }
 
+    /// Like [`Self::table_provider`], plus one `UInt64` column identifying each stored row,
+    /// returned with its name. Built only on request.
+    ///
+    /// Lance: the physical `_rowaddr` (unique per live row, fixed for the pinned version).
+    /// Arrow: the original row ordinal, assigned before `memtable_partitions` slices the
+    /// batch, under a hidden name that no user column uses.
+    pub(crate) fn occurrence_table_provider(
+        &self,
+        name: &str,
+    ) -> Result<(Arc<dyn TableProvider>, String)> {
+        match self {
+            Self::Lance { dataset, .. } => Ok((
+                Arc::new(LanceTableProvider::new(dataset.clone(), false, true)),
+                "_rowaddr".to_string(),
+            )),
+            Self::Arrow(batch) => {
+                let schema = batch.schema();
+                let mut column = "__lance_csr_edge_ordinal".to_string();
+                while schema
+                    .fields()
+                    .iter()
+                    .any(|f| f.name().eq_ignore_ascii_case(&column))
+                {
+                    column.push('_');
+                }
+                let mut fields: Vec<arrow_schema::FieldRef> =
+                    schema.fields().iter().cloned().collect();
+                fields.push(Arc::new(arrow_schema::Field::new(
+                    &column,
+                    arrow_schema::DataType::UInt64,
+                    false,
+                )));
+                let mut columns = batch.columns().to_vec();
+                columns.push(Arc::new(arrow_array::UInt64Array::from_iter_values(
+                    0..batch.num_rows() as u64,
+                )));
+                let numbered = RecordBatch::try_new(
+                    Arc::new(arrow_schema::Schema::new_with_metadata(
+                        fields,
+                        schema.metadata().clone(),
+                    )),
+                    columns,
+                )
+                .map_err(|e| exec_error(format!("Failed to number edges of {}: {}", name, e)))?;
+                let table = MemTable::try_new(numbered.schema(), memtable_partitions(&numbered))
+                    .map_err(|e| {
+                        exec_error(format!("Failed to create MemTable for {}: {}", name, e))
+                    })?;
+                Ok((Arc::new(table), column))
+            }
+        }
+    }
+
     /// Pinned Lance version, or `None` for Arrow input.
     pub fn lance_version(&self) -> Option<u64> {
         match self {
@@ -705,6 +758,10 @@ async fn build_engine_state(
 
     let mut catalog = InMemoryCatalog::new();
     for (name, provider) in providers {
+        let engine_source = config
+            .get_relationship_mapping(&name)
+            .and_then(|_| sources.get(&name))
+            .cloned();
         // Re-register with join-key statistics, so plans see them; see `key_statistics`.
         let provider: Arc<dyn TableProvider> = match key_stats.get(&name) {
             Some(entry) => Arc::new(KeyStatisticsProvider::new(provider, entry.distinct.clone())),
@@ -721,6 +778,13 @@ async fn build_engine_state(
         catalog = catalog
             .with_node_source(&name, table_source.clone())
             .with_relationship_source(&name, table_source);
+        if let Some(source) = engine_source {
+            catalog = catalog.with_relationship_engine_source(
+                &name,
+                source,
+                key_stats.get(&name).map(|entry| entry.distinct.clone()),
+            );
+        }
     }
     Ok(EngineState {
         sources,
@@ -1021,8 +1085,24 @@ async fn build_csr_entries(
             let started = std::time::Instant::now();
             // Two projected scans of the endpoint columns, one per direction.
             let scan = || source.edge_stream(src.name(), dst.name());
-            let outgoing = Adjacency::build(scan().await?, src.name(), dst.name()).await?;
-            let incoming = Adjacency::build(scan().await?, dst.name(), src.name()).await?;
+            let address_column = match source {
+                EngineSource::Lance { .. } => Some("_rowaddr"),
+                EngineSource::Arrow(_) => None,
+            };
+            let outgoing = Adjacency::build_with_address_column(
+                scan().await?,
+                src.name(),
+                dst.name(),
+                address_column,
+            )
+            .await?;
+            let incoming = Adjacency::build_with_address_column(
+                scan().await?,
+                dst.name(),
+                src.name(),
+                address_column,
+            )
+            .await?;
             let build_ms = started.elapsed().as_secs_f64() * 1e3;
             let mut store_error = None;
             if let (PersistCsr::LoadAndStore, EngineSource::Lance { dataset, .. }) =

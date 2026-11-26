@@ -318,6 +318,40 @@ pub struct PathPattern {
     pub shortest: Option<ShortestPathSpec>,
 }
 
+impl RelationshipPattern {
+    /// The hop range of one segment: a single hop without a length.
+    pub(crate) fn hop_range(&self) -> [u32; 2] {
+        match &self.length {
+            None => [1, 1],
+            Some(length) => [
+                length.min.unwrap_or(1),
+                length.max.unwrap_or(crate::MAX_VARIABLE_LENGTH_HOPS),
+            ],
+        }
+    }
+}
+
+impl PathPattern {
+    /// A variable-length segment can revisit an edge used by another segment of this path.
+    pub(crate) fn needs_trail_across_segments(&self) -> bool {
+        self.variable.is_none()
+            && self.shortest.is_none()
+            && self.segments.iter().enumerate().any(|(i, segment)| {
+                segment.relationship.length.is_some()
+                    && self.segments.iter().enumerate().any(|(j, other)| {
+                        i != j
+                            && segment.relationship.types.iter().any(|kind| {
+                                other
+                                    .relationship
+                                    .types
+                                    .iter()
+                                    .any(|t| t.eq_ignore_ascii_case(kind))
+                            })
+                    })
+            })
+    }
+}
+
 /// How a shortest-path pattern matches, and the path variable it binds.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShortestPathSpec {
