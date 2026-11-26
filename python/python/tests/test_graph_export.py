@@ -285,7 +285,15 @@ def test_icebug_weighted_shortest_paths():
     g = CypherEngine(CONFIG, {"Person": nodes, "KNOWS": edges}).export_graph(
         weight="cost"
     )
-    graph = ib.Graph.fromCSR(
+    graph = _weighted_icebug_graph(ib, g)
+    assert graph.isWeighted()
+    dijkstra = ib.distance.Dijkstra(graph, 0)
+    dijkstra.run()
+    assert dijkstra.getDistances() == [0.0, 1.0, 2.0]
+
+
+def _weighted_icebug_graph(ib, g: GraphExport):
+    return ib.Graph.fromCSR(
         g.num_nodes,
         g.directed,
         g.out_indices,
@@ -295,10 +303,65 @@ def test_icebug_weighted_shortest_paths():
         g.out_weights,
         g.in_weights,
     )
-    assert graph.isWeighted()
-    dijkstra = ib.distance.Dijkstra(graph, 0)
-    dijkstra.run()
-    assert dijkstra.getDistances() == [0.0, 1.0, 2.0]
+
+
+# Two routes from 0 to 3: through 1 (weights 1 + 1) and through 2 (weights 5 + 5).
+ROUTES_NODES = pa.table({"id": [0, 1, 2, 3]})
+ROUTES = pa.table({"src": [0, 1, 0, 2], "dst": [1, 3, 2, 3], "w": [1.0, 1.0, 5.0, 5.0]})
+
+
+def test_icebug_weighted_betweenness():
+    ib = pytest.importorskip("icebug")
+    engine = CypherEngine(CONFIG, {"Person": ROUTES_NODES, "KNOWS": ROUTES})
+    g = engine.export_graph(directed=False, weight="w")
+    graph = _weighted_icebug_graph(ib, g)
+    scores = ib.centrality.Betweenness(graph).run().scores()
+    # Only the cheap route is a shortest path, so 2 lies on none.
+    assert scores[1] > 0 and scores[2] == 0
+
+    u = engine.export_graph(directed=False)
+    unweighted = ib.Graph.fromCSR(u.num_nodes, False, u.out_indices, u.out_indptr)
+    scores = ib.centrality.Betweenness(unweighted).run().scores()
+    assert scores[1] == scores[2] > 0
+
+
+def test_icebug_weighted_communities():
+    ib = pytest.importorskip("icebug")
+    # Every pair of six nodes is linked, so only the weights separate {0, 1, 2}
+    # from {3, 4, 5}: 10 inside each group, 1 between them.
+    pairs = [(a, b) for a in range(6) for b in range(a + 1, 6)]
+    edges = pa.table(
+        {
+            "src": [a for a, _ in pairs],
+            "dst": [b for _, b in pairs],
+            "w": [10.0 if (a < 3) == (b < 3) else 1.0 for a, b in pairs],
+        }
+    )
+    nodes = pa.table({"id": list(range(6))})
+    g = CypherEngine(CONFIG, {"Person": nodes, "KNOWS": edges}).export_graph(
+        directed=False, weight="w"
+    )
+    graph = _weighted_icebug_graph(ib, g)
+    community = ib.community.PLM(graph, refine=True).run().getPartition()
+    groups = [community.subsetOf(v) for v in range(6)]
+    assert groups[0] == groups[1] == groups[2] != groups[3] == groups[4] == groups[5]
+
+
+def test_icebug_weighted_copy_for_edge_ids():
+    ib = pytest.importorskip("icebug")
+    g = CypherEngine(CONFIG, {"Person": ROUTES_NODES, "KNOWS": ROUTES}).export_graph(
+        weight="w"
+    )
+    graph = _weighted_icebug_graph(ib, g)
+    # A graph built by fromCSR is read-only, and a copy keeps the weights only
+    # with weighted=True.
+    with pytest.raises(RuntimeError, match="read-only"):
+        graph.indexEdges()
+    assert not ib.Graph(graph).isWeighted()
+    editable = ib.Graph(graph, weighted=True, directed=graph.isDirected())
+    editable.indexEdges()
+    # The weights are capacities: 1 through node 1 plus 5 through node 2.
+    assert ib.flow.EdmondsKarp(editable, 0, 3).run().getMaxFlow() == 6.0
 
 
 def test_write_node_column(tmp_path):

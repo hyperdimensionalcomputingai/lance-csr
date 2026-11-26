@@ -268,9 +268,65 @@ scores = pa.table({"id": g.node_keys, "pagerank": pagerank.run().scores()})
     exactly `pyarrow==26.0.1`, imports only when `networkx` is installed, and on macOS needs OpenMP from
     Homebrew (`brew install libomp`).
 
-For a weighted graph, pass the weights after the in-edge arrays:
-`ib.Graph.fromCSR(w.num_nodes, w.directed, w.out_indices, w.out_indptr, w.in_indices, w.in_indptr,
-w.out_weights, w.in_weights)`. Algorithms such as `ib.distance.Dijkstra` then use them.
+### Weighted algorithms in icebug
+
+An export with [weights](#weighted-graphs) gives icebug a weighted graph when you pass the weight arrays after
+the in-edge arrays:
+
+<!-- skip-check -->
+```python
+graph = ib.Graph.fromCSR(
+    w.num_nodes, w.directed, w.out_indices, w.out_indptr, w.in_indices, w.in_indptr,
+    w.out_weights, w.in_weights,
+)
+```
+
+The export's part ends there. Whether an algorithm then uses the weights is up to icebug, and not every one
+does: some return an unweighted answer on a weighted graph without a warning. The table below lists what each
+algorithm does with them in icebug 13.6. We worked it out by running each one on the same graph with and without
+weights:
+
+| Module | Uses the weights | Ignores the weights, without a warning |
+| --- | --- | --- |
+| `distance` | `Dijkstra`, `BidirectionalDijkstra`, `AStar`, `APSP`, `Diameter` | `BFS`, `Eccentricity` |
+| `centrality` | `PageRank`, `Betweenness`, `ApproxBetweenness`, `EstimateBetweenness`, `Closeness`, `ApproxCloseness`, `HarmonicCloseness`, `TopHarmonicCloseness`, `EigenvectorCentrality`, `KatzCentrality`, `ForestCentrality`, `SpanningEdgeCentrality` (on a copy) | `KadabraBetweenness`, `TopCloseness`, `DegreeCentrality`, `CoreDecomposition`, `LocalClusteringCoefficient` |
+| `community` | `PLM` (Louvain), `ParallelLeiden`, `PLP` | `LPDegreeOrdered` |
+| `graph` | `RandomMaximumSpanningForest` | `SpanningForest` |
+| `matching` | `PathGrowingMatcher`, `SuitorMatcher` | |
+| `flow` | `EdmondsKarp` (on a copy) | |
+
+`centrality.ApproxElectricalCloseness` is the one algorithm that refuses a weighted graph: it raises an error.
+`KadabraBetweenness` is the one most likely to catch you out, since it looks like a faster `Betweenness` but
+computes unweighted betweenness.
+
+`SpanningEdgeCentrality` and `EdmondsKarp` need edge ids, which `indexEdges()` adds. A graph built by `fromCSR`
+is read-only, so `indexEdges()` raises an error on it, and these two run on a copy instead. Pass `weighted=True`
+to the copy, because without it the copy leaves the weights out:
+
+<!-- skip-check -->
+```python
+editable = ib.Graph(graph, weighted=True, directed=graph.isDirected())
+editable.indexEdges()
+max_flow = ib.flow.EdmondsKarp(editable, source, target).run().getMaxFlow()
+```
+
+The copy holds the whole graph a second time in memory.
+
+!!! note "What needs a change in icebug"
+
+    lance-csr can't change any of these limits; they need changes in icebug. If icebug let a graph built by
+    `fromCSR` index its edges, `SpanningEdgeCentrality` and `EdmondsKarp` would run without the copy. Weights in
+    the algorithms of the right-hand column, or in `ApproxElectricalCloseness`, would need icebug to add them to
+    those algorithms.
+
+The algorithms that use the weights don't all read them the same way. Shortest paths, betweenness and closeness
+treat a weight as a length, so a lower weight brings two nodes closer. PageRank, eigenvector and Katz
+centrality, community detection, maximum spanning forests and matchings treat it as a strength, so a higher
+weight ties two nodes more closely. One column rarely suits both. To run shortest paths over a strength such as
+`messages`, pass its inverse, `pyarrow.compute.divide(1.0, w.out_weights)`, and the same for `in_weights`. Dijkstra and the
+algorithms built on it also assume that no weight is negative, and the export doesn't check this.
+
+### Other libraries
 
 Other libraries take the same arrays. For example, `scipy.sparse.csr_array((data, g.out_indices, g.out_indptr))`
 builds an adjacency matrix, after converting the arrays with `to_numpy()`, which doesn't copy them either.
