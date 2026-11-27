@@ -565,8 +565,8 @@ executeWithVectorRerank(datasets, vectorSearch): Promise<Table<any>>;
 
 Run the query, then rank its rows by vector similarity.
 
-This is the common GraphRAG pattern: find candidates by graph traversal, then rerank
-them by similarity. With `VectorSearch.useLanceIndex(true)` and Lance datasets, the
+This supports hybrid graph and vector RAG: find candidates by graph traversal, then
+rerank them by similarity. With `VectorSearch.useLanceIndex(true)` and Lance datasets, the
 Lance index is searched first instead. See
 [Vector search](https://lance-csr.hdclabs.ai/vector-search/).
 

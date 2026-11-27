@@ -167,15 +167,17 @@ integer** node keys. If your keys are strings or UUIDs, queries still return the
 uses hash joins over whole tables instead of the CSR, without a warning. Add an integer id column if traversal
 speed matters; the ids don't have to be consecutive.
 
-## Older builder names { #removed-builder-methods }
+## Migrating older builder names { #removed-builder-methods }
 
-Code written for early releases of lance-csr, or for lance-graph, may use `with_node_label` and
-`with_relationship`. Those names no longer exist; replace them as follows:
+??? note "Replaced methods from early releases and lance-graph"
 
-| Removed | Replacement |
-| --- | --- |
-| `with_node_label(label, id_field)` | `node_table(label, primary_key)` |
-| `with_relationship(rel_type, source_field, target_field, source_label=None, target_label=None)` | `rel_table(rel_type, from_table, to_table, src, dst)` |
+    Code written for early releases of lance-csr, or for lance-graph, may use `with_node_label` and
+    `with_relationship`. Those names no longer exist; replace them as follows:
 
-`rel_table` needs the node tables at both ends, which `with_relationship` left optional. Add a `node_table`
-for each end before you call `build()`.
+    | Removed | Replacement |
+    | --- | --- |
+    | `with_node_label(label, id_field)` | `node_table(label, primary_key)` |
+    | `with_relationship(rel_type, source_field, target_field, source_label=None, target_label=None)` | `rel_table(rel_type, from_table, to_table, src, dst)` |
+
+    `rel_table` requires the node tables at both ends, which `with_relationship` left optional. Register a
+    `node_table` for each end before calling `build()`.

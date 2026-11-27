@@ -1,13 +1,9 @@
 # Indexes and updates
 
-The [custom operators](operators.md) read two in-memory indexes. Both are built from the same underlying Lance dataset and point back into
-it, so neither holds a copy of node or relationship properties. [The CSR index](../csr.md) covers what users see:
-how to turn it on, `csr_stats()`, and when to call `checkout_latest()` and `optimize_csr()`. This page covers how the indexes
-are laid out and maintained.
-
-The compact store of offsets and neighbours came from [lance-graph](https://github.com/lance-format/lance-graph),
-whose query planner didn't use it. lance-csr added the edge rows, the delta and tombstones, the node index and
-incremental updates, and wired the store into query execution through the [custom operators](operators.md).
+The [custom operators](operators.md) read two in-memory indexes. Both are built from the underlying Lance dataset
+and point back into it, so neither holds a copy of node or relationship properties.
+[The CSR index](../csr.md) covers user-facing options and lifecycle; this page covers how the indexes are laid out
+and updated incrementally.
 
 ```text
                     Lance datasets (pinned version)
