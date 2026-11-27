@@ -109,6 +109,31 @@ pub(crate) fn prefer_trail_end(
     node_selectivity(end, filter, config) > node_selectivity(start, filter, config)
 }
 
+/// The conjuncts of `filter` that read `variable` and nothing else, AND-ed together.
+///
+/// Filtering a node's scan with them narrows it before an operator that DataFusion
+/// cannot push the WHERE clause through (`PathMatch`); the clause is still applied in
+/// full above, so results are unchanged. Conjuncts with pattern predicates or
+/// comprehensions stay out, so no subquery is planned twice.
+pub(crate) fn conjuncts_on(
+    filter: &BooleanExpression,
+    variable: &str,
+) -> Option<BooleanExpression> {
+    conjuncts(filter)
+        .into_iter()
+        .filter(|c| {
+            let mut names = HashSet::new();
+            boolean_variables(c, &mut names);
+            names.len() == 1
+                && names.contains(variable)
+                && !crate::ast::needs_relational_evaluation(&ValueExpression::Boolean(Box::new(
+                    (*c).clone(),
+                )))
+        })
+        .cloned()
+        .reduce(|l, r| BooleanExpression::And(Box::new(l), Box::new(r)))
+}
+
 /// A graph node's variable; [`PatternGraph`] names every node, anonymous ones included.
 fn name(node: &NodePattern) -> &str {
     node.variable

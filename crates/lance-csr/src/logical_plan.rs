@@ -154,6 +154,9 @@ pub enum LogicalOperator {
         /// A condition each relationship of the path must meet, over its properties
         /// named as variables (`r.day > 5` is `day > 5`); see `all_relationships_condition`.
         relationship_condition: Option<BooleanExpression>,
+        /// `path` is the written pattern read from its end; the path value is emitted in
+        /// the written order.
+        reversed: bool,
     },
 
     /// `shortestPath` / `allShortestPaths` between two variables bound in `input`; adds
@@ -280,6 +283,10 @@ pub struct LogicalPlanner<'a> {
     /// comprehensions are being added: each is seeded from these, not from the rows with
     /// the previous ones joined on, so planned copies grow linearly, not exponentially.
     seed_source: Option<LogicalOperator>,
+    /// Variables the current MATCH branches give different labels: a property one label
+    /// lacks is a missing column in that branch's scan, so their conditions stay above
+    /// the union, where it is null.
+    mixed_labels: HashSet<String>,
 }
 
 impl<'a> LogicalPlanner<'a> {
@@ -298,6 +305,7 @@ impl<'a> LogicalPlanner<'a> {
             rich_paths: false,
             wildcard_relationships: false,
             seed_source: None,
+            mixed_labels: HashSet::new(),
         }
     }
 
@@ -511,6 +519,34 @@ impl<'a> LogicalPlanner<'a> {
         (from_end < from_start).then(|| Self::reversed_path(path))
     }
 
+    /// Whether to walk a single path from its written end: when only that end is bound, or
+    /// when its conditions in `filter` or inline are more selective than the start's. A
+    /// variable-length relationship variable is a list in written order, so a path with one
+    /// is walked as written.
+    fn read_from_end(&self, path: &PathPattern, filter: Option<&BooleanExpression>) -> bool {
+        let bound = |n: &NodePattern| {
+            n.variable
+                .as_ref()
+                .is_some_and(|v| self.variables.contains_key(v))
+        };
+        let Some(last) = path.segments.last() else {
+            return false;
+        };
+        path.shortest.is_none()
+            && !bound(&path.start_node)
+            && !path
+                .segments
+                .iter()
+                .any(|s| s.relationship.length.is_some() && s.relationship.variable.is_some())
+            && (bound(&last.end_node)
+                || crate::pattern_order::prefer_trail_end(
+                    &path.start_node,
+                    &last.end_node,
+                    filter,
+                    self.config,
+                ))
+    }
+
     /// The same path read backwards: nodes in reverse order, each relationship flipped.
     fn reversed_path(path: &PathPattern) -> PathPattern {
         let mut nodes: Vec<&NodePattern> = std::iter::once(&path.start_node)
@@ -597,7 +633,12 @@ impl<'a> LogicalPlanner<'a> {
 
         // Plan post-WITH MATCH clauses
         if !query.post_with_reading_clauses.is_empty() {
-            plan = self.plan_reading_clauses(Some(plan), &query.post_with_reading_clauses, None)?;
+            let post_where = query.post_with_where_clause.as_ref().map(|w| &w.expression);
+            plan = self.plan_reading_clauses(
+                Some(plan),
+                &query.post_with_reading_clauses,
+                post_where,
+            )?;
         }
 
         // Apply post-WITH WHERE clause if present
@@ -609,7 +650,9 @@ impl<'a> LogicalPlanner<'a> {
         for stage in &query.further_with_stages {
             plan = self.plan_with_clause(&stage.with_clause, plan)?;
             if !stage.reading_clauses.is_empty() {
-                plan = self.plan_reading_clauses(Some(plan), &stage.reading_clauses, None)?;
+                let stage_where = stage.where_clause.as_ref().map(|w| &w.expression);
+                plan =
+                    self.plan_reading_clauses(Some(plan), &stage.reading_clauses, stage_where)?;
             }
             if let Some(where_clause) = &stage.where_clause {
                 plan = self.filter(plan, &where_clause.expression)?;
@@ -1018,24 +1061,12 @@ impl<'a> LogicalPlanner<'a> {
         }
         if let [GraphPattern::Path(path)] = inferred.patterns.as_slice() {
             if path.needs_trail_across_segments() {
-                let last = &path.segments.last().expect("overlapping segments").end_node;
-                let bound = |n: &NodePattern| {
-                    n.variable
-                        .as_ref()
-                        .is_some_and(|v| self.variables.contains_key(v))
-                };
-                let reverse = !bound(&path.start_node)
-                    && (bound(last)
-                        || crate::pattern_order::prefer_trail_end(
-                            &path.start_node,
-                            last,
-                            filter,
-                            self.config,
-                        ));
-                let reversed = reverse.then(|| Self::reversed_path(path));
+                let reversed = self
+                    .read_from_end(path, filter)
+                    .then(|| Self::reversed_path(path));
                 let oriented = reversed.as_ref().unwrap_or(path);
                 if self.can_plan_shared_trail(oriented) {
-                    return self.plan_inventory_path(base, oriented, None);
+                    return self.plan_inventory_path(base, oriented, None, filter, false);
                 }
             }
         }
@@ -1078,8 +1109,23 @@ impl<'a> LogicalPlanner<'a> {
                 })
                 .collect()
         });
-        let patterns = reordered
+        // A named or variable-length path, which neither of the above re-roots.
+        let from_end: Option<Vec<GraphPattern>> = match match_clause.patterns.as_slice() {
+            [GraphPattern::Path(path)]
+                if (path.variable.is_some()
+                    || path
+                        .segments
+                        .iter()
+                        .any(|s| s.relationship.length.is_some()))
+                    && self.read_from_end(path, filter) =>
+            {
+                Some(vec![GraphPattern::Path(Self::reversed_path(path))])
+            }
+            _ => None,
+        };
+        let patterns = from_end
             .as_deref()
+            .or(reordered.as_deref())
             .or(oriented.as_deref())
             .unwrap_or(&match_clause.patterns);
         let distinct = self.distinct_relationships(patterns);
@@ -1108,7 +1154,8 @@ impl<'a> LogicalPlanner<'a> {
                 }
                 GraphPattern::Path(path) if path.variable.is_some() || inventory_alternation => {
                     let condition = filter.and_then(|f| all_relationships_condition(path, f));
-                    plan = Some(self.plan_inventory_path(plan, path, condition)?)
+                    let reversed = from_end.is_some();
+                    plan = Some(self.plan_inventory_path(plan, path, condition, filter, reversed)?)
                 }
                 GraphPattern::Path(path) if path.shortest.is_some() => {
                     plan = Some(self.plan_shortest_path(plan, path)?)
@@ -1123,12 +1170,12 @@ impl<'a> LogicalPlanner<'a> {
                 {
                     let mut path = path.clone();
                     path.variable = Some(format!("_path_value_{}", self.variables.len()));
-                    plan = Some(self.plan_inventory_path(plan, &path, None)?);
+                    plan = Some(self.plan_inventory_path(plan, &path, None, filter, false)?);
                 }
                 GraphPattern::Path(path)
                     if patterns.len() > 1 && self.can_plan_shared_trail(path) =>
                 {
-                    plan = Some(self.plan_inventory_path(plan, path, None)?);
+                    plan = Some(self.plan_inventory_path(plan, path, None, filter, false)?);
                 }
                 GraphPattern::Path(path) => plan = Some(self.plan_path(plan, path)?),
             }
@@ -1853,6 +1900,7 @@ impl<'a> LogicalPlanner<'a> {
                 path: path.clone(),
                 node_values: self.wildcard_relationships,
                 relationship_condition: None,
+                reversed: false,
             });
         }
         Ok(LogicalOperator::ShortestPath {
@@ -1983,6 +2031,21 @@ impl<'a> LogicalPlanner<'a> {
         filter: Option<&BooleanExpression>,
     ) -> Result<LogicalOperator> {
         let before = self.variables.clone();
+        let mut written: HashMap<&str, &[String]> = HashMap::new();
+        let mut mixed = self.mixed_labels.clone();
+        for node in branches.iter().flatten().flat_map(|p| match p {
+            GraphPattern::Node(node) => vec![node],
+            GraphPattern::Path(path) => std::iter::once(&path.start_node)
+                .chain(path.segments.iter().map(|s| &s.end_node))
+                .collect(),
+        }) {
+            if let Some(v) = node.variable.as_deref() {
+                if *written.entry(v).or_insert(&node.labels) != node.labels.as_slice() {
+                    mixed.insert(v.to_string());
+                }
+            }
+        }
+        let outer = std::mem::replace(&mut self.mixed_labels, mixed);
         let mut inputs = Vec::new();
         let mut labels: HashMap<String, Vec<String>> = HashMap::new();
         for patterns in branches {
@@ -2000,6 +2063,7 @@ impl<'a> LogicalPlanner<'a> {
                 }
             }
         }
+        self.mixed_labels = outer;
         // A variable with different labels per branch gets a combined name that matches no
         // node mapping, so a later clause expanding from it fails instead of guessing.
         self.variables = labels
@@ -2180,6 +2244,8 @@ impl<'a> LogicalPlanner<'a> {
         base: Option<LogicalOperator>,
         path: &PathPattern,
         relationship_condition: Option<BooleanExpression>,
+        filter: Option<&BooleanExpression>,
+        reversed: bool,
     ) -> Result<LogicalOperator> {
         let mut path = path.clone();
         let start = path
@@ -2191,7 +2257,14 @@ impl<'a> LogicalPlanner<'a> {
             self.validate_variable_label(&start, &path.start_node.labels)?;
             base.ok_or_else(|| GraphError::internal("bound variables have input rows"))?
         } else {
-            let scan = self.plan_node_scan(&path.start_node)?;
+            let mut scan = self.plan_node_scan(&path.start_node)?;
+            // DataFusion cannot push a WHERE on the start node through PathMatch.
+            if let Some(start_only) = filter
+                .filter(|_| !self.mixed_labels.contains(&start))
+                .and_then(|f| crate::pattern_order::conjuncts_on(f, &start))
+            {
+                scan = self.filter(scan, &start_only)?;
+            }
             match base {
                 Some(input) => LogicalOperator::Join {
                     left: Box::new(input),
@@ -2226,6 +2299,7 @@ impl<'a> LogicalPlanner<'a> {
             path,
             node_values: self.wildcard_relationships,
             relationship_condition,
+            reversed,
         })
     }
 
@@ -3706,5 +3780,108 @@ mod tests {
             text[last_expand..].contains("source_variable: \"b\""),
             "{plan:#?}"
         );
+    }
+
+    fn computer_plan(query: &str) -> LogicalOperator {
+        let config = GraphConfig::builder()
+            .node_table("Computer", "host_id")
+            .rel_table("AUTH", "Computer", "Computer", "src", "dst")
+            .build()
+            .unwrap();
+        LogicalPlanner::new(&config)
+            .plan(&parse_cypher_query(query).unwrap())
+            .unwrap()
+    }
+
+    /// The variable a plan's traversal starts from, and whether its scan is narrowed by
+    /// inline properties or a filter directly on it.
+    fn start_scan(plan: &LogicalOperator) -> (String, bool) {
+        match plan {
+            LogicalOperator::ScanByLabel {
+                variable,
+                properties,
+                ..
+            } => (variable.clone(), !properties.is_empty()),
+            LogicalOperator::Filter { input, .. } => match input.as_ref() {
+                LogicalOperator::ScanByLabel { variable, .. } => (variable.clone(), true),
+                other => start_scan(other),
+            },
+            LogicalOperator::Project { input, .. }
+            | LogicalOperator::PathMatch { input, .. }
+            | LogicalOperator::Expand { input, .. }
+            | LogicalOperator::VariableLengthExpand { input, .. } => start_scan(input),
+            other => panic!("unexpected operator {other:?}"),
+        }
+    }
+
+    /// The same anchored path, written eight ways, starts at the anchor every time.
+    #[test]
+    fn anchored_paths_start_at_the_anchor_however_written() {
+        let pattern = "(c:Computer{start})-[:AUTH*1..2]->(d:Computer{end})";
+        for named in [false, true] {
+            for (anchor, start, end, filter) in [
+                ("c", " {host_id: 7}", "", ""),
+                ("c", "", "", " WHERE c.host_id = 7"),
+                ("d", "", " {host_id: 7}", ""),
+                ("d", "", "", " WHERE d.host_id = 7"),
+            ] {
+                let query = format!(
+                    "MATCH {}{}{filter} RETURN count(*) AS n",
+                    if named { "p = " } else { "" },
+                    pattern.replace("{start}", start).replace("{end}", end),
+                );
+                let plan = computer_plan(&query);
+                let (variable, narrowed) = start_scan(&plan);
+                assert_eq!(variable, anchor, "{query}");
+                // Unnamed hops let DataFusion push the WHERE down; PathMatch does not.
+                assert!(narrowed || !named, "{query}");
+                let reversed = format!("{plan:?}").contains("reversed: true");
+                assert_eq!(reversed, named && anchor == "d", "{query}");
+            }
+        }
+    }
+
+    /// Conjuncts that read more than the start node, or hold a pattern, stay above.
+    #[test]
+    fn named_path_start_filter_keeps_only_start_conjuncts() {
+        let plan = computer_plan(
+            "MATCH p = (c:Computer)-[:AUTH*1..2]->(d:Computer) \
+             WHERE c.host_id = 7 AND c.host_id < d.host_id AND (c)-[:AUTH]->(:Computer) \
+             RETURN count(*) AS n",
+        );
+        fn scan_filter(plan: &LogicalOperator) -> &BooleanExpression {
+            match plan {
+                LogicalOperator::Filter { input, predicate }
+                    if matches!(input.as_ref(), LogicalOperator::ScanByLabel { .. }) =>
+                {
+                    predicate
+                }
+                LogicalOperator::Filter { input, .. }
+                | LogicalOperator::Project { input, .. }
+                | LogicalOperator::PathMatch { input, .. }
+                | LogicalOperator::PathExists { input, .. } => scan_filter(input),
+                other => panic!("unexpected operator {other:?}"),
+            }
+        }
+        let text = format!("{:?}", scan_filter(&plan));
+        assert!(
+            text.contains("host_id") && !text.contains("\"d\""),
+            "{text}"
+        );
+        assert!(!text.contains("PatternExists"), "{text}");
+    }
+
+    /// A MATCH after WITH uses the stage's WHERE to choose its start, as the first does.
+    #[test]
+    fn match_after_with_uses_its_where_to_choose_the_start() {
+        for (path, expected) in [("p = ", "reversed: true"), ("", "source_variable: \"d\"")] {
+            let query = format!(
+                "MATCH (x:Computer {{host_id: 1}}) WITH x \
+                 MATCH {path}(c:Computer)-[:AUTH*1..2]->(d:Computer) WHERE d.host_id = 7 \
+                 RETURN x.host_id, count(*) AS n"
+            );
+            let plan = format!("{:?}", computer_plan(&query));
+            assert!(plan.contains(expected), "{query}: {plan}");
+        }
     }
 }

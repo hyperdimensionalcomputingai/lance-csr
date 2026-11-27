@@ -174,12 +174,14 @@ impl DataFusionPlanner {
                 path,
                 node_values,
                 relationship_condition,
+                reversed,
             } => self.build_path_match(
                 ctx,
                 input,
                 path,
                 *node_values,
                 relationship_condition.as_ref(),
+                *reversed,
             ),
             LogicalOperator::ShortestPath {
                 input,
