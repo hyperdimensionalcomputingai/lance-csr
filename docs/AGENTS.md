@@ -7,16 +7,17 @@ Read them before you change a page.
 
 A reader should be able to find out what lance-csr is, install it, run a query, and learn every user-facing
 option without reading the source. Write for a Python developer who knows a little Cypher and nothing about
-the internals; `rust.md` covers the same engine for Rust developers. The CSR index is the project's distinguishing feature, so it gets the most care.
+the internals; `rust.md` and `typescript.md` cover the same engine for Rust and Node.js developers. The CSR index
+is the project's distinguishing feature, so it gets the most care.
 
 The one exception is `internals/`, the collapsed "DataFusion internals" section under "How it works". It is for
-contributors and the few readers who want the technical detail: how lance-csr extends DataFusion (extension nodes,
+contributors and readers who want the technical detail: how lance-csr extends DataFusion (extension nodes,
 optimizer rules, graph rewrites, statistics) and how the indexes are maintained. Keep user-facing behaviour on the
-guide pages and link to it from there rather than repeating it. Its plans are `explain()` output pasted as `text`
-blocks, often trimmed to the lines that matter, so `check_snippets.py` can't check them. `explain_plans.py` prints
-every one of them, and the whole-relationship plan in `csr.md`, from a local build, each under the page and section
-it belongs to. Whenever you change an operator or its display, an optimizer rule, a rewrite or the planner, or
-touch a page that shows a plan:
+guide pages and link to `internals/` rather than repeating implementation detail. Its plans are `explain()` output
+pasted as `text` blocks, often trimmed to the lines that matter, so `check_snippets.py` can't check them.
+`explain_plans.py` prints every one of them, along with the plans in `running-queries.md` and `csr.md`, from a
+local build, each under the page and section it belongs to. Whenever you change an operator or its display, an
+optimizer rule, a rewrite or the planner, or touch a page that shows a plan:
 
 1. Rebuild the extension (`cd python && make install`).
 2. Run the script. The 100,000-person plans need a checkout of
@@ -30,6 +31,34 @@ touch a page that shows a plan:
 3. Compare each section's plan with the page, line by line, and update the page where they differ, keeping its
    trimming (`...`, `, ...`). If the prose around a plan describes an operator or a line that changed, update it too.
 4. When you add a plan to a page, add its query and graph to `explain_plans.py` under that page's name.
+
+## Where new content belongs
+
+Balance human readability with the technical completeness that agents and power users rely on. Put each detail in
+one place, at the right layer:
+
+| Kind of detail | Where it goes |
+| --- | --- |
+| User-facing concept, workflow, or common option | Main flow of the relevant guide page (`graph-schema.md`, `running-queries.md`, `csr.md`, `lance.md`, `vector-search.md`, `graph-algorithms.md`, `sql.md`) or `cypher.md` for language-agnostic Cypher features |
+| Exhaustive edge cases, coercion rules, dialect quirks, or third-party library caveats | A collapsible `??? note` or `??? info` block on the guide or `cypher.md` page, so agents and search still index every detail without breaking reading flow |
+| Engine internals: operator mechanics, adaptive thresholds (`1/256`, `1/8`, `256 MiB`), optimizer eligibility rules, internal struct fields (`__lance_csr_*`), or index layouts | `docs/internals/` (`operators.md`, `optimizer.md`, `indexes.md`, `execution-plumbing.md`), with at most a one-sentence summary and link from the user guide |
+| Exact signatures, parameter defaults, types, and exception lists | Python docstrings (`python/python/lance_csr/`), TypeScript TSDoc (`nodejs/src/`, regenerating `nodejs/typedoc/api.md`), and Rust doc comments |
+
+Keep page boundaries and structure clean as features land:
+
+- **Integrate, do not just append.** When a PR extends an existing feature, revise the section as a coherent whole
+  (update the table, example, or bullet list) instead of tacking another paragraph onto the top or bottom.
+- **No changelog prose.** Document current behaviour only. Do not write *"Earlier versions did..."*, and do not
+  repeat *"fork of lance-graph"* provenance notes outside `index.md` and `internals/index.md`.
+- **Respect page ownership.** Engine-wide runtime features (streaming, deadlines, `explain()`, plan caching,
+  `target_partitions`) belong in `running-queries.md`; language-agnostic Cypher syntax and semantics belong in
+  `cypher.md`; Lance on-disk storage, versioning, LanceDB, and compaction belong in `lance.md`.
+- **Keep the sidebar scannable (`zensical.toml`).** Core practitioner capabilities stay visible under `Guide`;
+  deep reference or secondary language trees stay in nested collapsible directories (`Rust & TypeScript`,
+  `API reference`, `DataFusion internals`).
+- **Prefer clear practitioner terminology.** For combined graph and vector workflows, write *"hybrid graph and
+  vector RAG"* (or *"hybrid graph and vector retrieval"*); keep *"GraphRAG"* to the single intro mention on
+  `vector-search.md`.
 
 ## How the site is built
 
