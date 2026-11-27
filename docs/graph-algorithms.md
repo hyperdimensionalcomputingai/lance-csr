@@ -247,14 +247,20 @@ The query's result is held in memory while the arrays are built, as with
 
 [icebug](https://github.com/Ladybug-Memory/icebug) is a fork of [NetworKit](https://networkit.github.io/) whose
 graphs are built directly on Arrow CSR arrays. `Graph.fromCSR` takes the export's arrays without copying them, so
-the only work left is the algorithm itself:
+the only work left is the algorithm itself. Passing the arrays by name, as here, saves remembering the order
+`fromCSR` expects them in:
 
 <!-- skip-check -->
 ```python
 import icebug as ib
 
 graph = ib.Graph.fromCSR(  # (1)!
-    g.num_nodes, g.directed, g.out_indices, g.out_indptr, g.in_indices, g.in_indptr
+    n=g.num_nodes,  # number of nodes
+    directed=g.directed,  # whether edges have a direction
+    out_indices=g.out_indices,  # each node's out-neighbours, in node order
+    out_indptr=g.out_indptr,  # where each node's list starts in out_indices
+    in_indices=g.in_indices,  # the same for in-edges; None if undirected
+    in_indptr=g.in_indptr,
 )
 pagerank = ib.centrality.PageRank(
     graph, distributeSinks=ib.centrality.SinkHandling.DistributeSinks  # (2)!
@@ -277,15 +283,20 @@ scores = pa.table({"id": g.node_keys, "pagerank": pagerank.run().scores()})
 
 The PageRank above counts every follow the same. With [edge weights](#edge-weights), a follow can count for
 more when more messages travel along it. The `messages` export from that section gives icebug a weighted graph
-when you pass its weight arrays to `fromCSR` after the in-edge arrays, and the same PageRank call then uses
-them:
+when you also pass its weight arrays to `fromCSR`, and the same PageRank call then uses them:
 
 <!-- skip-check -->
 ```python
 w = weighted_engine.export_graph(weight="messages")  # (1)!
 graph = ib.Graph.fromCSR(
-    w.num_nodes, w.directed, w.out_indices, w.out_indptr, w.in_indices, w.in_indptr,
-    w.out_weights, w.in_weights,
+    n=w.num_nodes,
+    directed=w.directed,
+    out_indices=w.out_indices,
+    out_indptr=w.out_indptr,
+    in_indices=w.in_indices,
+    in_indptr=w.in_indptr,
+    out_weights=w.out_weights,  # the weight of each entry in out_indices
+    in_weights=w.in_weights,  # the weight of each entry in in_indices
 )
 pagerank = ib.centrality.PageRank(
     graph, distributeSinks=ib.centrality.SinkHandling.DistributeSinks
