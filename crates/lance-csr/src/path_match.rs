@@ -72,6 +72,8 @@ pub(crate) struct PathSpec {
     pub shortest: Option<bool>,
     /// Walk the engine's CSR instead of building an edge inventory.
     pub csr: Option<CsrRoute>,
+    /// The walk runs from the written pattern's end; path values are reversed back.
+    pub reversed: bool,
 }
 
 /// The engine's CSR for every relationship a trail walk follows. Edges are read
@@ -320,8 +322,8 @@ impl UserDefinedLogicalNodeCore for PathMatchNode {
     fn prevent_predicate_push_down_columns(&self) -> HashSet<String> {
         // DataFusion copies a pushed predicate into every input, so only columns that
         // every input carries may be pushed; others (start-node columns are only in the
-        // first input) stay above this node.
-        // shortcut: a WHERE on start-node columns is not pushed into the first input's scan; push it there directly if path queries with selective start filters get slow.
+        // first input) stay above this node. The logical planner filters the start scan
+        // with the WHERE conjuncts on the start node instead (`conjuncts_on`).
         self.schema
             .fields()
             .iter()
@@ -796,6 +798,12 @@ impl ExecutionPlan for PathMatchExec {
                             columns.push(take(array, &positions, None)?);
                         }
                         if spec.variable.is_some() {
+                            if spec.reversed {
+                                for path in &mut paths {
+                                    path.nodes.reverse();
+                                    path.edges.reverse();
+                                }
+                            }
                             columns.push(paths_array(&paths, &p.graph.inventory.nodes, &edges)?);
                         }
                         let batch = RecordBatch::try_new(schema, columns)?;
@@ -1545,6 +1553,7 @@ mod tests {
             }],
             shortest,
             csr: None,
+            reversed: false,
         };
         let ctx = SessionContext::new();
         let mut plans = Vec::new();

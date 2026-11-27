@@ -213,3 +213,27 @@ def test_relationship_conditions_prune_only_failing_paths(use_csr, condition):
             assert sorted(map(repr, got.to_pylist())) == sorted(
                 map(repr, want.to_pylist())
             ), (pruned, w)
+
+
+@pytest.mark.parametrize("use_csr", [False, True], ids=["inventory", "csr"])
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        "(a:P)-[:R*1..3]->(b:P{end})",
+        "(a:P)-[:R|S*1..2]-(b:P{end})",
+        "(a:P)-[:R]->(m:P)<-[:S]-(b:P{end})",
+    ],
+)
+@pytest.mark.parametrize("anchor", ["inline", "where"])
+def test_named_path_walked_from_its_end_keeps_written_order(use_csr, pattern, anchor):
+    engine = CypherEngine(CONFIG, DATA, use_csr=use_csr)
+    ret = f"{PATH}, b.id AS b"
+    everything = engine.execute(f"MATCH p = {pattern.format(end='')} {ret}")
+    expected = sorted(repr(r) for r in everything.to_pylist() if r["b"] == 3)
+    if anchor == "inline":
+        query = f"MATCH p = {pattern.format(end=' {id: 3}')} {ret}"
+    else:
+        query = f"MATCH p = {pattern.format(end='')} WHERE b.id = 3 {ret}"
+    assert "reversed: true" in engine.explain(query), query
+    got = sorted(repr(r) for r in engine.execute(query).to_pylist())
+    assert expected and got == expected, query

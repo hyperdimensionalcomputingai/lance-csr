@@ -267,6 +267,7 @@ impl DataFusionPlanner {
         path: &PathPattern,
         node_values: bool,
         relationship_condition: Option<&BooleanExpression>,
+        reversed: bool,
     ) -> Result<LogicalPlan> {
         let error = |message: String| GraphError::UnsupportedFeature {
             feature: message,
@@ -476,6 +477,7 @@ impl DataFusionPlanner {
                 steps,
                 shortest,
                 csr,
+                reversed,
             },
             std::sync::Arc::clone(&ctx.path_sources),
             std::iter::once(&path.start_node.properties)
