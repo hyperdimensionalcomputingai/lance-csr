@@ -4,10 +4,6 @@ lance-csr changes plans at two levels: graph rewrites before the plan reaches Da
 rules that understand the [custom operators](operators.md). It also gives DataFusion the join statistics it needs for
 the hops that stay relational.
 
-The rules, rewrites and statistics on this page were added in lance-csr. Unrolling a single-type variable-length path
-into one branch per length came from [lance-graph](https://github.com/lance-format/lance-graph); lance-csr added the
-iterative traversal that replaces it when the CSR covers the path.
-
 ## Logical optimizer rules
 
 DataFusion's own optimizer treats extension nodes as opaque, so three `OptimizerRule`s fill the gaps. They run
@@ -198,31 +194,24 @@ ProjectionExec: expr=[CASE WHEN __paths@0 IS NOT NULL THEN __paths@0 ELSE 0 END 
 
 ### Grouped two-hop counts
 
-The two-hop count rewrite also accepts plain row counts grouped by direct properties of one node.
-It requires a node index proving that the middle node's integer ids are unique; re-rooting both sides
-at a middle table with duplicate ids would multiply its rows. Without that proof it retains the existing
-plan, including when CSR indexing is disabled. It uses the same fan-out gate and hop-local predicate
-checks as the scalar count. Eligibility is checked before consuming relationship instances.
-An outer grouping node bound by an id equality to a literal or parameter, or by an inline id property,
-keeps its existing plan: the selective walk avoids counting the opposite hop across the graph. Other
-predicate selectivities still use the existing mean fan-out heuristic.
+The two-hop count rewrite also handles plain row counts grouped by direct properties of one node:
 
-When grouping by the middle node, the rewrite retains `n1(b) * n2(b)` minus the existing exclusion correction as
-`__paths` per middle id. A `NodeLookup` fetches requested grouping properties, and a final aggregate sums
-the weights by those properties. Equal property values from several nodes merge, and null remains a group
-key. Exclusions for identical far ends retain the `(middle, far end)` aggregates used by the scalar rewrite.
-
-When grouping by an outer node, the grouped side emits one row per edge of the first hop. The other side is counted
-per middle node and joined to those rows. When the two hops have different relationship types, each edge receives
-weight `n2(b)`. A directed chain of the same type subtracts `s2(b)` when the retained edge is a self-loop. Shared
-endpoints and undirected hops subtract the opposite hop's count keyed by `(b, a)`, using a left join and zero for a
-missing correction. The final aggregate sums those weights by the retained endpoint's requested properties. Either
-outer endpoint can be retained, independent of the original expansion order.
-
-Both grouped plans remove zero weights before grouping: candidate edges whose every continuation is
-excluded must not create a zero-count group. The scalar count still returns zero over empty input.
-Grouped optional matches, distinct counts, counts of nullable properties, mixed aggregates, computed grouping
-expressions and grouping across nodes are not handled by this rewrite.
+- **Eligibility:** requires a node index proving unique integer IDs on the middle node (preventing row
+  multiplication from duplicate middle keys), plus the same fan-out gate and hop-local predicate checks as the
+  scalar count. An outer grouping node bound by an ID equality keeps its selective walk instead of counting the
+  opposite hop across the graph. Grouped optional matches, distinct counts, counts of nullable properties, mixed
+  aggregates, computed grouping keys and multi-node groupings keep their regular plans.
+- **Grouping by the middle node:** retains `n1(b) * n2(b)` minus edge-reuse exclusions as `__paths` per middle ID,
+  uses a `NodeLookup` to fetch requested grouping properties, and sums weights by those properties (merging equal
+  values across nodes, with null as a group key). Exclusions for identical far ends keep the `(middle, far end)`
+  aggregates used by the scalar rewrite.
+- **Grouping by an outer node:** emits one row per edge of the grouped hop, joins the other hop's count per middle
+  node, and applies edge-reuse exclusions (subtracting `s2(b)` for a directed self-loop of the same type, or
+  left-joining the opposite hop's `(b, a)` count for shared endpoints and undirected hops) before summing by the
+  retained outer endpoint's properties.
+- **Dropping zero weights:** both grouped plans remove zero weights before grouping so edges whose continuations
+  are all excluded never emit a group with count `0` (unlike scalar `count(*)`, which still returns `0` on empty
+  input).
 
 On twelve nodes with complete directed `R` and `S` relationships (144 edges each), selected physical-plan
 lines from `explain()` show the difference. Intermediate operators are omitted from these excerpts.

@@ -1,23 +1,40 @@
 # Vector search
 
-Knowledge graphs often carry embeddings next to their structure. lance-csr gives you two ways to use them:
-**vector functions** inside Cypher, and a **`VectorSearch`** builder that ranks rows by similarity, either
-on its own or as a reranking step after a graph query (the common GraphRAG pattern).
+Knowledge graphs stored in Lance can hold embeddings right next to structured columns. lance-csr lets you combine
+graph traversal and embedding similarity over that same data (hybrid graph and vector RAG, sometimes called
+GraphRAG) in two ways: **vector functions** inside Cypher, and a **`VectorSearch`** builder that ranks rows by
+similarity on its own or after a graph query.
+
+The examples below model a small authoring graph where people know each other and author documents carrying 2D
+`float32` embeddings:
 
 ```python
 import pyarrow as pa
 from lance_csr import CypherEngine, DistanceMetric, GraphConfig, VectorSearch
 
 documents = pa.table({
-    "id": [1, 2, 3],
-    "title": ["Graph joins", "Image search", "CSR layouts"],
-    "topic": ["graphs", "vision", "graphs"],
+    "id": [10, 20, 30, 40],
+    "title": ["Graph joins", "Image search", "CSR layouts", "Lance versioning"],
     "embedding": pa.array(
-        [[1.0, 0.0], [0.0, 1.0], [0.7, 0.7]], type=pa.list_(pa.float32(), 2)
+        [[1.0, 0.0], [0.0, 1.0], [0.7, 0.7], [0.9, 0.4]],
+        type=pa.list_(pa.float32(), 2),
     ),
 })
-config = GraphConfig.builder().node_table("Document", "id").build()
-engine = CypherEngine(config, {"Document": documents})
+datasets = {
+    "Person": pa.table({"id": [1, 2, 3], "name": ["Alice", "Bob", "Carol"]}),
+    "Document": documents,
+    "KNOWS": pa.table({"src": [1, 2], "dst": [2, 3]}),
+    "AUTHORED": pa.table({"src": [1, 2, 2, 3], "dst": [10, 20, 30, 40]}),
+}
+config = (
+    GraphConfig.builder()
+    .node_table("Person", "id")
+    .node_table("Document", "id")
+    .rel_table("KNOWS", "Person", "Person", "src", "dst")
+    .rel_table("AUTHORED", "Person", "Document", "src", "dst")
+    .build()
+)
+engine = CypherEngine(config, datasets, use_csr=True)
 ```
 
 Store embeddings as a fixed-size list of `float32` (`pa.list_(pa.float32(), dim)`), as Lance and LanceDB do.
@@ -29,22 +46,29 @@ vector_distance(a, b, metric)
 vector_similarity(a, b, metric)
 ```
 
-`metric` is a bare keyword (not a string): `cosine`, `l2` or `dot`. One argument must be a property; the
-other can be a property or a vector literal.
+`metric` is a bare keyword (not a string): `cosine`, `l2` or `dot`. One argument must be a property; the other
+can be a property, a vector literal, or a `$parameter`. Whole-number query vectors such as `[1, 0]` also work and
+are converted to `float32` inside the vector operation; elements must be non-null numbers.
 
-Whole-number query vectors such as `[1, 0]` also work. They remain integer lists until the vector function
-converts their elements to float32. Outside vector functions, integer lists preserve signed 64-bit precision.
-Vector elements must be non-null numbers.
+Use these functions directly inside a Cypher traversal to narrow candidates by graph structure and filter or sort
+by embedding similarity in one query. For example, find documents written by Alice's 1-hop and 2-hop connections
+that are close to `[1.0, 0.0]`:
 
 ```python
-result = engine.execute("""
-    MATCH (d:Document)
-    WHERE vector_similarity(d.embedding, [1.0, 0.0], cosine) > 0.5
-    RETURN d.title AS title, vector_distance(d.embedding, [1.0, 0.0], l2) AS dist
+result = engine.execute(
+    """
+    MATCH (a:Person {name: 'Alice'})-[:KNOWS*1..2]->(author:Person)-[:AUTHORED]->(d:Document)
+    WHERE vector_similarity(d.embedding, $q, cosine) > 0.5
+    RETURN author.name AS author,
+           d.title AS title,
+           vector_distance(d.embedding, $q, l2) AS dist
     ORDER BY dist
-""")
+    """,
+    {"q": [1.0, 0.0]},
+)
 print(result.to_pylist())
-# [{'title': 'Graph joins', 'dist': 0.0}, {'title': 'CSR layouts', 'dist': 0.7615...}]
+# [{'author': 'Carol', 'title': 'Lance versioning', 'dist': 0.4123...},
+#  {'author': 'Bob', 'title': 'CSR layouts', 'dist': 0.7615...}]
 ```
 
 | Metric | `vector_distance` | `vector_similarity` |
@@ -53,30 +77,51 @@ print(result.to_pylist())
 | `cosine` | `1 - cos(a, b)` | `cos(a, b)` |
 | `dot` | `-(a · b)` | `a · b` |
 
-Smaller distances and larger similarities mean closer vectors. Comparing vectors of different dimensions
-gives the worst possible score rather than an error.
-
-Query vectors may also be passed as list parameters, for example
-`engine.execute("MATCH (d:Document) RETURN vector_distance(d.embedding, $v, l2)", {"v": [1, 0]})`.
-Elements are converted to float32 only by the vector operation.
+Smaller distances and larger similarities mean closer vectors. Comparing vectors of different dimensions produces
+the worst possible score rather than an error.
 
 ## `VectorSearch`
 
-`VectorSearch` is an immutable builder: each method returns a new one.
+`VectorSearch` is an immutable builder: each method returns a new instance.
 
 | Method | Default | Meaning |
 | --- | --- | --- |
-| `VectorSearch(column)` | | The vector column to search. In reranking, `alias.column` (`"d.embedding"`) |
-| `.query_vector(vector)` | required | The query vector, a list of floats |
+| `VectorSearch(column)` | | Vector column to search (for reranking, the returned column name such as `"d.embedding"` or its alias) |
+| `.query_vector(vector)` | required | Query vector as a list of floats |
 | `.metric(metric)` | `DistanceMetric.L2` | `DistanceMetric.L2`, `.Cosine` or `.Dot` |
-| `.top_k(k)` | `10` | Number of rows to return |
-| `.include_distance(include)` | `True` | Add a distance column to the result |
-| `.distance_column_name(name)` | `"_distance"` | Name of that column |
-| `.use_lance_index(enabled)` | `False` | Use a Lance ANN index first (see below) |
+| `.top_k(k)` | `10` | Maximum number of rows to return |
+| `.include_distance(include)` | `True` | Append a distance column to the result |
+| `.distance_column_name(name)` | `"_distance"` | Name of the appended distance column |
+| `.use_lance_index(enabled)` | `False` | Search a Lance ANN index first (see below) |
+
+### Hybrid graph and vector reranking
+
+`execute_with_vector_rerank` runs a two-stage hybrid retrieval workflow: Cypher first traverses the graph to find
+structurally relevant candidates, and `VectorSearch` then ranks those candidates by similarity and keeps the
+closest `top_k`. The query must return the vector column:
+
+```python
+reranked = engine.execute_with_vector_rerank(
+    """
+    MATCH (a:Person {name: 'Alice'})-[:KNOWS*1..2]->(author:Person)-[:AUTHORED]->(d:Document)
+    RETURN author.name, d.title, d.embedding
+    """,
+    VectorSearch("d.embedding")
+    .query_vector([0.0, 1.0])
+    .metric(DistanceMetric.Cosine)
+    .top_k(2)
+    .distance_column_name("score"),
+)
+print(reranked.select(["author.name", "d.title", "score"]).to_pylist())
+# [{'author.name': 'Bob', 'd.title': 'Image search', 'score': 0.0},
+#  {'author.name': 'Bob', 'd.title': 'CSR layouts', 'score': 0.2928...}]
+```
+
+`CypherQuery.execute_with_vector_rerank(datasets, vector_search)` provides the same reranking without an engine.
 
 ### Searching a table directly
 
-`.search(table)` runs a brute-force search over a `pyarrow.Table`:
+`.search(table)` runs an exact brute-force vector search over a standalone `pyarrow.Table`:
 
 ```python
 nearest = (
@@ -87,36 +132,16 @@ nearest = (
     .search(documents)
 )
 print(nearest.select(["title", "_distance"]).to_pylist())
-# [{'title': 'Graph joins', '_distance': 0.0}, {'title': 'CSR layouts', '_distance': 0.2928...}]
+# [{'title': 'Graph joins', '_distance': 0.0}, {'title': 'Lance versioning', '_distance': 0.0861...}]
 ```
 
-### Reranking a graph query
+### Pre-filtering with a Lance ANN index
 
-`execute_with_vector_rerank` runs the Cypher query first, to find candidates by structure, then ranks those
-candidates by similarity. The query must return the vector column:
-
-```python
-reranked = engine.execute_with_vector_rerank(
-    "MATCH (d:Document) WHERE d.topic = 'graphs' RETURN d.title, d.embedding",
-    VectorSearch("d.embedding")
-    .query_vector([0.0, 1.0])
-    .metric(DistanceMetric.Cosine)
-    .top_k(1)
-    .distance_column_name("score"),
-)
-print(reranked.select(["d.title", "score"]).to_pylist())
-# [{'d.title': 'CSR layouts', 'score': 0.2928...}]
-```
-
-`CypherQuery.execute_with_vector_rerank(datasets, vector_search)` does the same without an engine.
-
-### Using a Lance ANN index
-
-When the datasets are Lance datasets with a vector index, `.use_lance_index(True)` changes the order of work
-for `CypherQuery.execute_with_vector_rerank`: it asks the Lance index for the top-k nearest rows first, then runs
-the Cypher query on just those, and returns its rows as the query produced them, without a distance column or
-ordering by distance. `CypherEngine.execute_with_vector_rerank` ignores the flag and always reranks exactly.
-A query with a `WHERE` or `WITH` clause also takes the exact path, so its filters see every row.
+When your datasets are Lance datasets with a vector index, `.use_lance_index(True)` reverses the order of work
+for `CypherQuery.execute_with_vector_rerank`: it queries the Lance ANN index for the `top_k` nearest rows first,
+then runs the Cypher query on just those rows and returns them as produced (without an appended distance column
+or distance sorting). `CypherEngine.execute_with_vector_rerank` ignores this flag and always runs exact reranking.
+Queries containing a `WHERE` or `WITH` clause also take the exact path so filters see every row.
 
 <!-- skip-check -->
 ```python
@@ -132,7 +157,7 @@ results = query.execute_with_vector_rerank({"Document": lance.dataset("docs.lanc
 
 !!! danger "This can change results"
 
-    With the index path, the Cypher query only sees the top-k vectors. If its pattern also filters, for example
-    with an inline property map such as `(d:Document {topic: 'graphs'})`, it may return fewer than k rows, or
-    miss rows that rank lower overall but pass the filter. Use it
-    when the vector condition is the main selector and speed on large datasets matters.
+    With the ANN index path, the Cypher query only sees the `top_k` nearest vectors. If its pattern also filters
+    (for example with an inline property map or a relationship match), it may return fewer than `k` rows or miss
+    rows that rank lower by vector distance alone but satisfy the graph pattern. Use it when vector similarity is
+    the primary selector and speed on large datasets matters most.

@@ -65,10 +65,9 @@ print(friends.to_pylist())
     A quoted table name must be lowercase too: a `"Device Type"` key is queried as `"device type"`.
     Constructing an engine with an empty dict raises `ValueError`.
 
-The engine keeps up to 128 plans per snapshot, keyed by the query text and the names and types of its scalar
-parameters, and binds the values on every call, as [`CypherEngine` does for Cypher](running-queries.md#repeated-queries).
-A list or map parameter is planned on every call, and `checkout_latest()` clears the cache. Only queries run:
-`CREATE`, `INSERT`, `COPY` and `SET` raise `ValueError`, as does a `$name` with no value.
+`SqlEngine` caches up to 128 query plans per snapshot and binds scalar parameters on every call, following the
+same rules as [`CypherEngine`](running-queries.md#repeated-queries). Only read queries run: `CREATE`, `INSERT`,
+`COPY` and `SET` raise `ValueError`, as does a `$name` with no value.
 
 A Lance dataset opened through a namespace cannot be reopened by URI. Without a `config`, `SqlEngine` reads it
 into memory (just as `SqlQuery` does for every dataset); with a `config`, it raises `ValueError`, matching
@@ -163,23 +162,22 @@ print(query.to_sql(graph))
 print(query.to_sql(graph, SqlDialect.PostgreSql))
 ```
 
-`SqlDialect` has `Default` (DataFusion's), `Spark`, `PostgreSql`, `MySql` and `Sqlite`.
+`SqlDialect` supports `Default` (DataFusion), `Spark`, `PostgreSql`, `MySql` and `Sqlite`.
 
-Export supports a subset of Cypher execution. Runtime-only Cypher functions
-raise `NotImplementedError` when no faithful SQL expression is available. This includes math wrappers such
-as `round` and `abs`, and string functions such as `left` and string `size`, when they depend on
-table values. Cypher `round(-1.5)` produces `-1.0`; DataFusion SQL `round(-1.5)` produces `-2.0`.
-Integer `abs` also normalizes its result to Int64 in Cypher, while SQL preserves the input width.
-Use `CypherQuery.execute` or `CypherEngine.execute` for these expressions.
+Export covers a subset of Cypher execution: functions whose Cypher semantics have no faithful SQL equivalent
+(such as `round`, `abs`, `left`, and string `size` on column values) raise `NotImplementedError`. Use
+`CypherQuery.execute` or `CypherEngine.execute` for those queries.
 
-Constant-folded typed nulls use DataFusion `arrow_cast` in the Default dialect so their Arrow
-result types are preserved. Other dialects have no `arrow_cast`, so typed nulls export as a bare SQL
-`NULL`: the value is the same, but its column type is left to the target database.
+??? note "SQL export limits and dialect differences"
 
-List `size` and inclusive `range` retain SQL export support through native expressions, including
-null arguments, integer casts and the optional range step. Constant expressions that the optimizer
-evaluates completely can also export their resulting literals. These checks establish DataFusion
-semantics; other SQL dialects still require validation on the destination engine.
+    - Cypher `round(-1.5)` returns `-1.0` whereas DataFusion SQL `round(-1.5)` returns `-2.0`, and Cypher
+      integer `abs` normalizes to `Int64` while SQL preserves input width, so both raise `NotImplementedError`
+      when applied to column values.
+    - Constant-folded typed nulls use DataFusion `arrow_cast` in `SqlDialect.Default` to preserve Arrow types.
+      Other dialects emit bare SQL `NULL`, leaving the column type to the destination database.
+    - List `size`, inclusive `range` (with optional step and null handling), and constant expressions folded by
+      the optimizer export as native SQL. Validate exported SQL on your target engine when using non-default
+      dialects.
 
 !!! info "This is the join path"
 

@@ -10,6 +10,7 @@ its TypeScript counterpart.
 | [`GraphConfig`](#graphconfig), [`GraphConfigBuilder`](#graphconfigbuilder-1) | Map tables to node labels and relationship types |
 | [`CypherEngine`](#cypherengine) | Run many Cypher queries over registered datasets |
 | [`CypherQuery`](#cypherquery) | Run one Cypher query |
+| [`GraphExport`](#graphexport) | The graph as dense CSR arrays, for graph algorithms and renderers |
 | [`RecordBatchStream`](#recordbatchstream) | Read a result one batch at a time |
 | [`SqlEngine`](#sqlengine), [`SqlQuery`](#sqlquery) | Run SQL through DataFusion |
 | [`VectorSearch`](#vectorsearch), [`DistanceMetric`](#distancemetric) | Vector similarity search and reranking |

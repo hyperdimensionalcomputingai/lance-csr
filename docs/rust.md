@@ -187,8 +187,11 @@ case for `DirNamespace`.
 | `engine.execute(query, params)` → `pyarrow.Table` | `engine.execute(query, params).await` → `RecordBatch` |
 | `engine.execute_batches(...)` → `RecordBatchReader` | `engine.execute_stream(...).await` → stream |
 | `engine.checkout_latest()` | `engine.checkout_latest().await` |
+| `engine.optimize_datasets(cleanup_older_than)` | `engine.optimize_datasets(cleanup_older_than).await` |
 | `engine.optimize_csr()` | `engine.optimize_csr().await` |
 | `engine.delete_stored_csr()` → `int` | `engine.delete_stored_csr().await` → `usize` |
+| `engine.export_graph(...)`, `export_subgraph(...)` | `engine.export_graph(...).await`, `export_subgraph(...).await` → `GraphExport` |
+| `engine.write_node_column(...)` | `engine.write_node_column(&export, col, &values, overwrite).await` |
 | `engine.explain(query, analyze=True)` | `engine.explain_analyze(query, params).await` |
 | `engine.execute(query, timeout=2.0)` | `timeout_at(deadline, with_execution_deadline(Some(deadline), engine.execute(...)))` |
 | `CypherEngine(..., target_partitions=4)` | `CypherEngine::with_target_partitions(config, sources, use_csr, Some(4)).await` |

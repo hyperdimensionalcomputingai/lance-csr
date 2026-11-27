@@ -20,8 +20,13 @@ The tables are generated from the repositories' committed results by `docs/sync_
 repository to a commit. They are refreshed from time to time rather than for every release, and the benchmark
 repositories record which version of each engine produced them.
 
-The Graph Data Council (GDC), formerly known as the Linked Data Benchmark Council (LDBC), maintains the
-Social Network Benchmark (SNB) used by both workloads below.
+The Graph Data Council (GDC), formerly the Linked Data Benchmark Council (LDBC), maintains the Social Network
+Benchmark (SNB) used by both workloads below.
+
+!!! warning "Independent, unaudited measurements"
+
+    None of the numbers below are official GDC Benchmark Results. They were measured on a single machine; your
+    hardware, data and queries will differ. Use the linked benchmark repositories to reproduce them.
 
 <a id="ldbc-snb-interactive-complex-queries"></a>
 
@@ -33,11 +38,6 @@ dataset, with one fixed parameter set per query and every result checked against
 [runner](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc-complex/tree/main/lance_csr) runs
 Neo4j's Cypher text for IC1–IC13 unchanged; IC14 replaces `reduce()`, which openCypher leaves out, with pattern
 comprehensions.
-
-!!! warning "Independent, unaudited measurements"
-
-    These are not official GDC Benchmark Results. They were measured on one machine; your hardware, data and
-    queries will differ. Use the benchmark repository to reproduce them.
 
 Over the 14 queries, lance-csr's speed relative to each engine:
 
@@ -89,11 +89,6 @@ queries over the GDC Social Network Benchmark SF1 dataset (3.18M nodes, 17.3M re
 checked against an expected answer. lance-csr's
 [runner](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc/tree/main/lance_csr) runs the same
 query text and Lance datasets as the [lance-graph](https://github.com/lance-format/lance-graph) runner.
-
-!!! warning "Independent, unaudited measurements"
-
-    These are not official GDC Benchmark Results. They were measured on one machine; your hardware, data and
-    queries will differ. Use the benchmark repository to reproduce them.
 
 Over the 30 queries, lance-csr's speed relative to each engine:
 

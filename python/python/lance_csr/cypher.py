@@ -951,8 +951,8 @@ class CypherQuery:
     ) -> Table:
         """Run the query, then rank its rows by vector similarity.
 
-        This is the common GraphRAG pattern: find candidates by graph traversal, then
-        rerank them by similarity. With
+        This supports hybrid graph and vector RAG: find candidates by graph traversal,
+        then rerank them by similarity. With
         [`VectorSearch.use_lance_index(True)`][lance_csr.VectorSearch.use_lance_index]
         and Lance datasets, the Lance index is searched first instead. See
         [Vector search](vector-search.md).
