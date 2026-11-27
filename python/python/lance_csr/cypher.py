@@ -71,7 +71,7 @@ class CypherEngine:
     [`explain`][lance_csr.CypherEngine.explain] plans directly unless `analyze=True`,
     which plans as `execute` does, through the cache. A successful
     `checkout_latest` clears the cache. See [Repeated
-    queries](lance.md#repeated-queries).
+    queries](running-queries.md#repeated-queries).
 
     Parameters
     ----------
@@ -89,7 +89,7 @@ class CypherEngine:
     target_partitions : int or None
         Keyword-only. A target from 1 to 1024 for DataFusion query partitioning; `None`
         keeps DataFusion's default. `checkout_latest` preserves it. It is not a thread
-        or memory limit. See [Query parallelism](lance.md#query-parallelism).
+        or memory limit. See [Query parallelism](running-queries.md#query-parallelism).
     persist_csr : bool or "load"
         Keyword-only, experimental, needs `use_csr=True` unless `False`. With `True`,
         store each relationship dataset's CSR inside the dataset's own directory, at

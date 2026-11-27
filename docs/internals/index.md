@@ -4,7 +4,7 @@ This section is for contributors and for readers who want to know how lance-csr 
 [Apache DataFusion](https://datafusion.apache.org/) to run graph queries. You don't need any of it to use the engine:
 [How it works](../execution.md) gives the short version.
 
-lance-csr's goal is fast multi-hop traversal over data that already lives in [Lance](https://lancedb.github.io/lance/),
+lance-csr's goal is fast multi-hop traversal over data that already lives in [Lance](https://lance.org/),
 with no import into a graph database and no second copy of the data. DataFusion is a strong relational engine, but a
 graph hop written relationally is two hash joins, and a five-hop query is ten of them. lance-csr keeps DataFusion for
 everything it already does well (filters, projections, aggregates, sorts, joins, vectorized multi-threaded execution)

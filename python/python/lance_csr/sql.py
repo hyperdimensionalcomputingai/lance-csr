@@ -204,7 +204,7 @@ class SqlEngine:
             Names are case-insensitive.
         timeout : float or None
             Keyword-only. Seconds for the whole query, planning included; `None` means
-            no deadline. See [Query deadlines](cypher.md#query-deadlines).
+            no deadline. See [Query deadlines](running-queries.md#query-deadlines).
 
         Returns
         -------

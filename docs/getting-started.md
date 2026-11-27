@@ -263,7 +263,8 @@ than one query against the same data.
 ## Next steps
 
 - [Graph schema](graph-schema.md): every option of `GraphConfig`.
-- [Querying with Cypher](cypher.md): parameters, streaming, `explain()` (with runtime metrics) and the supported Cypher.
+- [Running queries](running-queries.md): `CypherEngine`, parameters, streaming, deadlines, `explain()` and tuning.
+- [Cypher reference](cypher.md): supported clauses, patterns, path values, expressions and functions.
 - [Lance datasets](lance.md): query data on disk without loading it, and pick up new writes with `checkout_latest()`.
 - [Using from Rust](rust.md): the same engine as a Rust library.
 - [Using from TypeScript](typescript.md): the same engine in Node.js.

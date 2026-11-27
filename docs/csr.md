@@ -570,7 +570,7 @@ CsrExpandExec: key=follower__id, edges=2417738, take=person[person__name]
 
 To see how many rows a hop actually produced, run `explain(query, analyze=True)`: each operator's line then
 carries its runtime metrics, such as `output_rows=` and `elapsed_compute=` (see
-[`explain`](cypher.md#explainquery-paramsnone-analyzefalse)).
+[`explain`](running-queries.md#explain)).
 
 If such a hop isn't counted in place and the query is slower with `use_csr=True`, the join path is doing the
 same work with less overhead. The planner won't switch that hop to a join for you: the fallback covers hops the

@@ -16,7 +16,7 @@
 [Documentation](https://lance-csr.hdclabs.ai/) · [Examples](examples/README.md) ·
 [Releases](https://github.com/hyperdimensionalcomputingai/lance-csr/releases) · [Contributing](CONTRIBUTING.md)
 
-lance-csr is a fast graph query engine over [Lance](https://lancedb.github.io/lance/) datasets, built in Rust on
+lance-csr is a fast graph query engine over [Lance](https://lance.org/) datasets, built in Rust on
 Apache DataFusion, with Python and Node.js bindings. It is a fork of [lance-graph](https://github.com/lance-format/lance-graph)
 and a research test bed: it pushes the limits of CSR indexes and DataFusion on top of the Lance format, with the
 goal of making multi-hop path traversal fast.

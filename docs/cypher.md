@@ -1,20 +1,16 @@
-# Querying with Cypher
+# Cypher reference
 
-There are two ways to run Cypher, and most code wants the first:
+lance-csr implements a read-only subset of [openCypher](https://opencypher.org/) rich enough to run the
+[GDC SNB Interactive](https://ldbcouncil.org/benchmarks/snb/) complex queries (IC1–IC14), including
+`OPTIONAL MATCH`, `EXISTS`, `CALL { ... }`, variable-length trails, named path values, `shortestPath`,
+comprehensions and `reduce`.
 
-| | `CypherEngine` | `CypherQuery` |
-| --- | --- | --- |
-| Use it for | Many queries over the same data | One query, once |
-| Setup cost | Paid once, in the constructor | Paid on every `execute()` |
-| Lance datasets | Read lazily, pinned to a version, `checkout_latest()` | Read into memory |
-| CSR index | `use_csr=True` | Not available |
-| Streaming results | `execute_batches()` | No |
+This reference applies equally across [Python](running-queries.md), [Rust](rust.md) and
+[TypeScript](typescript.md). For engine setup, parameters, streaming, deadlines and `explain()`, see
+[Running queries](running-queries.md).
 
-A query may end with one optional semicolon, including after `SKIP` or `LIMIT`.
-Whitespace may follow it. Each execution call accepts one query; repeated semicolons
-and additional statements are rejected. Semicolons inside string literals are ordinary text.
-
-The examples on this page share this setup:
+A query may end with one optional semicolon; each execution call accepts a single statement. The runnable
+examples below use this graph:
 
 ```python
 import pyarrow as pa
@@ -41,259 +37,59 @@ datasets = {
 engine = CypherEngine(config, datasets, use_csr=True)
 ```
 
-## `CypherEngine`
-
-<!-- skip-check -->
-```python
-CypherEngine(config, datasets, use_csr=False, *, target_partitions=None, persist_csr=False)
-```
-
-The constructor validates the datasets against the config, registers them with a DataFusion session, and,
-with `use_csr=True`, builds the [CSR index](csr.md). After that, every query reuses the same catalog and
-session. The optional keyword-only `target_partitions` sets a target from 1 to 1024 for query partitioning;
-`None` keeps the current default. See [Query parallelism](lance.md#query-parallelism) before tuning it.
-
-!!! tip "Share one engine"
-
-    An engine is safe to use from several threads: queries run on a shared, read-only snapshot, and the GIL
-    is released while they execute. Build it once at startup, not per request.
-
-### `execute(query, params=None)`
-
-Runs the query and returns the whole result as a `pyarrow.Table`:
-
-```python
-table = engine.execute("""
-    MATCH (p:Person)-[:LIVES_IN]->(c:City)
-    RETURN c.name AS city, collect(p.name) AS people, avg(p.age) AS avg_age
-    ORDER BY city
-""")
-print(table.to_pylist())
-# [{'city': 'London', 'people': ['Alice', 'Bob'], 'avg_age': 31.0},
-#  {'city': 'Sydney', 'people': ['Carol', 'David'], 'avg_age': 35.5}]
-```
-
-Output columns are named by their `AS` alias, or by the expression text (`p.name`) when there is none.
-
-### Parameters
-
-Write `$name` in the query and pass a dict as the second argument. Parameter values can be numbers,
-strings, booleans, `None`, lists, string-keyed maps, and `datetime.datetime` or `datetime.date` values:
-
-```python
-import datetime
-
-engine.execute(
-    "MATCH (p:Person) WHERE p.age >= $min_age AND p.name <> $skip RETURN p.name AS name",
-    {"min_age": 30, "skip": "Bob"},
-).to_pylist()  # [{'name': 'David'}]
-```
-
-Lists retain integer IDs, and maps can contain nested lists/maps and nulls:
-
-```python
-engine.execute(
-    "MATCH (p:Person) WHERE p.id IN $ids RETURN p.name AS name ORDER BY name",
-    {"ids": [1, 3]},
-).to_pylist()  # [{'name': 'Alice'}, {'name': 'Carol'}]
-```
-
-`CONTAINS`, `STARTS WITH` and `ENDS WITH` accept bound strings and expressions:
-
-```python
-engine.execute(
-    "MATCH (p:Person) WHERE p.name STARTS WITH $prefix RETURN p.name AS name",
-    {"prefix": "Ali"},
-).to_pylist()  # [{'name': 'Alice'}]
-```
-
-Text matching is case-sensitive. Use `toLower()` on both operands for case-insensitive matching.
-Percent signs, underscores and backslashes are literal characters. An empty search string matches
-all non-null strings; a null or non-string operand produces null and does not pass a `WHERE` filter.
-Use `($name IS NULL OR p.name CONTAINS $name)` for an optional text filter. Parameters bind values,
-not raw property names or labels: `p.name = $name` is valid; `p.$property` is not.
-
-Pagination also accepts parameters, for example `RETURN 1 AS n LIMIT $take` with `{"take": 1}`.
-`WITH ... LIMIT $take` uses the same rules. Missing, null, boolean, fractional, negative and overflowing
-counts raise `ValueError`; arbitrary expressions and `WITH SKIP` remain unsupported.
-
-Map keys must be strings, integer parameters must fit signed 64-bit values, and nesting is limited to 128
-levels. Cyclic containers and unsupported Python objects raise `ValueError`. Lists follow literal-list
-coercion: mixed string/numeric values become strings because Arrow lists have one element type. Containers
-are expression values; inline node/relationship property filters still require scalar parameters.
-
-Datetimes compare against timestamp columns, and dates against date columns. Parameters are substituted
-before planning, so they are also allowed in inline property maps: `(p:Person {id: $id})`.
-
-### `execute_batches(query, params=None)`
-
-Streams the result as a `pyarrow.RecordBatchReader` instead of building one table:
-
-```python
-reader = engine.execute_batches("MATCH (p:Person) RETURN p.id AS id, p.name AS name")
-rows = 0
-for batch in reader:  # each batch is a pyarrow.RecordBatch
-    rows += batch.num_rows
-print(rows)  # 4
-```
-
-- Batches are computed as you read them. Scans, filters and projections stream with bounded memory; joins,
-  sorts and aggregations may still buffer their inputs.
-- CSR expansion visits neighbours and fetches their properties a chunk at a time, including when one node
-  has many neighbours. A large hop over a Lance relationship may read that relationship's fixed-width columns
-  whole instead (see [Relationship variables](csr.md#relationship-variables)). See
-  [CSR memory cost](csr.md#turning-it-on) for what the CSR keeps in memory.
-- Planning errors (a syntax error, an unknown label) raise immediately. Execution errors raise while reading.
-- The reader keeps its snapshot alive, so a concurrent [`checkout_latest()`](lance.md#checkout-latest) doesn't affect it.
-- Dropping the reader cancels the remaining work.
-
-### Query deadlines
-
-Pass `timeout=5.0` to `execute`, `execute_batches`, `CypherQuery.execute` or `SqlEngine.execute` to allow
-five seconds from the call's start. Streams keep that same deadline while you pause between reads. The default is `None`.
-
-```python
-try:
-    engine.execute("RETURN 1 AS n", timeout=0)
-except TimeoutError:
-    print("Query timeout exceeded")  # Query timeout exceeded
-```
-
-Initial expiry raises `TimeoutError`. Reading an expired native Arrow reader raises `pyarrow.ArrowInvalid`
-with `Query timeout exceeded`; partial output already read remains valid. Close readers when you stop
-consuming them. Timed cross joins yield between batches, and nested-loop joins check the deadline
-while evaluating candidates, including when no rows match. See the [API reference](api-reference.md) for validation and cooperative cancellation limits.
-From Rust, use `with_execution_deadline`; see [Timeouts](rust.md#timeouts).
-
-### `explain(query, params=None, *, analyze=False)`
-
-Returns the plan as text: the graph logical plan, DataFusion's logical plan and the physical plan,
-laid out as a table. Lines longer than 1,000 characters, such as one holding a long list or vector
-parameter, run past the table's right border rather than widening every row. It's the quickest way to check whether a hop used the CSR (`CsrExpandExec`) or a join (`HashJoinExec`), and
-whether filters reached the Lance scan:
-
-```python
-plan = engine.explain("MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN b.name")
-print("CsrExpandExec" in plan)  # True
-```
-
-A plan shows what will run, not where the time goes. `analyze=True` answers that, like SQL's `EXPLAIN ANALYZE`:
-it runs the query to completion, discards the rows, and prints the physical plan with each operator's metrics, in a
-row labelled `physical_plan_with_metrics`. Every operator reports `output_rows` and `elapsed_compute`, its own time
-without the time spent in the operators below it, and DataFusion's operators and Lance scans add their own counters,
-such as a hash join's build time or a scan's bytes read. The query is planned the way `execute` plans it, so the
-metrics describe the plan `execute` runs:
-
-```python
-plan = engine.explain("MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN b.name", analyze=True)
-expand = next(line for line in plan.splitlines() if "CsrExpandExec" in line)
-print("output_rows=" in expand)  # True
-```
-
-A query that fails while running raises `RuntimeError`, as `execute` does.
-
-### Other methods
-
-| Method | Returns |
-| --- | --- |
-| `config()` | The engine's `GraphConfig`. |
-| `checkout_latest()` | `None`. Moves every Lance dataset to its latest version. See [Lance datasets](lance.md#checkout-latest). |
-| `dataset_versions()` | `dict[str, int]`: the pinned version of each Lance dataset. |
-| `csr_stats()`, `node_index_stats()` | CSR statistics. See [The CSR index](csr.md#inspecting-the-csr). |
-| `optimize_csr()` | `None`. Rebuilds each CSR that carries a delta. See [Rebuilding the CSR](csr.md#rebuilding-the-csr). |
-| `delete_stored_csr()` | `int`: the number of stored CSR files deleted. See [Storing the CSR](csr.md#storing-the-csr). |
-| `execute_with_vector_rerank(query, vector_search)` | A table reranked by vector similarity. See [Vector search](vector-search.md). |
-
-## `CypherQuery`
-
-`CypherQuery` parses a query up front and runs it against whatever datasets you hand it. Each builder
-method returns a new query:
-
-```python
-from lance_csr import CypherQuery
-
-query = (
-    CypherQuery("MATCH (p:Person) WHERE p.age > $age RETURN p.name AS name ORDER BY name")
-    .with_config(config)
-    .with_parameter("age", 30)
-)
-print(query.execute(datasets).to_pydict())  # {'name': ['Bob', 'David']}
-```
-
-| Method | What it does |
-| --- | --- |
-| `CypherQuery(query_text)` | Parses the query; raises `ValueError` on a syntax error. |
-| `with_config(config)` | Sets the `GraphConfig`. |
-| `with_parameter(key, value)` | Binds one `$key` parameter. |
-| `execute(datasets, strategy=None, *, timeout=None)` | Runs it and returns a `pyarrow.Table`. See [Query deadlines](#query-deadlines). |
-| `execute_with_namespace(namespace, strategy=None)` | Runs it against a [`DirNamespace`](lance.md#directory-namespaces). |
-| `explain(datasets)` | The plan as text. For runtime metrics use `CypherEngine.explain(..., analyze=True)`. |
-| `to_sql(datasets, dialect=None)` | The equivalent SQL. See [SQL queries](sql.md#from-cypher-to-sql). |
-| `execute_with_vector_rerank(datasets, vector_search)` | See [Vector search](vector-search.md). |
-| `query_text()`, `parameters()` | The query string and bound parameters. |
-| `variables()`, `node_labels()`, `relationship_types()` | Names the query refers to. |
-
-`strategy` takes an `ExecutionStrategy`. `ExecutionStrategy.DataFusion` is the default and the only one
-implemented; `ExecutionStrategy.LanceNative` is reserved and raises an error.
-
-## Supported Cypher
-
-The Graph Data Council (GDC), formerly known as the Linked Data Benchmark Council (LDBC), maintains the
-[GDC SNB Interactive](https://ldbcouncil.org/benchmarks/snb/) complex queries. lance-csr implements a large
-read-only subset of openCypher, including named path values and the relationship-path operations
-used by IC14. The tables below specify its supported surface.
-
-### Clauses
+## Clauses { #supported-cypher }
 
 | Clause | Notes |
 | --- | --- |
-| `MATCH` | Comma-separated patterns are allowed. |
-| `OPTIONAL MATCH` | Must share a variable with an earlier clause, and can't be the first clause. |
-| `WHERE` | After `MATCH`, `OPTIONAL MATCH` (filters inside the optional part) or `WITH`. |
-| `WITH [DISTINCT]` | With `ORDER BY`, `LIMIT` and `WHERE`; chain as many as you need. No `SKIP` inside `WITH`. |
-| `UNWIND list AS x` | |
-| `UNION`, `UNION ALL` | Combine independent queries with matching output names/order and compatible Arrow types. |
-| `CALL { ... RETURN ... }` | Read-only subquery. Import outer variables with a leading plain `WITH`; see below. |
-| `RETURN [DISTINCT]` | With `AS` aliases. Without reading clauses, expressions run on one implicit row. |
-| `ORDER BY`, `SKIP`, `LIMIT` | Nulls sort last in ascending order and first in descending order, as in openCypher. `SKIP` and `LIMIT` take nonnegative integer literals or parameters. |
+| `MATCH` | Comma-separated patterns are supported. |
+| `OPTIONAL MATCH` | Must share a variable with an earlier clause; cannot be the first clause. |
+| `WHERE` | Follows `MATCH`, `OPTIONAL MATCH` (filters inside the optional part) or `WITH`. |
+| `WITH [DISTINCT]` | Supports `ORDER BY`, `LIMIT` and `WHERE`; chain as many as needed. `WITH SKIP` is unsupported. |
+| `UNWIND list AS x` | Expands a list into one row per element. |
+| `UNION`, `UNION ALL` | Combines independent queries with matching column names/order and compatible Arrow types. |
+| `CALL { ... RETURN ... }` | Read-only subquery evaluated per incoming row. See [Read-only subqueries](#read-only-subqueries). |
+| `RETURN [DISTINCT]` | Supports `AS` aliases. Without a `MATCH`, expressions run on one implicit row (a configured engine is still required). |
+| `ORDER BY`, `SKIP`, `LIMIT` | Nulls sort last ascending and first descending, as in openCypher. `SKIP` and `LIMIT` take non-negative integer literals or `$parameters`. |
 
 !!! failure "Not supported"
 
-    Writes (`CREATE`, `MERGE`, `SET`, `DELETE`, `DETACH DELETE`, `REMOVE`, `FOREACH`, `LOAD CSV`) and procedure
-    calls (`CALL name(...)` / `YIELD`). A write clause raises `NotImplementedError` naming the clause and its
-    line and column, rather than a parse error.
+    Write clauses (`CREATE`, `MERGE`, `SET`, `DELETE`, `DETACH DELETE`, `REMOVE`, `FOREACH`, `LOAD CSV`) and
+    procedure calls (`CALL name(...)` / `YIELD`). Write clauses raise `NotImplementedError` naming the clause
+    and its line and column.
 
-Every node in a pattern reads from one or more node tables, so the engine must know its label. A node
-gets one from the pattern, as in `(n:Person)`, or from a relationship's mapping: in
-`(p:Person)-[:LIVES_IN]->(c)`, `c` takes the `to_table` of `LIVES_IN`, and untyped patterns such as
-`MATCH (a)-[]-(b)` range over the endpoints of every relationship type. A node with neither, such as
-`MATCH (n) RETURN n`, is rejected with a `ValueError`:
+### Labels are required or inferred
+
+Because each node label maps to a table in [`GraphConfig`](graph-schema.md#labels-in-patterns), every node in a
+pattern must either state a label (`(n:Person)`) or inherit one from a connected relationship (`(p:Person)-[:LIVES_IN]->(c)`
+infers `City`, and untyped `MATCH (a)-[]-(b)` ranges over every configured relationship's endpoints). An
+unlabeled standalone node such as `MATCH (n) RETURN n` raises `ValueError`:
 
 ```text
 Query planning error: A node pattern has no label and no relationship to infer one from: add a label, e.g. `(n:Person)`
 ```
 
-Add a label to fix it. See [Labels in patterns](graph-schema.md#labels-in-patterns) for how labels map
-to tables.
+### `UNION` and `UNION ALL`
 
-Integer list literals retain signed 64-bit values: `RETURN [1, 2, 3] AS ids` returns integers, and
-`UNWIND [1131, 19791209300775] AS id RETURN id` preserves both IDs exactly. Numeric literals with a decimal
-point or exponent, such as `[0.1, 1e-3]`, form float32 vectors. Whole-number lists can also be used as query
-vectors; conversion to float32 happens inside the vector operation. A configured engine is still required
-for standalone `RETURN` queries.
-
-`UNION` removes duplicate rows; `UNION ALL` preserves them. Branches have independent variable scopes and
-keep their own `ORDER BY`, `SKIP` and `LIMIT`. Combined output has no guaranteed order. As in openCypher,
-one query uses either `UNION` or `UNION ALL` throughout; mixing them raises `ValueError`. Numeric columns can promote to a common numeric type; incompatible
-column counts, names or types raise `ValueError`. This follows the existing homogeneous Arrow value model.
+`UNION` removes duplicate rows; `UNION ALL` keeps them. Each branch has its own variable scope, `ORDER BY`,
+`SKIP` and `LIMIT`, and combined output has no guaranteed order. As in openCypher, one query cannot mix `UNION`
+and `UNION ALL`. Compatible numeric columns promote to a common type; mismatched column counts, names or types
+raise `ValueError`.
 
 ```python
-engine.execute("RETURN 1 AS n UNION RETURN 1 AS n").to_pylist()  # [{'n': 1}]
+print(engine.execute("RETURN 1 AS n UNION RETURN 1 AS n").to_pylist())  # [{'n': 1}]
 ```
 
-### Read-only subqueries
+### List literals
 
-Use `CALL { ... }` when a match, aggregate or limit should run separately for each incoming row:
+Integer list literals preserve signed 64-bit values (so `UNWIND [1131, 19791209300775] AS id RETURN id` keeps
+exact IDs). Lists with a decimal point or exponent (`[0.1, 1e-3]`) form `float32` vectors; whole-number lists
+also work in [vector functions](vector-search.md#vector-functions-in-cypher) and convert to `float32` inside the
+vector operation.
+
+## Read-only subqueries
+
+Use `CALL { ... }` when a match, aggregation or `LIMIT` must run independently for each incoming row—for
+example, finding each person's oldest friend:
 
 ```python
 print(engine.execute("""
@@ -309,32 +105,28 @@ print(engine.execute("""
 #  {'person': 'Carol', 'friend': 'David'}]
 ```
 
-The leading importing `WITH` accepts only existing variable names, without aliases, expressions,
-`DISTINCT`, filters or pagination. Use a second `WITH` to transform or filter them. A body without an
-importing `WITH` has its own independent scope. Calls can nest and can appear after `WITH` or `UNWIND`.
+Key rules:
 
-A CALL body can combine branches with `UNION` or `UNION ALL`. Each branch needs its own importing
-`WITH` and may import a different subset of the outer variables. Branches cannot see variables created
-by sibling branches. Deduplication happens within each incoming row, so repeated outer rows remain
-repeated. Node and node-list exports must retain the same labels in every branch; mixed-label entity
-outputs are not represented by the current binding metadata.
+- **Importing variables:** start the body with a plain `WITH a, b` naming existing outer variables (no aliases,
+  expressions, `DISTINCT`, `WHERE` or `LIMIT`; add a second `WITH` for those). A body without an importing `WITH`
+  has an independent scope.
+- **Scoping and `RETURN`:** every body ends with `RETURN`. Expressions need an `AS` alias; bare variables keep
+  their names. Returned names must be distinct and must not collide with outer variables; internal names stay
+  private. Returned nodes and relationships keep their properties for later clauses.
+- **Row semantics:** each child row pairs with its incoming row (preserving duplicates). An empty child drops
+  that incoming row, whereas an ungrouped aggregate like `count()` still returns a row with `0`. An empty outer
+  input skips the child. `ORDER BY` and `LIMIT` apply per incoming row.
+- **Nesting and `UNION`:** `CALL` blocks can nest, appear after `WITH`/`UNWIND`, and combine branches with
+  `UNION` or `UNION ALL` (each branch writes its own importing `WITH`, deduplication is per incoming row, and
+  exported nodes/node-lists must share the same labels across branches).
 
-Every body must end with `RETURN`. Give expressions an `AS` alias; bare variables keep their names.
-Returned names must be distinct and must not already exist outside the call. Returning a node or
-relationship retains its properties, so later clauses can use the returned entity. Names that the body
-only uses internally do not become visible outside it.
+!!! tip "Performance on large outer inputs"
 
-Each child result row is combined with its incoming row. Duplicate results remain duplicates. An empty
-child removes that incoming row; an aggregate such as `count()` without grouping still returns a row
-with zero. An empty outer input never executes the child. `ORDER BY` and `LIMIT` inside the body apply
-separately to each incoming row.
+    `CALL` binds, optimizes and plans its child separately for each incoming row, and bypasses the
+    [plan template cache](running-queries.md#repeated-queries). Measure on representative data before using `CALL`
+    over large outer inputs.
 
-CALL currently binds, optimizes and physically plans a child for every incoming row. It streams the
-child's batches before advancing that row, but operators such as sorting and aggregation can still
-buffer their inputs. CALL queries bypass the query-template cache. For large outer inputs, measure the
-query on representative data before choosing this form. Procedures, `YIELD`, and writes are unsupported.
-
-### Patterns
+## Patterns
 
 ```cypher
 // Direction: outgoing, incoming or either
@@ -345,7 +137,7 @@ MATCH (a:Person)-[:KNOWS]-(b)      // either direction
 // Variable length: *, *n, *n..m, *..m, *n..
 MATCH (a:Person {id: 1})-[:KNOWS*1..3]->(b:Person)
 
-// Alternation, also with variable length
+// Alternation (single-hop or variable-length)
 MATCH (p:Person)-[:LIKES_POST|LIKES_COMMENT]->(m)
 
 // Relationship variables and properties
@@ -356,78 +148,64 @@ MATCH p = shortestPath((a:Person {id: 1})-[:KNOWS*]-(b:Person {id: 4}))
 RETURN length(p), nodes(p)
 ```
 
-- **Untyped relationships** (`MATCH (a)-[]-(b) RETURN a,b` or
-  `MATCH path = (a)-[]-(b) RETURN path`) range over the configured relationship types.
-  Endpoint mappings resolve unlabeled nodes without combining identities from different tables.
-  Undirected matches include both orientations; a self-loop appears once and parallel edges remain
-  distinct. Whole-node and path returns keep each node's properties. The Arrow records include
-  the fields of all participating labels, with nulls for fields a label does not have. If node labels or
-  relationship types use incompatible Arrow types for the same property, planning fails and names
-  that property. The existing
-  alternative-branch bound still applies.
-- **Variable length** defaults to a minimum of 1 and a maximum of 20 hops; a maximum above 20 is rejected.
-  `*0..` also matches the source itself, once per input row; `*0..0` matches only that identity. The start
-  and end must have the same label and key for a zero-hop match. Each stored relationship can occur
-  once per variable-length segment, in either direction. A path can revisit a node using a different
-  relationship. For example, two parallel edges between nodes 1 and 2 give two distinct two-hop
-  trails from 1 back to 1. Earlier versions could drop these valid trails or count extra rows
-  by reusing an edge in a cycle. Eligible CSR paths use one iterative
-  expansion for the whole range; the join fallback uses one branch per length. A property map on a
-  variable-length relationship, such as `[:KNOWS*1..3 {since: 2020}]`, must hold for every relationship
-  on the path; a zero-hop match has none to check. Such a path uses the join fallback.
-  On a named path, `WHERE all(r IN relationships(p) WHERE r.since >= 2020)` filters the same way:
-  a relationship that fails the condition ends its branch during the walk, so the cost follows the
-  relationships that pass. This holds for any condition on `r`'s properties, parameters and literals
-  (comparisons, `IN`, `OR`, `IS NULL`), and for `none(r IN relationships(p) WHERE ...)`. Other
-  conditions, and `any()`, `single()` or an `all()` under `OR` or `NOT`, are checked once each path
+### Variable-length paths
+
+- **Bounds:** ranges default to a minimum of `1` and a maximum of `20` hops; anything above `20` raises
+  `NotImplementedError`. `*0..` includes a zero-hop identity match when start and end share the same label and
+  key; `*0..0` matches only that identity.
+- **Trail semantics (edge uniqueness):** each stored relationship can be used at most once per variable-length
+  segment, in either direction. A path may revisit a node through a different edge, and parallel edges between
+  the same two nodes produce distinct trails.
+- **Execution:** eligible CSR paths run as one iterative expansion across the full range (see
+  [Variable-length traversal](csr.md#variable-length-traversal)); the join fallback uses one branch per length.
+- **Filtering edges along the path:** an inline property map such as `[:KNOWS*1..3 {since: 2020}]` must hold for
+  every edge on the path (this form uses the join fallback). On a named path with the CSR,
+  `WHERE all(r IN relationships(p) WHERE ...)` and `none(r IN relationships(p) WHERE ...)` prune failing edges
+  *during* the walk whenever the predicate only reads `r`'s properties, parameters and literals (comparisons,
+  `IN`, `OR`, `IS NULL`); other predicates (`any()`, `single()`, or `all()` under `OR`/`NOT`) run once each path
   is complete.
-- **Variable-length alternation** follows each relationship type's configured endpoint labels. With
-  suitable CSR and node indexes, a mixed path such as `[:hasType|isSubclassOf*1..3]` stays in one operator.
-  Named paths also support typed variable-length alternation.
-  A standalone undirected segment with an explicit upper bound and multiple types, such as
-  `MATCH (a:Person)-[:KNOWS|WORKS_WITH*1..3]-(b:Person) RETURN b.id`, can change
-  direction at each hop. Its endpoints need known labels and integer keys.
-  This form also works in `OPTIONAL MATCH`.
-- **Relationship uniqueness**: within one `MATCH`, two single-hop relationships of the same type never
-  bind the same edge, whether they are named or anonymous, in one pattern or in comma-separated parts.
-  `(a)-[:KNOWS]->(b)<-[:KNOWS]-(c)` therefore never matches `c = a`. Separate `MATCH` clauses may bind the
-  same edge again. Edges are compared by their endpoints, so two parallel edges between the same nodes
-  count as one for this single-hop check. A named path tracks edge occurrences across its segments.
-  An unnamed path also tracks occurrences across segments that share a type when the relationship
-  patterns are anonymous and typed, their boundary labels resolve, and a shared walk or bounded
-  join chain can execute the pattern. Node IDs duplicated elsewhere in the graph do not affect this
-  rule. Patterns with a relationship variable, unresolved boundaries, or more than 64 join branches
-  without a suitable CSR walk use the ordinary expansions and can reuse an edge between segments.
-  A shared trail keeps its edge history within that path, including when another pattern
-  appears after a comma. Separate paths in the same clause do not share that history.
-  For example, in `(p)-[:KNOWS*1..2]-(f)-[:KNOWS]-(g)` the last hop must use a
-  friendship that the path from `p` to `f` has not used. Two paths reaching the same
-  `f` can have different choices for that hop.
-- **`count(r)` on a relationship** counts the rows where `r` matched, so an unmatched `OPTIONAL MATCH`
-  counts zero. `count(DISTINCT r)` compares all of `r`'s columns: parallel edges with identical properties
-  count once.
-- **Reused relationship variables**: writing a bound relationship variable again, as in
-  `MATCH (a)-[r:KNOWS]->(b), (c)-[r]->(d)`, matches that same relationship, so `c = a` and `d = b`. This
-  also works in a later `MATCH` clause or after `WITH r`. The type can be left out; a different type
-  matches nothing. An undirected reuse matches both orientations. When the first binding is undirected,
-  a later directed reuse follows the direction the first one walked the edge, not its stored direction.
-  Reusing a relationship variable in a variable-length segment is not supported; within one `MATCH` it
-  raises an error.
-- **`shortestPath` and `allShortestPaths`** need exactly one relationship type, no relationship variable,
-  and named end nodes. Their length is unbounded unless you give a maximum. `nodes(p)` returns the node keys.
-  With no path, `MATCH` drops the row and `OPTIONAL MATCH` returns `null`. `shortestPath` chooses one path
-  when several have the same minimum length; `allShortestPaths` returns every shortest path, including
-  duplicate node sequences that use different parallel edges. A single source-target pair searches from
-  both ends when reverse adjacency is available. Several targets for the same source in an input batch
-  share one forward search, and those forward searches run together, up to 64 sources at a time.
-- **Named paths** (`p = (a)-[:R]->(b)`) retain the ordered node and relationship records.
-  Use `relationships(p)` for variable-length relationship lists; binding a relationship variable inside
-  a named variable-length segment is not supported.
 
-### Path values
+### Alternation and untyped relationships
 
-A named path can pass through `WITH`, `collect()` and `UNWIND` without losing its edges. Parallel edges
-with identical endpoints remain distinct, including when their properties are identical.
+- **Typed alternation** (`[:A|B]` and `[:hasType|isSubclassOf*1..3]`) follows each relationship type's configured
+  endpoint labels. With CSR and node indexes on every participating type and label, variable-length alternation
+  stays in one iterative operator. Standalone bounded undirected alternation (`[:KNOWS|WORKS_WITH*1..3]-`) can
+  change direction at each hop (including in `OPTIONAL MATCH`) when endpoints have known labels and integer keys.
+- **Untyped relationships** (`(a)-[]-(b)` or `path = (a)-[]-(b)`) range over all configured relationship types
+  without mixing identities across node tables. Undirected matches include both orientations, self-loops appear
+  once, and parallel edges stay distinct. Whole-node and path returns include the union of participating fields
+  (with nulls where a label lacks a field); conflicting Arrow types for the same property name fail at planning
+  time.
+
+### Relationship uniqueness and reuse
+
+- **Within one `MATCH`:** two single-hop relationships of the same type never bind the same edge, so
+  `(a)-[:KNOWS]->(b)<-[:KNOWS]-(c)` never matches `c = a`. Separate `MATCH` clauses may reuse the same edge.
+  For this single-hop check, edges compare by endpoints (parallel edges count as one).
+- **Across segments of a path:** named paths track edge occurrences across all of their segments. Unnamed paths
+  such as `(p)-[:KNOWS*1..2]-(f)-[:KNOWS]-(g)` do the same when the relationships are anonymous and typed, their
+  boundary labels resolve, and a shared CSR walk or bounded join chain (at most 64 branches) applies; separate
+  comma-separated paths in the same `MATCH` do not share history.
+- **Reusing a relationship variable:** writing a bound variable again—such as `(a)-[r:KNOWS]->(b), (c)-[r]->(d)`,
+  in a later `MATCH`, or after `WITH r`—matches that same edge (`c = a`, `d = b`). The type may be omitted; a
+  conflicting type matches nothing. Undirected reuse matches both orientations; if the first binding was
+  undirected, a later directed reuse follows the traversed direction. Reusing a relationship variable inside a
+  variable-length segment is unsupported.
+- **`count(r)`:** counts rows where `r` matched (an unmatched `OPTIONAL MATCH` counts `0`). `count(DISTINCT r)`
+  compares all of `r`'s columns, so identical parallel edges count once.
+
+### Shortest paths
+
+`shortestPath` and `allShortestPaths` require one relationship type, no relationship variable, and named
+endpoints. Lengths are unbounded unless you specify a maximum. When no path exists, `MATCH` drops the row and
+`OPTIONAL MATCH` returns `null`. `shortestPath` returns one minimum-length path; `allShortestPaths` returns all
+of them, including distinct parallel edges. With CSR indexes, single-target lookups search bidirectionally and
+multi-source batches share forward searches (see [ShortestPath](internals/operators.md#shortestpath-breadth-first-search-over-the-adjacency)).
+
+## Path values
+
+A named path (`MATCH path = (a)-[:KNOWS*1..2]->(b)`) retains its ordered node and relationship records across
+`WITH`, `collect()` and `UNWIND`, keeping parallel edges distinct even when their properties are identical:
 
 ```python
 paths = engine.execute("""
@@ -443,46 +221,45 @@ print(paths.to_pylist())
 #  {'names': ['Alice', 'Carol'], 'targets': [3]}]
 ```
 
-`nodes(path)` still returns integer keys when returned directly. A property comprehension over it uses
-stored node records when the path is a value, so equal keys in different labels remain different nodes.
-`startNode(r)` and `endNode(r)` return the relationship's stored source and target, even when the path
-traversed that relationship backwards. Property access, `keys()` and node `labels()` work on these values.
-A zero-hop path has one node and an empty relationship list. All path functions return null for a null path.
+- `nodes(path)` returns integer keys when returned directly; comprehensions over `nodes(path)` read the stored
+  node records, keeping equal keys from different labels distinct.
+- `relationships(path)` returns relationship records (binding a relationship variable inside a named
+  variable-length segment is unsupported). `startNode(r)` and `endNode(r)` return the relationship's stored
+  source and target even when the path walked it backwards.
+- A zero-hop path has one node and an empty relationship list. All path functions return `null` for a `null` path.
+- **Cost:** constructing path values reads participating node tables in full. With `use_csr=True`, named trail
+  paths walk the CSR and read relationship properties only for returned paths; shortest paths and non-CSR
+  relationship types build a query-local edge inventory whose memory grows with the graph. A named path whose
+  variable is never read (such as `MATCH p = ... RETURN count(*)`) skips building path values.
 
-`RETURN path` produces an Arrow struct with `length`, `nodes`, `node_records` and `relationships` fields.
-Entity records store user properties in `__lance_csr_properties` and `{label, id}` identity metadata
-in `__lance_csr_identity`. Relationship records also carry the node records `__lance_csr_start` and
-`__lance_csr_end`. These metadata fields are distinct from user properties, even if a property has the
-same name. `keys(entity)` lists only non-null user properties; `keys(map)` includes null-valued keys.
-Prefer the Cypher property and endpoint functions when writing queries. Relationship identities identify actual occurrences within this query, not persistent
-IDs that can be compared across queries or snapshots. Rich paths support the same signed integer and
-`uint8`/`uint16`/`uint32` keys as the CSR. Mixed labels may share compatible properties; conflicting Arrow
-property types fail explicitly. Non-null node IDs must be unique within each participating label so
-relationship endpoints identify one node; duplicate IDs raise an error. Expanding a graph pattern from
-a mixed-label value remains unsupported.
+??? info "Arrow struct layout and exact path semantics"
 
-A path value needs the properties of its nodes, so each execution reads the participating node tables in full.
-A query that names a path but never reads it, such as `MATCH p = ... RETURN count(*)`, builds no path
-values and, on the CSR walk, reads no relationship properties.
-With `use_csr=True`, a named path reads relationships only where its walk goes (see
-[the CSR index](csr.md#which-hops-use-it)). Shortest paths, and paths over a relationship type without a CSR,
-also read the relationship tables into a query-local inventory, whose memory grows with the graph.
-Traversal output is emitted in batches and named ordinary paths keep a cursor per hop.
-Rich path queries can reuse a query template. Each execution binds its current parameters and reads
-from its own snapshot. A reader opened before `checkout_latest()` retains the old snapshot.
-Queries asking only for shortest-path length, node keys or path null checks, including homogeneous node-property
-comprehensions and paths carried through `WITH` aliases, retain the usual CSR execution route when
-the relationship joins the same node label. Cross-label shortest paths use typed identities even for
-length or node keys, so equal numeric keys from different labels cannot become a false zero-hop path.
-This also applies inside `CALL` and `UNION`, and when equal-label endpoints pass through another label.
+    - `RETURN path` yields an Arrow struct with fields `length`, `nodes`, `node_records` and `relationships`.
+    - Entity records store user properties in `__lance_csr_properties` and `{label, id}` identity metadata in
+      `__lance_csr_identity`. Relationship records also carry `__lance_csr_start` and `__lance_csr_end` node
+      records. These metadata fields never collide with user properties of the same name.
+    - Prefer Cypher property and endpoint functions (`startNode`, `endNode`, `keys`, `labels`) rather than
+      relying on internal struct fields. Relationship identities distinguish occurrences within a single query
+      only; they are not persistent IDs across queries or snapshots.
+    - Rich paths require the same integer key types as the CSR (signed integers and `uint8`/`uint16`/`uint32`)
+      and unique non-null node IDs per participating label (duplicates raise an error). Mixed labels may share
+      compatible properties; conflicting Arrow types fail explicitly. Expanding a graph pattern from a
+      mixed-label value is unsupported.
+    - Queries reading only shortest-path length, node keys, path null checks or homogeneous node-property
+      comprehensions (including through `WITH` aliases) stay on the fast CSR shortest-path route within a single
+      label. Cross-label shortest paths (including inside `CALL`/`UNION` or when equal-label endpoints pass
+      through another label) use typed identities so equal numeric keys from different labels never form a false
+      zero-hop match.
+    - Rich path queries can reuse cached plan templates, bind fresh parameters per execution, and honor snapshot
+      isolation for open batch readers.
 
-### Expressions and predicates
+## Expressions and predicates
 
 | Kind | Supported |
 | --- | --- |
 | Arithmetic | `+ - * / %` |
 | Comparison | `= <> != < <= > >=`, and chains such as `18 <= p.age < 65` |
-| Boolean | `AND OR NOT`; a boolean value is a condition on its own, as in `WHERE n.active` |
+| Boolean | `AND OR NOT`; bare boolean properties/expressions work directly (`WHERE n.active`) |
 | Strings | `STARTS WITH`, `ENDS WITH`, `CONTAINS`, and `LIKE` / `ILIKE` with SQL wildcards |
 | Lists | `IN`, literals `[1, 2]`, indexing `list[0]`, list comprehensions <code>[x IN list WHERE ... &#124; ...]</code> |
 | Maps | Literals `{k: v}` and key access `m.k` |
@@ -493,14 +270,25 @@ This also applies inside `CALL` and `UNION`, and when equal-label endpoints pass
 
 !!! note "No regular expressions"
 
-    Regular expressions (`=~`) are not supported. `STARTS WITH`, `ENDS WITH` and `CONTAINS` match literal
-    text; use `LIKE` or `ILIKE` when you need wildcards.
+    Regular expressions (`=~`) are not supported. `STARTS WITH`, `ENDS WITH` and `CONTAINS` match literal text;
+    use `LIKE` or `ILIKE` for wildcards.
 
-### Functions
+Aggregate results can be compared in `RETURN` or `WITH`, combined with `AND`/`OR`/`NOT`, or used in `CASE`:
+
+```cypher
+MATCH (p:Person) WHERE p.id = 99
+RETURN count(DISTINCT p.id) > 0 AS present
+```
+
+On empty input, a global `count` returns `0` (so the query above returns one row with `present = false`), and
+`count(DISTINCT value)` skips nulls and duplicates—including when a filter fixes the counted property to a
+constant.
+
+## Functions
 
 | Group | Functions |
 | --- | --- |
-| Aggregates | `count` (including `count(*)` and `count(DISTINCT x)`), `sum`, `avg`, `min`, `max`, `collect` (including `DISTINCT`; skips nulls) |
+| Aggregates | `count` (`count(*)`, `count(DISTINCT x)`), `sum`, `avg`, `min`, `max`, `collect` (supports `DISTINCT`; skips nulls) |
 | Strings | `toLower` / `lower`, `toUpper` / `upper`, `toString`, `left`, `right`, `substring`, `replace`, `split`, `trim`, `lTrim`, `rTrim`, `reverse`, `size` |
 | Conversion | `toInteger`, `toFloat`, `coalesce` |
 | Properties | `keys(map)`, `keys(node)`, `keys(relationship)`, `labels(node)` |
@@ -511,29 +299,7 @@ This also applies inside `CALL` and `UNION`, and when equal-label endpoints pass
 | Paths | `length(p)`, `nodes(p)`, `relationships(p)`; `startNode(r)`, `endNode(r)` on relationship values |
 | Vectors | `vector_distance(a, b, metric)`, `vector_similarity(a, b, metric)`; see [Vector search](vector-search.md) |
 
-The string and list functions follow the [Cypher v9 reference](https://s3.amazonaws.com/artifacts.opencypher.org/openCypher9.pdf),
-within the list representation described above. `size` counts Unicode characters in a string or the
-outer elements of a list. `left(text, length)`, `right(text, length)` and
-`substring(text, start [, length])` count characters; the substring start is zero-based. Lengths and
-starts must be non-negative integers. A null input string returns null; a null start or length on a
-non-null string raises an error. `trim`, `lTrim` and `rTrim` remove whitespace, and `replace` replaces
-all literal matches. `split` preserves empty fields; an empty delimiter splits into characters.
-Splitting an empty string returns `['']`.
-
-`last([])` returns null; `tail([])` and `reverse([])` return empty lists. `reverse` also accepts strings.
-`range(start, end [, step])` includes the end when reached, defaults to step 1, and accepts negative
-steps. A step pointing away from the end gives an empty list; zero steps and non-integer arguments
-raise an error. Unsigned Arrow arguments outside Int64 range also raise an error; they are not
-converted to null. Null arguments return null.
-
-`abs` preserves integer results; the other math functions return floating point values. Integer
-`abs` raises an error on absolute-value overflow or unsigned inputs outside Int64 range. The other
-math functions convert numeric inputs, including UInt64, to Float64. `round` accepts one argument,
-with ties toward positive
-infinity (`round(-1.5)` is `-1.0`), as specified in the
-[Neo4j 4.4 numeric reference](https://neo4j.com/docs/cypher-manual/4.4/functions/mathematical-numeric/).
-`sqrt` of a negative number returns NaN. The math functions return null for null input and reject
-non-numeric values.
+Any unlisted function raises `ValueError` with `Cypher function 'name' is not implemented`.
 
 ```python
 result = engine.execute("""
@@ -544,19 +310,9 @@ result = engine.execute("""
 print(result.to_pylist())  # [{'text': '猫😀', 'numbers': [5, 3, 1], 'rounded': -1.0}]
 ```
 
-`keys` returns the field names in a map, including keys with null values. For a node or relationship,
-it returns its exposed, non-null property names, including the ID or endpoint columns already exposed
-by the engine. Property names use the engine's normalized column spelling. Key order is not guaranteed.
-`keys({})` returns an empty list. `labels(node)` returns the canonical label configured for that node,
-even if the query spells it differently. Both functions preserve aliases carried through `WITH` and
-return null for a missing entity from `OPTIONAL MATCH`.
-
-!!! note "Labels on mixed-label bindings"
-
-    `labels(p)` supports a binding with one configured label. A pattern such as
-    `(p:Person:City)` is rejected with a mixed-label error, including after `WITH p AS x`.
-    The engine does not retain each row's label after this union. It never guesses a label from an ID
-    that might occur in both tables.
+`keys()` returns field names of a map (including null-valued keys) or the non-null exposed property names of a
+node or relationship. `labels(node)` returns the canonical configured label of a single-label node binding
+(preserving aliases through `WITH`, and returning `null` for an unmatched `OPTIONAL MATCH`):
 
 ```python
 result = engine.execute("""
@@ -566,24 +322,42 @@ result = engine.execute("""
 print(result.to_pylist())  # [{'labels': ['Person'], 'properties': 3}]
 ```
 
-Any other function raises `ValueError` with `Cypher function 'name' is not implemented`. This is a
-bounded function set, not a claim of full Cypher conformance.
+!!! note "Labels on mixed-label bindings"
 
-When `size()` consumes an unmapped list comprehension, such as `size([x IN values WHERE x > 0])`, the planner
-counts retained elements directly. Each duplicate and each retained null element still contributes one;
-an empty or null input list produces zero, as for the existing comprehension. A mapped comprehension
-(`| expression`) or a pattern comprehension keeps the ordinary list-building path. The count path still
-unnests and groups rows; `explain()` shows a filtered count in place of ordered list aggregation. A direct
-count output is marked non-nullable in its Arrow schema.
+    `labels(p)` requires a binding with one configured label. A multi-label pattern such as `(p:Person:City)`
+    raises a mixed-label error (including after `WITH p AS x`), because the engine does not retain per-row labels
+    across the union and never guesses a label from an ID.
 
-### Ordered reduce and list predicates
+??? note "Exact function semantics and edge cases"
 
-`reduce(total = initial, item IN list | expression)` evaluates the expression once per element in
-list order. Each step sees the previous accumulator value. An empty list returns the initial value;
-a null list returns null. Null elements are passed to the expression, so use `coalesce` if you want
-to replace them. The accumulator and iterator names are local to the body: the initial value and
-list still refer to outer variables. The accumulator must keep a compatible Arrow type; integer
-initial values can promote to floating point when the expression requires it.
+    String and list functions follow the
+    [openCypher 9 reference](https://s3.amazonaws.com/artifacts.opencypher.org/openCypher9.pdf); math functions
+    follow the [Neo4j 4.4 numeric reference](https://neo4j.com/docs/cypher-manual/4.4/functions/mathematical-numeric/).
+
+    - **Strings:** `size`, `left`, `right` and `substring(text, start [, length])` count Unicode characters
+      (`substring` starts at `0`). Starts and lengths must be non-negative integers; a null string returns null,
+      while a null start or length on a non-null string raises an error. `trim`/`lTrim`/`rTrim` strip whitespace;
+      `replace` replaces all literal matches; `split` preserves empty fields (`split('', ',')` returns `['']`,
+      and an empty delimiter splits into characters).
+    - **Lists:** `size` counts outer elements; `last([])` returns null; `tail([])` and `reverse([])` return `[]`;
+      `reverse` also accepts strings. `range(start, end [, step])` is inclusive, defaults to step `1`, accepts
+      negative steps, returns `[]` when the step points away from `end`, returns null on null arguments, and
+      raises an error on step `0`, non-integers, or unsigned Arrow integers outside `Int64` range.
+    - **Math:** `abs` preserves integers and raises on overflow or unsigned inputs outside `Int64` range. `round`,
+      `floor`, `ceil` and `sqrt` convert numeric inputs (including `UInt64`) to `Float64`. `round` takes one
+      argument and breaks ties toward $+\infty$ (`round(-1.5) == -1.0`). `sqrt` of a negative number returns `NaN`.
+      All math functions return null for null input and reject non-numeric values.
+    - **Properties:** `keys(entity)` returns normalized column spellings in unspecified order (including ID or
+      endpoint columns); `keys({})` returns `[]`.
+    - **Direct count of unmapped list comprehensions:** `size([x IN values WHERE x > 0])` counts retained elements
+      directly instead of materializing the filtered list (duplicates and retained nulls still count as `1`, an
+      empty or null list produces `0`, and the Arrow output column is non-nullable). Mapped comprehensions
+      (`| expr`) and pattern comprehensions use the regular list-building path.
+
+## Ordered `reduce` and list predicates
+
+`reduce(total = initial, item IN list | expression)` folds a list in order, passing each step the previous
+accumulator. The list predicates `all`, `any`, `none` and `single` test `function(item IN list WHERE predicate)`:
 
 ```python
 result = engine.execute("""
@@ -594,33 +368,28 @@ result = engine.execute("""
 print(result.to_pylist())  # [{'ordered': 123, 'positive': True, 'exactly_one': True}]
 ```
 
-The list predicates use `function(item IN list WHERE predicate)` syntax. `all` requires every
-predicate result to be true, `any` requires at least one, `none` requires no true results, and
-`single` requires exactly one. For an empty list, `all` and `none` are true; `any` and `single` are
-false. A null list returns null. A null predicate result makes the answer null unless a known result
-already decides it: false decides `all`, true decides `any` and `none`, and two true results decide
-`single`. Predicates can inspect null elements explicitly with `item IS NULL`.
+- Both forms can capture outer variables and nest scalar folds or predicates.
+- List predicates also support correlated graph predicates such as `EXISTS { MATCH ... }`.
+- `reduce` accepts list comprehensions, pattern comprehensions or `collect(...)` as its input list; its body
+  supports scalar expressions only (compute nested graph patterns, comprehensions or aggregates beforehand).
 
-Both forms can capture outer values and nest scalar folds or predicates. List predicates also
-support correlated graph predicates such as `EXISTS { MATCH ... }`. A reduce input can be a list
-comprehension, pattern comprehension, or `collect(...)`; its body supports scalar expressions but
-rejects graph patterns, comprehensions, and aggregation. Compute such a list before the body.
-These semantics follow the pinned [Cypher 4.4 list reference](https://neo4j.com/docs/cypher-manual/4.4/functions/list/#functions-reduce)
-and [predicate reference](https://neo4j.com/docs/cypher-manual/4.4/functions/predicate/).
+??? note "Empty-list, null and type semantics for `reduce` and list predicates"
 
-Aggregate results can be compared in `RETURN` or `WITH`, combined with `AND`, `OR` and `NOT`,
-or used in a `CASE` condition. For example:
+    Semantics follow the pinned
+    [Cypher 4.4 list](https://neo4j.com/docs/cypher-manual/4.4/functions/list/#functions-reduce) and
+    [predicate](https://neo4j.com/docs/cypher-manual/4.4/functions/predicate/) references:
 
-```cypher
-MATCH (p:Person) WHERE p.id = 99
-RETURN count(DISTINCT p.id) > 0 AS present
-```
+    - **`reduce`:** an empty list returns `initial`; a null list returns `null`. Null elements are passed to the
+      body (use `coalesce()` to replace them). The accumulator and iterator names are local to the body while
+      `initial` and `list` read outer variables. The accumulator must keep a compatible Arrow type (integers can
+      promote to float).
+    - **List predicates on empty/null lists:** on `[]`, `all` and `none` return `true`, while `any` and `single`
+      return `false`. A null list returns `null`.
+    - **Three-valued logic:** a null predicate result makes the outcome `null` unless a decisive element already
+      fixes it (`false` decides `all`, `true` decides `any` and `none`, two `true`s decide `single`). Inspect
+      null elements explicitly with `item IS NULL`.
 
-If no rows match, this returns one row with `present = false`. A global `count` returns `0`
-on empty input, and `count(DISTINCT value)` skips nulls and duplicate values. These rules
-also apply when a filter constrains the counted property to a constant.
-
-### Example: a little of everything
+## Putting it together
 
 ```python
 result = engine.execute("""
@@ -638,26 +407,19 @@ print(result.to_pylist())
 #  {'name': 'Bob', 'friends': 1, 'band': 'senior'}]
 ```
 
-## Case sensitivity
+## Case sensitivity and quoted names
 
-Mixed-case Arrow and Lance fields follow the same identifier rule: `p.firstName`, `p.firstname`
-and `p.FIRSTNAME` refer to the same property, including inline filters and relationship properties.
-Source field names are preserved. Explicit result aliases use the existing lowercase convention.
+Keywords, function names, variables, labels, relationship types and property names are all **case-insensitive**:
+`p.firstName`, `p.firstname` and `p.FIRSTNAME` refer to the same Arrow or Lance column (including in inline
+filters and relationship properties). Source field names stay intact, unaliased `RETURN` items keep the spelling
+you wrote, and explicit aliases follow the lowercase convention.
 
+An output alias may reuse an input variable's name: expressions in the same `RETURN` still read the input
+variable, while a following `ORDER BY` reads the output alias (for example,
+`RETURN p.name AS p, p.id AS id ORDER BY p` sorts by name, including with aggregation and `OPTIONAL MATCH`).
 
-Keywords, function names, variables, labels, relationship types and property names are all
-case-insensitive. `match (P:person) return p.NAME` works, and the output column keeps the spelling you wrote.
-
-An output alias may reuse an input variable's name. Expressions in the same `RETURN` still use the input
-variable; the following `ORDER BY` uses the output alias. For example,
-`RETURN p.name AS p, p.id AS id ORDER BY p` returns names and IDs, sorted by name. This also works with
-aggregation and `OPTIONAL MATCH`.
-
-## Quoted names
-
-Backticks quote a label, relationship type, variable, property name or alias that contains spaces or
-other characters, or that matches a keyword. Inside a quoted name, two backticks stand for one. Quoting
-doesn't change the case rules above.
+Use backticks to quote labels, relationship types, variables, properties or aliases containing spaces, special
+characters or keywords (double a backtick inside a quoted name). Quoting does not change case-insensitivity:
 
 ```python
 device_config = GraphConfig.builder().node_table("Device Type", "asset id").build()
@@ -665,25 +427,10 @@ devices = {
     "Device Type": pa.table({"asset id": ["a-1", "b-2"], "status": ["active", "retired"]})
 }
 device_engine = CypherEngine(device_config, devices)
-device_engine.execute(
-    "MATCH (x:`Device Type`) WHERE x.`asset id` IN $keys RETURN x.`asset id` AS `asset id`",
-    {"keys": ["a-1"]},
-).to_pylist()  # [{'asset id': 'a-1'}]
+print(
+    device_engine.execute(
+        "MATCH (x:`Device Type`) WHERE x.`asset id` IN $keys RETURN x.`asset id` AS `asset id`",
+        {"keys": ["a-1"]},
+    ).to_pylist()
+)  # [{'asset id': 'a-1'}]
 ```
-
-## Errors
-
-| Exception | Raised when |
-| --- | --- |
-| `ValueError` | The query doesn't parse, refers to an unknown label, a dataset is missing a configured column, or a comparison/arithmetic expression has incompatible known types, or a function isn't implemented. Type errors name the expression and its operand types. Known scalar-function return types are checked through `WITH` and `UNWIND` scopes. |
-| `NotImplementedError` | The query is valid Cypher but uses an unsupported feature, for example a write clause such as `CREATE` or more than 20 hops. |
-| `RuntimeError` | Execution fails, for example when a Lance dataset can't be read. |
-| `TimeoutError` | A query passes its `timeout`. See [Query deadlines](#query-deadlines). |
-| `TypeError` | The engine gets a config that isn't a `GraphConfig`, an unsupported dataset type, or a non-integer `target_partitions`. |
-
-Known comparison and arithmetic types are checked against the current dataset schemas before planning.
-For example, adding a number to a string property reports the expression and both types in a
-`ValueError`. Mixed numeric types and supported date/timestamp coercions remain valid. Comparing a string
-with a number is allowed: DataFusion casts the string side, so `p.age = '40'` matches an age of 40, and a
-string that isn't a number raises a `RuntimeError` when the query runs. Types that cannot be determined in
-the current scope are left to the planner, so these checks are not a complete type system.

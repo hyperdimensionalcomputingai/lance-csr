@@ -29,18 +29,28 @@ nav = [
   { "Benchmarks" = "benchmarks.md" },
   { "Guide" = [
     { "Graph schema" = "graph-schema.md" },
-    { "Querying with Cypher" = "cypher.md" },
+    { "Running queries" = "running-queries.md" },
     { "The CSR index" = "csr.md" },
     { "Lance datasets" = "lance.md" },
     { "Vector search" = "vector-search.md" },
     { "Graph algorithms" = "graph-algorithms.md" },
     { "SQL queries" = "sql.md" },
   ] },
-  { "Using from Rust" = "rust.md" },
-  { "Using from TypeScript" = "typescript.md" },
+  { "Reference" = [
+    { "Cypher reference" = "cypher.md" },
+    # Nested sections stay collapsed in the sidebar until opened.
+    { "Rust & TypeScript" = [
+      { "Using from Rust" = "rust.md" },
+      { "Using from TypeScript" = "typescript.md" },
+    ] },
+    { "API reference" = [
+      { "Python" = "api-reference.md" },
+      { "TypeScript" = "typescript-api.md" },
+      { "Rust (docs.rs)" = "https://docs.rs/lance-csr" },
+    ] },
+  ] },
   { "How it works" = [
     { "Overview" = "execution.md" },
-    # A nested section, so the navigation shows it collapsed until a reader opens it.
     { "DataFusion internals" = [
       "internals/index.md",
       { "Custom operators" = "internals/operators.md" },
@@ -48,11 +58,6 @@ nav = [
       { "Indexes and updates" = "internals/indexes.md" },
       { "Execution plumbing" = "internals/execution-plumbing.md" },
     ] },
-  ] },
-  { "API reference" = [
-    { "Python" = "api-reference.md" },
-    { "TypeScript" = "typescript-api.md" },
-    { "Rust (docs.rs)" = "https://docs.rs/lance-csr" },
   ] },
   { "Contributing" = [
     { "Contributing" = "contributing.md" },
