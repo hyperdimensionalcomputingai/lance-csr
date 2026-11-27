@@ -160,6 +160,7 @@ uv run --no-sync python benchmarks/csr_expand.py --data /tmp/csr-bench --edges 1
 
 | Script | Measures |
 | --- | --- |
+| `shapes.py` | The generated shape suite: general multi-hop shapes written several ways, over a seeded graph with hubs and wide columns (see `CONTRIBUTING.md`) |
 | `csr_expand.py` | CSR build cost, single-hop latency against the join path, `checkout_latest()` cost and peak RSS, per edge count |
 | `named_hop_columns.py` | A named hop that returns a relationship column, against the join path, as the number of start nodes grows; a fixed-width and a string column |
 | `csr_delta.py` | `checkout_latest()` with a delta against a full rebuild, after one append or delete commit (uses `csr_expand.py`'s data) |
