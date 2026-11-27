@@ -81,7 +81,7 @@ Unpacked, the neighbour and the edge row take 16 bytes per edge in each directio
 from that minimum. Neighbouring slots mostly come from nearby rows of the same fragment, so a block needs few bits; on
 GDC SF1 edge rows take about 2 bytes per edge in each direction instead of 8, which cut the CSR's arrays from 613 to
 419 MiB. Any position stays directly readable,
-which traversal needs to resume part-way through a list, and reading a range loads each block's header once. Plain
+which traversal needs to resume partway through a list, and reading a range loads each block's header once. Plain
 hops never unpack edge rows; only hops that name their relationship, and deletes applied by `checkout_latest()`, do.
 
 Neighbours stay a plain `u64` array. Packing them the same way roughly halved them on SF1 (their keys are sparse:
@@ -111,7 +111,7 @@ manifests:
 
 Removals are row addresses, matched against the edge rows the adjacency already stores, so nothing is read from the
 old version beyond its manifest. That is why compaction and `cleanup_old_versions()` don't force a rebuild. If an
-endpoint column was dropped, re-created or retyped, the diff isn't meaningful and the adjacency is rebuilt.
+endpoint column was dropped, recreated or retyped, the diff isn't meaningful and the adjacency is rebuilt.
 [Keeping the CSR current](../csr.md#keeping-the-csr-current) shows the full decision, including the 25% rebuild
 threshold.
 
@@ -165,7 +165,7 @@ names, their Lance field ids and types, and the fragments the base was built fro
 When an engine starts, it reads the newest file at or before the pinned version. It then diffs that file's fragments against the pinned version, as `checkout_latest()` diffs two versions (see
 [How `checkout_latest()` diffs Lance versions](#how-checkout-latest-diffs-lance-versions)), so the file's own version doesn't need to
 exist any more. An empty diff uses the file as it is; otherwise the changes become the delta, under the same 25%
-threshold. Rebuilds after start-up (from `checkout_latest()` or `optimize_csr()`) don't look for a file, since the stored base
+threshold. Rebuilds after startup (from `checkout_latest()` or `optimize_csr()`) don't look for a file, since the stored base
 is the one the engine already holds, but they do store the new one.
 
 Every batch is compressed with zstd, Arrow IPC's own buffer compression, on top of the packing. A load decompresses
@@ -180,5 +180,5 @@ until it finishes, so peak memory would otherwise grow with the core count. Delt
 one type at a time, and each `build_ms` measures one build. Writes go through the dataset's object store with `put_if_absent`, which
 publishes the whole file at once on local disk and object storage; the compressed file is encoded in memory first.
 Encoding takes seconds on large graphs, so the store first writes and deletes an empty `.write-probe` in
-`_lance_csr`: storage that can't be written fails there, before the encode. With `persist_csr="load"` nothing is
-written at all.
+`_lance_csr`: read-only storage fails immediately at the probe, before encoding begins. With `persist_csr="load"`
+nothing is written at all.

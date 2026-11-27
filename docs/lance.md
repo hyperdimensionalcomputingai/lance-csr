@@ -12,12 +12,12 @@ and to open the `lance.dataset(...)` handles you pass in, so add it next to lanc
 uv add lance-csr pylance
 ```
 
-Any `pylance` version works as long as it writes a file format the built-in Lance can read. lance-csr moves to
-new Lance releases as they come out (its
+Any `pylance` version works as long as it writes a file format that lance-csr's built-in Lance library can read.
+lance-csr updates to new Lance releases as they come out (its
 [`Cargo.toml`](https://github.com/hyperdimensionalcomputingai/lance-csr/blob/main/crates/lance-csr/Cargo.toml)
-names the version), and Lance reads datasets written by older versions, so a `pylance` whose major version is the
-same as or older than the built-in Lance's is safe. A dataset written in a newer file format than the built-in
-Lance knows fails to open with an error.
+names the version), and Lance reads datasets written by older versions, so any `pylance` whose major version is
+the same as or older than lance-csr's is safe. Opening a dataset written in a newer format version than the
+built-in Lance library supports fails with an error.
 
 ## Lazy, version-pinned reads
 
@@ -183,12 +183,13 @@ many writes, two things build up:
 - **Old versions.** Data that a newer version replaced or dropped stays on disk until a *cleanup* deletes the
   versions that still use it. A column replaced with `write_node_column(..., overwrite=True)` is one example.
 
-Neither happens on its own with local datasets, and doing them by hand around an engine is error-prone. A
-cleanup can delete the version the engine is pinned to, which makes its next query fail with a "Not found" error,
-and a LanceDB `Table` opened before the engine's writes stays on its old version, so its `optimize()` fails with a
-commit conflict. [`optimize_datasets`][lance_csr.CypherEngine.optimize_datasets] does the maintenance through
-the engine instead. For each Lance dataset the engine reads, it opens the newest version, compacts it, moves the
-engine onto the result as `checkout_latest()` does, and only then deletes old versions:
+Neither happens on its own with local datasets, and doing them by hand around an engine is error-prone. A manual
+cleanup can delete the version that the engine is pinned to, causing the next query to fail with a "Not found"
+error. Likewise, a LanceDB `Table` handle opened before lance-csr writes to disk stays pinned to its older
+version, so calling `optimize()` on it fails with a commit conflict.
+[`optimize_datasets`][lance_csr.CypherEngine.optimize_datasets] handles maintenance through the engine instead:
+for each Lance dataset, it opens the newest version, compacts it, advances the engine onto the result (as
+`checkout_latest()` does), and only then deletes old versions:
 
 ```python
 from datetime import timedelta
@@ -202,17 +203,17 @@ print(engine.execute("MATCH (p:Person) RETURN count(*) AS n").to_pylist())  # [{
 1. Deletes every version but the latest. The default, `None`, keeps the last 7 days, as LanceDB's `optimize()`
    does.
 
-The result lists, per Lance dataset, the fragments compaction rewrote (`fragments_removed`) and wrote
-(`fragments_added`), and the versions and bytes cleanup deleted (`old_versions`, `bytes_removed`). It works the
-same for datasets written with `pylance` and for LanceDB tables, since it opens each dataset by its location rather
-than through your table object. LanceDB suggests compacting after about 100,000 changed rows or 20 write
-operations.
+For each Lance dataset, the returned dict reports how many fragments compaction replaced (`fragments_removed`) and
+created (`fragments_added`), along with the old versions and bytes removed by cleanup (`old_versions`,
+`bytes_removed`). It works the same for datasets written with `pylance` and for LanceDB tables, since it opens
+each dataset by its location rather than through your table object. LanceDB suggests compacting after about
+100,000 changed rows or 20 write operations.
 
 Two things to keep in mind:
 
-- **Other readers.** A reader pinned to a version cleanup deletes fails, and that includes queries still running
-  on this engine and other processes reading the same datasets. Keep the window longer than any of them stays
-  pinned; a window of zero is only safe when nothing else reads the datasets.
+- **Other readers.** If cleanup deletes a version that a reader is pinned to, that reader fails, including queries
+  still running on this engine or other processes reading the same datasets. Keep the window longer than any of
+  them stays pinned; a window of zero is only safe when nothing else reads the datasets.
 - **Lance indexes aren't updated.** LanceDB's `optimize()` also adds new rows to vector and scalar indexes. If you
   keep such indexes, run `lance.dataset(uri).optimize.optimize_indices()` (or LanceDB's `optimize()`) for them,
   then `engine.checkout_latest()`.

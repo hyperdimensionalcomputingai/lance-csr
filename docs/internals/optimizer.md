@@ -33,8 +33,8 @@ expansion was already small, which re-rooting usually ensures.
 DataFusion's projection pushdown prunes an extension node's inputs but not its outputs, so without this rule a fused
 lookup would fetch every target column for every row. The rule collects the columns used anywhere in the plan and
 narrows each `CsrExpand`'s target and relationship columns, and each `NodeLookup`, to that set. A `NodeLookup` whose
-columns are all unused is removed. The columns a `NodeLookup` fetches shadow any of the same name below it, so the rule
-prunes the plan under each lookup again, against only what that plan outputs: a hop under
+columns are all unused is removed. The columns fetched by a `NodeLookup` shadow any columns of the same name below
+it, so the rule prunes the plan under each lookup again, against only what that plan outputs: a hop under
 `NodeLookup: take=b[b__name]` doesn't fetch `b__name` for every edge just because the lookup's `b__name` is used above.
 A `NodeLookup` directly under a projection is also narrowed to the columns that projection references, whatever else
 in the plan uses the same names. When a query groups by the same node twice, the lookup after the first grouping
@@ -47,7 +47,7 @@ all inputs of nodes whose column use is implicit, such as `DISTINCT` and `UNION`
 ### Why the order matters
 
 `PushCsrTargetFilters` runs first, and `CountCsrDegrees` after it, since counting in place needs the hop's filter
-already inside the node. After a filter moves into the node, the columns only the filter reads are no longer
+already inside the node. After a filter moves into the node, any columns used only by that filter are no longer
 referenced above it, so `PruneCsrTargetColumns` can drop them from the output. The logical plan (before the rules) and
 the physical plan (after them) of one hop show both:
 
@@ -163,7 +163,7 @@ are subtracted.
 The rewrite applies when every `WHERE` condition reads one hop's variables, and the hops' mean fan-outs at `b` (from
 the [join statistics](#join-statistics-for-graph-workloads)) say there are at least twice as many paths as edges.
 
-A relationship variable no condition reads is left unbound, so the CSR doesn't fetch its edge rows. Each side's
+A relationship variable that no condition references is left unbound, so the CSR skips fetching its edge rows. Each side's
 grouping is a `HopDegreesNode` over the aggregate. After `PushCsrTargetFilters` has moved the side's far-end filter
 into its `CsrExpand`, the `CountCsrDegrees` rule replaces it: a CSR hop with at most that filter counts each node's
 neighbours in place ([`degrees=`](operators.md#what-one-expansion-can-do)), one row per node, and any other hop keeps
@@ -205,23 +205,23 @@ plan, including when CSR indexing is disabled. It uses the same fan-out gate and
 checks as the scalar count. Eligibility is checked before consuming relationship instances.
 An outer grouping node bound by an id equality to a literal or parameter, or by an inline id property,
 keeps its existing plan: the selective walk avoids counting the opposite hop across the graph. Other
-predicate selectivities still use the existing mean-fan-out heuristic.
+predicate selectivities still use the existing mean fan-out heuristic.
 
-For middle-node grouping, the rewrite retains `n1(b) * n2(b)` minus the existing exclusion correction as
+When grouping by the middle node, the rewrite retains `n1(b) * n2(b)` minus the existing exclusion correction as
 `__paths` per middle id. A `NodeLookup` fetches requested grouping properties, and a final aggregate sums
 the weights by those properties. Equal property values from several nodes merge, and null remains a group
-key. Same-far-end corrections retain the `(middle, far end)` aggregates used by the scalar rewrite.
+key. Exclusions for identical far ends retain the `(middle, far end)` aggregates used by the scalar rewrite.
 
-For outer-node grouping, the grouped side emits one row per first-hop edge. The other side is counted
-per middle node and joined to those rows. A different-type edge receives weight `n2(b)`. A same-type
-directed chain subtracts `s2(b)` when the retained edge is a self-loop. Shared-end and undirected cases
-subtract the opposite hop's count keyed by `(b, a)`, using a left join and zero for a missing correction.
-The final aggregate sums those weights by the retained endpoint's requested properties. Either outer
-endpoint can be retained, independent of the original expansion order.
+When grouping by an outer node, the grouped side emits one row per edge of the first hop. The other side is counted
+per middle node and joined to those rows. When the two hops have different relationship types, each edge receives
+weight `n2(b)`. A directed chain of the same type subtracts `s2(b)` when the retained edge is a self-loop. Shared
+endpoints and undirected hops subtract the opposite hop's count keyed by `(b, a)`, using a left join and zero for a
+missing correction. The final aggregate sums those weights by the retained endpoint's requested properties. Either
+outer endpoint can be retained, independent of the original expansion order.
 
 Both grouped plans remove zero weights before grouping: candidate edges whose every continuation is
 excluded must not create a zero-count group. The scalar count still returns zero over empty input.
-Grouped optional matches, distinct counts, nullable-property counts, mixed aggregates, computed grouping
+Grouped optional matches, distinct counts, counts of nullable properties, mixed aggregates, computed grouping
 expressions and grouping across nodes are not handled by this rewrite.
 
 On twelve nodes with complete directed `R` and `S` relationships (144 edges each), selected physical-plan

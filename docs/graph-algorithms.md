@@ -1,36 +1,44 @@
 # Graph algorithms
 
-Cypher queries match patterns: they start from some nodes and follow relationships to find paths. Graph
-algorithms such as PageRank, connected components or community detection work differently. They read the
-whole graph and compute one value for every node, a score or a group. Libraries such as
-[icebug](https://github.com/Ladybug-Memory/icebug), igraph and scipy implement them efficiently, and they all
-take the graph in the same form: compressed sparse rows (CSR) over dense node ids.
+Cypher excels at **pattern matching**: starting from specific nodes and following paths. Graph algorithms
+like PageRank, connected components and community detection work differently: they scan the entire graph and
+produce a score or community label for every node.
 
-[`CypherEngine.export_graph`][lance_csr.CypherEngine.export_graph] builds that form from your node and
-relationship tables. It reads only the key and endpoint columns, plus a weight column when you ask for one,
-from the same dataset versions your queries see, and returns Arrow arrays that these libraries take without
-copying. Every parameter is optional, and all but `rel_types` are keyword-only:
+Dedicated graph libraries such as [icebug](https://github.com/Ladybug-Memory/icebug), igraph and SciPy run these
+algorithms efficiently over **dense CSR arrays**. lance-csr bridges your Lance tables to those libraries and
+writes the resulting node scores straight back to Lance, without copying your data into a second database:
+
+```mermaid
+flowchart LR
+    L["Lance tables"] --> E["export_graph() or<br/>export_subgraph()"]
+    E -- "zero-copy Arrow CSR" --> A["icebug, SciPy,<br/>igraph, GPU renderers"]
+    A -- "scores per node" --> W["write_node_column()"]
+    W -- "new Lance column<br/>(CSR untouched)" --> Q["Query scores<br/>in Cypher"]
+```
+
+[`CypherEngine.export_graph`][lance_csr.CypherEngine.export_graph] reads only key, endpoint and optional weight
+columns from the engine's pinned dataset versions. Every parameter is optional, and all except `rel_types` are
+keyword-only:
 
 | Parameter | Default | What it controls |
 | --- | --- | --- |
-| `rel_types` | `None` | The relationship types to include, or every type with integer endpoints; the nodes are those of the labels at either end. See [Directed and undirected graphs](#directed-and-undirected-graphs). |
-| `directed` | `True` | `True` returns out-edge and in-edge arrays; `False` returns one set listing every edge both ways. See [Directed and undirected graphs](#directed-and-undirected-graphs). |
-| `weight` | `None` | A column name, or a dict of relationship type to column, exported as `float64` edge weights; `None` exports none. See [Edge weights](#edge-weights). |
-| `combine_edges` | `"sum"` | How an edge listed more than once combines its weights: `"sum"`, `"min"` or `"max"`. See [Edge weights](#edge-weights). |
-| `default_weight` | `None` | The weight of every edge of a type with no weight column; `None` makes such a type an error. See [Several relationship types](#several-relationship-types). |
+| `rel_types` | `None` | Relationship types to include (default: all types with integer endpoints); nodes come from their endpoint labels. |
+| `directed` | `True` | `True` returns out-edge and in-edge arrays; `False` returns one undirected array set listing each edge both ways. |
+| `weight` | `None` | A column name, or `{rel_type: column}` dict, exported as `float64` edge weights. |
+| `combine_edges` | `"sum"` | How duplicate edges combine weights: `"sum"`, `"min"` or `"max"`. |
+| `default_weight` | `None` | Fallback weight for relationship types without a weight column (`None` makes missing weight columns an error). |
 
-To export only the part of the graph a Cypher query selects, use `export_subgraph`, described in
-[Subgraphs](#subgraphs).
+To export only the subgraph selected by a Cypher query, use [`export_subgraph`](#subgraphs).
 
 ## What the export contains
 
-A CSR numbers the nodes `0` to `n - 1`, its *dense ids*, and stores the edges in two arrays:
+Graph libraries expect nodes numbered densely from `0` to `n - 1` (*dense IDs*) with edges in two arrays:
 
-- `indices` lists every node's neighbours, one node after another, each list sorted;
-- `indptr` has `n + 1` offsets: the neighbours of node `i` are `indices[indptr[i]:indptr[i + 1]]`.
+- `indices`: every node's sorted neighbour list, concatenated;
+- `indptr`: `n + 1` offsets, where node `i`'s neighbours sit at `indices[indptr[i]:indptr[i + 1]]`.
 
-Your node keys are rarely `0` to `n - 1`, so the export also returns `node_keys`, the key of each dense id. Here
-is a small graph with keys 10 to 40, where 40 has no edges:
+Because your primary keys are rarely `0..n-1`, the export also returns `node_keys` mapping each dense ID back to
+its key:
 
 ```python
 import pyarrow as pa
@@ -52,36 +60,35 @@ print(g.out_indptr.to_pylist())  # [0, 1, 3, 4, 4]
 print(g.out_indices.to_pylist())  # [1, 0, 2, 0]
 ```
 
-Dense ids follow the order of the node table, so 30 is id 0 and 10 is id 1. Node 1 (key 10) follows ids 0 and 2
-(keys 30 and 20), and node 3 (key 40) has an empty range. The arrays are `uint64`; `node_keys` is `int64`.
+Dense IDs follow the node table's order (`30 → 0`, `10 → 1`, `20 → 2`, `40 → 3`). Node `1` (key `10`) follows
+nodes `0` and `2`, and isolated node `3` (key `40`) has an empty slice. CSR arrays are `uint64`; `node_keys` is
+`int64`.
 
-The returned [`GraphExport`][lance_csr.GraphExport] also holds:
+The returned [`GraphExport`][lance_csr.GraphExport] holds:
 
 | Field | Meaning |
 | --- | --- |
-| `num_nodes`, `directed` | The number of nodes and whether the arrays are directed |
-| `in_indptr`, `in_indices` | The same arrays for incoming edges; `None` for an undirected export |
-| `label_ranges` | Each node label's dense ids, as `(start, end)` with `end` excluded |
-| `out_weights`, `in_weights` | Edge weights, when asked for (see [Edge weights](#edge-weights)); otherwise `None` |
-| `dropped_edges` | Edges whose endpoint key isn't in its node table, or whose weight is null |
+| `num_nodes`, `directed` | Total node count and whether the export is directed |
+| `in_indptr`, `in_indices` | Incoming-edge arrays (`None` when `directed=False`) |
+| `label_ranges` | Each label's half-open dense ID range `(start, end)` |
+| `out_weights`, `in_weights` | `float64` edge weights aligned with `out_indices` / `in_indices` (`None` if unweighted) |
+| `dropped_edges` | Edges skipped because an endpoint key wasn't in its node table or its weight was null |
 
-The export follows the same rules as a query's join between relationship and node tables. An edge whose
-endpoint key isn't in its node table is left out (and counted in `dropped_edges`), an edge with a null endpoint is
-skipped, and the same edge listed twice appears once. Keys must be unique within a label, and both keys and
-endpoints must be integer columns up to `int64`.
+Edges with null endpoints are skipped, dangling edges are counted in `dropped_edges`, and duplicate edges appear
+once. Keys must be unique per label, and keys/endpoints must be integer columns up to `int64`.
 
-## Directed and undirected graphs
+## Directed and undirected graphs { #directed-and-undirected-graphs }
 
-Some algorithms treat relationships as one-way and others don't. PageRank follows the direction of each edge,
-and reads the edges *into* each node, so a directed export returns the in-edges too:
+Directed algorithms such as PageRank walk incoming edges, so directed exports include `in_indptr` and
+`in_indices`:
 
 ```python
 print(g.in_indptr.to_pylist())  # [0, 2, 3, 4, 4]
 print(g.in_indices.to_pylist())  # [1, 2, 0, 1]
 ```
 
-Connected components and most community detection algorithms ignore direction. `directed=False` returns one
-set of arrays that lists every edge in both directions, and a self-loop once:
+Algorithms that ignore direction (connected components, most community detection) use `directed=False`, which
+emits each edge in both directions and lists self-loops once:
 
 ```python
 u = engine.export_graph(["FOLLOWS"], directed=False)
@@ -89,9 +96,8 @@ print(u.out_indptr.to_pylist())  # [0, 2, 4, 6, 6]
 print(u.in_indptr)  # None
 ```
 
-`rel_types` picks the relationship types to include; left out, every type whose dataset has integer endpoints
-is included. The nodes are those of the labels at either end. Each label gets its own range of dense ids, in label
-name order, so equal keys in two tables stay distinct nodes:
+When an export spans multiple node labels, each label receives its own dense ID range in alphabetical label order
+so equal keys from different tables stay distinct:
 
 ```python
 config2 = (
@@ -107,13 +113,11 @@ engine2 = CypherEngine(config2, {"Person": people, "City": cities, "LIVES_IN": l
 print(engine2.export_graph().label_ranges)  # {'City': (0, 2), 'Person': (2, 6)}
 ```
 
-## Edge weights
+## Edge weights { #edge-weights }
 
-Some algorithms read a number on each edge as well as the edge itself, called the edge's *weight*: a distance
-for shortest paths, a strength for weighted PageRank or community detection. A graph whose edges carry such
-numbers is a *weighted graph*. In a relationship table the weight is a column, such as the messages sent along
-each `FOLLOWS` edge. Name it with `weight` and the export returns it as `float64` arrays that line up with
-`out_indices` and `in_indices`:
+For weighted algorithms (weighted PageRank, Louvain/Leiden, shortest paths), name a numeric relationship column
+with `weight`. The export returns `float64` arrays aligned with `out_indices` and `in_indices` (weights cost zero
+extra memory when omitted):
 
 ```python
 messages = pa.table(
@@ -125,19 +129,34 @@ print(w.out_indices.to_pylist())  # [1, 0, 2, 0]
 print(w.out_weights.to_pylist())  # [2.0, 1.0, 7.0, 5.0]
 ```
 
-The weight of `out_indices[i]` is `out_weights[i]`, and the same holds for the in-edges. The weight column
-must be numeric. Only the endpoint and weight columns are read, so other properties of the relationship table
-play no part.
+Weights belong to edges only; keep node attributes in your node table and align them via `node_keys` if an
+algorithm needs them.
 
-Weights belong to edges only; the export has no node weights. A number that describes a node, such as a person's
-age, stays in the node table, and `node_keys` gives the order to line it up with the dense ids if an algorithm
-needs it.
+### Combining duplicate edges and missing weights
 
-### Several relationship types
+- **Duplicate edges (`combine_edges`):** because each edge appears once in the CSR, parallel edges (and opposite
+  directions under `directed=False`) combine via `"sum"` (the default, ideal for counts or interaction strength:
+  `10 → 20` above sums `3 + 4 = 7.0`), `"min"` (cheapest cost or distance), or `"max"` (strongest link).
+  Self-loops count once.
 
-When the export includes several relationship types, each needs a weight. They may store it under different
-names, or one of them may have none. A `weight` dict names the column of each type, and `default_weight` gives
-the weight of every edge of a type without a column:
+```python
+cheapest = weighted_engine.export_graph(weight="messages", combine_edges="min")
+print(cheapest.out_weights.to_pylist())  # [2.0, 1.0, 3.0, 5.0]
+```
+
+- **Null weights:** an edge with a null weight is dropped and counted in `dropped_edges` rather than silently
+  assigned a placeholder value:
+
+```python
+gaps = pa.table({"src": [10, 20], "dst": [20, 30], "messages": [3, None]})
+partial = CypherEngine(config, {"Person": people, "FOLLOWS": gaps}).export_graph(weight="messages")
+print(partial.out_weights.to_pylist(), partial.dropped_edges)  # [3.0] 1
+```
+
+### Several relationship types { #several-relationship-types }
+
+When exporting multiple relationship types, pass a dict mapping each type to its weight column, and optionally
+`default_weight` for types without a weight column:
 
 ```python
 config3 = (
@@ -156,47 +175,18 @@ some = mixed.export_graph(weight={"FOLLOWS": "messages"}, default_weight=1.0)
 print(some.out_weights.to_pylist())  # [2.0, 1.0, 7.0, 5.0, 1.0]
 ```
 
-A string `weight` with `default_weight` works the same way: types that have the column use it, and the others
-get the default. Without `default_weight`, a type with no weight column is an error, since a guessed weight
-can change an algorithm's answer without warning. A few mistakes are errors even with a default: a column the
-dict names that doesn't exist, a dict entry for a type that isn't exported, and a string column that no type
-has. To leave a type out of the export instead, list the others in `rel_types`.
+A string `weight` paired with `default_weight` uses that column on types that have it and falls back to the
+default elsewhere. Without `default_weight`, a type missing a weight column raises an error. Some mistakes still
+raise an error even when `default_weight` is set: naming a column in the dict that doesn't exist, including a
+relationship type in the dict that isn't being exported, or passing a string column name that none of the exported
+types have. Make sure combining weights across different relationship types is meaningful for your algorithm.
 
-When the types' weights mean different things, such as messages and mentions, make sure adding them up, or
-comparing them, makes sense for the algorithm.
+## Subgraphs { #subgraphs }
 
-A null weight means the weight is unknown, and no number stands in for it safely: 1.0 would make a costly
-edge look cheap to a shortest-path search. So the export leaves the edge out and counts it in `dropped_edges`,
-as it does an edge whose endpoint is missing:
-
-```python
-gaps = pa.table({"src": [10, 20], "dst": [20, 30], "messages": [3, None]})
-partial = CypherEngine(config, {"Person": people, "FOLLOWS": gaps}).export_graph(weight="messages")
-print(partial.out_weights.to_pylist(), partial.dropped_edges)  # [3.0] 1
-```
-
-The export lists each edge once, so an edge that appears in several rows needs one weight, and
-`combine_edges` says how to get it. The default, `"sum"`, adds the weights, which suits counts and amounts:
-10 → 20 appears twice, with 3 and 4 messages, and gets 7. When the weight is a distance or a cost, the
-cheapest edge is usually the one that matters, and `"min"` keeps it; `"max"` keeps the largest:
-
-```python
-cheapest = weighted_engine.export_graph(weight="messages", combine_edges="min")
-print(cheapest.out_weights.to_pylist())  # [2.0, 1.0, 3.0, 5.0]
-```
-
-An undirected export applies the same rule to an edge stored in both directions, so `a → b` and `b → a`
-become one edge with one combined weight. A self-loop's weight counts once.
-
-Weights cost memory only when you ask for them. Without `weight`, the export reads no extra column and
-`out_weights` and `in_weights` are `None`.
-
-## Subgraphs
-
-An analysis often needs only part of the graph: the busiest accounts and their contacts, or one region's roads.
-Ranking the whole graph and filtering the scores afterwards gives a different answer, since PageRank on a
-subgraph only counts the edges inside it. [`export_subgraph`][lance_csr.CypherEngine.export_subgraph] runs a
-Cypher query that selects the edges, and builds the same arrays as `export_graph` from its result:
+Running an algorithm on a filtered slice of the graph (such as active users or one region's roads) gives different
+results than ranking the whole graph and filtering afterwards. [`export_subgraph`][lance_csr.CypherEngine.export_subgraph]
+runs a Cypher query whose first two returned columns are `(src_key, dst_key)` and builds a `GraphExport` directly
+from its matching edges:
 
 ```python
 sub = engine.export_subgraph(
@@ -208,30 +198,20 @@ print(sub.out_indptr.to_pylist(), sub.out_indices.to_pylist())  # [0, 2, 2, 2] [
 print(sub.label_ranges)  # {'Person': (0, 3)}
 ```
 
-The query returns one row per edge, with the source and target node keys as its first two columns. The nodes are
-the keys present in the result, sorted, so Dan (40) and anyone else outside the selected edges aren't in the
-export. The edges follow the same rules as `export_graph`: an edge listed twice appears once, `directed=False`
-lists each edge both ways, and a self-loop counts once.
-
-When both key columns are a labeled node's key, as `a.id` here with `a` a `Person` and `id` its key, the export
-groups the ids per label as `export_graph` does. `label_ranges` is filled, and
-[`write_node_column`](#writing-results-back-to-lance) can write an algorithm's results back to the node table, with
-nulls for the nodes outside the subgraph. When a column is computed, or its node has no single label, all keys
-share one id space and `label_ranges` is empty; join `node_keys` to your own table instead.
-
-The options are those of `export_graph`, except that the query does the selecting, so there is no `rel_types`,
-and `weight` names a column of the query result:
+Only nodes present in the result are included (Dan, key `40`, is excluded), sorted by key. When both columns come
+directly from labeled node keys (`a.id`, `b.id`), `label_ranges` is populated so
+[`write_node_column`](#writing-results-back-to-lance) can write scores back to the node tables (nodes outside the
+subgraph receive `null`). Computed or mixed-label key columns leave `label_ranges` empty.
 
 | Parameter | Default | What it controls |
 | --- | --- | --- |
-| `query`, `params` | | The Cypher query and its parameters, as for [`execute`][lance_csr.CypherEngine.execute]. |
-| `directed` | `True` | `True` returns out-edge and in-edge arrays; `False` returns one set listing every edge both ways. |
-| `weight` | `None` | A numeric column of the result, such as `r.cost AS cost`, exported as `float64` edge weights. |
-| `combine_edges` | `"sum"` | How an edge listed more than once combines its weights: `"sum"`, `"min"` or `"max"`. |
-| `default_weight` | `None` | Without `weight`, the weight of every row. |
+| `query`, `params` | | Cypher query returning `(src, dst [, weight])` rows and optional parameters. |
+| `directed` | `True` | Directed (`True`) or undirected (`False`) arrays. |
+| `weight` | `None` | Numeric output column of the query (for example `r.cost AS cost`) to export as `float64` weights. |
+| `combine_edges` | `"sum"` | How repeated edges combine weights: `"sum"`, `"min"` or `"max"`. |
+| `default_weight` | `None` | Without `weight`, assigns this weight to every row (letting repeated rows accumulate counts). |
 
-`default_weight=1.0` without `weight` gives each edge the number of rows that list it. That turns a result with
-repeated rows into a graph where repeated edges count more, as PageRank on a multigraph does:
+Passing `default_weight=1.0` without `weight` turns repeated edge rows into multiplicity weights:
 
 ```python
 counted = weighted_engine.export_subgraph(
@@ -240,26 +220,25 @@ counted = weighted_engine.export_subgraph(
 print(counted.out_weights.to_pylist())  # [2.0, 1.0, 1.0, 1.0]
 ```
 
-The query's result is held in memory while the arrays are built, as with
-[`execute`][lance_csr.CypherEngine.execute].
+As with [`execute`](running-queries.md#executequery-paramsnone), the query result is held in memory while the CSR
+arrays are built.
 
-## Running an algorithm with icebug
+## Running algorithms with icebug
 
-[icebug](https://github.com/Ladybug-Memory/icebug) is a fork of [NetworKit](https://networkit.github.io/) whose
-graphs are built directly on Arrow CSR arrays. `Graph.fromCSR` takes the export's arrays without copying them, so
-the only work left is the algorithm itself. Passing the arrays by name, as here, saves remembering the order
-`fromCSR` expects them in:
+[icebug](https://github.com/Ladybug-Memory/icebug) is a fork of [NetworKit](https://github.com/networkit/networkit)
+that constructs graphs directly on Arrow CSR arrays with zero copying. Passing the arrays as keyword arguments
+avoids having to remember `fromCSR`'s positional argument order:
 
 <!-- skip-check -->
 ```python
 import icebug as ib
 
 graph = ib.Graph.fromCSR(  # (1)!
-    n=g.num_nodes,  # number of nodes
-    directed=g.directed,  # whether edges have a direction
-    out_indices=g.out_indices,  # each node's out-neighbours, in node order
-    out_indptr=g.out_indptr,  # where each node's list starts in out_indices
-    in_indices=g.in_indices,  # the same for in-edges; None if undirected
+    n=g.num_nodes,
+    directed=g.directed,
+    out_indices=g.out_indices,
+    out_indptr=g.out_indptr,
+    in_indices=g.in_indices,
     in_indptr=g.in_indptr,
 )
 pagerank = ib.centrality.PageRank(
@@ -268,26 +247,22 @@ pagerank = ib.centrality.PageRank(
 scores = pa.table({"id": g.node_keys, "pagerank": pagerank.run().scores()})
 ```
 
-1. Keep `graph` in a variable for as long as an algorithm uses it. The algorithm objects don't keep the graph
-   alive, and a graph freed early gives wrong results without an error.
-2. Spreads the score of nodes without out-edges over all nodes, as networkx and most definitions of PageRank do.
-   icebug's default leaves it out.
+1. Keep `graph` referenced for as long as any algorithm object uses it. Algorithms don't retain `graph`, and a
+   freed graph silently produces wrong results.
+2. Redistributes the rank of sink nodes across all nodes, matching NetworkX and standard PageRank definitions.
 
 !!! note "Installing icebug"
 
-    `icebug` is a separate package (`uv add icebug`); lance-csr doesn't depend on it. Version 13.6 requires
-    exactly `pyarrow==26.0.1`, imports only when `networkx` is installed, and on macOS needs OpenMP from
-    Homebrew (`brew install libomp`).
+    `icebug` is an optional third-party package (`uv add icebug`). Version 13.6 requires `pyarrow==26.0.1`, needs
+    `networkx` installed to import, and on macOS requires Homebrew OpenMP (`brew install libomp`).
 
-### Edge weights in icebug
+### Weighted algorithms in icebug
 
-The PageRank above counts every follow the same. With [edge weights](#edge-weights), a follow can count for
-more when more messages travel along it. The `messages` export from that section gives icebug a weighted graph
-when you also pass its weight arrays to `fromCSR`, and the same PageRank call then uses them:
+Pass `out_weights` and `in_weights` to `fromCSR` to run weighted PageRank, community detection or shortest paths:
 
 <!-- skip-check -->
 ```python
-w = weighted_engine.export_graph(weight="messages")  # (1)!
+w = weighted_engine.export_graph(weight="messages")
 graph = ib.Graph.fromCSR(
     n=w.num_nodes,
     directed=w.directed,
@@ -295,8 +270,8 @@ graph = ib.Graph.fromCSR(
     out_indptr=w.out_indptr,
     in_indices=w.in_indices,
     in_indptr=w.in_indptr,
-    out_weights=w.out_weights,  # the weight of each entry in out_indices
-    in_weights=w.in_weights,  # the weight of each entry in in_indices
+    out_weights=w.out_weights,
+    in_weights=w.in_weights,
 )
 pagerank = ib.centrality.PageRank(
     graph, distributeSinks=ib.centrality.SinkHandling.DistributeSinks
@@ -305,76 +280,54 @@ scores = pagerank.run().scores()
 print([round(s, 3) for s in scores])  # [0.331, 0.329, 0.292, 0.048]
 ```
 
-1. `weighted_engine` is the engine from [Edge weights](#edge-weights), whose `FOLLOWS` table has a `messages`
-   column.
+With message counts as weights, Bob (key `20`, dense ID `2`) rises from `0.205` to `0.292` because Alice sends him
+7 messages versus 1 to Carol.
 
-Bob (key 20, dense id 2) rises from 0.205 without weights to 0.292. Alice sends him 7 messages and Carol only 1,
-so most of the score Alice passes on now goes to Bob.
+Keep two `icebug` caveats in mind: **distance and centrality algorithms treat weights as lengths** (smaller means
+closer, and weights must be non-negative), whereas **PageRank and community algorithms treat weights as strengths**
+(larger means stronger). Invert strength weights with `pyarrow.compute.divide(1.0, w.out_weights)` before passing
+them to Dijkstra. In addition, several `icebug` algorithms silently ignore weights.
 
-PageRank reads the weights, but not every icebug algorithm does. Some give the same answer on a weighted graph
-as on an unweighted one, without a warning, so check an algorithm here before you rely on its weights. The
-table lists what each one does in icebug 13.6. We found it by running each algorithm on the same graph with and
-without weights:
+??? note "Which `icebug 13.6` algorithms use edge weights (and editable copy workarounds)"
 
-| Module | Uses the weights | Ignores the weights, without a warning |
-| --- | --- | --- |
-| `distance` | `Dijkstra`, `BidirectionalDijkstra`, `AStar`, `APSP`, `Diameter` | `BFS`, `Eccentricity` |
-| `centrality` | `PageRank`, `Betweenness`, `ApproxBetweenness`, `EstimateBetweenness`, `Closeness`, `ApproxCloseness`, `HarmonicCloseness`, `TopHarmonicCloseness`, `EigenvectorCentrality`, `KatzCentrality`, `ForestCentrality`, `SpanningEdgeCentrality` (on a copy) | `KadabraBetweenness`, `TopCloseness`, `DegreeCentrality`, `CoreDecomposition`, `LocalClusteringCoefficient` |
-| `community` | `PLM` (Louvain), `ParallelLeiden`, `PLP` | `LPDegreeOrdered` |
-| `graph` | `RandomMaximumSpanningForest` | `SpanningForest` |
-| `matching` | `PathGrowingMatcher`, `SuitorMatcher` | |
-| `flow` | `EdmondsKarp` (on a copy) | |
+    Verified by running each algorithm in `icebug 13.6` on the same graph with and without weights:
 
-`KadabraBetweenness` is the one most likely to catch you out: it looks like a faster `Betweenness`, but it
-computes unweighted betweenness. `centrality.ApproxElectricalCloseness`, not in the table, is the one algorithm
-that refuses a weighted graph and raises an error.
+    | Module | Uses edge weights | Silently ignores edge weights |
+    | --- | --- | --- |
+    | `distance` | `Dijkstra`, `BidirectionalDijkstra`, `AStar`, `APSP`, `Diameter` | `BFS`, `Eccentricity` |
+    | `centrality` | `PageRank`, `Betweenness`, `ApproxBetweenness`, `EstimateBetweenness`, `Closeness`, `ApproxCloseness`, `HarmonicCloseness`, `TopHarmonicCloseness`, `EigenvectorCentrality`, `KatzCentrality`, `ForestCentrality`, `SpanningEdgeCentrality` *(copy)* | `KadabraBetweenness`, `TopCloseness`, `DegreeCentrality`, `CoreDecomposition`, `LocalClusteringCoefficient` |
+    | `community` | `PLM` (Louvain), `ParallelLeiden`, `PLP` | `LPDegreeOrdered` |
+    | `graph` | `RandomMaximumSpanningForest` | `SpanningForest` |
+    | `matching` | `PathGrowingMatcher`, `SuitorMatcher` | |
+    | `flow` | `EdmondsKarp` *(copy)* | |
 
-Two of the algorithms that use the weights, `SpanningEdgeCentrality` and `EdmondsKarp`, also need an id on every
-edge, which `indexEdges()` adds. A graph built by `fromCSR` can't be changed, so `indexEdges()` raises an error on
-it, and these two run on an editable copy instead. Make the copy with `weighted=True`, because without it the
-copy leaves the weights out. Here the messages act as capacities for a maximum flow. Alice sends Carol 1 message
-directly and Bob 7, but Bob sends Carol only 5, so at most 6 can flow from Alice to Carol:
+    - Watch out for `KadabraBetweenness` (computes unweighted betweenness without warning) and
+      `centrality.ApproxElectricalCloseness` (raises an error on weighted graphs).
+    - `SpanningEdgeCentrality` and `EdmondsKarp` require `indexEdges()`, which isn't supported on immutable
+      `fromCSR` graphs in `icebug 13.6`. Make a weighted editable copy (doubles graph memory):
 
-<!-- skip-check -->
-```python
-editable = ib.Graph(graph, weighted=True, directed=graph.isDirected())
-editable.indexEdges()
-alice, carol = 1, 0  # dense ids of keys 10 and 30
-print(ib.flow.EdmondsKarp(editable, alice, carol).run().getMaxFlow())  # 6.0
-```
+        <!-- skip-check -->
+        ```python
+        editable = ib.Graph(graph, weighted=True, directed=graph.isDirected())
+        editable.indexEdges()
+        alice, carol = 1, 0  # dense IDs of keys 10 and 30
+        print(ib.flow.EdmondsKarp(editable, alice, carol).run().getMaxFlow())  # 6.0
+        ```
 
-The copy holds the whole graph a second time in memory.
+### Other libraries and visualization
 
-!!! note "Limits that come from icebug"
+Any library that accepts CSR arrays works zero-copy via `to_numpy()`:
 
-    These limits are in icebug rather than in the export, so lance-csr can't work around them. icebug 13.6
-    doesn't support edge ids on a graph built by `fromCSR`, which is why `SpanningEdgeCentrality` and
-    `EdmondsKarp` need the copy. The algorithms in the right-hand column, and `ApproxElectricalCloseness`, don't
-    support edge weights.
+- **SciPy:** `scipy.sparse.csr_array((data, g.out_indices.to_numpy(), g.out_indptr.to_numpy()))`
+- **GPU graph renderers (cosmos.gl, WebGL):** see [Drawing the whole graph](typescript.md#drawing-the-whole-graph)
+  for exporting dense CSR links from Node.js to a browser canvas.
 
-The algorithms that use the weights don't all read them the same way. Shortest paths, betweenness and closeness
-treat a weight as a length, so a lower weight brings two nodes closer. PageRank, eigenvector and Katz
-centrality, community detection, maximum spanning forests and matchings treat it as a strength, so a higher
-weight ties two nodes more closely. One column rarely suits both: `messages` is a strength, so a shortest path
-over it would prefer the follows with the fewest messages. For shortest paths, compute the inverse of each
-weight array, such as `inverse_out = pyarrow.compute.divide(1.0, w.out_weights)`, and pass the inverses to
-`fromCSR` in place of the weights. Dijkstra and the algorithms built on it also assume that no weight is
-negative, and the export doesn't check this.
+## Writing results back to Lance { #writing-results-back-to-lance }
 
-### Other libraries
-
-Other libraries take the same arrays. For example, `scipy.sparse.csr_array((data, g.out_indices, g.out_indptr))`
-builds an adjacency matrix, after converting the arrays with `to_numpy()`, which doesn't copy them either.
-
-## Writing results back to Lance
-
-An algorithm's results are a value per dense id. To query them alongside the rest of a node's properties, they
-have to become a column of the node table, matched to each node by its key.
-[`write_node_column`][lance_csr.CypherEngine.write_node_column] does this in one call. The export already says
-which dense ids belong to which label (`label_ranges`) and what each node's key is (`node_keys`), and the config
-says which dataset and key column each label has, so the engine can route every value to its row.
-
-Here the out-degree of each node, computed from `out_indptr`, stands in for an algorithm's result:
+[`write_node_column`][lance_csr.CypherEngine.write_node_column] joins a dense score array back onto your Lance
+node tables in one call, using `label_ranges` and `node_keys` from the export, and immediately advances the
+engine's node table snapshots so Cypher queries can filter and sort on the new column right away. Because
+relationship tables don't change, **the CSR index is not rebuilt**:
 
 ```python
 import lance
@@ -395,37 +348,23 @@ print(top.to_pylist())
 # [{'p.name': 'Alice', 'p.out_degree': 2}, {'p.name': 'Bob', 'p.out_degree': 1}]
 ```
 
-1. `values` can be a pyarrow array, a NumPy array or a list, such as the scores icebug returns. With the icebug
-   example above, this is `engine.write_node_column(g, "pagerank", pagerank.run().scores())`.
+1. `values` accepts a PyArrow array, NumPy array or Python list (such as `pagerank.run().scores()`).
 
-For each label in the export, the engine pairs that label's values with its keys and uses Lance's `merge` to
-join them to the node table on the key column. Lance writes only the new column's data files, as a new version
-of the dataset. A node row that the export left out because its key is null gets a null.
+Under the hood, Lance's `merge` writes only the new column's data files as a new dataset version (nodes with null
+keys or outside a subgraph get `null`). Keep these practical points in mind:
 
-The engine then moves to the new versions of those node tables, so the next query sees the column without a
-[`checkout_latest`](lance.md#checkout-latest). Other datasets stay at the versions the engine was pinned to.
-Relationship tables don't change, so the CSR index isn't rebuilt.
-
-Some cases need care:
-
-- **Running an algorithm again.** Writing to a column that already exists raises `ValueError`, so a result isn't
-  replaced by accident. Pass `overwrite=True` to drop the old column and write the new one.
-- **Versions build up.** Each write adds a version to every node table it touches, two with `overwrite=True`,
-  and a replaced column's files stay on disk until old versions are cleaned up.
-  [`optimize_datasets`](lance.md#compaction-and-old-versions) cleans them up and keeps the engine in step.
-- **Several labels.** Each label is a separate Lance write. A failure partway through leaves the labels before
-  it written.
-- **Arrow inputs.** Only Lance datasets can be written to. For a node table passed as a PyArrow table, pair the
-  values with the keys yourself: `pa.table({"id": g.node_keys, "out_degree": degree})`.
-- **Keeping the node table unchanged.** To keep results apart from the node table, for example to compare
-  several runs, write that same table to a separate dataset with `lance.write_dataset`.
+- **Running an algorithm again:** writing to an existing column raises `ValueError` unless you pass `overwrite=True`.
+- **Version buildup:** each write adds a dataset version (two with `overwrite=True`); run
+  [`optimize_datasets`](lance.md#compaction-and-old-versions) periodically to compact and clean up old versions.
+- **Multi-label writes:** each label commits separately, so a failure partway through leaves earlier labels written.
+- **In-memory or separate results:** `write_node_column` requires Lance datasets. For PyArrow inputs, or to keep
+  experimental runs separate from your node table, pair `g.node_keys` with your scores directly in a `pa.table`
+  and write it to a separate dataset with `lance.write_dataset`.
 
 ## Limits
 
-- The export holds the whole graph in memory: eight bytes per edge in each direction for `indices`, plus the
-  offsets and keys. A directed export of 10 million edges takes about 160 MB, and building it briefly needs
-  about as much again. Weights add eight bytes per edge in each direction, and building a weighted export
-  briefly needs up to three times the memory of an unweighted one, because each edge is sorted together with its
-  weight. An unweighted export needs no memory for weights.
-- Keys and endpoints must be integers up to `int64`; string and `uint64` keys aren't supported.
-- Only one edge property is exported, as a weight; other edge properties aren't.
+- **Memory:** an export holds the whole graph in memory (8 bytes per edge in each direction for `indices`, plus
+  offsets and keys, or ~160 MB for 10M directed edges plus ~160 MB temporary build overhead). Weights add 8 bytes
+  per edge per direction and briefly need up to 3× unweighted build memory while sorting edges with their weights.
+- **Key types:** keys and endpoints must be integer columns up to `int64` (`string` and `uint64` aren't supported).
+- **Single edge property:** only one numeric edge property can be exported as a weight.

@@ -1,6 +1,6 @@
 # Running queries
 
-This page covers how to run, stream, time-bound, inspect and tune Cypher queries in Python. For the Cypher
+This page covers how to run, stream, set deadlines on, inspect and tune Cypher queries in Python. For the Cypher
 clauses, patterns and functions the engine supports, see the [Cypher reference](cypher.md).
 
 There are two entry points, and most code wants the first:
@@ -146,10 +146,10 @@ print(rows)  # 4
 ```
 
 - **Bounded streaming:** scans, filters, projections and CSR expansions yield a batch at a time, even when one
-  node has many neighbours. Joins, sorts and aggregations may still buffer their inputs; large named-relationship
-  hops over Lance may read fixed-width edge columns whole (see
+  node has many neighbours. Joins, sorts and aggregations may still buffer their inputs; large hops with a named
+  relationship over Lance may read fixed-width edge columns whole (see
   [Relationship variables](csr.md#relationship-variables)).
-- **Fail-fast planning:** syntax and planning errors raise when `execute_batches()` is called; execution errors
+- **Early planning errors:** syntax and planning errors raise when `execute_batches()` is called; execution errors
   raise while iterating.
 - **Snapshot isolation:** the reader holds onto the snapshot it started with, so a concurrent
   [`checkout_latest()`](lance.md#checkout-latest) doesn't affect it.
@@ -158,7 +158,7 @@ print(rows)  # 4
 ### Query deadlines { #query-deadlines }
 
 Pass `timeout=5.0` (seconds) to `execute`, `execute_batches`, `CypherQuery.execute` or `SqlEngine.execute` to set
-one deadline for planning, execution and—for streams—pauses between reads. The default is `None` (no deadline).
+one deadline for planning, execution and, for streams, pauses between reads. The default is `None` (no deadline).
 
 ```python
 try:
@@ -167,9 +167,9 @@ except TimeoutError:
     print("Query timeout exceeded")  # Query timeout exceeded
 ```
 
-Expiring before a reader is returned raises `TimeoutError`. Reading from an expired Arrow reader raises
-`pyarrow.ArrowInvalid` containing `Query timeout exceeded`; batches already read stay valid. Close readers when
-you stop consuming them.
+If the deadline expires before a reader is returned, the call raises `TimeoutError`. If it expires while iterating
+a reader, the next read raises `pyarrow.ArrowInvalid` containing `Query timeout exceeded`; any batches you have
+already read remain valid. Close readers when you stop consuming them.
 
 Cancellation is cooperative: traversal loops, cross joins and nested-loop joins check the deadline regularly
 (even when no rows match). See [Timeouts](api-reference.md#timeouts) in the API reference for validation rules
@@ -311,7 +311,7 @@ strategy; `ExecutionStrategy.LanceNative` is reserved and raises an error.
 | `TimeoutError` | A query passes its `timeout`. See [Query deadlines](#query-deadlines). |
 | `TypeError` | Wrong argument type (for example, a non-`GraphConfig`, an unsupported dataset type, or a non-integer `target_partitions`). |
 
-??? note "Pre-planning type checks"
+??? note "Type checks before planning"
 
     Known comparison and arithmetic operand types are validated against the current dataset schemas before
     planning (for example, adding a number to a string property raises `ValueError` naming both types). Mixed

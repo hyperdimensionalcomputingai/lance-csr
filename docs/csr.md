@@ -1,19 +1,19 @@
 # The CSR index
 
-The CSR is what makes lance-csr different from the project it was forked from. This page explains what it
-is, how to turn it on, which queries it speeds up, and how it keeps up with changing data.
+The compressed sparse row (CSR) index is lance-csr's core acceleration layer. This page explains what it is, when
+to turn it on, which query patterns use it, and how it stays current or persists across restarts.
 
 !!! abstract "In one sentence"
 
     `CypherEngine(config, datasets, use_csr=True)` builds a compact in-memory neighbour list for every
-    relationship type, so each hop of a traversal becomes an array lookup instead of a hash join, with
-    exactly the same results.
+    relationship type, turning each traversal hop from two hash joins into an array lookup, with identical query
+    results.
 
 ## Why joins are slow for traversal
 
-Without a CSR, a hop such as `(a:Person)-[:KNOWS]->(b:Person)` is two hash joins: the `a` rows against the
-whole `KNOWS` table, then the result against the whole `Person` table to fetch `b`. A three-hop query
-repeats that three times, building a hash table and materializing every intermediate path at each step.
+Without a CSR, a single hop like `(a:Person)-[:KNOWS]->(b:Person)` runs as two hash joins: `a` against the whole
+`KNOWS` table, then the result against the whole `Person` table to fetch `b`. A three-hop query repeats that
+pattern three times, hashing edge tables and materializing intermediate rows at every step.
 
 ```mermaid
 flowchart TB
@@ -31,12 +31,12 @@ flowchart TB
 ## What a CSR is
 
 [Compressed sparse row](https://en.wikipedia.org/wiki/Sparse_matrix#Compressed_sparse_row_(CSR,_CRS_or_Yale_format))
-is the standard compact layout for a sparse matrix, and so for a graph's adjacency. It is two arrays:
+is the standard compact layout for sparse adjacency lists. It stores a graph's edges in two flat arrays:
 
 - **neighbours**: every edge's target, grouped by source;
-- **offsets**: one entry per source node, pointing at where its neighbours start.
+- **offsets**: one entry per source node, pointing to where its neighbours start.
 
-For the graph `1→2, 1→3, 2→4, 3→4`:
+For the edges `1→2, 1→3, 2→4, 3→4`:
 
 | Source position | 0 (node 1) | 1 (node 2) | 2 (node 3) | end |
 | --- | --- | --- | --- | --- |
@@ -46,14 +46,14 @@ For the graph `1→2, 1→3, 2→4, 3→4`:
 | --- | --- | --- | --- | --- |
 | `neighbours` | 2 | 3 | 4 | 4 |
 
-The neighbours of the node at position `v` are `neighbours[offsets[v] .. offsets[v + 1]]`, so node 1's
-are `neighbours[0..2] = [2, 3]`. One lookup, no hashing of the edge table, and each node's neighbours sit next
-to each other in memory.
+The neighbours of position `v` are `neighbours[offsets[v] .. offsets[v + 1]]`, so node 1's neighbours are
+`neighbours[0..2] = [2, 3]`. Lookup takes one index probe with no hashing of the edge table, and each node's
+neighbours sit contiguously in memory.
 
-lance-csr builds **two** of these per relationship type, one outgoing and one incoming, so it can walk
-edges in either direction.
+lance-csr builds **two** CSRs per relationship type, one outgoing and one incoming, so queries can traverse in
+either direction.
 
-## Turning it on
+## Turning it on { #turning-it-on }
 
 ```python
 import pyarrow as pa
@@ -73,170 +73,150 @@ datasets = {
 engine = CypherEngine(config, datasets, use_csr=True)  # (1)!
 ```
 
-1. The CSR is built here, in the constructor, from the relationship tables alone. Nothing changes in how you
-   write queries.
+1. The CSR is built here in the constructor from the relationship tables alone. Queries stay unchanged.
 
-`use_csr` is `False` by default. With it on, the engine builds two indexes at construction:
+`use_csr` defaults to `False`. Turning it on builds two in-memory indexes at startup:
 
 CSR adjacency
-:   Per relationship type with integer endpoints: outgoing and incoming neighbour lists. Built from the
-    relationship table only. Each neighbour also records the row its edge came from (its Lance row address,
-    or its row number in an in-memory table), so a hop can fetch the relationship's own columns by position.
+:   Per relationship type with integer endpoints: outgoing and incoming neighbour lists, built from the
+    relationship table alone. Each entry also records its edge row (Lance row address or Arrow row index) so a
+    hop can fetch relationship properties by position.
 
 Node index
-:   Per node label with unique integer keys: a map from key to row position. It lets the CSR fetch target
-    rows by position (Lance `take_rows`, or Arrow `take` for in-memory tables) instead of joining.
+:   Per node label with unique integer keys: a map from key to row position. It lets a CSR hop fetch target node
+    properties directly by position (Lance `take_rows` or Arrow `take`) instead of joining.
 
 !!! info "Memory cost"
 
-    The CSR costs memory in proportion to the number of edges, and building it needs several times more,
-    briefly, than it keeps afterwards. The exact figures change as the layout improves, so measure your own
-    data: `python/benchmarks/csr_expand.py` reports build time and peak memory per edge count. Once built,
-    each direction keeps every edge's neighbour key and its row, which is stored
-    [packed](internals/indexes.md#packed-edge-rows), plus an index from each source node's key to its
-    neighbours. That index is normally a hash-map entry per source node. A direction where every source
-    node has exactly one edge, with a million or more source nodes whose keys sit close together (as
-    sequentially assigned ids do), keeps one entry for every 64 consecutive key values instead, which is
-    several times smaller.
-    [Source layouts](internals/indexes.md#source-layouts) gives the rule. The index lives in memory even when
-    the tables are read lazily from Lance.
+    The CSR stays in memory even when tables are read lazily from Lance. Resident memory scales with the number
+    of edges plus an index entry per source node (clustered tables with at least 1M sources where each source has
+    one edge use a compact bitmap layout; see [Source layouts](internals/indexes.md#source-layouts) and
+    [Packed edge rows](internals/indexes.md#packed-edge-rows)). Peak memory during the initial build is briefly
+    several times the resident size. Run `python/benchmarks/csr_expand.py` on representative data to measure both
+    build time and peak RSS.
 
-    During query execution, each CSR expansion partition keeps one input batch and collects at most one
-    output chunk of neighbour positions before fetching properties. It yields that chunk before visiting
-    the remaining neighbours, even for a single high-degree node. Deleted edge positions are read from the
-    shared snapshot rather than copied for each query; `checkout_latest()` resolves those positions by scanning the
-    affected sources' neighbour lists.
-    
-    Cancellation checkpoints count source rows and frontiers with no surviving edges,
-    deleted edges and suppressed reverse self-loops as work, using borrowed adjacency slices while a chunk is being collected.
-    The chunk row limit comes from DataFusion's batch
-    size; wide properties and multiple active partitions still increase working memory. This does not bound
-    the resident graph, the input data, or buffering in joins, sorts and aggregations elsewhere in the plan.
+    During execution, each expansion partition yields one output batch of neighbours at a time rather than
+    materializing an entire high-degree node at once, though downstream joins, sorts and aggregations can still
+    buffer their inputs.
 
 !!! note "Same results either way"
 
-    Results are identical with the CSR on or off: the test suite runs each supported shape both ways and
-    compares.
+    Query answers are identical with `use_csr=True` or `use_csr=False`: the test suite runs each supported shape
+    both ways and compares results.
 
-## Which hops use it
+## When it helps { #when-it-helps }
 
-The CSR answers a hop when **all** of these hold:
+A CSR hop's cost depends only on the edges reachable from its starting rows, whereas a hash join scans and hashes
+the entire relationship table regardless of how few starting rows you have. The CSR therefore gives its biggest
+speedups on selective starts, multi-hop traversals and variable-length paths.
 
-- [x] the relationship has **integer** endpoint columns (`int8`, `int16`, `int32`, `int64`, `uint8`,
-      `uint16` or `uint32`);
-- [x] the hop has exactly **one relationship type** (alternation still qualifies, because each alternative is
-      planned as its own branch);
-- [x] the relationship has **no inline property map**: `-[:KNOWS]->` and `-[k:KNOWS]->` qualify,
-      `-[:KNOWS {since: 2020}]->` does not (write `WHERE k.since = 2020` instead).
+| Workload | Recommendation |
+| --- | --- |
+| Multi-hop (2+) or variable-length traversals with integer keys | **Turn it on.** Biggest win: each hop touches only reachable neighbours and fetches target properties directly. |
+| Whole-relationship scans that only count (`count(*)`, `count(x)`) | **Turn it on.** The planner counts neighbours per node in place without emitting one row per edge. |
+| Whole-relationship scans returning edge or target properties | Roughly even with joins; measure both modes on your data. |
+| String or UUID keys | Little benefit: the CSR cannot index non-integer keys, so hops fall back to joins. Add an integer key column if traversal speed matters. |
+| Pure node lookups and aggregations (no hops) | Leave it off to avoid index build time and memory. |
+| Very large edge tables under tight memory | Measure build peak memory first (`python/benchmarks/csr_expand.py`). |
 
-When those hold, it covers:
+All [benchmark results](benchmarks.md) run with `use_csr=True` on GDC SNB graphs with integer keys.
+
+### Counting without expanding
+
+When a hop starts from every node in a label, emitting one row per edge does as much work as a hash join. Where
+the CSR still helps is counting: it can read each node's degree directly without materializing a row per edge:
+
+- **Two-hop counts:** `RETURN count(*)` over `(a)-->(b)-->(c)` (including `OPTIONAL MATCH` on the second hop, or
+  grouped by one node's ID/properties) multiplies or sums per-node degrees instead of expanding every two-hop
+  path.
+- **First-hop degree counts:** `RETURN m.name, count(x)` over `(x)-[:R]->(m)...`, when nothing else reads `x` or
+  the edge, counts `x` per `m` once and plans the rest of the pattern from `m`.
+
+In `explain()` output, an in-place count shows `degrees=[...]` on its `CsrExpandExec` line. Filters on the counted
+neighbour alone still push in (`filter=`); filters referencing other variables or edge properties keep the plain
+hop. See [Two-hop counts from degrees](internals/optimizer.md#two-hop-counts-from-degrees) for full planner rules.
+
+### Spotting a hop over the whole relationship
+
+`edges=` on a `CsrExpandExec` line reports the relationship's total edge count, not how many edges the hop read.
+A hop reads the whole relationship when its child is an unfiltered table scan. For example, on a 100,000-person
+graph with 2.4M `FOLLOWS` edges, `MATCH (follower:Person)-[:FOLLOWS]->(person:Person) RETURN person.name, max(follower.age)`
+plans:
+
+```text
+CsrExpandExec: key=follower__id, edges=2417738, take=person[person__name]
+  ProjectionExec: expr=[id@0 as follower__id, age@1 as follower__age]
+    KeyStatisticsExec: distinct=[id=100000]
+      DataSourceExec: partitions=10, partition_sizes=[2, 2, 2, 1, 1, 1, 1, 1, 1, 1]
+```
+
+Run `explain(query, analyze=True)` to see actual `output_rows=` and `elapsed_compute=` per operator (see
+[`explain`](running-queries.md#explain)). Because the planner chooses the CSR by what it can express rather than
+by estimated cost, it won't automatically switch a whole-relationship CSR hop back to a join. Narrow the starting
+node with a filter where possible, or benchmark `use_csr=False` if your workload is mostly unfiltered scans of the
+whole graph.
+
+## Which hops use it { #which-hops-use-it }
+
+A hop runs on the CSR when **all three** conditions hold:
+
+- [x] the relationship has **integer** endpoint columns (`int8`–`int64`, `uint8`–`uint32`);
+- [x] the hop has **one relationship type** (alternations still qualify because each alternative plans its own
+      branch);
+- [x] the relationship has **no inline property map**: `-[:KNOWS]->` and `-[k:KNOWS]->` qualify, while
+      `-[:KNOWS {since: 2020}]->` uses a hash join (write `WHERE k.since = 2020` instead).
 
 | Pattern | CSR? |
 | --- | --- |
 | `(a)-[:KNOWS]->(b)`, `(a)<-[:KNOWS]-(b)` | :material-check: outgoing or incoming adjacency |
 | `(a)-[:KNOWS]-(b)` | :material-check: both adjacencies |
-| `(a)-[:KNOWS*1..3]->(b)` | :material-check: one iterative expansion for the whole range |
-| <code>(t:Tag)-[:hasType&#124;isSubclassOf*1..3]->(c:TagClass)</code> | :material-check: typed iterative expansion when every type and label is indexed |
+| `(a)-[:KNOWS*1..3]->(b)` | :material-check: single iterative expansion across the range |
+| <code>(t:Tag)-[:hasType&#124;isSubclassOf*1..3]->(c:TagClass)</code> | :material-check: typed iterative expansion when all types and labels are indexed |
 | <code>(a)-[:LIKES_POST&#124;LIKES_COMMENT]->(m)</code> | :material-check: one expansion per branch |
-| `OPTIONAL MATCH (a)-[:KNOWS]->(b)` | :material-check: |
-| `shortestPath((a)-[:KNOWS*]-(b))` | :material-check: the search walks the CSR adjacency |
-| `WHERE NOT (b)-[:KNOWS]->(a)`, `(p)-[:HAS_TAG]->()<-[:INTEREST]-(person)` | :material-check: walked per row from a bound node, through anonymous nodes and relationships of distinct types ([`PathExists`](internals/operators.md#pathexists-pattern-predicates-walked-in-place)) |
-| `(a)-[k:KNOWS]->(b)` | :material-check: `k`'s other columns are fetched by edge row (single hops only) |
+| `OPTIONAL MATCH (a)-[:KNOWS]->(b)` | :material-check: outer CSR expansion |
+| `shortestPath((a)-[:KNOWS*]-(b))` | :material-check: BFS over the CSR adjacency |
+| `WHERE NOT (b)-[:KNOWS]->(a)` | :material-check: in-place walk via [`PathExists`](internals/operators.md#pathexists-pattern-predicates-walked-in-place) |
+| `(a)-[k:KNOWS]->(b)` | :material-check: edge properties fetched by row position (single hops) |
 | `(a)-[k:KNOWS {since: 2020}]->(b)` | :material-close: hash join |
-| endpoints of type `string`, `float` or `uint64` | :material-close: hash join |
+| `string`, `float` or `uint64` endpoints | :material-close: hash join |
 
-Everything else in the query (filters, aggregations, sorts and any hop the CSR can't take) is planned by
-DataFusion as usual. You can mix: a three-hop query might run two hops on the CSR and one as a join.
+Hops the CSR cannot express fall back to DataFusion hash joins in the same plan, so one query can mix CSR hops
+and joins seamlessly. Everything around the hops (filters, aggregates, sorts) is still planned by DataFusion.
 
-The planner chooses between the two by what the CSR can express, not by which is faster. A hop that meets the
-conditions above always runs on the CSR, even when a join would be about as fast; see
-[when it helps](#when-it-helps). `use_csr` is set once, for the whole engine, because it decides whether the
-CSR is built at all: with `use_csr=False` every hop is a join.
+### Variable-length traversal { #variable-length-traversal }
 
-Named path values and `relationships(path)` need each relationship's identity and properties, which a CSR
-neighbor list doesn't hold on its own. When every relationship type and direction a named path follows has a
-CSR, the path walks it from its start node, as an explicit hop does. Each step reads the neighbors of only the
-nodes the walk reaches and checks the step's relationship conditions, from an inline `{since: 2020}` or a
-`WHERE all(r IN relationships(p) WHERE r.since >= 2020)`, on just those edges. Properties are read only for the
-relationships of the paths returned. An edge's identity is its row in the relationship table, so parallel edges
-stay distinct, even when a path passes through `collect()` and `UNWIND`. The cost therefore follows the part of
-the graph the walk reaches rather than the size of the relationship table.
+Eligible variable-length paths run as one `CsrExpandExec` (`iterative hops=...`) instead of unrolling a separate
+join branch per path length. The operator keeps one cursor per hop, yields bounded output batches, tracks edges by
+`(relationship_type, edge_row)` so no edge is reused within a trail, and carries typed `(label, key)` pairs so
+equal keys in different node tables stay distinct.
 
-This design follows [Kùzu](https://github.com/kuzudb/kuzu), which evaluates relationship predicates inside its
-recursive joins over CSR adjacency lists, so a filtered variable-length pattern only extends paths along edges
-that pass.
+Iterative traversal requires CSR indexes for every traversed type/direction, node indexes for intermediate labels,
+and resolved endpoint labels (within the 20-hop limit). Unsupported shapes fall back to join branches. Traversal
+state scales with the hop limit, though branching graphs can still produce many output matches.
 
-Shortest paths, and named paths over a relationship type without a CSR, use a query-local inventory of edge
-occurrences instead. The inventory reads the participating relationship tables in full, and bounded traversal
-batches do not bound it. Where a CSR exists, the inventory names each relationship by the same row the walk uses,
-so a named path and a shortest path in one query agree on which relationships are equal. Both routes read the participating node tables in full. See
-[path values](cypher.md#path-values).
-Shortest-path queries within one node label that only read length or node keys keep the CSR route below.
-Relationships crossing labels use typed identities, even for these queries, to distinguish equal keys
-from different labels.
+### Relationship variables { #relationship-variables }
 
-For `shortestPath` and `allShortestPaths`, a source with one target in an input batch searches from both
-ends using the outgoing and incoming CSR. It expands the smaller frontier and finishes the whole layer
-before joining paths, so it keeps all shortest alternatives. Several targets for the same source share
-one forward search, and the forward searches of an input batch run together, up to 64 sources at a time,
-so sources whose searches overlap read each neighbour list once. Undirected searches can use both ends
-without a persistent CSR too; directed searches without a CSR keep their forward searches over the
-adjacency built for that query.
+A single hop that binds a relationship variable, such as
+`MATCH (a)-[k:KNOWS]->(b) WHERE k.since > 2020 RETURN b.name`, stays on the CSR. Each adjacency entry stores its
+edge row address, so the expansion fetches only the columns of `k` that the query uses (`edge=k[k__since]` in
+`explain()`), keeping parallel edges distinct.
 
-### Variable-length traversal
-
-An eligible variable-length path keeps one cursor per hop and yields bounded output batches. Its plan
-contains one `CsrExpandExec` with `iterative hops=...`, rather than a branch for every possible length or
-sequence of relationship types. It preserves duplicate matches and skips missing nodes at intermediate
-hops. A node's label and key travel together, so the same integer key in two labels identifies two nodes.
-
-The iterative path needs CSR indexes for every traversed type and direction, node indexes for every
-intermediate label, and resolved labels for the endpoints. Unsupported index shapes retain the join
-fallback. The 20-hop maximum still applies. `*0..` includes a zero-hop identity match when both labels and
-keys agree. Each cursor records the relationship type and stored edge row used to reach it.
-The walk skips an edge already on the current trail and can return to a node along a different edge.
-
-Traversal state grows with the hop limit, not the number of pending paths. Resident graph indexes, input
-batches, fetched target properties and downstream operators still contribute to query memory. Branching
-graphs can produce exponentially many matches even though traversal resumes between output batches.
-
-### Relationship variables
-
-A hop that names its relationship, as in `MATCH (a)-[k:KNOWS]->(b) WHERE k.since > 2020 RETURN b.name`,
-stays on the CSR. Each neighbour carries the row its edge came from, so the expansion fetches the columns of
-`k` that the query reads by position (Lance `take` by row address, or Arrow `take`), and only those.
-`explain()` shows them as `edge=k[k__since]` on the `CsrExpand` line. Parallel edges between the same two
-nodes are separate rows, each with its own properties, as on the join path.
-
-On a Lance dataset, a hop that fetches more than two batches of edges (16,384 by default) doesn't fetch `k`'s
-columns by position. It reads them once, in order, and serves the hop from memory. Lance stores a narrow
-column in compressed chunks and decodes a whole chunk to return one value, so a batch of scattered rows costs
-between a third and two thirds of reading the whole column. When no condition drops edges after the
-expansion, the hop counts its start nodes' edges first, so a large hop reads the columns before fetching
-anything and a small one never reads them. Only fixed-width columns (numbers, dates and timestamps) are read
-this way, and only when they fit in 256 MiB. Strings, lists, embeddings and other variable-width columns are
-always fetched by position, because Lance stores wide values for direct access and a whole column of them may
-not fit in memory. In-memory PyArrow tables always gather by position too.
-
-A `WHERE` condition that reads only `k`'s own columns, such as `k.since > 2020`, moves into the expansion
-(`edge_filter=` in `explain()`), so failing edges are dropped before anything else is fetched. A small hop
-fetches just the filter's columns for each batch of expanded edges. On a Lance dataset, once a hop has
-expanded more than 1/256 of the relationship's edges, it reads the filter's columns once, in order, and skips
-failing edges from then on. In-memory PyArrow tables always filter each batch, since fetching their columns
-is an in-memory gather. Conditions that mix `k` with other variables stay after the expansion.
+A `WHERE` condition reading only `k`'s properties moves into the expansion (`edge_filter=` in `explain()`) to drop
+failing edges before target properties are fetched. On lazy Lance datasets, large hops automatically switch from
+scattered row takes to a sequential read for fixed-width columns (up to 256 MiB); variable-width columns
+(strings, lists, embeddings) and in-memory PyArrow tables always gather by position. See
+[Performance details](internals/operators.md#performance-details) for exact thresholds.
 
 !!! note "Large hops on lazily read tables"
 
-    A hop that expands a large share of a relationship and returns several properties of its target node
-    fetches those properties one batch of scattered rows at a time. On Lance datasets read lazily, that can be
-    slower than the join path, which reads the node table once. This holds whether or not the hop names its
-    relationship. IC5 in the [benchmarks](benchmarks.md) is such a query.
+    Expanding a large share of a relationship and returning several target properties fetches those properties one
+    batch of scattered rows at a time. On lazy Lance datasets, that can be slower than a join that scans the node
+    table once (as seen in IC5 in the [benchmarks](benchmarks.md)).
 
-### The fused target lookup
+### The fused target lookup { #the-fused-target-lookup }
 
-When the target label has a node index, the CSR expansion also replaces the join that fetches the target's
-properties: each neighbour id is mapped to a row position and the row is read directly. In `explain()`
-output that shows as `take=`:
+When the target label has a node index (unique integer keys), `CsrExpandExec` also replaces the join to the target
+node table by reading requested target columns directly by row position (`take=` in `explain()`):
 
 ```python
 plan = engine.explain("MATCH (a:Person {id: 1})-[:KNOWS]->(b:Person) RETURN b.name")
@@ -244,35 +224,16 @@ print([line.strip(" |") for line in plan.splitlines() if "CsrExpandExec" in line
 # ['CsrExpandExec: key=a__id, edges=4, take=b[b__name]']
 ```
 
-The fused lookup needs the target's key to be a **unique integer**. Duplicate keys, or a target that is
-already bound earlier in the query, keep the CSR hop but join for the target's properties.
+Duplicate node keys, or a target already bound earlier in the query, keep the CSR hop and join for target
+properties. Pushed-down target filters read only the filter's columns first, fetching remaining properties only
+for passing neighbours and reusing filtered column values within the same output batch.
 
-Only requested target columns are read. A pushed-down target filter reads its own columns first; remaining
-properties are fetched only for neighbours that pass. When a column is used by both the filter and the
-projection, its filtered values are reused within that output batch. Target keys come directly from the
-neighbour IDs, including when a filter reads them. This reuse ends with the batch and keeps no property
-cache across queries or dataset versions.
+### Grouping by a node { #grouping-by-a-node }
 
-### Grouping by a node
-
-Two-hop counts grouped by one node's id or properties can count neighbours before combining the hops.
-For `MATCH (a)-[:R]->(b)-[:S]->(c) RETURN b.id, count(*)`, the engine multiplies each `b`'s counts on the
-two sides. Grouping by `a.id` instead counts the second hop per `b`, follows the first hop, and sums those
-counts per `a`. Both avoid expanding every two-hop path. Grouping by a property such as `b.name` also sums
-the contributions of different nodes with the same value, including null.
-
-This applies to fixed-length inner matches when the middle node has a unique integer id, every condition
-reads at most one hop, and estimated fan-out justifies counting first. Same-type and undirected hops retain
-the usual exclusions for reusing a relationship. A grouped outer node bound to one id keeps its selective
-walk instead of counting across the graph. Groups with no valid paths are omitted. Optional matches,
-distinct counts, counts of nullable properties, and grouping by several nodes keep their existing plans.
-
-`WITH b, count(*) AS n` groups by the node `b`, and `RETURN b.id, b.name, count(*) AS n` by its id and name.
-When `b`'s label has a node index, either grouping can use `b`'s id alone and looks up
-`b`'s other properties afterwards, once per node, by the same row positions. Rows before a grouping can outnumber nodes many times over (an expansion), and carrying a
-node's properties through the aggregate for each of them costs more than one lookup per node. With unique
-ids, the groups are the same. `explain()` shows the lookup as `NodeLookupExec`, with only the properties the
-query uses:
+When you group by a node (`WITH b, count(*) AS n`) or by its ID plus properties (`RETURN b.id, b.name, count(*)`),
+carrying `b`'s properties through the aggregate for every expanded edge is wasteful. When `b` has a node index,
+the planner groups by `b.id` alone and fetches `b`'s remaining properties once per group afterwards via
+`NodeLookupExec`:
 
 ```python
 plan = engine.explain(
@@ -282,22 +243,27 @@ print([line.strip(" |") for line in plan.splitlines() if "NodeLookupExec" in lin
 # ['NodeLookupExec: key=b__id, take=b[b__name]']
 ```
 
-The grouping needs the id: `RETURN b.name, count(*)` groups by the name, because two people can share one.
-An in-memory node table always uses the lookup. A Lance dataset read lazily uses it only when a hop fetched
-`b`'s properties for the rows being grouped, as in the example above, and nothing before the grouping reads
-them. That hop then reads only `b`'s id, and the lookup reads each property once per node instead of once per
-edge. When `b`'s properties come from somewhere else, such as the scan that matched `b` in the first place, or
-when a `WHERE` or `WITH DISTINCT` before the grouping needs them, the rows already hold them by the time they
-reach the grouping, so grouping by them reads nothing more, while a lookup afterwards would read them from
-disk a second time. Those groupings keep all of `b`'s properties, as before. A lookup that covers a large
-share of a Lance table reads the properties in one sequential pass rather than row by row, the same switch a
-[fused target lookup](#the-fused-target-lookup) makes.
+Grouping by `b.name` alone without `b.id` keeps a regular grouping because two people can share a name. On lazy
+Lance datasets, `NodeLookupExec` is used only when it replaces a per-edge fetch (never to re-read columns from
+disk a second time). Two-hop counts grouped by a single node's ID or properties can also count neighbours before
+expanding; see [Grouped two-hop counts](internals/optimizer.md#grouped-two-hop-counts) and
+[`NodeLookup`](internals/operators.md#nodelookup-group-by-id-then-look-up).
+
+### Named paths and shortest paths
+
+- **Named trail paths (`MATCH p = ...`)**: when a CSR index exists for every relationship type and direction that
+  a named path traverses, the engine walks the CSR directly from the start node, evaluates inline edge maps and
+  `all()`/`none()` edge filters on visited edges only, and reads relationship properties only for returned paths.
+  Paths over non-CSR types (and rich shortest paths) build a query-local edge inventory instead. See
+  [Path values](cypher.md#path-values) and [`PathMatch`](internals/operators.md#pathmatch-named-paths-with-real-edge-identity).
+- **`shortestPath` / `allShortestPaths`**: single-target searches run bidirectionally over outgoing and incoming
+  CSRs; multi-target and multi-source batches share forward searches (up to 64 sources at once). See
+  [`ShortestPath`](internals/operators.md#shortestpath-breadth-first-search-over-the-adjacency).
 
 ### Patterns start at the most selective node
 
-The planner rewrites each `MATCH` so traversal starts at its most selective node, walking edges backwards
-where needed. That matters more with the CSR than without, because DataFusion can push a filter below a join
-but not below a CSR expansion:
+The planner reorders each `MATCH` to start from its most selective node, walking edges backwards where needed, so
+CSR expansion starts from the smallest possible frontier:
 
 ```python
 plan = engine.explain("MATCH (a:Person)-[:KNOWS]->(b:Person {name: 'David'}) RETURN a.name")
@@ -305,14 +271,13 @@ print([line.strip(" |") for line in plan.splitlines() if "CsrExpandExec" in line
 # ['CsrExpandExec: key=b__id, edges=4, take=a[a__name]']
 ```
 
-The expansion starts from `b` (`key=b__id`), the filtered node, and walks `KNOWS` incoming. Results are the
-same either way; only the order of work changes.
+Here expansion starts from `b` (`key=b__id`) and walks `KNOWS` incoming; results are identical.
 
-## Inspecting the CSR
+## Inspecting the CSR { #inspecting-the-csr }
 
 ### `csr_stats()`
 
-One entry per relationship type that has a CSR:
+Returns one stats dict per relationship type that has a CSR:
 
 ```python
 print(engine.csr_stats()["KNOWS"])
@@ -323,39 +288,34 @@ print(engine.csr_stats()["KNOWS"])
 
 | Field | Meaning |
 | --- | --- |
-| `edges` | Live indexed edges. Edges with a null endpoint are skipped. |
+| `edges` | Live indexed edges (edges with a null endpoint are skipped). |
 | `delta_edges` | Appended edges held outside the base CSR since its last full build. |
 | `tombstones` | Removed edges masked out since the last full build. |
-| `unindexed_edges` | Live edges outside the base CSR: appended since its last full build and not since removed. Lance index statistics call this `num_unindexed_rows`. |
-| `update` | How the last build, `checkout_latest()` or [`optimize_csr()`](#rebuilding-the-csr) produced it: `build` (first), `rebuild` (full), `loaded` (from a [stored file](#storing-the-csr), with any changes since applied as a delta), `delta` (changes applied) or `reused` (no edge change). |
-| `version` | The relationship dataset's Lance version, or `None` for PyArrow input. |
-| `base_version` | The version of the last full build, or `None` for PyArrow input. It trails `version` while deltas apply. |
-| `build_ms` | Wall time of that build or delta, both directions. Stored files load in parallel, so their times overlap. |
+| `unindexed_edges` | Live edges outside the base CSR (Lance index statistics call this `num_unindexed_rows`). |
+| `update` | How the last operation produced it: `build` (initial), `rebuild` (full), `loaded` (from a [stored file](#storing-the-csr), with any later changes as a delta), `delta` (incremental update), or `reused` (no edge change). |
+| `version` | Pinned Lance version of the relationship dataset, or `None` for PyArrow input. |
+| `base_version` | Lance version of the last full CSR build, or `None` for PyArrow input (trails `version` while deltas apply). |
+| `build_ms` | Wall time for that build or delta across both directions (stored files load in parallel, so their times overlap). |
 
-A relationship type missing from `csr_stats()` has no CSR (its endpoints aren't integers) and always joins.
+A relationship type absent from `csr_stats()` has no CSR (non-integer endpoints) and always uses joins.
 
 ### `node_index_stats()`
 
-Per node label: `rows`, `version` and `build_ms`. A label is missing when its keys are not unique integers.
+Reports `rows`, `version` and `build_ms` per node label. A label is absent when its keys are not unique integers:
 
 ```python
 print(sorted(engine.node_index_stats()))  # ['Person']
 ```
 
-## Keeping the CSR current
+## Keeping the CSR current { #keeping-the-csr-current }
 
-A Lance dataset gets a new version every time someone writes to it, whether that's appending rows, deleting them
-or compacting its files. The engine doesn't switch versions on its own. It answers every query from the versions it
-opened, so that queries stay consistent with each other, which means new writes stay invisible until you ask for
-them.
+Every write to a Lance dataset creates a new version. `CypherEngine` stays pinned to the versions it opened so
+queries see a consistent snapshot; new writes stay invisible until you call `checkout_latest()`.
 
-`checkout_latest()` is how you ask. It moves the engine to the newest version of every Lance dataset it reads, the
-way Lance's own `checkout_latest()` does for a single dataset (see Lance's
-[time travel](https://lance.org/quickstart/#time-travel)), and it updates everything the engine built from those
-datasets, the CSR included. Afterwards, queries see the new data and their answers are exact. When nothing has
-changed, it returns almost immediately, so it's safe to call often, even on a timer. If a writer updates several
-tables, call it once they've all committed, since each Lance dataset is
-[pinned on its own](lance.md#lazy-version-pinned-reads).
+`checkout_latest()` advances every Lance dataset to its newest version and updates all derived indexes, including
+the CSR. When nothing changed, it returns almost immediately, so calling it periodically is safe. If a writer
+updates multiple tables, call `checkout_latest()` after all commits finish, since each table is
+[pinned independently](lance.md#lazy-version-pinned-reads).
 
 === "Python"
 
@@ -388,21 +348,19 @@ tables, call it once they've all committed, since each Lance dataset is
 
 !!! caution "In-memory PyArrow tables"
 
-    If you gave the engine in-memory PyArrow tables instead of Lance datasets, there's nothing to update: those
-    tables can't change underneath the engine, so their CSR is never out of date. To query new in-memory data,
-    create a new engine.
+    In-memory PyArrow tables cannot change underneath an engine, so their CSR never goes stale. Create a new
+    engine to query updated in-memory data.
 
 ### How the CSR keeps up with new writes { #checkout-latest }
 
-Rebuilding a CSR means reading every edge again, which takes about a second for 10 million edges. Most writes only
-add or remove a few edges, so `checkout_latest()` doesn't rebuild the CSR every time. It reads just the new data,
-keeps the added edges in a short list next to the CSR, called the *delta*, and marks deleted edges so that lookups
-skip them. Every lookup checks the delta as well as the CSR, so the new edges show up in answers straight away.
+Rebuilding a CSR scans every edge again (~1 second for 10M edges). Because most commits change only a small
+fraction of edges, `checkout_latest()` reads just the changed fragments, stores new edges in an in-memory *delta*
+alongside the base CSR, and masks deleted edges with tombstones. Lookups check both the base CSR and the delta,
+so answers are exact immediately.
 
-The delta can't grow forever. Once the delta and the deleted edges together pass 25% of the CSR's size, `checkout_latest()` rebuilds the CSR
-from scratch instead, which empties the delta. You don't have to manage any of this. To see what a call did, look
-at `update` in [`csr_stats()`](#csr_stats): `reused` (nothing changed), `delta` (new edges went into the delta) or
-`rebuild` (the CSR was rebuilt), as in the example above.
+Once appended delta edges plus tombstones exceed **25%** of the base CSR's size, `checkout_latest()` triggers a
+full rebuild and clears the delta automatically. Check `update` in [`csr_stats()`](#csr_stats) (`reused`,
+`delta`, or `rebuild`) to see what a call did.
 
 ??? info "Details: when `checkout_latest()` rebuilds"
 
@@ -413,26 +371,24 @@ at `update` in [`csr_stats()`](#csr_stats): `reused` (nothing changed), `delta` 
         R -- "over 25%, overwritten, or new endpoint columns" --> RB["rebuild"]
     ```
 
-    - Compaction and `cleanup_old_versions()` don't force a rebuild: deleted rows are matched by the edge row each
-      CSR entry records.
-    - Writes to a node table never touch the CSR, which stores node keys rather than row positions. Only that
-      label's node index is rebuilt.
+    - Compaction and `cleanup_old_versions()` don't force a CSR rebuild: deletions match by each entry's edge row
+      address.
+    - Writes to a node table never touch the CSR (which stores raw node keys, not row positions); only that
+      label's node index rebuilds.
 
 ### Optional: rebuilding early with `optimize_csr()` { #rebuilding-the-csr }
 
-Most applications never need this method. `checkout_latest()` only rebuilds the CSR once pending changes pass 25%
-of the CSR's size, and until then the delta stays in place. In some situations, however, it's worth rebuilding
-sooner than that:
+Most apps never need `optimize_csr()` because `checkout_latest()` rebuilds automatically past 25%. Calling it
+early is useful in two cases:
 
-- **Large traversals.** Checking the delta on every lookup makes big traversals a little slower (in one of our experiments, we measured 5-13% slower
-  with a delta of 20% of the CSR, on a graph with 10 million edges). Point lookups aren't affected.
-- **Stored CSRs.** With [`persist_csr=True`](#storing-the-csr), the stored file holds the CSR without its delta, so
-  every new engine re-applies the delta when it starts. A rebuild stores a fresh file, so later starts are fast
-  again.
+- **Large traversals with a growing delta:** checking the delta on every lookup slowed large traversals by ~5–13%
+  in experiments at a 20% delta on 10M edges (point lookups are unaffected).
+- **Stored CSRs (`persist_csr=True`):** stored files hold only the base CSR, not the delta, so a rebuild writes a
+  fresh file that makes future startups fast again.
 
-`optimize_csr()` rebuilds every CSR that has a delta, right away, instead of waiting for `checkout_latest()` to do
-it. A rebuild takes about as long as building the CSR the first time, and it uses the versions the engine already
-has, so new writes need a `checkout_latest()` first:
+`optimize_csr()` rebuilds every CSR carrying a delta using the engine's current pinned versions (call
+`checkout_latest()` first to include new writes), analogous to Lance's
+[`optimize_indices()`](https://lance.org/guide/indexing/#maintain-indexes-after-appends):
 
 ```python
 engine.checkout_latest()  # new edges go into the delta
@@ -441,27 +397,21 @@ stats = engine.csr_stats()["KNOWS"]
 print(stats["update"], stats["unindexed_edges"])  # rebuild 0
 ```
 
-It's modelled on Lance's `optimize_indices()`, which brings Lance's own indexes up to date after new writes in the
-same way (see Lance's [indexing docs](https://lance.org/guide/indexing/#maintain-indexes-after-appends)).
-
-### Which one to call
-
 !!! tip "`checkout_latest()` or `optimize_csr()`?"
 
     | | `checkout_latest()` | `optimize_csr()` |
     | --- | --- | --- |
-    | What it's for | Showing new writes to your queries | Rebuilding the CSR now instead of later |
-    | When you need it | Every time your data changes | Rarely: for large traversals with a big delta, or with `persist_csr` |
-    | Cost | Usually milliseconds; occasionally a full rebuild | About as long as the first build |
+    | Purpose | Expose new Lance writes to queries | Fold pending deltas into a fresh base CSR now |
+    | When to call | Whenever data changes | Rarely: large traversals with a big delta, or to refresh `persist_csr` files |
+    | Cost | Usually milliseconds; occasional full rebuild | Roughly equal to the initial build |
 
-    A rebuild gives the same CSR whichever method does it. The two never run at the same time: if you call one
-    while the other is running, the second waits for the first to finish, and queries keep running meanwhile.
+    The two calls are serialized against each other while queries continue running on the current snapshot.
 
-## Storing the CSR
+## Storing the CSR { #storing-the-csr }
 
-Every engine builds its CSR from a full scan of the relationship tables, even when the data hasn't changed since
-the last run. With `persist_csr=True`, an engine over Lance datasets stores each CSR it builds and loads it on the
-next start instead:
+Without persistence, every new process rebuilds the CSR by scanning the relationship tables. With
+`persist_csr=True`, an engine over Lance datasets saves each built CSR beside its relationship dataset and loads
+it on future starts:
 
 ```python
 def open_engine():
@@ -472,7 +422,7 @@ print(open_engine().csr_stats()["KNOWS"]["update"])  # build: built, then stored
 print(open_engine().csr_stats()["KNOWS"]["update"])  # loaded: read from the file
 ```
 
-Each relationship dataset keeps its CSR in its own directory, one file per dataset version:
+Stored files live inside each relationship dataset's directory, one file per dataset version:
 
 ```text
 knows.lance/
@@ -481,114 +431,31 @@ knows.lance/
     └── 42.arrow
 ```
 
-The file belongs to the table: dropping or copying the dataset drops or copies it, and Lance's
-`cleanup_old_versions()` leaves the folder alone, since it only deletes the data, index, deletion and transaction
-files it recognises.
+Dropping or copying the dataset drops or copies the CSR with it, and Lance's `cleanup_old_versions()` leaves
+`_lance_csr/` untouched.
 
-- **Changes since the stored version** apply as a delta, read from the new fragments only, exactly as
-  [`checkout_latest()`](#keeping-the-csr-current) applies them. `update` says `loaded` and `base_version` names the
-  stored version. That holds after compaction and `cleanup_old_versions()` too.
-- **Past the 25% threshold**, the engine rebuilds the CSR and stores the new version. Every full build is stored,
-  including those from `checkout_latest()` and [`optimize_csr()`](#rebuilding-the-csr), and older files are deleted
-  once a newer one is written.
-- **A file that can't be used** (corrupt, written for other endpoint columns or by another format) is ignored and
-  rebuilt, so a bad file costs a build, never a wrong answer.
-- **A dataset that can't be written**, because of read-only storage or credentials, is built in memory and nothing
-  is stored. The engine checks that it can write before it compresses the file, so this costs about as much as a
-  start without the option. Python emits a `RuntimeWarning`, and
-  [`csr_stats()`][lance_csr.CypherEngine.csr_stats] reports the error as `store_error` for as long as the engine
-  keeps that CSR. Rust applications also see it as a `log` warning.
-- **PyArrow inputs** are never stored. That includes Lance data loaded into memory with `to_table()` first.
+- **Incremental loads:** changes written since the stored version apply as a delta (even after compaction or
+  version cleanup); `update` reports `loaded` and `base_version` records the stored version.
+- **Automatic refresh:** full builds past the 25% threshold (including from `checkout_latest()` and
+  `optimize_csr()`) write a new file and delete older ones.
+- **Safe fallback:** corrupt, incompatible or unreadable files are ignored and rebuilt in memory. On read-only
+  storage, the engine checks write access before compressing, builds in memory, emits a `RuntimeWarning` (a `log`
+  warning in Rust), and records `store_error` in `csr_stats()`.
+- **Read-only readers (`persist_csr="load"`):** loads stored CSR files without ever writing to the dataset;
+  missing or unusable files fall back to an in-memory build, and `delete_stored_csr()` raises `ValueError`.
+- **PyArrow inputs** (including Lance tables materialized with `to_table()`) are never stored.
 
-Some applications only read datasets that another process writes, such as a graph browser over published Lance
-tables, and must never change them. They can still use the files a writer stored: with `persist_csr="load"`, an
-engine loads a stored CSR exactly as above but never writes. When no file can be used, it builds in memory as
-without the option, and the rebuilds of `checkout_latest()` and `optimize_csr()` aren't stored either.
-`delete_stored_csr()` raises `ValueError` on such an engine.
-
-To go back to building in memory only, create engines without `persist_csr` and delete the stored files once with
-[`delete_stored_csr()`][lance_csr.CypherEngine.delete_stored_csr]. It removes the `_lance_csr` folder of every
-relationship dataset the engine reads and returns how many files it deleted; the engine keeps the CSR it already
-holds, so queries carry on as before:
+To remove stored `_lance_csr` folders from every relationship dataset (without affecting the running engine's
+in-memory CSR), call [`delete_stored_csr()`][lance_csr.CypherEngine.delete_stored_csr]:
 
 ```python
 print(open_engine().delete_stored_csr())  # 1
 ```
 
-!!! note "Cost"
+!!! note "Startup cost"
 
-    The file holds the CSR's arrays as they sit in memory, compressed with zstd. A load decompresses them and rebuilds only the map from key to position.
-    Relationship types load in parallel, up to one per core and at most 10 at once, while node indexes are built
-    from their node tables.
-
-    On the GDC SF1 graph (17 million edges over 23 relationship types), a start that loads the stored CSR takes
-    a small fraction of the time of one that builds it, and peaks lower in memory. The first start pays for the
-    build plus compressing and writing the file, so it is somewhat slower than a start without `persist_csr`.
-    Query times don't change. `python/benchmarks/csr_persist.py` measures these cases, including a load with a
-    delta, so you can check them on a graph like yours.
-
-## When it helps
-
-A CSR hop's cost follows the edges it reads, and it reads only the neighbours of its input rows. A hash join
-reads the whole relationship table and builds a hash table on it, however few rows it starts from. So the CSR
-gains most when a hop starts from few rows: a filtered node, or the result of an earlier hop.
-
-A hop that starts from every node of a label reads every edge either way. An in-memory hash join is already
-cheap there, and a CSR hop that emits one row per edge is no faster. What the CSR adds is that it can count a
-node's neighbours without emitting a row per edge, and the planner uses that wherever a query only counts:
-
-- `RETURN count(*)` over a two-hop chain `(a)-->(b)-->(c)` is the sum, over each middle node `b`, of its
-  incoming times its outgoing neighbours, less the paths that would use one self-loop twice. Two hops of one
-  type that share an end, `(a)-->(b)<--(c)`, or that are undirected, `(a)--(b)--(c)`, are counted from edges
-  too, though not in place: the paths where `a` and `c` are the same node would use one edge twice, and finding
-  them takes grouping by both ends. The second hop can be an `OPTIONAL MATCH` from `b`, where a `b` with no
-  match counts once per incoming edge.
-- `RETURN m.name, count(x)` over `(x)-[:R]->(m)...` (in either direction, or undirected), when nothing else
-  reads `x` or the relationship, counts
-  each `m`'s `x` neighbours once and plans the rest of the pattern from `m`.
-- Grouping by a node's id and its other properties groups by the id alone (see
-  [grouping by a node](#grouping-by-a-node)).
-
-In `explain()` output, a hop counted in place shows `degrees=[...]` on its `CsrExpandExec` line, and its output
-has one row per node rather than one per edge. A `WHERE` condition on the counted neighbour alone still applies
-(`filter=` on the same line); a condition that compares it with another variable, or reads the relationship,
-needs the hop's rows and keeps the plain hop.
-
-### Spotting a hop over the whole relationship
-
-`edges=` on a `CsrExpandExec` line is the relationship's edge count, not the number of edges the hop reads.
-The hop reads all of them when its input is the whole node table: the lines below it are a scan of that table,
-with no `FilterExec` and no earlier hop in between. From a 100,000-person graph with 2.4 million `FOLLOWS` edges,
-`MATCH (follower:Person)-[:FOLLOWS]->(person:Person) RETURN person.name, max(follower.age)` plans:
-
-```text
-CsrExpandExec: key=follower__id, edges=2417738, take=person[person__name]
-  ProjectionExec: expr=[id@0 as follower__id, age@1 as follower__age]
-    KeyStatisticsExec: distinct=[id=100000]
-      DataSourceExec: partitions=10, partition_sizes=[2, 2, 2, 1, 1, 1, 1, 1, 1, 1]
-```
-
-To see how many rows a hop actually produced, run `explain(query, analyze=True)`: each operator's line then
-carries its runtime metrics, such as `output_rows=` and `elapsed_compute=` (see
-[`explain`](running-queries.md#explain)).
-
-If such a hop isn't counted in place and the query is slower with `use_csr=True`, the join path is doing the
-same work with less overhead. The planner won't switch that hop to a join for you: the fallback covers hops the
-CSR can't take, not slower ones. Narrow the hop's input (a filter on its start node) where the query allows
-it. If the workload is mostly such queries, measure it with `use_csr=False` too, as that setting applies to
-every query on the engine.
-
-## Should I turn it on?
-
-| Situation | Recommendation |
-| --- | --- |
-| Queries traverse relationships, especially 2+ hops or variable-length | **Turn it on** |
-| Queries read whole relationships (no filter on the start node) and only count | **Turn it on**; counts are taken per node ([when it helps](#when-it-helps)) |
-| Queries read whole relationships and return or group by each edge's properties | About even with the join path; measure both |
-| Integer node keys and edge endpoints | **Turn it on**. This is the fast case: each hop reads only its start nodes' neighbours, and each neighbour's properties are read straight from its row instead of through a second join ([the fused target lookup](#the-fused-target-lookup)) |
-| String or UUID keys | Little benefit: the CSR can't index them, so every hop still joins whole tables. Add an integer id column if traversal matters |
-| Only node lookups and aggregations, no hops | Leave it off; it costs build time and memory for nothing |
-| Very large edge tables and tight memory | Measure the build's peak memory on your data first ([memory cost](#turning-it-on)) |
-
-The [benchmarks](benchmarks.md) were all run with `use_csr=True`, on GDC SNB data whose node keys and edge
-endpoints are integers.
+    Stored files hold the CSR's arrays compressed with zstd, and relationship types load concurrently (up to one
+    per core, capped at 10) while node indexes build. On GDC SF1 (17M edges across 23 types), loading stored CSRs
+    takes a small fraction of a full build's time and uses lower peak memory; the first start is slightly slower
+    due to compression and writing. Query latency is unchanged. Benchmark your graph with
+    `python/benchmarks/csr_persist.py`.
