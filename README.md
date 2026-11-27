@@ -9,9 +9,6 @@
 **Fast graph queries on Lance**
 
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue?style=for-the-badge)](LICENSE)
-[![crates.io downloads](https://img.shields.io/crates/dr/lance-csr?label=downloads%20(90%20days)&logo=rust&style=for-the-badge)](https://crates.io/crates/lance-csr)
-[![PyPI downloads](https://img.shields.io/pypi/dm/lance-csr?label=downloads&logo=pypi&logoColor=white&style=for-the-badge)](https://pypistats.org/packages/lance-csr)
-[![npm downloads](https://img.shields.io/npm/dm/lance-csr?label=downloads&logo=npm&logoColor=white&style=for-the-badge)](https://www.npmjs.com/package/lance-csr)
 [![crates.io](https://img.shields.io/crates/v/lance-csr?logo=rust&style=for-the-badge)](https://crates.io/crates/lance-csr)
 [![PyPI](https://img.shields.io/pypi/v/lance-csr?logo=pypi&logoColor=white&style=for-the-badge)](https://pypi.org/project/lance-csr/)
 [![npm](https://img.shields.io/npm/v/lance-csr?logo=npm&logoColor=white&style=for-the-badge)](https://www.npmjs.com/package/lance-csr)
