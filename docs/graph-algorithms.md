@@ -15,8 +15,8 @@ copying. Every parameter is optional, and all but `rel_types` are keyword-only:
 | --- | --- | --- |
 | `rel_types` | `None` | The relationship types to include, or every type with integer endpoints; the nodes are those of the labels at either end. See [Directed and undirected graphs](#directed-and-undirected-graphs). |
 | `directed` | `True` | `True` returns out-edge and in-edge arrays; `False` returns one set listing every edge both ways. See [Directed and undirected graphs](#directed-and-undirected-graphs). |
-| `weight` | `None` | A column name, or a dict of relationship type to column, exported as `float64` edge weights; `None` exports none. See [Weighted graphs](#weighted-graphs). |
-| `combine_edges` | `"sum"` | How an edge listed more than once combines its weights: `"sum"`, `"min"` or `"max"`. See [Weighted graphs](#weighted-graphs). |
+| `weight` | `None` | A column name, or a dict of relationship type to column, exported as `float64` edge weights; `None` exports none. See [Edge weights](#edge-weights). |
+| `combine_edges` | `"sum"` | How an edge listed more than once combines its weights: `"sum"`, `"min"` or `"max"`. See [Edge weights](#edge-weights). |
 | `default_weight` | `None` | The weight of every edge of a type with no weight column; `None` makes such a type an error. See [Several relationship types](#several-relationship-types). |
 
 To export only the part of the graph a Cypher query selects, use `export_subgraph`, described in
@@ -62,7 +62,7 @@ The returned [`GraphExport`][lance_csr.GraphExport] also holds:
 | `num_nodes`, `directed` | The number of nodes and whether the arrays are directed |
 | `in_indptr`, `in_indices` | The same arrays for incoming edges; `None` for an undirected export |
 | `label_ranges` | Each node label's dense ids, as `(start, end)` with `end` excluded |
-| `out_weights`, `in_weights` | Edge weights, when asked for (see [Weighted graphs](#weighted-graphs)); otherwise `None` |
+| `out_weights`, `in_weights` | Edge weights, when asked for (see [Edge weights](#edge-weights)); otherwise `None` |
 | `dropped_edges` | Edges whose endpoint key isn't in its node table, or whose weight is null |
 
 The export follows the same rules as a query's join between relationship and node tables. An edge whose
@@ -107,12 +107,13 @@ engine2 = CypherEngine(config2, {"Person": people, "City": cities, "LIVES_IN": l
 print(engine2.export_graph().label_ranges)  # {'City': (0, 2), 'Person': (2, 6)}
 ```
 
-## Weighted graphs
+## Edge weights
 
-Some algorithms read a number on each edge as well as the edge itself: a distance for shortest paths, a
-strength for weighted PageRank or community detection. In a relationship table that number is a column, such
-as the messages sent along each `FOLLOWS` edge. Name it with `weight` and the export returns it as `float64`
-arrays that line up with `out_indices` and `in_indices`:
+Some algorithms read a number on each edge as well as the edge itself, called the edge's *weight*: a distance
+for shortest paths, a strength for weighted PageRank or community detection. A graph whose edges carry such
+numbers is a *weighted graph*. In a relationship table the weight is a column, such as the messages sent along
+each `FOLLOWS` edge. Name it with `weight` and the export returns it as `float64` arrays that line up with
+`out_indices` and `in_indices`:
 
 ```python
 messages = pa.table(
@@ -127,6 +128,10 @@ print(w.out_weights.to_pylist())  # [2.0, 1.0, 7.0, 5.0]
 The weight of `out_indices[i]` is `out_weights[i]`, and the same holds for the in-edges. The weight column
 must be numeric. Only the endpoint and weight columns are read, so other properties of the relationship table
 play no part.
+
+Weights belong to edges only; the export has no node weights. A number that describes a node, such as a person's
+age, stays in the node table, and `node_keys` gives the order to line it up with the dense ids if an algorithm
+needs it.
 
 ### Several relationship types
 
@@ -242,14 +247,20 @@ The query's result is held in memory while the arrays are built, as with
 
 [icebug](https://github.com/Ladybug-Memory/icebug) is a fork of [NetworKit](https://networkit.github.io/) whose
 graphs are built directly on Arrow CSR arrays. `Graph.fromCSR` takes the export's arrays without copying them, so
-the only work left is the algorithm itself:
+the only work left is the algorithm itself. Passing the arrays by name, as here, saves remembering the order
+`fromCSR` expects them in:
 
 <!-- skip-check -->
 ```python
 import icebug as ib
 
 graph = ib.Graph.fromCSR(  # (1)!
-    g.num_nodes, g.directed, g.out_indices, g.out_indptr, g.in_indices, g.in_indptr
+    n=g.num_nodes,  # number of nodes
+    directed=g.directed,  # whether edges have a direction
+    out_indices=g.out_indices,  # each node's out-neighbours, in node order
+    out_indptr=g.out_indptr,  # where each node's list starts in out_indices
+    in_indices=g.in_indices,  # the same for in-edges; None if undirected
+    in_indptr=g.in_indptr,
 )
 pagerank = ib.centrality.PageRank(
     graph, distributeSinks=ib.centrality.SinkHandling.DistributeSinks  # (2)!
@@ -268,9 +279,89 @@ scores = pa.table({"id": g.node_keys, "pagerank": pagerank.run().scores()})
     exactly `pyarrow==26.0.1`, imports only when `networkx` is installed, and on macOS needs OpenMP from
     Homebrew (`brew install libomp`).
 
-For a weighted graph, pass the weights after the in-edge arrays:
-`ib.Graph.fromCSR(w.num_nodes, w.directed, w.out_indices, w.out_indptr, w.in_indices, w.in_indptr,
-w.out_weights, w.in_weights)`. Algorithms such as `ib.distance.Dijkstra` then use them.
+### Edge weights in icebug
+
+The PageRank above counts every follow the same. With [edge weights](#edge-weights), a follow can count for
+more when more messages travel along it. The `messages` export from that section gives icebug a weighted graph
+when you also pass its weight arrays to `fromCSR`, and the same PageRank call then uses them:
+
+<!-- skip-check -->
+```python
+w = weighted_engine.export_graph(weight="messages")  # (1)!
+graph = ib.Graph.fromCSR(
+    n=w.num_nodes,
+    directed=w.directed,
+    out_indices=w.out_indices,
+    out_indptr=w.out_indptr,
+    in_indices=w.in_indices,
+    in_indptr=w.in_indptr,
+    out_weights=w.out_weights,  # the weight of each entry in out_indices
+    in_weights=w.in_weights,  # the weight of each entry in in_indices
+)
+pagerank = ib.centrality.PageRank(
+    graph, distributeSinks=ib.centrality.SinkHandling.DistributeSinks
+)
+scores = pagerank.run().scores()
+print([round(s, 3) for s in scores])  # [0.331, 0.329, 0.292, 0.048]
+```
+
+1. `weighted_engine` is the engine from [Edge weights](#edge-weights), whose `FOLLOWS` table has a `messages`
+   column.
+
+Bob (key 20, dense id 2) rises from 0.205 without weights to 0.292. Alice sends him 7 messages and Carol only 1,
+so most of the score Alice passes on now goes to Bob.
+
+PageRank reads the weights, but not every icebug algorithm does. Some give the same answer on a weighted graph
+as on an unweighted one, without a warning, so check an algorithm here before you rely on its weights. The
+table lists what each one does in icebug 13.6. We found it by running each algorithm on the same graph with and
+without weights:
+
+| Module | Uses the weights | Ignores the weights, without a warning |
+| --- | --- | --- |
+| `distance` | `Dijkstra`, `BidirectionalDijkstra`, `AStar`, `APSP`, `Diameter` | `BFS`, `Eccentricity` |
+| `centrality` | `PageRank`, `Betweenness`, `ApproxBetweenness`, `EstimateBetweenness`, `Closeness`, `ApproxCloseness`, `HarmonicCloseness`, `TopHarmonicCloseness`, `EigenvectorCentrality`, `KatzCentrality`, `ForestCentrality`, `SpanningEdgeCentrality` (on a copy) | `KadabraBetweenness`, `TopCloseness`, `DegreeCentrality`, `CoreDecomposition`, `LocalClusteringCoefficient` |
+| `community` | `PLM` (Louvain), `ParallelLeiden`, `PLP` | `LPDegreeOrdered` |
+| `graph` | `RandomMaximumSpanningForest` | `SpanningForest` |
+| `matching` | `PathGrowingMatcher`, `SuitorMatcher` | |
+| `flow` | `EdmondsKarp` (on a copy) | |
+
+`KadabraBetweenness` is the one most likely to catch you out: it looks like a faster `Betweenness`, but it
+computes unweighted betweenness. `centrality.ApproxElectricalCloseness`, not in the table, is the one algorithm
+that refuses a weighted graph and raises an error.
+
+Two of the algorithms that use the weights, `SpanningEdgeCentrality` and `EdmondsKarp`, also need an id on every
+edge, which `indexEdges()` adds. A graph built by `fromCSR` can't be changed, so `indexEdges()` raises an error on
+it, and these two run on an editable copy instead. Make the copy with `weighted=True`, because without it the
+copy leaves the weights out. Here the messages act as capacities for a maximum flow. Alice sends Carol 1 message
+directly and Bob 7, but Bob sends Carol only 5, so at most 6 can flow from Alice to Carol:
+
+<!-- skip-check -->
+```python
+editable = ib.Graph(graph, weighted=True, directed=graph.isDirected())
+editable.indexEdges()
+alice, carol = 1, 0  # dense ids of keys 10 and 30
+print(ib.flow.EdmondsKarp(editable, alice, carol).run().getMaxFlow())  # 6.0
+```
+
+The copy holds the whole graph a second time in memory.
+
+!!! note "Limits that come from icebug"
+
+    These limits are in icebug rather than in the export, so lance-csr can't work around them. icebug 13.6
+    doesn't support edge ids on a graph built by `fromCSR`, which is why `SpanningEdgeCentrality` and
+    `EdmondsKarp` need the copy. The algorithms in the right-hand column, and `ApproxElectricalCloseness`, don't
+    support edge weights.
+
+The algorithms that use the weights don't all read them the same way. Shortest paths, betweenness and closeness
+treat a weight as a length, so a lower weight brings two nodes closer. PageRank, eigenvector and Katz
+centrality, community detection, maximum spanning forests and matchings treat it as a strength, so a higher
+weight ties two nodes more closely. One column rarely suits both: `messages` is a strength, so a shortest path
+over it would prefer the follows with the fewest messages. For shortest paths, compute the inverse of each
+weight array, such as `inverse_out = pyarrow.compute.divide(1.0, w.out_weights)`, and pass the inverses to
+`fromCSR` in place of the weights. Dijkstra and the algorithms built on it also assume that no weight is
+negative, and the export doesn't check this.
+
+### Other libraries
 
 Other libraries take the same arrays. For example, `scipy.sparse.csr_array((data, g.out_indices, g.out_indptr))`
 builds an adjacency matrix, after converting the arrays with `to_numpy()`, which doesn't copy them either.
