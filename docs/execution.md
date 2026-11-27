@@ -31,17 +31,9 @@ Source paths below are in `crates/lance-csr/src/`.
    with `CsrExpandExec`, the shortest-path search and `ApplyExec` among its extension operators.
 
 `engine.explain(query)` prints the plans from steps 4 to 6, and `engine.explain(query, analyze=True)` runs step 6
-and adds each operator's row counts and time (see [`explain`](cypher.md#explainquery-paramsnone-analyzefalse)).
-
-A CALL body is kept as an unoptimized child template. For each incoming row, `ApplyExec` binds its
-explicit imports, plans the child, and streams that child's batches. Child `LIMIT` and aggregates
-therefore apply separately to each incoming row. The operator retains one outer batch and one child
-stream per partition; its children may have their own buffering requirements. Dropping the result
-stream drops both owned streams. CALL queries use ordinary planning instead of the engine's template
-cache.
-
-Rust callers supplying their own `SessionContext` must install `CsrQueryPlanner` to execute CALL or
-other graph extension nodes. Contexts created by `CypherQuery` and `CypherEngine` install it themselves.
+and adds each operator's row counts and time (see [`explain`](running-queries.md#explain)). For details on each
+extension operator, optimizer rule and custom `SessionContext` setup, see
+[DataFusion internals](internals/index.md).
 
 ## Joins versus CSR expansion
 

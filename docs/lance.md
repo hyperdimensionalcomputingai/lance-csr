@@ -95,44 +95,10 @@ What `checkout_latest()` guarantees:
 `checkout_latest()` reopens each dataset by its URI with the same `storage_options` it was opened with, so object-store
 credentials carry over.
 
-## Repeated queries
-
-`execute()` and `execute_batches()` keep up to 128 query templates per engine snapshot. Reuse the exact
-query text with `$name` parameters to reuse parsing, semantic analysis, graph logical planning and
-DataFusion logical planning. Every execution binds its own values before optimization and physical planning;
-rows and results are never cached. Query text and parameter names/types identify each template, with nulls
-separate from non-null values. Least recently used templates are evicted at the limit.
-
-Lists, maps and parameterized `SKIP`/`LIMIT` counts use ordinary planning because their shape or value can
-change the plan. Queries whose operators cannot produce a reusable template fall back to ordinary planning. `explain()` plans the current values directly; `explain(..., analyze=True)` plans as `execute()` does, through the cache. A successful `checkout_latest()` starts an empty cache for the
-new snapshot, even when no dataset changed; active readers retain their existing plans.
-These rules apply with and without CSR. They do not promise a speedup for a particular workload.
-
-## Query parallelism
-
-`CypherEngine(..., target_partitions=None)` keeps DataFusion's default query partitioning. If you have
-measured your workload, you can choose a target from 1 to 1024 explicitly:
-
-```python
-serial_engine = CypherEngine(
-    config,
-    {"Person": lance.dataset("person.lance"), "KNOWS": lance.dataset("knows.lance")},
-    use_csr=True,
-    target_partitions=1,
-)
-print(serial_engine.execute("MATCH (p:Person) RETURN count(*) AS n").to_pylist())  # [{'n': 4}]
-serial_engine.checkout_latest()  # retains target_partitions=1
-```
-
-The target is a planning preference, not a thread or memory limit; operators may use a different number
-of partitions. A lower target can help short queries while making larger joins and scans slower. Compare
-your full workload in the storage mode you use before choosing a value. The default remains unchanged,
-and `checkout_latest()` preserves your choice. Booleans and non-integers other than `None` raise `TypeError`;
-zero, negative and out-of-range integers raise `ValueError`.
-
 ## Streaming large results
 
-`execute()` returns one table, held in memory. For big outputs, stream:
+`execute()` returns one table, held in memory. For big outputs, stream with
+[`execute_batches()`](running-queries.md#streaming):
 
 ```python
 total = 0
@@ -189,18 +155,13 @@ engine.checkout_latest()      # the engine sees the new version
 
 !!! warning "LanceDB bundles its own Lance"
 
-    LanceDB doesn't use `pylance` or lance-csr's built-in Lance: each LanceDB release bundles its own copy of the
-    Lance library, which is often newer than lance-csr's. The Lance format is mostly backwards compatible, so
-    newer Lance reads what older Lance wrote, but not always the other way around. A LanceDB that bundles a newer
-    Lance major version may write files, or use format features, that lance-csr's older Lance can't read: opening
-    or querying the dataset then fails with an error.
-
-    It also matters when lance-csr writes. [`write_node_column`](graph-algorithms.md#writing-results-back-to-lance)
-    and [`optimize_datasets`](#compaction-and-old-versions) commit new versions with lance-csr's Lance, into
-    datasets that LanceDB also writes. Before upgrading LanceDB, compare the Lance version it bundles (LanceDB's
-    `Cargo.toml` names it) with the one in lance-csr's
+    Each LanceDB release bundles its own copy of Lance, often newer than lance-csr's built-in copy. If LanceDB
+    uses a newer Lance major version, it can write files that lance-csr fails to open, and lance-csr writes
+    ([`write_node_column`](graph-algorithms.md#writing-results-back-to-lance),
+    [`optimize_datasets`](#compaction-and-old-versions)) commit with lance-csr's Lance version. Before upgrading
+    LanceDB, compare its bundled Lance version with lance-csr's
     [`Cargo.toml`](https://github.com/hyperdimensionalcomputingai/lance-csr/blob/main/crates/lance-csr/Cargo.toml),
-    and when the major versions differ, try the upgrade on a copy of your tables first.
+    and test major-version upgrades on a copy of your tables first.
 
 !!! failure "Not supported"
 

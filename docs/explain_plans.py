@@ -114,6 +114,11 @@ def main() -> None:
     args = parser.parse_args()
 
     csr, joins = people(True), people(False)
+    show(
+        "running-queries.md: explain(analyze=True)",
+        csr,
+        "MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person) RETURN b.name",
+    )
     two_hop = "MATCH (a:Person)-[:KNOWS]->(b:Person)-[:KNOWS]->(c:Person {name: 'Dan'}) RETURN a.name"
     show("operators.md: CsrExpand, use_csr=True", csr, two_hop)
     show("operators.md: CsrExpand, use_csr=False", joins, two_hop)

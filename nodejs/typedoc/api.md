@@ -19,7 +19,7 @@ never change; create a new engine to replace them.
 snapshot, keyed by the exact query text and the names and types of scalar
 parameters. Values are bound before optimization on every call. A successful
 `checkoutLatest` clears the cache. See
-[Repeated queries](https://lance-csr.hdclabs.ai/lance/#repeated-queries).
+[Repeated queries](https://lance-csr.hdclabs.ai/running-queries/#repeated-queries).
 
 #### Example
 

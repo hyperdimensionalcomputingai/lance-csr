@@ -62,7 +62,7 @@ The third argument of `CypherEngine::new` is `use_csr`. With `true`, relationshi
 get [CSR adjacencies](csr.md) and node labels with unique integer ids get a node index, exactly as with
 `use_csr=True` in Python. `CypherEngine::with_target_partitions(config, sources, use_csr, Some(n))` also sets
 DataFusion's query partition target (1 to 1024), like `target_partitions=` in Python; see
-[Query parallelism](lance.md#query-parallelism). `CypherEngine::with_options(config, sources, options)` takes every
+[Query parallelism](running-queries.md#query-parallelism). `CypherEngine::with_options(config, sources, options)` takes every
 setting at once as an `EngineOptions` (in `lance_csr::engine`), including `persist_csr`, a `PersistCsr` that
 [loads and stores the CSR](csr.md#storing-the-csr) as in Python: `Off`, `Load` (`"load"`) or `LoadAndStore`
 (`True`).

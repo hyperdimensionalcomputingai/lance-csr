@@ -55,8 +55,8 @@ print(friends.to_pylist())
 | --- | --- |
 | `SqlEngine(datasets, config=None, use_csr=False)` | Registers the datasets; `config` and `use_csr` add a [graph](#graph-patterns-in-sql). |
 | `SqlEngine.from_engine(engine)` | SQL over a `CypherEngine`'s snapshot, sharing its datasets and CSR. |
-| `execute(sql, params=None, *, timeout=None)` | Runs a query and returns a `pyarrow.Table`. `timeout` works as for [Cypher queries](cypher.md#query-deadlines). |
-| `explain(sql, params=None, *, analyze=False)` | The optimized logical and physical plans, as text. `analyze=True` runs the query and shows each operator's metrics, as for [`CypherEngine.explain`](cypher.md#explainquery-paramsnone-analyzefalse). |
+| `execute(sql, params=None, *, timeout=None)` | Runs a query and returns a `pyarrow.Table`. `timeout` works as for [Cypher queries](running-queries.md#query-deadlines). |
+| `explain(sql, params=None, *, analyze=False)` | The optimized logical and physical plans, as text. `analyze=True` runs the query and shows each operator's metrics, as for [`CypherEngine.explain`](running-queries.md#explain). |
 | `checkout_latest()` | Moves every Lance dataset to its latest version, as for [`CypherEngine`](lance.md). |
 
 !!! note "Table names are lower-cased"
@@ -66,7 +66,7 @@ print(friends.to_pylist())
     Constructing an engine with an empty dict raises `ValueError`.
 
 The engine keeps up to 128 plans per snapshot, keyed by the query text and the names and types of its scalar
-parameters, and binds the values on every call, as [`CypherEngine` does for Cypher](lance.md#repeated-queries).
+parameters, and binds the values on every call, as [`CypherEngine` does for Cypher](running-queries.md#repeated-queries).
 A list or map parameter is planned on every call, and `checkout_latest()` clears the cache. Only queries run:
 `CREATE`, `INSERT`, `COPY` and `SET` raise `ValueError`, as does a `$name` with no value.
 
