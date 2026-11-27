@@ -1,6 +1,6 @@
 # lance-csr
 
-A Cypher graph query engine for [Lance](https://lancedb.github.io/lance/) datasets, built on Apache DataFusion,
+A Cypher graph query engine for [Lance](https://lance.org/) datasets, built on Apache DataFusion,
 with a CSR (compressed sparse row) adjacency index for fast multi-hop traversal. It interprets Lance datasets or
 Arrow tables as property graphs. The [lance-csr Python package](https://pypi.org/project/lance-csr/) wraps this
 crate.

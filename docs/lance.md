@@ -1,6 +1,6 @@
 # Lance datasets
 
-[Lance](https://lancedb.github.io/lance/) is a columnar format for ML and multimodal data, with versioning,
+[Lance](https://lance.org/) is a columnar format for ML and multimodal data, with versioning,
 fast random access and vector indexes. lance-csr can query Lance datasets on disk without loading them into
 memory first.
 

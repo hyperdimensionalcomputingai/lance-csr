@@ -1,6 +1,6 @@
 # lance-csr
 
-A fast [openCypher](https://opencypher.org/) graph query engine over [Lance](https://lancedb.github.io/lance/)
+A fast [openCypher](https://opencypher.org/) graph query engine over [Lance](https://lance.org/)
 datasets and Arrow tables, for Node.js. It is written in Rust on Apache DataFusion, and its compressed sparse row
 (CSR) adjacency index turns each relationship hop into an array lookup, which makes multi-hop traversals fast.
 The same engine ships as the `lance-csr` Python package and Rust crate.
