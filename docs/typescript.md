@@ -63,7 +63,7 @@ A `LanceDataset`: `{ uri, version?, storageOptions? }`
     latest when you leave it out) until `checkoutLatest()`. `storageOptions` are Lance's object-store
     settings, such as credentials and region. See [Lance datasets](lance.md).
 
-lance-csr only reads datasets. In TypeScript, [LanceDB](https://lancedb.github.io/lancedb/)'s
+lance-csr only reads datasets. In TypeScript, [LanceDB](https://lancedb.com/docs/)'s
 `@lancedb/lancedb` package writes them: each LanceDB table is a Lance dataset at `<database>/<table>.lance`.
 
 <!-- skip-check -->

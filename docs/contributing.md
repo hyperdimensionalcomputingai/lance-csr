@@ -92,9 +92,9 @@ uv run --no-sync python ../docs/check_snippets.py csr.md    # one page
 ```
 
 The [TypeScript API reference](typescript-api.md) is generated with TypeDoc from the TSDoc comments and types in
-`nodejs/src/`, into `nodejs/typedoc/api.md`, which the page includes. TypeDoc and the TypeScript version it
-needs are pinned in `nodejs/typedoc/`, apart from the package's own tools. After changing the TypeScript API or
-its comments, regenerate the page and commit it; CI fails when the committed copy is out of date:
+`nodejs/src/`, into `nodejs/typedoc/api.md`, which the page includes. TypeDoc and its required TypeScript version are pinned in `nodejs/typedoc/`, separate from the package's own
+build tools. After changing the TypeScript API or its comments, regenerate the page and commit it; CI fails when
+the committed copy is out of date:
 
 ```bash
 cd nodejs

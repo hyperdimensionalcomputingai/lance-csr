@@ -87,7 +87,7 @@ keeps the two hops from reusing one edge. Both plans start from `c` (Dan), not `
 | Relationship filter: drops failing edges before anything else is fetched | `edge_filter=since > 2020` | `FilterExec` after the join |
 | Closing edge: the target is already bound (a cycle), so only neighbours equal to it are kept | `match=b__id` | Expanding everything, then filtering |
 | [Iterative variable-length traversal](../csr.md#variable-length-traversal): one cursor per hop over typed (label, key) frontiers, with bounded output batches | `iterative hops=1..3` | One join branch per path length, combined with `UNION ALL` |
-| Outer expansion for a one-hop `OPTIONAL MATCH` with no `WHERE` of its own: an input row with no neighbour keeps one row, with nulls in the columns the hop adds. No filter moves into an outer hop, because that would turn a row the filter drops into a row of nulls | `outer` | Planning the input a second time to start the optional side, then a left join back |
+| Outer expansion for a one-hop `OPTIONAL MATCH` with no `WHERE` of its own: an input row with no neighbour keeps one row, with nulls in the columns the hop adds. No filter moves into an outer hop, because that would turn a filtered-out row into a row of nulls | `outer` | Planning the input a second time to start the optional side, then a left join back |
 | Degrees: one row per input node with the number of its neighbours that pass the target filter, and how many of them are the node itself, for the [two-hop count](optimizer.md#two-hop-counts-from-degrees) | `degrees=[__n1, __s1]` | A hash aggregate over one row per edge |
 
 A hop that uses several of these at once:
@@ -133,8 +133,8 @@ ProjectionExec: expr=[b__name@3 as b.name]
   on takes. In-memory Arrow tables always gather directly.
 - **Bounded memory per partition.** Each partition holds one input batch and at most one output chunk of neighbour
   positions, sized by DataFusion's batch size, before it fetches properties. It yields partway through a high-degree
-  node's neighbour list. The exception is the sequential reads above: once a hop switches to them, the columns it
-  read stay in memory for the rest of the query, shared by its partitions.
+  node's neighbour list. The exception is the sequential reads described above: once a hop switches to a sequential
+  read, the loaded columns stay in memory for the rest of the query and are shared across partitions.
 - **Fast hashing on the hot path.** Integer-keyed maps on the per-edge lookup path use `ahash`, as Arrow and
   DataFusion do; with the standard library's SipHash, hashing dominated expansion time in profiles.
 - **A predicate pushdown boundary.** The node lists its own output columns in `prevent_predicate_push_down_columns`,
@@ -232,8 +232,8 @@ A predicate qualifies when it is one path that:
 - ends at an anonymous node or at another bound node (`match=` in the plan);
 - has no `WHERE` of its own.
 
-Every node the walk reaches must be in its label's node index, as the relational plan joins each node to its table, so
-an edge to a missing node matches nothing. A predicate that doesn't qualify, a hop or label without a CSR, or an
+Every node reached by the walk must exist in its label's node index—matching the relational plan's join to the
+node table—so an edge pointing to a missing node matches nothing. A predicate that doesn't qualify, a hop or label without a CSR, or an
 endpoint that isn't an integer id keeps the relational plan, which the logical operator carries as its fallback. Both
 give the same rows. The walk keeps no set of visited nodes, so a long chain of high-degree hops ending at a bound node
 costs the product of their degrees per row.
@@ -296,9 +296,9 @@ relationship predicates inside recursive joins over CSR adjacency lists, so the 
 the relationship table's size.
 
 Otherwise, for shortest paths or a relationship type without a CSR, `PathMatchExec: p edge inventory` builds one
-immutable, query-local edge inventory in which an edge's identity is its actual occurrence. For a relationship type
-the engine has a CSR for, the inventory reads the rows the CSR stores, with their CSR rows, so a trail and a shortest
-path in the same query name each edge the same way; otherwise the identity is the row's position in the scan. It enumerates
+immutable, query-local edge inventory in which an edge's identity is its actual occurrence. When a relationship type
+has a CSR index, the inventory reads those same edges along with their CSR row addresses, so a trail and a shortest
+path in the same query assign identical edge IDs; otherwise the identity is the row's position in the scan. It enumerates
 trails over the inventory the same way and reuses the bidirectional breadth-first search on a bipartite node/edge
 graph for shortest paths. Path values keep properties in a marked child, so user property names can't
 collide with identity metadata. When an untyped match combines branches, the planner merges those
@@ -310,7 +310,7 @@ when the engine has the CSR and node indexes it needs. Otherwise `PathMatchExec`
 columns and skips building the Arrow path value for each trail. Both operators identify each edge
 by its type and occurrence, including when a trail traverses it in reverse.
 
-A named path whose variable the query never reads runs the same way. Building a path value costs
+A named path whose variable is never referenced by the query is handled the same way. Building a path value costs
 far more than the walk when a query only counts paths or returns their end nodes: on the LDBC SF1
 graph, the 86K paths of `MATCH p = (a:Person {ID: 1131})-[:knows*1..3]->(b:Person) RETURN count(*)`
 made about 100 MB of path values that nothing read. So the `prune_csr_target_columns` optimizer rule,
@@ -350,8 +350,8 @@ predicates against the inventory's relationship schema or, on the CSR walk, each
 The planner turns the conjuncts `all(r IN relationships(p) WHERE x)` and `none(... WHERE x)` of the `WHERE`
 into one condition every relationship must meet, with `r.key` read as the column `key`. Only conditions on `r`'s
 properties, parameters and literals qualify. `PathMatch` ANDs it into each step's relationship predicate, so the
-walk skips failing edges; the `WHERE` itself still runs. A property a table lacks reads as null, and a condition
-that reads no column of a table is evaluated once for all its edges. Only the condition's parameters are logical
+walk skips failing edges; the `WHERE` itself still runs. A property missing from a table evaluates to null, and a
+condition that references none of the table's columns is evaluated once for all of its edges. Only the condition's
 expressions of the node, since DataFusion can't type its columns against the node's inputs.
 Each execution starts with fresh table scans that can share source batches within that execution.
 

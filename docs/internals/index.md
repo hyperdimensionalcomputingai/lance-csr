@@ -94,8 +94,8 @@ DataFusion logical plan and the physical plan, and every custom operator shows u
 Apart from the vector functions, every implementation in this table was added in lance-csr;
 [lance-graph](https://github.com/lance-format/lance-graph) used no DataFusion extension points. `CypherEngine` builds
 one DataFusion session per snapshot (in `engine.rs`). It installs `CsrQueryPlanner` and adds `PushCsrTargetFilters`,
-then `CountCsrDegrees`, then `PruneCsrTargetColumns`: counting in place needs the hop's filter moved in first, and
-pruning can then drop the columns a moved filter reads. `SqlEngine` runs on a
+then `CountCsrDegrees`, then `PruneCsrTargetColumns`: counting in place needs the hop's filter pushed down first,
+and pruning can then drop columns that are only used by that filter. `SqlEngine` runs on a
 `CypherEngine`'s snapshot and plans in a copy of its session with `graph_table` registered, so SQL and Cypher share
 the planner, rules and statistics. Its plan cache holds whole SQL plans whose `GRAPH_TABLE` patterns were planned
 as Cypher templates, so binding the SQL plan binds both.

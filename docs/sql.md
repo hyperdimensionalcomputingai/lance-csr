@@ -70,9 +70,9 @@ parameters, and binds the values on every call, as [`CypherEngine` does for Cyph
 A list or map parameter is planned on every call, and `checkout_latest()` clears the cache. Only queries run:
 `CREATE`, `INSERT`, `COPY` and `SET` raise `ValueError`, as does a `$name` with no value.
 
-A Lance dataset opened through a namespace can't be reopened by its URI, so without a `config` `SqlEngine` reads
-it into memory, as `SqlQuery` reads every dataset on each call; with a `config` it raises `ValueError`, as
-`CypherEngine` does. The SQL dialect is DataFusion's; see the
+A Lance dataset opened through a namespace cannot be reopened by URI. Without a `config`, `SqlEngine` reads it
+into memory (just as `SqlQuery` does for every dataset); with a `config`, it raises `ValueError`, matching
+`CypherEngine`. The SQL dialect is DataFusion's; see the
 [DataFusion SQL reference](https://datafusion.apache.org/user-guide/sql/index.html) for what it supports.
 
 ## Graph patterns in SQL
@@ -107,8 +107,9 @@ print(engine.execute("""
 ```
 
 Inside `GRAPH_TABLE`, the `MATCH` pattern, the `WHERE` condition and the `COLUMNS` list are Cypher with SQL's
-quoting: the clause runs as `MATCH ... WHERE ... RETURN <columns>` would, so any pattern `CypherEngine.execute` supports works there, and
-the columns take the names their aliases give them. One `params` dict serves the SQL and every pattern. Only the
+quoting: the clause behaves like `MATCH ... WHERE ... RETURN <columns>`, so any pattern supported by
+`CypherEngine.execute` works here, and output columns take their `AS` aliases. One `params` dict serves the SQL
+and every pattern. Only the
 clause's shape comes from SQL/PGQ. There is no `CREATE PROPERTY GRAPH`: the graph is the engine's `GraphConfig`,
 and a graph name before `MATCH` is accepted and ignored. `graph_table('<Cypher query>')` is the same table written
 as a function call. Without a `config`, `GRAPH_TABLE` raises `ValueError`.

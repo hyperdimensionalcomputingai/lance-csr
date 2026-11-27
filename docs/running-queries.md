@@ -167,9 +167,9 @@ except TimeoutError:
     print("Query timeout exceeded")  # Query timeout exceeded
 ```
 
-Expiring before a reader is returned raises `TimeoutError`. Reading from an expired Arrow reader raises
-`pyarrow.ArrowInvalid` containing `Query timeout exceeded`; batches already read stay valid. Close readers when
-you stop consuming them.
+If the deadline expires before a reader is returned, the call raises `TimeoutError`. If it expires while iterating
+a reader, the next read raises `pyarrow.ArrowInvalid` containing `Query timeout exceeded`; any batches you have
+already read remain valid. Close readers when you stop consuming them.
 
 Cancellation is cooperative: traversal loops, cross joins and nested-loop joins check the deadline regularly
 (even when no rows match). See [Timeouts](api-reference.md#timeouts) in the API reference for validation rules

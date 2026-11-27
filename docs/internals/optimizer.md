@@ -33,8 +33,8 @@ expansion was already small, which re-rooting usually ensures.
 DataFusion's projection pushdown prunes an extension node's inputs but not its outputs, so without this rule a fused
 lookup would fetch every target column for every row. The rule collects the columns used anywhere in the plan and
 narrows each `CsrExpand`'s target and relationship columns, and each `NodeLookup`, to that set. A `NodeLookup` whose
-columns are all unused is removed. The columns a `NodeLookup` fetches shadow any of the same name below it, so the rule
-prunes the plan under each lookup again, against only what that plan outputs: a hop under
+columns are all unused is removed. The columns fetched by a `NodeLookup` shadow any columns of the same name below
+it, so the rule prunes the plan under each lookup again, against only what that plan outputs: a hop under
 `NodeLookup: take=b[b__name]` doesn't fetch `b__name` for every edge just because the lookup's `b__name` is used above.
 A `NodeLookup` directly under a projection is also narrowed to the columns that projection references, whatever else
 in the plan uses the same names. When a query groups by the same node twice, the lookup after the first grouping
@@ -47,7 +47,7 @@ all inputs of nodes whose column use is implicit, such as `DISTINCT` and `UNION`
 ### Why the order matters
 
 `PushCsrTargetFilters` runs first, and `CountCsrDegrees` after it, since counting in place needs the hop's filter
-already inside the node. After a filter moves into the node, the columns only the filter reads are no longer
+already inside the node. After a filter moves into the node, any columns used only by that filter are no longer
 referenced above it, so `PruneCsrTargetColumns` can drop them from the output. The logical plan (before the rules) and
 the physical plan (after them) of one hop show both:
 
@@ -163,7 +163,7 @@ are subtracted.
 The rewrite applies when every `WHERE` condition reads one hop's variables, and the hops' mean fan-outs at `b` (from
 the [join statistics](#join-statistics-for-graph-workloads)) say there are at least twice as many paths as edges.
 
-A relationship variable no condition reads is left unbound, so the CSR doesn't fetch its edge rows. Each side's
+A relationship variable that no condition references is left unbound, so the CSR skips fetching its edge rows. Each side's
 grouping is a `HopDegreesNode` over the aggregate. After `PushCsrTargetFilters` has moved the side's far-end filter
 into its `CsrExpand`, the `CountCsrDegrees` rule replaces it: a CSR hop with at most that filter counts each node's
 neighbours in place ([`degrees=`](operators.md#what-one-expansion-can-do)), one row per node, and any other hop keeps

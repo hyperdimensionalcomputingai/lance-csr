@@ -180,5 +180,5 @@ until it finishes, so peak memory would otherwise grow with the core count. Delt
 one type at a time, and each `build_ms` measures one build. Writes go through the dataset's object store with `put_if_absent`, which
 publishes the whole file at once on local disk and object storage; the compressed file is encoded in memory first.
 Encoding takes seconds on large graphs, so the store first writes and deletes an empty `.write-probe` in
-`_lance_csr`: storage that can't be written fails there, before the encode. With `persist_csr="load"` nothing is
-written at all.
+`_lance_csr`: read-only storage fails immediately at the probe, before encoding begins. With `persist_csr="load"`
+nothing is written at all.
