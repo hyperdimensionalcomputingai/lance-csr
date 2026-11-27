@@ -88,8 +88,8 @@ vector operation.
 
 ## Read-only subqueries
 
-Use `CALL { ... }` when a match, aggregation or `LIMIT` must run independently for each incoming row—for
-example, finding each person's oldest friend:
+Use `CALL { ... }` when a match, aggregation or `LIMIT` must run independently for each incoming row, for
+example to find each person's oldest friend:
 
 ```python
 print(engine.execute("""
@@ -186,8 +186,8 @@ RETURN length(p), nodes(p)
   such as `(p)-[:KNOWS*1..2]-(f)-[:KNOWS]-(g)` do the same when the relationships are anonymous and typed, their
   boundary labels resolve, and a shared CSR walk or bounded join chain (at most 64 branches) applies; separate
   comma-separated paths in the same `MATCH` do not share history.
-- **Reusing a relationship variable:** writing a bound variable again—such as `(a)-[r:KNOWS]->(b), (c)-[r]->(d)`,
-  in a later `MATCH`, or after `WITH r`—matches that same edge (`c = a`, `d = b`). The type may be omitted; a
+- **Reusing a relationship variable:** writing a bound variable again (such as `(a)-[r:KNOWS]->(b), (c)-[r]->(d)`,
+  in a later `MATCH`, or after `WITH r`) matches that same edge (`c = a`, `d = b`). The type may be omitted; a
   conflicting type matches nothing. Undirected reuse matches both orientations; if the first binding was
   undirected, a later directed reuse follows the traversed direction. Reusing a relationship variable inside a
   variable-length segment is unsupported.
@@ -281,7 +281,7 @@ RETURN count(DISTINCT p.id) > 0 AS present
 ```
 
 On empty input, a global `count` returns `0` (so the query above returns one row with `present = false`), and
-`count(DISTINCT value)` skips nulls and duplicates—including when a filter fixes the counted property to a
+`count(DISTINCT value)` skips nulls and duplicates, including when a filter fixes the counted property to a
 constant.
 
 ## Functions

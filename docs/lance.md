@@ -211,9 +211,9 @@ each dataset by its location rather than through your table object. LanceDB sugg
 
 Two things to keep in mind:
 
-- **Other readers.** If cleanup deletes a version that a reader is pinned to, that reader fails—including in-flight
-  queries on this engine or other processes reading the same datasets. Keep the window longer than any of them
-  stays pinned; a window of zero is only safe when nothing else reads the datasets.
+- **Other readers.** If cleanup deletes a version that a reader is pinned to, that reader fails, including queries
+  still running on this engine or other processes reading the same datasets. Keep the window longer than any of
+  them stays pinned; a window of zero is only safe when nothing else reads the datasets.
 - **Lance indexes aren't updated.** LanceDB's `optimize()` also adds new rows to vector and scalar indexes. If you
   keep such indexes, run `lance.dataset(uri).optimize.optimize_indices()` (or LanceDB's `optimize()`) for them,
   then `engine.checkout_latest()`.

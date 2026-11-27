@@ -59,10 +59,10 @@ print(friends.to_pylist())
 | `explain(sql, params=None, *, analyze=False)` | The optimized logical and physical plans, as text. `analyze=True` runs the query and shows each operator's metrics, as for [`CypherEngine.explain`](running-queries.md#explain). |
 | `checkout_latest()` | Moves every Lance dataset to its latest version, as for [`CypherEngine`](lance.md). |
 
-!!! note "Table names are lower-cased"
+!!! note "Table names are lowercased"
 
-    `SqlEngine` lower-cases dataset names when it registers them, so a `"Person"` key is queried as `person`.
-    A quoted table name must be lower-case too: a `"Device Type"` key is queried as `"device type"`.
+    `SqlEngine` lowercases dataset names when it registers them, so a `"Person"` key is queried as `person`.
+    A quoted table name must be lowercase too: a `"Device Type"` key is queried as `"device type"`.
     Constructing an engine with an empty dict raises `ValueError`.
 
 The engine keeps up to 128 plans per snapshot, keyed by the query text and the names and types of its scalar

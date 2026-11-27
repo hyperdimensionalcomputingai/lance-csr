@@ -110,6 +110,15 @@ touch a page that shows a plan:
     - grid cards on the home page only.
 - Plain, direct sentences. Use "you". Avoid filler and marketing adjectives. Spell out a term the first time
   (compressed sparse row) and link to the page that explains it.
+- **Avoid em dashes (`—`) and awkward hyphenations.** Use commas, colons, parentheses, or two shorter sentences
+  instead of em dashes. Keep standard technical compounds (`read-only`, `in-memory`, `multi-hop`, `zero-copy`,
+  `variable-length`), but avoid forced compound modifiers like `in-flight`, `filtered-out`, `one-edge-per-source`,
+  or `capability-based` when plain wording reads more naturally.
+- **Avoid colliding verbs and garden-path sentences.** Do not drop `that`/`which` when it puts two verbs back to
+  back (*"a newer format than Lance knows fails"*, *"a version cleanup deletes fails"*, *"whose variable the query
+  never reads runs"*). Rephrase so every sentence flows smoothly on the first read without forcing a double take.
+- **No `github.io` links.** Always link to `https://lance.org/` for the Lance format and docs, and
+  `https://lancedb.com/docs/` for LanceDB.
 - Use sentence-case headings, and keep page titles short; they appear in the navigation.
 - Link between pages with relative Markdown links (`[CSR index](csr.md#inspecting-the-csr)`), which the
   strict build checks.

@@ -6,7 +6,7 @@ to turn it on, which query patterns use it, and how it stays current or persists
 !!! abstract "In one sentence"
 
     `CypherEngine(config, datasets, use_csr=True)` builds a compact in-memory neighbour list for every
-    relationship type, turning each traversal hop from two hash joins into an array lookup—with identical query
+    relationship type, turning each traversal hop from two hash joins into an array lookup, with identical query
     results.
 
 ## Why joins are slow for traversal
@@ -47,10 +47,10 @@ For the edges `1→2, 1→3, 2→4, 3→4`:
 | `neighbours` | 2 | 3 | 4 | 4 |
 
 The neighbours of position `v` are `neighbours[offsets[v] .. offsets[v + 1]]`, so node 1's neighbours are
-`neighbours[0..2] = [2, 3]`. Lookup takes one index probe with no edge-table hashing, and each node's neighbours
-sit contiguously in memory.
+`neighbours[0..2] = [2, 3]`. Lookup takes one index probe with no hashing of the edge table, and each node's
+neighbours sit contiguously in memory.
 
-lance-csr builds **two** CSRs per relationship type—one outgoing and one incoming—so queries can traverse in
+lance-csr builds **two** CSRs per relationship type, one outgoing and one incoming, so queries can traverse in
 either direction.
 
 ## Turning it on { #turning-it-on }
@@ -89,10 +89,10 @@ Node index
 !!! info "Memory cost"
 
     The CSR stays in memory even when tables are read lazily from Lance. Resident memory scales with the number
-    of edges plus an index entry per source node (clustered one-edge-per-source tables with ≥1M sources use a
-    compact bitmap layout; see [Source layouts](internals/indexes.md#source-layouts) and
+    of edges plus an index entry per source node (clustered tables with at least 1M sources where each source has
+    one edge use a compact bitmap layout; see [Source layouts](internals/indexes.md#source-layouts) and
     [Packed edge rows](internals/indexes.md#packed-edge-rows)). Peak memory during the initial build is briefly
-    several times the resident size—run `python/benchmarks/csr_expand.py` on representative data to measure both
+    several times the resident size. Run `python/benchmarks/csr_expand.py` on representative data to measure both
     build time and peak RSS.
 
     During execution, each expansion partition yields one output batch of neighbours at a time rather than
@@ -121,10 +121,10 @@ speedups on selective starts, multi-hop traversals and variable-length paths.
 
 All [benchmark results](benchmarks.md) run with `use_csr=True` on GDC SNB graphs with integer keys.
 
-### Count-only optimizations over whole relationships
+### Counting without expanding
 
 When a hop starts from every node in a label, emitting one row per edge does as much work as a hash join. Where
-the CSR still helps is counting—it can read each node's degree directly without materializing per-edge rows:
+the CSR still helps is counting: it can read each node's degree directly without materializing a row per edge:
 
 - **Two-hop counts:** `RETURN count(*)` over `(a)-->(b)-->(c)` (including `OPTIONAL MATCH` on the second hop, or
   grouped by one node's ID/properties) multiplies or sums per-node degrees instead of expanding every two-hop
@@ -151,9 +151,10 @@ CsrExpandExec: key=follower__id, edges=2417738, take=person[person__name]
 ```
 
 Run `explain(query, analyze=True)` to see actual `output_rows=` and `elapsed_compute=` per operator (see
-[`explain`](running-queries.md#explain)). Because CSR selection is capability-based rather than cost-based, the
-planner won't automatically switch a whole-relationship CSR hop back to a join. Narrow the starting node with a
-filter where possible, or benchmark `use_csr=False` if your workload is mostly unfiltered full-graph scans.
+[`explain`](running-queries.md#explain)). Because the planner chooses the CSR by what it can express rather than
+by estimated cost, it won't automatically switch a whole-relationship CSR hop back to a join. Narrow the starting
+node with a filter where possible, or benchmark `use_csr=False` if your workload is mostly unfiltered scans of the
+whole graph.
 
 ## Which hops use it { #which-hops-use-it }
 
@@ -372,8 +373,8 @@ full rebuild and clears the delta automatically. Check `update` in [`csr_stats()
 
     - Compaction and `cleanup_old_versions()` don't force a CSR rebuild: deletions match by each entry's edge row
       address.
-    - Node-table writes never touch the CSR (which stores raw node keys, not row positions); only that label's
-      node index rebuilds.
+    - Writes to a node table never touch the CSR (which stores raw node keys, not row positions); only that
+      label's node index rebuilds.
 
 ### Optional: rebuilding early with `optimize_csr()` { #rebuilding-the-csr }
 
@@ -435,8 +436,8 @@ Dropping or copying the dataset drops or copies the CSR with it, and Lance's `cl
 
 - **Incremental loads:** changes written since the stored version apply as a delta (even after compaction or
   version cleanup); `update` reports `loaded` and `base_version` records the stored version.
-- **Automatic refresh:** full builds past the 25% threshold—including from `checkout_latest()` and
-  `optimize_csr()`—write a new file and delete older ones.
+- **Automatic refresh:** full builds past the 25% threshold (including from `checkout_latest()` and
+  `optimize_csr()`) write a new file and delete older ones.
 - **Safe fallback:** corrupt, incompatible or unreadable files are ignored and rebuilt in memory. On read-only
   storage, the engine checks write access before compressing, builds in memory, emits a `RuntimeWarning` (a `log`
   warning in Rust), and records `store_error` in `csr_stats()`.
