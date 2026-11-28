@@ -80,9 +80,9 @@ flowchart LR
 The same edges, endpoints, labels and variables are matched, and the full `WHERE` clause still applies above the
 match. Only the order of work changes.
 
-A single named path (`p = ...`) or a path with a variable-length segment is not split, so it can only be walked from
-one end or the other. The planner walks it from its written end when that end is bound, or when its conditions score
-higher than the start's. A named path walked backwards is marked `reversed` in `PathMatch`, which reverses each
+A single named path (`p = ...`) whose name the query reads, or a path with a variable-length segment, is not split,
+so it can only be walked from one end or the other. The planner walks it from its written end when that end is bound,
+or when its conditions score higher than the start's. A named path walked backwards is marked `reversed` in `PathMatch`, which reverses each
 path's nodes and relationships before building `p`, so `nodes(p)` and `relationships(p)` keep their written order.
 A variable-length segment with a relationship variable (`[r:KNOWS*1..3]`) keeps its written direction, because `r`
 is a list in that order. A `MATCH` after `WITH` makes the same choices using its stage's `WHERE`.

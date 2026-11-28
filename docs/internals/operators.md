@@ -303,10 +303,13 @@ Additional planning and schema details:
 - **Unnamed undirected segments with several types:** bounded undirected segments with multiple types use
   iterative `CsrExpandExec` when CSR and node indexes exist; otherwise `PathMatchExec` emits boundary columns
   without building Arrow path values.
-- **Skipping unused path values (`PathMatchExec: endpoints`):** building Arrow path structs is expensive when a
-  query only counts paths or returns endpoints (on LDBC SF1, 86K paths from `[:knows*1..3]` produced ~100 MB of
-  unused structs). `PruneCsrTargetColumns` drops the path column whenever nothing references `p`, letting the CSR
-  walk skip relationship records unless a relationship variable needs them.
+- **Skipping unused path values:** building Arrow path structs is expensive when a query only counts paths or
+  returns endpoints (on LDBC SF1, 86K paths from `[:knows*1..3]` produced ~100 MB of unused structs). When the
+  path's name appears nowhere else in its query (UNION branches are separate), the logical planner drops the name
+  before planning, so the pattern gets the same plan as when written unnamed, with no `PathMatch` and no node
+  inventory. A name that is only passed along (`WITH b, p RETURN count(b)`) keeps `PathMatch`, but
+  `PruneCsrTargetColumns` drops the unread path column (`PathMatchExec: endpoints`), letting the CSR walk skip
+  relationship records unless a relationship variable needs them.
 - **Predicate pushdown and caching:** path property values are logical expressions so cached plan templates bind
   fresh parameters per execution. Conjuncts of `all(r IN relationships(p) WHERE ...)` and
   `none(r IN relationships(p) WHERE ...)` that read only `r`'s properties, parameters and literals are combined

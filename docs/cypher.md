@@ -213,8 +213,9 @@ print(paths.to_pylist())
 - A zero-hop path has one node and an empty relationship list. All path functions return `null` for a `null` path.
 - **Cost:** constructing path values reads participating node tables in full. With `use_csr=True`, named trail
   paths walk the CSR and read relationship properties only for returned paths; shortest paths and non-CSR
-  relationship types build a query-local edge inventory whose memory grows with the graph. A named path whose
-  variable is never read (such as `MATCH p = ... RETURN count(*)`) skips building path values.
+  relationship types build a query-local edge inventory whose memory grows with the graph. A path whose name
+  appears nowhere else in its query (such as `MATCH p = ... RETURN count(*)`) is planned as the same pattern without
+  the name, so it builds no path values and reads no node table in full.
 
 ??? info "Arrow struct layout and exact path semantics"
 

@@ -560,6 +560,9 @@ impl<'a> LogicalPlanner<'a> {
 
     /// Convert a Cypher AST to a logical plan
     pub fn plan(&mut self, query: &CypherQuery) -> Result<LogicalOperator> {
+        let mut query = query.clone();
+        drop_unread_path_variables(&mut query);
+        let query = &query;
         let mut relationships = Vec::new();
         query.for_each_query(&mut |scope| {
             for clause in scope.all_reading_clauses() {
@@ -2474,6 +2477,65 @@ impl<'a> LogicalPlanner<'a> {
     }
 }
 
+/// Unname every named path (`p = ...`) whose variable nothing in its query reads, so it
+/// plans as the same pattern unnamed. A path value costs an inventory of the label's
+/// nodes, read in full, that `count(*)` or a property return never looks at. Each UNION
+/// branch is its own scope. Shortest paths keep their name.
+fn drop_unread_path_variables(query: &mut CypherQuery) {
+    fn paths(query: &mut CypherQuery) -> impl Iterator<Item = &mut PathPattern> {
+        query
+            .reading_clauses
+            .iter_mut()
+            .chain(&mut query.post_with_reading_clauses)
+            .chain(
+                query
+                    .further_with_stages
+                    .iter_mut()
+                    .flat_map(|stage| &mut stage.reading_clauses),
+            )
+            .filter_map(|clause| match clause {
+                ReadingClause::Match(m) => Some(m.patterns.iter_mut()),
+                ReadingClause::Unwind(_) => None,
+            })
+            .flatten()
+            .filter_map(|pattern| match pattern {
+                GraphPattern::Path(path) if path.shortest.is_none() => Some(path),
+                _ => None,
+            })
+    }
+    fn contains(value: &serde_json::Value, name: &str) -> bool {
+        match value {
+            serde_json::Value::String(s) => s == name,
+            serde_json::Value::Array(items) => items.iter().any(|v| contains(v, name)),
+            serde_json::Value::Object(fields) => fields.values().any(|v| contains(v, name)),
+            _ => false,
+        }
+    }
+
+    for branch in &mut query.union_branches {
+        drop_unread_path_variables(&mut branch.query);
+    }
+    let branches = std::mem::take(&mut query.union_branches);
+    // The scope without its path names: a name still found in it is read somewhere. A
+    // string that merely equals the name (a literal, a property key) keeps the path named,
+    // which plans it as before.
+    let mut bare = query.clone();
+    let mut named = false;
+    for path in paths(&mut bare) {
+        named |= path.variable.take().is_some();
+    }
+    if named {
+        let text = serde_json::to_value(&bare).ok();
+        for path in paths(query) {
+            let read = |name: &String| text.as_ref().is_none_or(|t| contains(t, name));
+            if path.variable.as_ref().is_some_and(|name| !read(name)) {
+                path.variable = None;
+            }
+        }
+    }
+    query.union_branches = branches;
+}
+
 /// The condition every relationship of the named path `p` must meet for `filter` to
 /// hold, from its `all(r IN relationships(p) WHERE x)` and `none(... WHERE x)` conjuncts,
 /// with `r.key` written as the variable `key`. The path operator checks it on each edge
@@ -3700,10 +3762,12 @@ mod tests {
                 ("d", "", " {host_id: 7}", ""),
                 ("d", "", "", " WHERE d.host_id = 7"),
             ] {
+                // `count(p)` reads the path, so it stays named.
                 let query = format!(
-                    "MATCH {}{}{filter} RETURN count(*) AS n",
+                    "MATCH {}{}{filter} RETURN count({}) AS n",
                     if named { "p = " } else { "" },
                     pattern.replace("{start}", start).replace("{end}", end),
+                    if named { "p" } else { "*" },
                 );
                 let plan = computer_plan(&query);
                 let (variable, narrowed) = start_scan(&plan);
@@ -3722,7 +3786,7 @@ mod tests {
         let plan = computer_plan(
             "MATCH p = (c:Computer)-[:AUTH*1..2]->(d:Computer) \
              WHERE c.host_id = 7 AND c.host_id < d.host_id AND (c)-[:AUTH]->(:Computer) \
-             RETURN count(*) AS n",
+             RETURN count(p) AS n",
         );
         fn scan_filter(plan: &LogicalOperator) -> &BooleanExpression {
             match plan {
@@ -3749,14 +3813,61 @@ mod tests {
     /// A MATCH after WITH uses the stage's WHERE to choose its start, as the first does.
     #[test]
     fn match_after_with_uses_its_where_to_choose_the_start() {
-        for (path, expected) in [("p = ", "reversed: true"), ("", "source_variable: \"d\"")] {
+        for (path, read, expected) in [
+            ("p = ", "p", "reversed: true"),
+            ("", "*", "source_variable: \"d\""),
+        ] {
             let query = format!(
                 "MATCH (x:Computer {{host_id: 1}}) WITH x \
                  MATCH {path}(c:Computer)-[:AUTH*1..2]->(d:Computer) WHERE d.host_id = 7 \
-                 RETURN x.host_id, count(*) AS n"
+                 RETURN x.host_id, count({read}) AS n"
             );
             let plan = format!("{:?}", computer_plan(&query));
             assert!(plan.contains(expected), "{query}: {plan}");
         }
+    }
+
+    /// A path name nothing reads is dropped, so the path plans as the unnamed pattern;
+    /// any read of it, in this scope only, keeps the path value.
+    #[test]
+    fn unread_path_names_plan_as_the_unnamed_pattern() {
+        let path = "(c:Computer {host_id: 7})-[:AUTH*1..2]->(d:Computer)";
+        let unnamed = format!(
+            "{:?}",
+            computer_plan(&format!("MATCH {path} RETURN count(*)"))
+        );
+        for (query, named) in [
+            (format!("MATCH p = {path} RETURN count(*)"), false),
+            (format!("MATCH p = {path} RETURN d.host_id"), false),
+            (format!("MATCH p = {path} RETURN p"), true),
+            (format!("MATCH p = {path} WHERE length(p) = 2 RETURN count(*)"), true),
+            (format!("MATCH p = {path} WITH p RETURN count(*)"), true),
+            (format!("MATCH p = {path} WITH d MATCH (d)-[:AUTH]->(e:Computer) RETURN count(*)"), false),
+            // A string equal to the name is taken as a read: the path stays as it was.
+            (format!("MATCH p = {path} WHERE d.name = 'p' RETURN count(*)"), true),
+            // Each UNION branch is its own scope.
+            (
+                format!("MATCH p = {path} RETURN 1 AS x UNION ALL MATCH p = {path} RETURN length(p) AS x"),
+                true,
+            ),
+        ] {
+            let plan = format!("{:?}", computer_plan(&query));
+            assert_eq!(plan.contains("PathMatch"), named, "{query}: {plan}");
+        }
+        let plan = format!(
+            "{:?}",
+            computer_plan(&format!("MATCH p = {path} RETURN count(*)"))
+        );
+        assert_eq!(plan, unnamed);
+        // Only the branch that reads its path keeps it.
+        let union = format!(
+            "MATCH p = {path} RETURN 1 AS x UNION ALL MATCH p = {path} RETURN length(p) AS x"
+        );
+        assert_eq!(
+            format!("{:?}", computer_plan(&union))
+                .matches("PathMatch")
+                .count(),
+            1
+        );
     }
 }
