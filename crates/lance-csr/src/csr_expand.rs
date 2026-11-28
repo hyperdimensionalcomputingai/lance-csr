@@ -1894,6 +1894,8 @@ impl AdjacencyCatalog {
 pub struct Neighbors {
     forward: Arc<Adjacency>,
     reverse: Option<Arc<Adjacency>>,
+    /// A directed hop's edges keyed by their other end (see [`Self::flipped`]).
+    back: Option<Arc<Adjacency>>,
 }
 
 /// Occurrence offsets are sufficient to pause even a high-degree source row.
@@ -1908,6 +1910,7 @@ impl Neighbors {
         Self {
             forward: adjacency,
             reverse: None,
+            back: None,
         }
     }
 
@@ -1915,6 +1918,24 @@ impl Neighbors {
         Self {
             forward: outgoing,
             reverse: Some(incoming),
+            back: None,
+        }
+    }
+
+    /// The same directed hop, with `back` (the adjacency of the other direction) kept
+    /// for closing edges.
+    pub(crate) fn with_back(mut self, back: Option<Arc<Adjacency>>) -> Self {
+        self.back = back;
+        self
+    }
+
+    /// These edges listed from their other end, with the same edge rows: for a closing
+    /// edge, whose two ends are both bound, either end's list holds its edges.
+    fn flipped(&self) -> Option<Neighbors> {
+        match &self.reverse {
+            // Undirected: each end's outgoing and incoming lists cover the same edges.
+            Some(_) => Some(self.clone()),
+            None => self.back.clone().map(Neighbors::directed),
         }
     }
 
@@ -2638,14 +2659,23 @@ impl BatchExpansion {
         let mut position = self.position;
         let mut row = self.row;
         let mut work = 0_usize;
+        // A closing edge reads the shorter of its two ends' lists, so a hub at one end
+        // costs no more than the other end's degree.
+        let back = self.bound.as_ref().and_then(|_| adjacency.flipped());
         'rows: while row < self.keys.len() {
             let i = row;
             let previous_work = work;
             if self.keys.is_valid(i) && self.bound.as_ref().is_none_or(|b| b.is_valid(i)) {
                 let key = self.keys.value(i);
                 let required = self.bound.as_ref().map(|b| b.value(i));
-                for candidate in adjacency
-                    .candidates_from::<ROWS>(key, &mut position)
+                let (list, from, wanted) = match (&back, required) {
+                    (Some(back), Some(r)) if back.degree_bound(r) < adjacency.degree_bound(key) => {
+                        (back, r, Some(key))
+                    }
+                    _ => (adjacency, key, required),
+                };
+                for candidate in list
+                    .candidates_from::<ROWS>(from, &mut position)
                     .take(1024 - work)
                 {
                     work += 1;
@@ -2660,10 +2690,10 @@ impl BatchExpansion {
                     {
                         continue;
                     }
-                    let neighbor = neighbor as i64;
-                    if required.is_some_and(|r| r != neighbor) {
+                    if wanted.is_some_and(|w| w != neighbor as i64) {
                         continue;
                     }
+                    let neighbor = required.unwrap_or(neighbor as i64);
                     if let Some(target) = target {
                         let Some(target_row) = target.rows.position(neighbor) else {
                             continue;
@@ -4485,6 +4515,70 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn closing_edges_read_the_shorter_end_with_the_same_rows() {
+        // Hub 1 points at 2..=300 and a second time at 5; 7 points at 5.
+        let mut src: Vec<Option<i64>> = vec![Some(1); 299];
+        let mut dst: Vec<Option<i64>> = (2..=300).map(Some).collect();
+        src.extend([Some(1), Some(7)]);
+        dst.extend([Some(5), Some(5)]);
+        let out = Adjacency::build(edge_stream(src.clone(), dst.clone()), "src", "dst");
+        let out = Arc::new(out.await.unwrap());
+        let inc = Arc::new(
+            Adjacency::build(edge_stream(src, dst), "dst", "src")
+                .await
+                .unwrap(),
+        );
+        // (key, bound target): two hub rows the back list shortens, a non-hub row, a
+        // missing target, and a reversed pair with no edge that way.
+        let input = RecordBatch::try_from_iter([
+            (
+                "key",
+                Arc::new(Int64Array::from(vec![1, 1, 7, 1, 5])) as ArrayRef,
+            ),
+            (
+                "bound",
+                Arc::new(Int64Array::from(vec![5, 3, 5, 9999, 1])) as ArrayRef,
+            ),
+        ])
+        .unwrap();
+        let expand = |adjacency: Neighbors| {
+            let input = input.clone();
+            async move {
+                let mut expansion = BatchExpansion::try_new(input, 0, Some(1)).unwrap();
+                expansion.edge_rows = true;
+                let chunk = expansion.next_chunk(&adjacency, None, 8192).await;
+                let mut rows: Vec<_> = (0..chunk.rows.len())
+                    .map(|i| {
+                        let neighbor = chunk.neighbor_values[i];
+                        (
+                            chunk.rows[i],
+                            chunk.key_values[i],
+                            neighbor,
+                            chunk.edge_rows[i],
+                        )
+                    })
+                    .collect();
+                rows.sort_unstable();
+                rows
+            }
+        };
+
+        let scanned = expand(Neighbors::directed(out.clone())).await;
+        let pairs = |rows: &[(u32, i64, i64, u64)]| -> Vec<(u32, i64)> {
+            rows.iter().map(|r| (r.0, r.2)).collect()
+        };
+        assert_eq!(pairs(&scanned), vec![(0, 5), (0, 5), (1, 3), (2, 5)]);
+        let shortened = Neighbors::directed(out.clone()).with_back(Some(inc.clone()));
+        assert_eq!(expand(shortened).await, scanned);
+
+        // Undirected: either end's two lists hold the same edges.
+        let both = expand(Neighbors::undirected(out, inc)).await;
+        let expected = vec![(0, 5), (0, 5), (1, 3), (2, 5), (4, 1), (4, 1)];
+        assert_eq!(pairs(&both), expected);
+        assert_eq!(both[..4], scanned[..]);
+    }
+
+    #[tokio::test]
     async fn resumed_neighbors_keep_duplicate_deletions_and_self_loops_exact() {
         let edges = || edge_stream(vec![Some(1); 4], vec![Some(1), Some(2), Some(2), Some(3)]);
         let base = Adjacency::build(edges(), "src", "dst").await.unwrap();
@@ -4953,10 +5047,7 @@ mod tests {
         assert_eq!(forward.degree_bound(3), 0);
         let directed = Neighbors::directed(forward.clone());
         assert_eq!([1, 2, 9].map(|key| directed.degree_bound(key)), [2, 1, 0]);
-        let undirected = Neighbors {
-            forward,
-            reverse: Some(reverse),
-        };
+        let undirected = Neighbors::undirected(forward, reverse);
         assert_eq!([1, 2, 3].map(|key| undirected.degree_bound(key)), [3, 2, 1]);
     }
 

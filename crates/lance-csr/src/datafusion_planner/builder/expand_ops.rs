@@ -335,15 +335,16 @@ impl DataFusionPlanner {
         let Some(catalog) = self.adjacency.as_ref() else {
             return Ok(None);
         };
+        // A directed hop keeps the other direction too, for a closing edge to read the
+        // shorter end's list.
+        let directed = |outgoing: bool| {
+            catalog.get(rel_type, outgoing).cloned().map(|a| {
+                Neighbors::directed(a).with_back(catalog.get(rel_type, !outgoing).cloned())
+            })
+        };
         let adjacency = match direction {
-            RelationshipDirection::Outgoing => catalog
-                .get(rel_type, true)
-                .cloned()
-                .map(Neighbors::directed),
-            RelationshipDirection::Incoming => catalog
-                .get(rel_type, false)
-                .cloned()
-                .map(Neighbors::directed),
+            RelationshipDirection::Outgoing => directed(true),
+            RelationshipDirection::Incoming => directed(false),
             // Outgoing endpoint names, as the reversed-edge scan of the join path uses.
             RelationshipDirection::Undirected => catalog
                 .get(rel_type, true)
