@@ -71,11 +71,12 @@ impl DataFusionPlanner {
         let Some(variable) = variable else {
             return Ok(plan);
         };
-        let requested = &ctx.analysis.relationship_types;
-        if requested.is_empty() || !requested.contains(&variable.to_lowercase()) {
+        if !ctx.introspection.is_some_and(|info| {
+            !info.requested.is_empty() && info.requested.contains(&variable.to_lowercase())
+        }) {
             return Ok(plan);
         }
-        let column = ctx.analysis.type_columns.name(variable);
+        let column = ctx.type_columns().name(variable);
         let schema = plan.schema();
         if schema.has_column_with_unqualified_name(&column) {
             return Ok(plan);

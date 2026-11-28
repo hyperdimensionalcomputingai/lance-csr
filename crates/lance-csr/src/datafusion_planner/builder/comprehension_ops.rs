@@ -56,7 +56,7 @@ impl DataFusionPlanner {
             .map_err(error("Failed to number comprehension rows"))?
             .build()
             .map_err(error("Failed to number comprehension rows"))?;
-        let types = ctx.analysis.type_columns;
+        let types = ctx.type_columns();
         let list = self.value_expr(list, numbered.schema(), types)?;
         let list = if list
             .get_type(numbered.schema())

@@ -93,12 +93,14 @@ impl DataFusionPlanner {
 impl GraphPhysicalPlanner for DataFusionPlanner {
     fn plan(&self, logical_plan: &LogicalOperator) -> Result<LogicalPlan> {
         // Phase 1: Analyze query structure
-        let analysis = analysis::analyze(logical_plan)?;
+        let mut types = analysis::RelationshipTypes::default();
+        let analysis = analysis::analyze_with_types(logical_plan, &mut types)?;
 
         // Phase 2: Build execution plan with context
         let mut ctx = PlanningContext::new(&analysis);
+        ctx.introspection = Some(&types);
         let plan = self.build_operator(&mut ctx, logical_plan)?;
-        self.drop_relationship_types(plan, analysis.type_columns)
+        self.drop_relationship_types(plan, types.columns)
     }
 }
 

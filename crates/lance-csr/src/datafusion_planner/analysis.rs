@@ -21,13 +21,13 @@ pub struct QueryAnalysis {
 
     /// All datasets required for this query
     pub required_datasets: HashSet<String>,
+}
 
-    /// Relationship variables (lowercase) whose `type()` or `labels()` the plan reads,
-    /// followed back through WITH renames. Only their flat hops carry a type column.
-    pub relationship_types: HashSet<String>,
-
-    /// Names of the type columns, outside every identifier the query chose.
-    pub(crate) type_columns: crate::path_value::TypeColumns,
+#[derive(Default)]
+pub(crate) struct RelationshipTypes {
+    /// Fixed-length variables read by labels/type, including their WITH names.
+    pub(crate) requested: HashSet<String>,
+    pub(crate) columns: crate::path_value::TypeColumns,
 }
 
 /// Represents a single relationship expansion with a unique instance ID
@@ -44,6 +44,7 @@ pub struct RelationshipInstance {
 /// Planning context that tracks state during plan building
 pub struct PlanningContext<'a> {
     pub analysis: &'a QueryAnalysis,
+    pub(crate) introspection: Option<&'a RelationshipTypes>,
     pub(crate) path_sources: crate::path_inventory::SourceBatches,
     pub(crate) relationship_instance_idx: HashMap<String, usize>,
     /// Element rows of the list comprehensions being built, innermost last.
@@ -54,10 +55,17 @@ impl<'a> PlanningContext<'a> {
     pub fn new(analysis: &'a QueryAnalysis) -> Self {
         Self {
             analysis,
+            introspection: None,
             path_sources: Default::default(),
             relationship_instance_idx: HashMap::new(),
             comprehension_elements: Vec::new(),
         }
+    }
+
+    pub(crate) fn type_columns(&self) -> crate::path_value::TypeColumns {
+        self.introspection
+            .map(|info| info.columns)
+            .unwrap_or_default()
     }
 
     /// Skip the relationship instances that `planned` would take beyond `built`, as when
@@ -127,20 +135,27 @@ pub(crate) fn variable_length_target_label(
 }
 
 pub fn analyze(logical_plan: &LogicalOperator) -> Result<QueryAnalysis> {
+    analyze_with_types(logical_plan, &mut RelationshipTypes::default())
+}
+
+pub(crate) fn analyze_with_types(
+    logical_plan: &LogicalOperator,
+    types: &mut RelationshipTypes,
+) -> Result<QueryAnalysis> {
     let mut analysis = QueryAnalysis::default();
     let mut rel_counter: HashMap<String, usize> = HashMap::new();
 
-    analyze_operator(logical_plan, &mut analysis, &mut rel_counter)?;
+    analyze_operator(logical_plan, &mut analysis, &mut rel_counter, types)?;
     Ok(analysis)
 }
 
 /// Record consumers before visiting their input, so each WITH rename can carry
 /// demand back to the original hop in the existing analysis walk. The same walk notes
 /// the names in expressions, which can start an unaliased column's name.
-fn note_relationship_types(op: &LogicalOperator, analysis: &mut QueryAnalysis) {
+fn note_relationship_types(op: &LogicalOperator, types: &mut RelationshipTypes) {
     use crate::ast::{transform_boolean_values, transform_value, ValueExpression as V};
-    let requested = &mut analysis.relationship_types;
-    let names = &mut analysis.type_columns;
+    let requested = &mut types.requested;
+    let names = &mut types.columns;
     let mut note = |value: &mut V| match value {
         V::ScalarFunction { name, args } => {
             names.note(name);
@@ -316,9 +331,10 @@ fn analyze_operator(
     op: &LogicalOperator,
     analysis: &mut QueryAnalysis,
     rel_counter: &mut HashMap<String, usize>,
+    types: &mut RelationshipTypes,
 ) -> Result<()> {
-    note_relationship_types(op, analysis);
-    note_identifiers(op, &mut analysis.type_columns);
+    note_relationship_types(op, types);
+    note_identifiers(op, &mut types.columns);
     match op {
         LogicalOperator::ScanByLabel {
             variable, label, ..
@@ -339,7 +355,7 @@ fn analyze_operator(
             ..
         } => {
             // Recursively analyze input first
-            analyze_operator(input, analysis, rel_counter)?;
+            analyze_operator(input, analysis, rel_counter, types)?;
 
             // Register the target variable with its label from the logical plan
             analysis
@@ -383,7 +399,7 @@ fn analyze_operator(
             ..
         } => {
             // Recursively analyze input first
-            analyze_operator(input, analysis, rel_counter)?;
+            analyze_operator(input, analysis, rel_counter, types)?;
 
             let label = variable_length_target_label(
                 target_label,
@@ -418,12 +434,12 @@ fn analyze_operator(
         | LogicalOperator::Limit { input, .. }
         | LogicalOperator::Offset { input, .. }
         | LogicalOperator::Distinct { input } => {
-            analyze_operator(input, analysis, rel_counter)?;
+            analyze_operator(input, analysis, rel_counter, types)?;
         }
         LogicalOperator::Join { left, right, .. }
         | LogicalOperator::QueryUnion { left, right, .. } => {
-            analyze_operator(left, analysis, rel_counter)?;
-            analyze_operator(right, analysis, rel_counter)?;
+            analyze_operator(left, analysis, rel_counter, types)?;
+            analyze_operator(right, analysis, rel_counter, types)?;
         }
         LogicalOperator::Unwind {
             input,
@@ -432,7 +448,7 @@ fn analyze_operator(
             ..
         } => {
             if let Some(op) = input {
-                analyze_operator(op, analysis, rel_counter)?;
+                analyze_operator(op, analysis, rel_counter, types)?;
             }
             if let Some(label) = label {
                 analysis.var_to_label.insert(alias.clone(), label.clone());
@@ -440,7 +456,7 @@ fn analyze_operator(
             }
         }
         LogicalOperator::PathMatch { input, path, .. } => {
-            analyze_operator(input, analysis, rel_counter)?;
+            analyze_operator(input, analysis, rel_counter, types)?;
             for node in
                 std::iter::once(&path.start_node).chain(path.segments.iter().map(|s| &s.end_node))
             {
@@ -452,19 +468,19 @@ fn analyze_operator(
             }
         }
         LogicalOperator::ShortestPath { input, .. } => {
-            analyze_operator(input, analysis, rel_counter)?;
+            analyze_operator(input, analysis, rel_counter, types)?;
         }
         // Same order as `build_optional_match` builds them: input, then the optional side.
         LogicalOperator::OptionalMatch {
             input, optional, ..
         } => {
-            analyze_operator(input, analysis, rel_counter)?;
-            analyze_operator(optional, analysis, rel_counter)?;
+            analyze_operator(input, analysis, rel_counter, types)?;
+            analyze_operator(optional, analysis, rel_counter, types)?;
         }
         // Branch labels may differ; `build_union` re-derives them per branch.
         LogicalOperator::Union { inputs } => {
             for input in inputs {
-                analyze_operator(input, analysis, rel_counter)?;
+                analyze_operator(input, analysis, rel_counter, types)?;
             }
         }
         // Same order as `build_list_comprehension`: the rows, then the element plan.
@@ -475,19 +491,19 @@ fn analyze_operator(
             element,
             ..
         } => {
-            analyze_operator(input, analysis, rel_counter)?;
+            analyze_operator(input, analysis, rel_counter, types)?;
             if let Some(label) = label {
                 analysis
                     .var_to_label
                     .insert(variable.clone(), label.clone());
                 analysis.required_datasets.insert(label.clone());
             }
-            analyze_operator(element, analysis, rel_counter)?;
+            analyze_operator(element, analysis, rel_counter, types)?;
         }
         // The fallback holds the input; the builder keeps its relationship instances
         // in step whichever of the two it plans.
         LogicalOperator::PathExists { fallback, .. } => {
-            analyze_operator(fallback, analysis, rel_counter)?;
+            analyze_operator(fallback, analysis, rel_counter, types)?;
         }
         LogicalOperator::ComprehensionElement | LogicalOperator::SingleRow => {}
     }
@@ -664,8 +680,6 @@ mod tests {
             var_to_label: HashMap::new(),
             relationship_instances: instances,
             required_datasets: HashSet::new(),
-            relationship_types: HashSet::new(),
-            type_columns: Default::default(),
         };
 
         let mut ctx = PlanningContext::new(&analysis);

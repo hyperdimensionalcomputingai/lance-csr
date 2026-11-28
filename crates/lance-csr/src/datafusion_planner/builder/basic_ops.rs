@@ -55,6 +55,7 @@ impl DataFusionPlanner {
             let mut analysis = ctx.analysis.clone();
             Self::collect_labels(input, &mut analysis.var_to_label);
             let mut branch = PlanningContext::new(&analysis);
+            branch.introspection = ctx.introspection;
             branch.relationship_instance_idx = ctx.relationship_instance_idx.clone();
             branch.path_sources = ctx.path_sources.clone();
             branch.comprehension_elements = ctx.comprehension_elements.clone();
@@ -127,11 +128,12 @@ impl DataFusionPlanner {
             let mut analysis = ctx.analysis.clone();
             Self::collect_labels(input, &mut analysis.var_to_label);
             let mut branch = PlanningContext::new(&analysis);
+            branch.introspection = ctx.introspection;
             branch.relationship_instance_idx = ctx.relationship_instance_idx.clone();
             branch.path_sources = ctx.path_sources.clone();
             branch.comprehension_elements = ctx.comprehension_elements.clone();
             let plan = self.build_operator(&mut branch, input)?;
-            plans.push(self.drop_relationship_types(plan, ctx.analysis.type_columns)?);
+            plans.push(self.drop_relationship_types(plan, ctx.type_columns())?);
             ctx.relationship_instance_idx = branch.relationship_instance_idx;
         }
         let (Some(right), Some(left)) = (plans.pop(), plans.pop()) else {
@@ -196,7 +198,7 @@ impl DataFusionPlanner {
         predicate: &crate::ast::BooleanExpression,
     ) -> Result<LogicalPlan> {
         let input_plan = self.build_operator(ctx, input)?;
-        let expr = self.boolean_expr(predicate, input_plan.schema(), ctx.analysis.type_columns)?;
+        let expr = self.boolean_expr(predicate, input_plan.schema(), ctx.type_columns())?;
         LogicalPlanBuilder::from(input_plan)
             .filter(expr)
             .map_err(|e| self.plan_error("Failed to build filter", e))?
@@ -217,7 +219,7 @@ impl DataFusionPlanner {
 
         if !has_aggregates {
             let input_plan = self.build_operator(ctx, input)?;
-            return self.build_simple_project(input_plan, projections, ctx.analysis.type_columns);
+            return self.build_simple_project(input_plan, projections, ctx.type_columns());
         }
         if let Some(plan) = self.try_build_two_hop_count(ctx, input, projections)? {
             return Ok(plan);
@@ -235,7 +237,7 @@ impl DataFusionPlanner {
         {
             let input_plan = self.build_operator(ctx, inner)?;
             let ordering = self
-                .sort_exprs(&input_plan, sort_items, ctx.analysis.type_columns)
+                .sort_exprs(&input_plan, sort_items, ctx.type_columns())
                 .into_iter()
                 .map(|sort| {
                     Ok(SortExpr {
@@ -350,7 +352,7 @@ impl DataFusionPlanner {
         sort_items: &[SortItem],
     ) -> Result<LogicalPlan> {
         let input_plan = self.build_operator(ctx, input)?;
-        let sort_exprs = self.sort_exprs(&input_plan, sort_items, ctx.analysis.type_columns);
+        let sort_exprs = self.sort_exprs(&input_plan, sort_items, ctx.type_columns());
 
         LogicalPlanBuilder::from(input_plan)
             .sort(sort_exprs)
@@ -441,8 +443,7 @@ impl DataFusionPlanner {
         };
 
         // Convert expression to DataFusion Expr
-        let df_expr =
-            self.value_expr(expression, input_plan.schema(), ctx.analysis.type_columns)?;
+        let df_expr = self.value_expr(expression, input_plan.schema(), ctx.type_columns())?;
         // A list of node ids: unnest under a temporary name, then join each id back to the
         // node table so the alias carries the node's columns like any matched node.
         let unnested = match label {

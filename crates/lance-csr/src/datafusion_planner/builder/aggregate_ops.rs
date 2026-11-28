@@ -214,7 +214,7 @@ impl DataFusionPlanner {
         let mut aggregates = Vec::new();
 
         let schema = input_plan.schema().clone();
-        let types = ctx.analysis.type_columns;
+        let types = ctx.type_columns();
         let bound: Vec<ProjectionItem> = projections
             .iter()
             .map(|p| ProjectionItem {
