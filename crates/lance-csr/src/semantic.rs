@@ -403,6 +403,15 @@ impl SemanticAnalyzer {
             };
             self.variables.insert(var_name_lower, var_info);
         }
+        if rel.length.is_some() {
+            self.expression_types.insert(
+                var_name.to_lowercase(),
+                ExpressionType::List(Box::new(ExpressionType::Entity(
+                    VariableType::Relationship,
+                    rel.types.clone(),
+                ))),
+            );
+        }
         Ok(())
     }
 
@@ -511,7 +520,8 @@ impl SemanticAnalyzer {
                 match function_name.as_str() {
                     "tolower" | "lower" | "toupper" | "upper" | "abs" | "round" | "floor"
                     | "ceil" | "sqrt" | "trim" | "ltrim" | "rtrim" | "reverse" | "last"
-                    | "tail" | "keys" | "labels" | "relationships" | "startnode" | "endnode" => {
+                    | "tail" | "keys" | "labels" | "type" | "relationships" | "startnode"
+                    | "endnode" => {
                         if args.len() != 1 {
                             return Err(GraphError::PlanError {
                                 message: format!(
@@ -610,7 +620,7 @@ impl SemanticAnalyzer {
                         // Unknown scalar function - reject early with helpful error
                         return Err(GraphError::UnsupportedFeature {
                             feature: format!(
-                                "Cypher function '{}' is not implemented. Supported scalar functions: toLower, lower, toUpper, upper, toString, coalesce, date_part, to_epoch_ms, length, nodes, size, range, head, last, tail, keys, labels, reverse, left, right, substring, replace, split, trim, lTrim, rTrim, abs, round, floor, ceil, sqrt, toInteger, toFloat, date, datetime, duration.inSeconds. Supported aggregate functions: COUNT, SUM, AVG, MIN, MAX, COLLECT.",
+                                "Cypher function '{}' is not implemented. Supported scalar functions: toLower, lower, toUpper, upper, toString, coalesce, date_part, to_epoch_ms, length, nodes, size, range, head, last, tail, keys, labels, type, reverse, left, right, substring, replace, split, trim, lTrim, rTrim, abs, round, floor, ceil, sqrt, toInteger, toFloat, date, datetime, duration.inSeconds. Supported aggregate functions: COUNT, SUM, AVG, MIN, MAX, COLLECT.",
                                 name
                             ),
                             location: snafu::Location::new(file!(), line!(), column!()),
@@ -618,31 +628,42 @@ impl SemanticAnalyzer {
                     }
                 }
 
-                if function_name == "labels" {
-                    if let ValueExpression::Variable(var) = &args[0] {
-                        if let Some(info) = self.variables.get_ci(var) {
-                            if info
-                                .labels
-                                .iter()
-                                .map(|label| label.to_lowercase())
-                                .collect::<HashSet<_>>()
-                                .len()
-                                > 1
-                            {
-                                return Err(GraphError::UnsupportedFeature {
-                                    feature: "labels() on a mixed-label binding is not supported"
-                                        .to_string(),
-                                    location: snafu::Location::new(file!(), line!(), column!()),
-                                });
-                            }
-                            if info.variable_type == VariableType::Relationship {
-                                return Err(GraphError::PlanError {
-                                    message: "labels() requires a node, not a relationship"
-                                        .to_string(),
-                                    location: snafu::Location::new(file!(), line!(), column!()),
-                                });
-                            }
+                if matches!(function_name.as_str(), "labels" | "type") {
+                    let argument = self.expression_type(&args[0]);
+                    if let ExpressionType::Entity(VariableType::Node, labels) = &argument {
+                        if function_name == "labels"
+                            && labels
+                                .windows(2)
+                                .any(|pair| !pair[0].eq_ignore_ascii_case(&pair[1]))
+                        {
+                            return Err(GraphError::UnsupportedFeature {
+                                feature: "labels() on a mixed-label binding is not supported"
+                                    .into(),
+                                location: snafu::Location::new(file!(), line!(), column!()),
+                            });
                         }
+                    }
+                    let supported = match argument {
+                        ExpressionType::List(_) => false,
+                        ExpressionType::Entity(VariableType::Relationship, _) => {
+                            matches!(&args[0], ValueExpression::Variable(var)
+                                if self.variables.get_ci(var).is_some_and(|info| info.variable_type == VariableType::Relationship))
+                        }
+                        ExpressionType::Entity(VariableType::Node | VariableType::Path, _) => {
+                            function_name == "labels"
+                        }
+                        _ => true, // Scalar nulls and dynamically typed values reach the UDF.
+                    };
+                    if !supported {
+                        let required = if function_name == "labels" {
+                            "a node or fixed-length relationship"
+                        } else {
+                            "a fixed-length relationship"
+                        };
+                        return Err(GraphError::PlanError {
+                            message: format!("{name}() requires {required}"),
+                            location: snafu::Location::new(file!(), line!(), column!()),
+                        });
                     }
                 }
 

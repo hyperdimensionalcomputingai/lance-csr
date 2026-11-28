@@ -40,7 +40,7 @@ impl DataFusionPlanner {
         target_properties: &HashMap<String, crate::ast::PropertyValue>,
     ) -> Result<LogicalPlan> {
         let left_plan = self.build_operator(ctx, input)?;
-        self.expand_plan(
+        let plan = self.expand_plan(
             ctx,
             left_plan,
             source_variable,
@@ -51,7 +51,65 @@ impl DataFusionPlanner {
             relationship_variable,
             relationship_properties,
             target_properties,
-        )
+        )?;
+        self.with_relationship_type(ctx, plan, relationship_variable, relationship_types)
+    }
+
+    /// `plan` plus the configured type of the fixed-length relationship `variable`, when
+    /// the query reads its `type()` or `labels()`: one literal per hop, null where the hop
+    /// matched nothing (an outer expansion leaves its endpoint null). Other plans, and
+    /// hops whose type column an earlier binding of the same edge already holds, are
+    /// returned unchanged.
+    pub(crate) fn with_relationship_type(
+        &self,
+        ctx: &PlanningContext,
+        plan: LogicalPlan,
+        variable: Option<&str>,
+        relationship_types: &[String],
+    ) -> Result<LogicalPlan> {
+        use datafusion::common::Column;
+        let Some(variable) = variable else {
+            return Ok(plan);
+        };
+        let requested = &ctx.analysis.relationship_types;
+        if requested.is_empty() || !requested.contains(&variable.to_lowercase()) {
+            return Ok(plan);
+        }
+        let column = ctx.analysis.type_columns.name(variable);
+        let schema = plan.schema();
+        if schema.has_column_with_unqualified_name(&column) {
+            return Ok(plan);
+        }
+        let [kind] = relationship_types else {
+            return Err(crate::error::GraphError::internal(
+                "a fixed-length branch must have one relationship type",
+            ));
+        };
+        let Some(mapping) = self.config.get_relationship_mapping(kind) else {
+            return Ok(plan);
+        };
+        // Both endpoints of a matched edge are present; an outer row lacks its neighbour.
+        let Some(guard) = [&mapping.source_id_field, &mapping.target_id_field]
+            .map(|field| qualify_column(variable, field))
+            .into_iter()
+            .filter(|name| schema.has_column_with_unqualified_name(name))
+            .map(|name| col(Column::new_unqualified(name)).is_not_null())
+            .reduce(Expr::and)
+        else {
+            return Ok(plan);
+        };
+        let label = datafusion::logical_expr::when(guard, lit(mapping.relationship_type.clone()))
+            .end()
+            .map_err(|e| self.plan_error("Failed to build relationship type", e))?;
+        let mut exprs: Vec<Expr> = schema
+            .iter()
+            .map(|(qualifier, field)| Expr::Column(Column::new(qualifier.cloned(), field.name())))
+            .collect();
+        exprs.push(label.alias(column));
+        LogicalPlanBuilder::from(plan)
+            .project(exprs)
+            .and_then(|b| b.build())
+            .map_err(|e| self.plan_error("Failed to add relationship type", e))
     }
 
     /// One relationship hop on top of `left_plan`: a CSR expansion when one applies,

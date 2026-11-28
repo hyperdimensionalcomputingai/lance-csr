@@ -133,11 +133,17 @@ impl DataFusionPlanner {
             properties,
             target_properties,
         )?;
-        let outer = crate::csr_expand::CsrExpandNode::outer_plan(&hop);
-        if outer.is_none() {
+        let Some(outer) = crate::csr_expand::CsrExpandNode::outer_plan(&hop) else {
             ctx.relationship_instance_idx = saved;
-        }
-        Ok(outer)
+            return Ok(None);
+        };
+        self.with_relationship_type(
+            ctx,
+            outer,
+            relationship_variable.as_deref(),
+            relationship_types,
+        )
+        .map(Some)
     }
 
     /// Build a join between two logical operators

@@ -97,7 +97,35 @@ impl GraphPhysicalPlanner for DataFusionPlanner {
 
         // Phase 2: Build execution plan with context
         let mut ctx = PlanningContext::new(&analysis);
-        self.build_operator(&mut ctx, logical_plan)
+        let plan = self.build_operator(&mut ctx, logical_plan)?;
+        self.drop_relationship_types(plan, analysis.type_columns)
+    }
+}
+
+impl DataFusionPlanner {
+    /// `plan` without the relationship type columns (see `with_relationship_type`) that a
+    /// returned relationship carries along with its properties: they are not results.
+    pub(crate) fn drop_relationship_types(
+        &self,
+        plan: LogicalPlan,
+        types: crate::path_value::TypeColumns,
+    ) -> Result<LogicalPlan> {
+        use datafusion::common::Column;
+        use datafusion::logical_expr::{Expr, LogicalPlanBuilder};
+        let internal = |name: &str| types.contains(name);
+        if !plan.schema().fields().iter().any(|f| internal(f.name())) {
+            return Ok(plan);
+        }
+        let kept: Vec<Expr> = plan
+            .schema()
+            .iter()
+            .filter(|(_, f)| !internal(f.name()))
+            .map(|(qualifier, f)| Expr::Column(Column::new(qualifier.cloned(), f.name())))
+            .collect();
+        LogicalPlanBuilder::from(plan)
+            .project(kept)
+            .and_then(|b| b.build())
+            .map_err(|e| self.plan_error("Failed to drop relationship types", e))
     }
 }
 

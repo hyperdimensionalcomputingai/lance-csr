@@ -54,8 +54,11 @@ impl ScalarUDFImpl for CypherScalar {
                 | "__predicate_single" => list_field(t)
                     .is_some_and(|f| matches!(f.data_type(), DataType::Boolean | DataType::Null)),
                 "keys" | "__entity_keys" => matches!(t, DataType::Struct(_)),
-                "labels" => crate::path_value::entity_kind(t) == Some("node"),
-                "startnode" | "endnode" => {
+                "labels" => matches!(
+                    crate::path_value::entity_kind(t),
+                    Some("node" | "relationship")
+                ),
+                "type" | "startnode" | "endnode" => {
                     crate::path_value::entity_kind(t) == Some("relationship")
                 }
                 "size" | "reverse" => is_string(t) || list_field(t).is_some(),
@@ -130,7 +133,7 @@ impl ScalarUDFImpl for CypherScalar {
                 column.to_data().into_builder().nulls(nulls).build()?,
             )));
         }
-        if self.name == "labels" {
+        if matches!(self.name.as_str(), "labels" | "type") {
             let input = args.args[0].to_array(args.number_rows)?;
             let labels = input
                 .as_struct()
@@ -138,6 +141,15 @@ impl ScalarUDFImpl for CypherScalar {
                 .as_struct()
                 .column(0)
                 .as_string::<i32>();
+            // The identity is required on every present entity. An outer join can
+            // still null the parent struct while its child buffers retain values.
+            if self.name == "type" {
+                return Ok(ColumnarValue::Array(Arc::new(StringArray::new(
+                    labels.offsets().clone(),
+                    labels.values().clone(),
+                    input.logical_nulls(),
+                ))));
+            }
             let mut result = ListBuilder::new(StringBuilder::new());
             for row in 0..input.len() {
                 if input.is_valid(row) {
@@ -514,7 +526,7 @@ mod tests {
                 expected
             );
         }
-        for expression in ["keys(null)", "labels(null)"] {
+        for expression in ["keys(null)", "labels(null)", "type(null)"] {
             assert_eq!(
                 run(expression)
                     .await
@@ -524,8 +536,47 @@ mod tests {
                 1
             );
         }
-        for expression in ["keys(1)", "labels(1)"] {
+        for expression in ["keys(1)", "labels(1)", "type(1)", "type({label: 'r'})"] {
             assert!(run(expression).await.is_err());
+        }
+    }
+
+    #[tokio::test]
+    async fn relationship_labels_follow_the_edge_across_type_alternatives() {
+        let config = GraphConfig::builder()
+            .node_table("Person", "id")
+            .rel_table("Knows", "Person", "Person", "src", "dst")
+            .rel_table("Likes", "Person", "Person", "src", "dst")
+            .build()
+            .unwrap();
+        let ids = |values| Arc::new(Int64Array::from(values)) as ArrayRef;
+        let nodes = RecordBatch::try_from_iter([("id", ids(vec![1_i64, 2]))]).unwrap();
+        let edge =
+            RecordBatch::try_from_iter([("src", ids(vec![1])), ("dst", ids(vec![2]))]).unwrap();
+        let result = CypherQuery::new(
+            "MATCH (:Person)-[r:knows|likes]->(:Person) WITH r AS e \
+             RETURN labels(e) AS labels, type(e) AS kind ORDER BY kind",
+        )
+        .unwrap()
+        .with_config(config)
+        .execute(
+            HashMap::from([
+                ("Person".into(), nodes),
+                ("Knows".into(), edge.clone()),
+                ("Likes".into(), edge),
+            ]),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.num_rows(), 2);
+        for (row, expected) in ["Knows", "Likes"].into_iter().enumerate() {
+            let labels = result.column(0).as_list::<i32>().value(row);
+            assert_eq!(
+                labels.as_string::<i32>().iter().collect::<Vec<_>>(),
+                [Some(expected)]
+            );
+            assert_eq!(result.column(1).as_string::<i32>().value(row), expected);
         }
     }
 

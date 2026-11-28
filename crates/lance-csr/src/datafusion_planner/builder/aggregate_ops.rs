@@ -214,10 +214,11 @@ impl DataFusionPlanner {
         let mut aggregates = Vec::new();
 
         let schema = input_plan.schema().clone();
+        let types = ctx.analysis.type_columns;
         let bound: Vec<ProjectionItem> = projections
             .iter()
             .map(|p| ProjectionItem {
-                expression: super::super::expression::bind_value(&p.expression, &schema),
+                expression: super::super::expression::bind_value(&p.expression, &schema, types),
                 alias: p.alias.clone(),
             })
             .collect();
@@ -226,7 +227,7 @@ impl DataFusionPlanner {
         let mut late = Vec::new();
         for p in projections {
             // Grouping by a node groups by all its columns (`WITH b, count(*) AS n`).
-            if let Some(columns) = Self::entity_columns(&schema, &p.expression, None) {
+            if let Some(columns) = Self::entity_columns(&schema, &p.expression, None, types) {
                 let ValueExpression::Variable(var) = &p.expression else {
                     return Err(crate::error::GraphError::internal(
                         "entity_columns matched a variable",
@@ -264,7 +265,7 @@ impl DataFusionPlanner {
                 let first = aggregates.len();
                 split_aggregates(&mut rewritten, &mut aggregates);
                 for (column, aggregate) in &aggregates[first..] {
-                    let mut aggregate = self.value_expr(aggregate, &schema)?;
+                    let mut aggregate = self.value_expr(aggregate, &schema, types)?;
                     if let datafusion::logical_expr::Expr::AggregateFunction(f) = &mut aggregate {
                         // collect() gathers in the order of a preceding `WITH ... ORDER BY`.
                         if f.func.name() == "array_agg" && !f.params.distinct {
@@ -290,7 +291,7 @@ impl DataFusionPlanner {
                     }
                 }
                 // Group expressions: use raw expression for grouping, no alias
-                group_exprs.push(self.value_expr(&p.expression, &schema)?);
+                group_exprs.push(self.value_expr(&p.expression, &schema, types)?);
             }
         }
         late.extend(late_properties);
@@ -299,7 +300,8 @@ impl DataFusionPlanner {
         let mut final_projection = Vec::new();
         let mut agg_idx = 0;
         for p in projections {
-            if let Some(columns) = Self::entity_columns(&schema, &p.expression, p.alias.as_deref())
+            if let Some(columns) =
+                Self::entity_columns(&schema, &p.expression, p.alias.as_deref(), types)
             {
                 // After grouping, the node's columns are plain group columns of the same names.
                 for c in columns {

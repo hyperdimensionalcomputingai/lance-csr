@@ -275,7 +275,7 @@ constant.
 | Aggregates | `count` (`count(*)`, `count(DISTINCT x)`), `sum`, `avg`, `min`, `max`, `collect` (supports `DISTINCT`; skips nulls) |
 | Strings | `toLower` / `lower`, `toUpper` / `upper`, `toString`, `left`, `right`, `substring`, `replace`, `split`, `trim`, `lTrim`, `rTrim`, `reverse`, `size` |
 | Conversion | `toInteger`, `toFloat`, `coalesce` |
-| Properties | `keys(map)`, `keys(node)`, `keys(relationship)`, `labels(node)` |
+| Properties | `keys(map)`, `keys(node)`, `keys(relationship)`, `labels(node)`, `labels(relationship)`, `type(relationship)` |
 | Lists | `size`, `head`, `last`, `tail`, `reverse`, `range(start, end [, step])` (inclusive), `reduce` |
 | List predicates | `all`, `any`, `none`, `single` |
 | Math | `abs`, `round`, `floor`, `ceil`, `sqrt` |
@@ -306,9 +306,25 @@ result = engine.execute("""
 print(result.to_pylist())  # [{'labels': ['Person'], 'properties': 3}]
 ```
 
-!!! note "Labels on mixed-label bindings"
+For a fixed-length relationship, `labels(r)` returns a list containing its configured type.
+`type(r)` returns that same name as a string. A type list or an untyped `[r]` reports
+the actual type of each matched relationship. Both functions accept a relationship
+carried through `WITH r AS edge` and return null for an unmatched optional relationship.
 
-    `labels(p)` requires a binding with one configured label. A multi-label pattern such as `(p:Person:City)`
+```python
+result = engine.execute("""
+    MATCH (:Person {name: 'Alice'})-[r:KNOWS|LIVES_IN]->()
+    RETURN DISTINCT labels(r) AS labels, type(r) AS kind ORDER BY kind
+""")
+assert result.to_pylist() == [
+    {"labels": ["KNOWS"], "kind": "KNOWS"},
+    {"labels": ["LIVES_IN"], "kind": "LIVES_IN"},
+]
+```
+
+!!! note "Labels on mixed-label node bindings"
+
+    For a node, `labels(p)` requires a binding with one configured label. A multi-label pattern such as `(p:Person:City)`
     raises a mixed-label error (including after `WITH p AS x`), because the engine does not retain per-row labels
     across the union and never guesses a label from an ID.
 
