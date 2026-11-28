@@ -2099,15 +2099,15 @@ impl CsrExpandNode {
     }
 
     /// `plan`, a single hop that fetches its target, as a left outer expansion; `None`
-    /// for any other plan (a closing edge, a walk, a moved filter, a degree count).
+    /// for any other plan (a closing edge, a walk, a degree count). A filter already
+    /// moved into the hop must be the OPTIONAL MATCH's own WHERE: it then skips failing
+    /// neighbours, and a row with none left keeps its row of nulls.
     pub(crate) fn outer_plan(plan: &LogicalPlan) -> Option<LogicalPlan> {
         let LogicalPlan::Extension(ext) = plan else {
             return None;
         };
         let node = ext.node.as_any().downcast_ref::<CsrExpandNode>()?;
         let simple = node.target.is_some()
-            && node.target_filter.is_none()
-            && node.edge_filter.is_none()
             && node.closing_column.is_none()
             && node.traversal.is_none()
             && node.degrees.is_none();
@@ -2871,6 +2871,7 @@ async fn materialize(
     target_filter: Option<&CompiledFilter>,
     edge_filter: Option<&CompiledFilter>,
     schema: &SchemaRef,
+    matched: Option<&mut [bool]>,
 ) -> datafusion::common::Result<RecordBatch> {
     let mut expanded = expanded;
     if let (Some(edge), Some(filter)) = (edge, edge_filter) {
@@ -2888,6 +2889,12 @@ async fn materialize(
         }
         _ => vec![],
     };
+    // In an outer hop, a row counts as matched only once a neighbour passes the filters.
+    if let Some(matched) = matched {
+        for &row in &expanded.rows {
+            matched[row as usize] = true;
+        }
+    }
     let ExpandedRows {
         rows,
         key_values,
@@ -3312,12 +3319,6 @@ impl ExecutionPlan for CsrExpandExec {
                         }
                         continue;
                     }
-                    if let Some(matched) = expansion.matched.as_mut() {
-                        // An outer node has no moved filter, so every chunk row is output.
-                        for &row in &chunk.rows {
-                            matched[row as usize] = true;
-                        }
-                    }
                     let batch = materialize(
                         &expansion.batch,
                         chunk,
@@ -3328,6 +3329,7 @@ impl ExecutionPlan for CsrExpandExec {
                         target_filter.as_deref(),
                         filter,
                         &schema,
+                        expansion.matched.as_deref_mut(),
                     )
                     .await?;
                     if batch.num_rows() == 0 {
@@ -4323,6 +4325,7 @@ mod tests {
             None,
             None,
             &out_schema,
+            None,
         )
         .await
         .unwrap();
@@ -4762,6 +4765,7 @@ mod tests {
                         Some(&filter),
                         None,
                         &schema,
+                        None,
                     )
                     .await
                     .unwrap();
@@ -4877,6 +4881,7 @@ mod tests {
             None,
             Some(&filter),
             &schema,
+            None,
         )
         .await
         .unwrap();
@@ -4900,6 +4905,7 @@ mod tests {
             None,
             None,
             &schema,
+            None,
         )
         .await
         .unwrap();
