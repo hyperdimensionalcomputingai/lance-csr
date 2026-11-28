@@ -63,7 +63,8 @@ QUERIES = [
     f"MATCH p = (a:P)-[:R {{day: 2}}]->(b:P)-[:R {{day: 2}}]->(c:P) {PATH}",
     f"MATCH p = (c:C)<-[:L]-(a:P)-[:R*1..2]-(b:P) {PATH}",
     f"MATCH p = (a:P)-[:R*2..2]->(a) {PATH}",
-    "MATCH p = (a:P)-[e:R]->(b:P) RETURN a.id AS a, e.day AS d, e.w AS w, b.id AS b",
+    "MATCH p = (a:P)-[e:R]->(b:P) "
+    "RETURN a.id AS a, e.day AS d, e.w AS w, b.id AS b, length(p) AS n",
     "MATCH (a:P)-[:R|S*1..2]-(b:P) RETURN a.id AS a, b.id AS b",
 ]
 
@@ -178,9 +179,16 @@ def test_path_values_are_built_only_when_read(use_csr):
     expected = engine.execute(f"{path} RETURN count(p) AS n").to_pylist()
     unread = ["count(*)", "count(b.id)", "count(DISTINCT b.id)"]
     read = ["count(p)", "sum(length(p))", "count(nodes(p))", "count(relationships(p))"]
-    for ret, node in [(r, "endpoints") for r in unread] + [(r, "p") for r in read]:
+    # A path nothing reads plans as the unnamed pattern, with no path operator.
+    for ret, node in [(r, None) for r in unread] + [(r, "p") for r in read]:
         query = f"{path} RETURN {ret} AS n"
-        assert f"PathMatchExec: {node}" in engine.explain(query), query
+        plan = engine.explain(query)
+        found = (
+            "PathMatchExec" not in plan
+            if node is None
+            else f"PathMatchExec: {node}" in plan
+        )
+        assert found, query
     for ret in ["count(*)", "count(b.id)"]:
         assert engine.execute(f"{path} RETURN {ret} AS n").to_pylist() == expected
     ids = f"{path} RETURN b.id AS b, length(p) AS n"

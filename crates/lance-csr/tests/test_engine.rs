@@ -506,16 +506,17 @@ async fn named_paths_build_path_values_only_when_read() {
         .unwrap();
     let edges = [(1, 2), (2, 3), (3, 1), (1, 3), (3, 4), (2, 2)];
     let path = "MATCH p = (a:Person {id: 1})-[:KNOWS*1..3]->(b:Person)";
-    // (return clause, whether it reads the path)
+    // (return clause, the path operator's output: none when the query never names `p`
+    // again and plans as the unnamed pattern, endpoints when it only carries `p`)
     let cases = [
-        ("RETURN count(*) AS n", false),
-        ("RETURN count(b.id) AS n", false),
-        ("WITH b, p RETURN count(b) AS n", false),
-        ("RETURN count(p) AS n", true),
-        ("RETURN count(length(p)) AS n", true),
-        ("RETURN count(nodes(p)) AS n", true),
-        ("RETURN count(relationships(p)) AS n", true),
-        ("WITH p AS q RETURN count(q) AS n", true),
+        ("RETURN count(*) AS n", None),
+        ("RETURN count(b.id) AS n", None),
+        ("WITH b, p RETURN count(b) AS n", Some("endpoints")),
+        ("RETURN count(p) AS n", Some("p")),
+        ("RETURN count(length(p)) AS n", Some("p")),
+        ("RETURN count(nodes(p)) AS n", Some("p")),
+        ("RETURN count(relationships(p)) AS n", Some("p")),
+        ("WITH p AS q RETURN count(q) AS n", Some("p")),
     ];
     for use_csr in [false, true] {
         let engine = CypherEngine::new(
@@ -538,7 +539,7 @@ async fn named_paths_build_path_values_only_when_read() {
         };
         let expected = count(format!("{path} RETURN count(p) AS n")).await;
         assert!(expected > 4, "use_csr={use_csr}");
-        for (ret, reads_path) in cases {
+        for (ret, node) in cases {
             let query = format!("{path} {ret}");
             assert_eq!(
                 count(query.clone()).await,
@@ -551,11 +552,11 @@ async fn named_paths_build_path_values_only_when_read() {
             } else {
                 "edge inventory"
             };
-            let node = if reads_path { "p" } else { "endpoints" };
-            assert!(
-                plan.contains(&format!("PathMatchExec: {node} {walk}")),
-                "use_csr={use_csr} {query}\n{plan}"
-            );
+            let found = match node {
+                Some(node) => plan.contains(&format!("PathMatchExec: {node} {walk}")),
+                None => !plan.contains("PathMatchExec"),
+            };
+            assert!(found, "use_csr={use_csr} {query}\n{plan}");
         }
     }
 }
