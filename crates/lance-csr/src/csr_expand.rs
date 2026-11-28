@@ -2534,6 +2534,10 @@ impl CsrExpandExec {
     }
 }
 
+/// A closing edge whose source has at most this many edges scans them rather than
+/// comparing its two ends' degrees.
+const SCAN_CLOSING_UP_TO: usize = 32;
+
 /// One input batch and its current row/occurrence, independent of total fan-out.
 struct BatchExpansion {
     batch: RecordBatch,
@@ -2681,7 +2685,11 @@ impl BatchExpansion {
                 let required = self.bound.as_ref().map(|b| b.value(i));
                 let (list, from, wanted) = match (&back, required) {
                     (Some(back), Some(r))
-                        if CLOSING && back.degree_bound(r) < adjacency.degree_bound(key) =>
+                        if CLOSING && {
+                            // A short list is cheaper to scan than to look up the other end.
+                            let here = adjacency.degree_bound(key);
+                            here > SCAN_CLOSING_UP_TO && back.degree_bound(r) < here
+                        } =>
                     {
                         (back, r, Some(key))
                     }
