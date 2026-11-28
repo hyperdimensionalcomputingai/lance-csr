@@ -157,6 +157,64 @@ impl DataFusionPlanner {
         Some(qualify_column(variable, &mapping.id_field))
     }
 
+    /// Whether `predicate` is `variable`'s id compared equal to a literal or parameter.
+    fn binds_id(
+        &self,
+        ctx: &PlanningContext,
+        variable: &str,
+        predicate: &BooleanExpression,
+    ) -> bool {
+        let BooleanExpression::Comparison {
+            left,
+            operator: ComparisonOperator::Equal,
+            right,
+        } = predicate
+        else {
+            return false;
+        };
+        let Some(id) = self.id_column(ctx, variable) else {
+            return false;
+        };
+        let is_id = |value: &ValueExpression| {
+            matches!(value,
+            ValueExpression::Property(p) if qualify_column(&p.variable, &p.property) == id)
+        };
+        let constant = |value: &ValueExpression| {
+            matches!(
+                value,
+                ValueExpression::Literal(_) | ValueExpression::Parameter(_)
+            )
+        };
+        (is_id(left) && constant(right)) || (is_id(right) && constant(left))
+    }
+
+    /// Whether the scan the usual plan starts from is pinned to one node by an id, inline
+    /// or in `WHERE`. A walk from one node reads about `d1 · d2` paths, where counting
+    /// degrees reads every edge of each hop, so a count rewrite only loses there: on a
+    /// 20,000-node graph with 12 edges per node an anchored two-hop count took 3.1 ms
+    /// rewritten and 0.6 ms walked, even with the anchor on the middle node (1.6 ms).
+    // shortcut: only an id equality counts as selective; weigh other conditions by their
+    // estimated rows once the planner has distinct counts for non-id columns.
+    fn start_is_anchored(
+        &self,
+        ctx: &PlanningContext,
+        root: &str,
+        root_properties: &std::collections::HashMap<String, crate::ast::PropertyValue>,
+        predicates: &[&BooleanExpression],
+    ) -> bool {
+        let inline = ctx
+            .analysis
+            .var_to_label
+            .get(root)
+            .and_then(|label| self.config.get_node_mapping(label))
+            .is_some_and(|mapping| {
+                root_properties
+                    .keys()
+                    .any(|key| key.eq_ignore_ascii_case(&mapping.id_field))
+            });
+        inline || predicates.iter().any(|p| self.binds_id(ctx, root, p))
+    }
+
     /// Which pairs of edges `expr` excludes, if it is the predicate the logical planner adds
     /// so that two hops of one type never bind the same edge (`distinct_relationships`):
     /// `NOT (x1 = y1 AND x2 = y2)` over node ids, or, when a hop is undirected, an `OR` of
@@ -224,7 +282,8 @@ impl DataFusionPlanner {
     /// Applies when every `WHERE` conjunct reads the variables of only one hop, so it can
     /// filter that hop's edges before grouping, and the hops' mean fan-outs at `m` say
     /// there are many more paths than edges (not so for `(i)<--(p)-->(city)`, one city
-    /// per person, where grouping only adds work). When both hops have the same type the
+    /// per person, where grouping only adds work), and the pattern's start is not pinned
+    /// to one id (see `start_is_anchored`). When both hops have the same type the
     /// logical planner also requires that they not have the same endpoints; for a directed
     /// chain (`m` the target of one edge and the source of the other) that only excludes
     /// pairs of self-loops at `m`, which `s1` and `s2` count. Endpoints are compared, not
@@ -337,7 +396,9 @@ impl DataFusionPlanner {
         else {
             return Ok(None);
         };
-        if first.source != root.as_str() {
+        if first.source != root.as_str()
+            || self.start_is_anchored(ctx, root, root_properties, &predicates)
+        {
             return Ok(None);
         }
         // The second hop starts from the root (`m` re-rooted) or the first hop's target.
@@ -440,35 +501,11 @@ impl DataFusionPlanner {
         let (mut self_loops, mut shared_end) = (false, false);
         // Variables the kept filters read: a relationship no filter reads needs no edge.
         let mut read = HashSet::new();
-        // shortcut: only bound outer ids are recognized as selective; use filtered
-        // cardinality estimates if other selective starting predicates regress.
         for predicate in predicates {
-            if let Some(group) = group.filter(|g| *g != middle) {
-                if let BooleanExpression::Comparison {
-                    left,
-                    operator: ComparisonOperator::Equal,
-                    right,
-                } = predicate
-                {
-                    let id = self.id_column(ctx, group).ok_or_else(|| {
-                        crate::error::GraphError::internal("grouped variable has an id column")
-                    })?;
-                    let is_id = |value: &ValueExpression| {
-                        matches!(value,
-                        ValueExpression::Property(p) if qualify_column(&p.variable, &p.property) == id)
-                    };
-                    let constant = |value: &ValueExpression| {
-                        matches!(
-                            value,
-                            ValueExpression::Literal(_) | ValueExpression::Parameter(_)
-                        )
-                    };
-                    // A bound outer id can start a selective walk; counting the opposite
-                    // hop across the graph was 2.5x slower in the selective benchmark.
-                    if (is_id(left) && constant(right)) || (is_id(right) && constant(left)) {
-                        return Ok(None);
-                    }
-                }
+            // A bound outer id can start a selective walk; counting the opposite hop
+            // across the graph was 2.5x slower in the selective benchmark.
+            if group.is_some_and(|g| g != middle && self.binds_id(ctx, g, predicate)) {
+                return Ok(None);
             }
             if let Some(excluded) = self.excluded_pairs(ctx, predicate, ends) {
                 match excluded {
@@ -899,9 +936,9 @@ impl DataFusionPlanner {
     /// each, through the rest of the pattern and into the aggregate (eager aggregation,
     /// as in [`Self::try_build_two_hop_count`]). `None` (plan as usual) for any other query.
     ///
-    /// Applies when the hop's mean fan-out at `m` is at least two, every aggregate is a
-    /// plain count of rows, and the group keys are properties or variables other than
-    /// `x` and `r`. `WHERE` conjuncts over `x` alone filter the counted neighbours; any
+    /// Applies when `x` is not pinned to one id, the hop's mean fan-out at `m` is at least
+    /// two, every aggregate is a plain count of rows, and the group keys are properties or
+    /// variables other than `x` and `r`. `WHERE` conjuncts over `x` alone filter the counted neighbours; any
     /// other conjunct that reads `x` or `r` keeps the usual plan.
     pub(crate) fn try_build_root_hop_count(
         &self,
@@ -938,6 +975,9 @@ impl DataFusionPlanner {
         else {
             return Ok(None);
         };
+        if self.start_is_anchored(ctx, root, root_properties, &predicates) {
+            return Ok(None);
+        }
         let (x, m) = (root.as_str(), first.target);
         let counted = |v: &str| v == x || v == "*";
         let hidden: HashSet<&str> = [x].into_iter().chain(first.relationship).collect();
@@ -1344,6 +1384,8 @@ mod tests {
             format!("{one}RETURN b.id, sum(b.age)"),
             format!("{one}WHERE a.age < b.age RETURN b.id, count(*)"),
             format!("{two}WHERE c.id <> a.id RETURN c.id, count(*)"),
+            // An anchored a is cheaper to walk from than to count across the graph.
+            format!("{one}WHERE a.id = 1 RETURN b.id, count(*)"),
         ] {
             grouped(&follows, &query, false).await;
         }
@@ -1638,6 +1680,49 @@ mod tests {
         ] {
             let plan = engine.explain(query, HashMap::new()).await.unwrap();
             assert!(!plan.contains("__paths"), "{query}: {plan}");
+        }
+    }
+
+    /// A start pinned to one id is walked, not counted: any node of the chain, inline or
+    /// in `WHERE`, with a literal or a parameter. The count matches the join plan's.
+    #[tokio::test]
+    async fn anchored_counts_keep_the_usual_plan() {
+        let follows = [(1, 2), (2, 3), (2, 4), (3, 4), (2, 2)];
+        let chain = "(a:Person)-[:FOLLOWS]->(b:Person)-[:FOLLOWS]->(c:Person)";
+        let anchored = "MATCH (a:Person {id: 1})-[:FOLLOWS]->(b:Person)-[:FOLLOWS]->(c:Person)";
+        let params = HashMap::from([("id".to_string(), serde_json::json!(2))]);
+        for use_csr in [false, true] {
+            let engine = engine(&follows, &[], use_csr).await;
+            for (query, rewritten) in [
+                (format!("MATCH {chain} RETURN count(*)"), true),
+                (
+                    format!("MATCH {chain} WHERE a.age > 0 RETURN count(*)"),
+                    true,
+                ),
+                (format!("{anchored} RETURN count(*)"), false),
+                (
+                    format!("MATCH {chain} WHERE a.id = 1 RETURN count(*)"),
+                    false,
+                ),
+                (
+                    format!("MATCH {chain} WHERE b.id = $id RETURN count(*)"),
+                    false,
+                ),
+                (
+                    format!("MATCH {chain} WHERE c.id = 4 RETURN count(*)"),
+                    false,
+                ),
+            ] {
+                let plan = engine.explain(&query, params.clone()).await.unwrap();
+                assert_eq!(plan.contains("__paths"), rewritten, "{query}: {plan}");
+                let mut counts = Vec::new();
+                for q in [query.clone(), query.replace("count(*)", "count(*) + 0")] {
+                    let result = engine.execute(&q, params.clone()).await.unwrap();
+                    let column = result.column(0).as_any().downcast_ref::<Int64Array>();
+                    counts.push(column.unwrap().value(0));
+                }
+                assert_eq!(counts[0], counts[1], "{query}");
+            }
         }
     }
 }
