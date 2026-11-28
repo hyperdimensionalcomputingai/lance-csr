@@ -88,6 +88,11 @@ impl DataFusionPlanner {
         optional: &LogicalOperator,
         keys: &[String],
     ) -> Result<Option<LogicalPlan>> {
+        // The optional clause's own WHERE: kept in the hop below, if all of it moves there.
+        let (optional, predicate) = match optional {
+            LogicalOperator::Filter { input, predicate } => (input.as_ref(), Some(predicate)),
+            other => (other, None),
+        };
         let LogicalOperator::Expand {
             input: seed,
             source_variable,
@@ -133,6 +138,25 @@ impl DataFusionPlanner {
             properties,
             target_properties,
         )?;
+        let hop = match predicate {
+            None => hop,
+            // A neighbour that fails the filter is skipped, and a row left with none keeps
+            // one row of nulls: exactly a moved filter in an outer hop.
+            Some(predicate) => {
+                let expr = self.boolean_expr(predicate, hop.schema())?;
+                let filtered = LogicalPlanBuilder::from(hop)
+                    .filter(expr)
+                    .and_then(|b| b.build())
+                    .map_err(|e| self.plan_error("Failed to build filter", e))?;
+                datafusion::optimizer::OptimizerRule::rewrite(
+                    &crate::csr_expand::PushCsrTargetFilters,
+                    filtered,
+                    &datafusion::optimizer::OptimizerContext::new(),
+                )
+                .map_err(|e| self.plan_error("Failed to move the filter into the hop", e))?
+                .data
+            }
+        };
         let outer = crate::csr_expand::CsrExpandNode::outer_plan(&hop);
         if outer.is_none() {
             ctx.relationship_instance_idx = saved;

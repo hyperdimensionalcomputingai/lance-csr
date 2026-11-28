@@ -25,6 +25,28 @@ CASES = [
         "RETURN a.id, b.id",
         [(1, 3), (2, 3), (3, 3), (4, N), (5, N), (6, N)],
     ),
+    # The optional clause's own WHERE on the relationship, on both, and with OR.
+    (
+        "MATCH (a:Person) OPTIONAL MATCH (a)-[r:KNOWS]->(b:Person) "
+        "WHERE r.since > 2002 RETURN a.id, b.id",
+        [(1, N), (2, 3), (3, 3), (4, N), (5, 1), (6, N)],
+    ),
+    (
+        "MATCH (a:Person) OPTIONAL MATCH (a)-[r:KNOWS]->(b:Person) "
+        "WHERE r.since > 2002 AND b.age > 30 RETURN a.id, b.id",
+        [(1, N), (2, 3), (3, 3), (4, N), (5, N), (6, N)],
+    ),
+    (
+        "MATCH (a:Person) OPTIONAL MATCH (a)-[:KNOWS]->(b:Person) "
+        "WHERE b.age < 25 OR b.age > 35 RETURN a.id, b.id",
+        [(1, 3), (2, 3), (3, 3), (4, N), (5, 1), (6, N)],
+    ),
+    # A WHERE that also reads the earlier variable.
+    (
+        "MATCH (a:Person) OPTIONAL MATCH (a)-[:KNOWS]->(b:Person) WHERE b.age > a.age "
+        "RETURN a.id, b.id",
+        [(1, 2), (1, 2), (1, 3), (2, 3), (3, N), (4, N), (5, N), (6, N)],
+    ),
     (
         "MATCH (a:Person) OPTIONAL MATCH (a)-[:KNOWS]->(b:Person) "
         "RETURN a.id, count(b.id) AS n",
@@ -95,13 +117,21 @@ def test_optional_hop_is_one_outer_csr_expansion():
     )
     physical = plan[plan.index("physical_plan") :]
     assert "outer" in physical and "Join" not in physical
-    # Its own WHERE keeps the CSR expansion on the optional side and the left join.
+    # Its own WHERE on the optional node or relationship moves into that expansion.
+    for where in ["b.age > 30", "r.since > 2002 AND b.age > 30"]:
+        plan = engine.explain(
+            "MATCH (a:Person) OPTIONAL MATCH (a)-[r:KNOWS]->(b:Person) "
+            f"WHERE {where} RETURN a.id, b.id"
+        )
+        physical = plan[plan.index("physical_plan") :]
+        assert "outer" in physical and "Join" not in physical, where
+    # A WHERE that reads an earlier variable can't: it keeps the left join.
     plan = engine.explain(
-        "MATCH (a:Person) OPTIONAL MATCH (a)-[:KNOWS]->(b:Person) WHERE b.age > 30 "
+        "MATCH (a:Person) OPTIONAL MATCH (a)-[:KNOWS]->(b:Person) WHERE b.age > a.age "
         "RETURN a.id, b.id"
     )
     physical = plan[plan.index("physical_plan") :]
-    assert "CsrExpandExec" in physical and "join_type=Left" in physical
+    assert "outer" not in physical and "join_type=Left" in physical
 
 
 def test_optional_match_needs_a_bound_variable():

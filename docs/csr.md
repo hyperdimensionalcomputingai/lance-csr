@@ -173,7 +173,7 @@ A hop runs on the CSR when **all three** conditions hold:
 | `(a)-[:KNOWS*1..3]->(b)` | :material-check: single iterative expansion across the range |
 | <code>(t:Tag)-[:hasType&#124;isSubclassOf*1..3]->(c:TagClass)</code> | :material-check: typed iterative expansion when all types and labels are indexed |
 | <code>(a)-[:LIKES_POST&#124;LIKES_COMMENT]->(m)</code> | :material-check: one expansion per branch |
-| `OPTIONAL MATCH (a)-[:KNOWS]->(b)` | :material-check: outer CSR expansion |
+| `OPTIONAL MATCH (a)-[:KNOWS]->(b)`, with or without its own `WHERE` on `b` | :material-check: outer CSR expansion |
 | `shortestPath((a)-[:KNOWS*]-(b))` | :material-check: BFS over the CSR adjacency |
 | `WHERE NOT (b)-[:KNOWS]->(a)` | :material-check: in-place walk via [`PathExists`](internals/operators.md#pathexists-pattern-predicates-walked-in-place) |
 | `(a)-[k:KNOWS]->(b)` | :material-check: edge properties fetched by row position (single hops) |
