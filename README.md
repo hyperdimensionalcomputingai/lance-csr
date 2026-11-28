@@ -157,7 +157,8 @@ These are independent, unaudited measurements, not GDC Benchmark Results.
 
 Contributions within the [project's goals](#goals) are welcome, from humans who understand the outputs of their coding agents. Every
 pull request should explain the problem it solves and back it up with evidence: a regression test for a bug fix,
-and results from both benchmark suites for a code change. [`CONTRIBUTING.md`](CONTRIBUTING.md) explains what to
+and results from all three benchmark suites (the two SNB suites above and the shape suite in
+`python/benchmarks/shapes.py`) for a code change. [`CONTRIBUTING.md`](CONTRIBUTING.md) explains what to
 include and how to measure your branch against `main`. If you're unsure whether an idea is suitable, please open an issue first.
 
 ## Credits

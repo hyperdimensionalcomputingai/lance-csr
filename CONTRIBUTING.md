@@ -8,8 +8,8 @@ What matters in a pull request:
 
 - **A clear reason:** the problem it solves, or the queries it makes faster.
 - **Correct results:** every test and benchmark answer still checks out.
-- **Evidence:** a regression test for a bug fix; before-and-after numbers from the three benchmark suites for
-  a code change.
+- **Evidence:** a regression test for a bug fix; before-and-after numbers from all three
+  [benchmark suites](#the-benchmark-suites) for a code change.
 - **No surprises:** no unexplained slowdowns elsewhere.
 
 The sections below cover each of these, including a step-by-step benchmark harness you can hand to a coding
@@ -35,7 +35,7 @@ these answers before you start, so that we can agree on the approach before you 
 | Change | Evidence |
 | --- | --- |
 | Bug fix | A regression test that fails on `main` and passes on your branch. |
-| Performance improvement | Before-and-after results from the three benchmark suites, built with the [harness below](#build-the-benchmark-harness). |
+| Performance improvement | Before-and-after results from all three [benchmark suites](#the-benchmark-suites), in both modes, built with the [harness below](#build-the-benchmark-harness). |
 | New feature or Cypher support | Tests, documentation, and benchmark results showing that existing queries didn't get slower. |
 | Refactor | Tests pass, and benchmark results if it touches planning, execution or the CSR. |
 | Documentation only | None. |
@@ -44,23 +44,28 @@ Every code change also needs the usual checks to pass; see [Set up, test and lin
 
 ## The benchmark suites
 
-We guide performance work with three suites. Two run over the GDC Social Network Benchmark SF1 dataset
-(3.18M nodes, 17.3M relationships). Each lives in its own repository, next to the runners for the other
-engines, and every query checks its result against an expected answer:
+A pull request that claims a performance improvement, or says a change doesn't slow anything down, reports
+before-and-after results from **all three** of these suites, each in both `memory` and `lazy` modes:
 
-- [graph-benchmark-ldbc](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc): 30 custom
-  Cypher queries. lance-csr's runner is in `lance_csr/`, a uv project of its own.
-- [graph-benchmark-ldbc-complex](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc-complex):
-  the 14 Interactive complex read queries (IC1–IC14). lance-csr's runner is in `lance_csr/` and uses the
-  repository's root uv project.
+1. **[graph-benchmark-ldbc](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc):** 30 custom
+   Cypher queries over the GDC Social Network Benchmark SF1 dataset. lance-csr's runner is in `lance_csr/`,
+   a uv project of its own.
+2. **[graph-benchmark-ldbc-complex](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc-complex):**
+   the 14 Interactive complex read queries (IC1–IC14) over the same dataset. lance-csr's runner is in
+   `lance_csr/` and uses the repository's root uv project.
+3. **The shape suite, [`python/benchmarks/shapes.py`](python/benchmarks/shapes.py)** in this repository:
+   general multi-hop shapes over a generated graph.
 
-Both run lance-csr in two modes, selected by `LANCE_CSR_MODE`: `memory` holds every table as Arrow in memory,
-and `lazy` reads the Lance datasets from disk as queries need them. A change can speed up one mode and slow
-down the other, so measure both.
+Results from one or two of them don't support the claim, however good they look.
 
-Those suites write each question one way, over one graph, so they miss a plan that depends on how a query is
-written, or work that grows with one node's degree. The third suite,
-[`python/benchmarks/shapes.py`](python/benchmarks/shapes.py), covers that. It generates a seeded graph with
+The first two run over SF1 (3.18M nodes, 17.3M relationships). Each lives in its own repository, next to the
+runners for the other engines, and every query checks its result against an expected answer. In `memory`
+mode (`LANCE_CSR_MODE=memory`) every table is held as Arrow in memory; in `lazy` mode the Lance datasets are
+read from disk as queries need them. A change can speed up one mode and slow down the other, which is why
+both count.
+
+The SF1 suites write each question one way, over one graph, so they miss a plan that depends on how a query is
+written, or work that grows with one node's degree. The shape suite covers that. It generates a seeded graph with
 hubs, wide text columns and ids that don't follow table order, and runs groups of general multi-hop shapes:
 one question written several ways, cycles and pattern predicates through a growing hub, `CALL` per row,
 filtered `OPTIONAL MATCH`, wide columns, counts against rows, and `LIMIT` without `ORDER BY`. Each group
@@ -148,7 +153,7 @@ for mode in memory lazy; do
 done
 ```
 
-Run this in both repositories. Keep the machine otherwise idle and plugged in, and use the same machine for
+Run this in both SF1 repositories. Keep the machine otherwise idle and plugged in, and use the same machine for
 every run. Each run's tests check results against the expected answers: a failing test means the change is
 wrong, however fast it is.
 
@@ -222,8 +227,10 @@ To have an agent produce the evidence, give it this guide and a brief like this 
 
 > Measure the performance effect of the branch `my-branch` in the lance-csr checkout at `<path>`, following
 > "Build the benchmark harness" in its `CONTRIBUTING.md`. Build release wheels from `main` and from the
-> branch. Before timing, confirm the runner imports each wheel rather than the pinned release. Run the three
-> suites, in both `memory` and `lazy` modes, alternating `main` and branch runs twice each.
+> branch. Before timing, confirm the runner imports each wheel rather than the pinned release. Run all three
+> suites (graph-benchmark-ldbc, graph-benchmark-ldbc-complex and the shape suite in
+> `python/benchmarks/shapes.py`), in both `memory` and `lazy` modes, alternating `main` and branch runs twice
+> each.
 > Don't edit the benchmark queries, expected answers or runner settings. Report every query, not only those
 > that improved: for each suite and mode, a table of mean latency on `main` and on the branch with the
 > change, the geometric mean of the ratios, and the gap between the two `main` runs. List any failing

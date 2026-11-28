@@ -16,7 +16,7 @@ engine crate, `lance-csr`, is published on crates.io.
 │   ├── pyproject.toml            # The lance-csr package, built with maturin
 │   ├── python/lance_csr/         # Python package that wraps the bindings
 │   ├── python/tests/             # Python tests
-│   └── benchmarks/               # Engine micro-benchmarks (see Benchmarks)
+│   └── benchmarks/               # Shape suite and engine micro-benchmarks (see Benchmarks)
 ├── nodejs/
 │   ├── package.json              # The lance-csr npm package
 │   ├── src/                      # TypeScript classes that wrap the bindings
