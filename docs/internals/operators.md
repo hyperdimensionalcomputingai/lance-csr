@@ -231,8 +231,10 @@ A predicate qualifies when it is one path that:
 Every node reached by the walk must exist in its label's node index (matching the relational plan's join to the
 node table), so an edge pointing to a missing node matches nothing. A predicate that doesn't qualify, a hop or label without a CSR, or an
 endpoint that isn't an integer id keeps the relational plan, which the logical operator carries as its fallback. Both
-give the same rows. The walk keeps no set of visited nodes, so a long chain of high-degree hops ending at a bound node
-costs the product of their degrees per row.
+give the same rows. Within a row, the walk remembers each node it has explored at each depth, so a node reached again by
+another path isn't walked twice: a long chain of high-degree hops costs the degrees of the nodes it explores,
+not the product of the degrees along every path. A last hop to a bound node reads the shorter of its two ends' lists, as a
+[closing edge](#what-one-expansion-can-do) does, so a hub on that hop costs no more than the other end.
 
 ## `ShortestPath`: breadth-first search over the adjacency
 

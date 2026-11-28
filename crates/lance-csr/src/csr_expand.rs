@@ -3900,7 +3900,10 @@ mod tests {
     use super::*;
     use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
 
-    fn edge_stream(src: Vec<Option<i64>>, dst: Vec<Option<i64>>) -> SendableRecordBatchStream {
+    pub(crate) fn edge_stream(
+        src: Vec<Option<i64>>,
+        dst: Vec<Option<i64>>,
+    ) -> SendableRecordBatchStream {
         let schema = Arc::new(Schema::new(vec![
             Field::new("src", DataType::Int64, true),
             Field::new("dst", DataType::Int64, true),
