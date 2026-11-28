@@ -168,7 +168,11 @@ rejects still keeps its null row. The two clauses don't share the rule that a pa
 are subtracted.
 
 The rewrite applies when every `WHERE` condition reads one hop's variables, and the hops' mean fan-outs at `b` (from
-the [join statistics](#join-statistics-for-graph-workloads)) say there are at least twice as many paths as edges.
+the [join statistics](#join-statistics-for-graph-workloads)) say there are at least twice as many paths as edges. It
+doesn't apply when the node the pattern starts from, after [re-rooting](#re-rooting-start-at-the-most-selective-node),
+has its id fixed by an inline property or a `WHERE` equality with a literal or parameter: a walk from that one node
+reads only its own paths, while counting degrees reads every edge of both hops. Other conditions don't stop the
+rewrite yet, however selective, because the planner has no distinct counts for columns other than ids.
 
 A relationship variable that no condition references is left unbound, so the CSR skips fetching its edge rows. Each side's
 grouping is a `HopDegreesNode` over the aggregate. After `PushCsrTargetFilters` has moved the side's far-end filter
@@ -253,8 +257,8 @@ CsrExpandExec: key=b__id, edges=144, take=a[a__id*]
 `m`. When every aggregate is a plain count of rows and nothing else reads `x` or the relationship, the planner
 counts each `m`'s `x` neighbours once, through the same `HopDegreesNode`, plans the rest of the pattern from `m`,
 joins the counts on `m`'s id, and sums them in place of the count. Conditions on `x` alone filter the counted
-neighbours. It applies only with the CSR and when the hop's mean fan-out at `m` is at least two, so that the counts
-are fewer than the edges.
+neighbours. It applies only with the CSR, when the hop's mean fan-out at `m` is at least two, so that the counts
+are fewer than the edges, and when `x`'s id isn't fixed, as for the two-hop count.
 
 Without it, the first hop's edges come out of the CSR expansion one row each, and those rows reach the aggregate spread
 over every partition, so each partition's partial aggregate holds a row for nearly every group. On the benchmark
