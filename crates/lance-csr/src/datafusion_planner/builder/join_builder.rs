@@ -143,7 +143,17 @@ impl DataFusionPlanner {
             // A neighbour that fails the filter is skipped, and a row left with none keeps
             // one row of nulls: exactly a moved filter in an outer hop.
             Some(predicate) => {
-                let expr = self.boolean_expr(predicate, hop.schema())?;
+                let expr = self.boolean_expr(predicate, hop.schema(), ctx.type_columns())?;
+                // A predicate can read the relationship type that build_expand adds
+                // above this bare hop. Let the ordinary optional join bind it there.
+                if expr
+                    .column_refs()
+                    .iter()
+                    .any(|c| !hop.schema().has_column(c))
+                {
+                    ctx.relationship_instance_idx = saved;
+                    return Ok(None);
+                }
                 let filtered = LogicalPlanBuilder::from(hop)
                     .filter(expr)
                     .and_then(|b| b.build())
@@ -157,11 +167,17 @@ impl DataFusionPlanner {
                 .data
             }
         };
-        let outer = crate::csr_expand::CsrExpandNode::outer_plan(&hop);
-        if outer.is_none() {
+        let Some(outer) = crate::csr_expand::CsrExpandNode::outer_plan(&hop) else {
             ctx.relationship_instance_idx = saved;
-        }
-        Ok(outer)
+            return Ok(None);
+        };
+        self.with_relationship_type(
+            ctx,
+            outer,
+            relationship_variable.as_deref(),
+            relationship_types,
+        )
+        .map(Some)
     }
 
     /// Build a join between two logical operators

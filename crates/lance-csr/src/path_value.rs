@@ -18,6 +18,41 @@ pub(crate) const IDENTITY: &str = "__lance_csr_identity";
 pub(crate) const START: &str = "__lance_csr_start";
 pub(crate) const END: &str = "__lance_csr_end";
 const ENTITY: &str = "lance_csr.entity";
+/// Names of one query's relationship type columns, which hold the configured type of a
+/// flat relationship variable. A column the query can name begins with one of its
+/// identifiers (a variable, alias, label or function, quoted or not), and the planner's
+/// own columns begin with a letter or `_`. A type column begins with more `@` than any
+/// of the query's identifiers, so no alias, variable or property column can equal it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct TypeColumns {
+    /// The most leading `@` of an identifier of the query.
+    depth: usize,
+}
+
+fn leading_ats(name: &str) -> usize {
+    name.bytes().take_while(|&b| b == b'@').count()
+}
+
+impl TypeColumns {
+    /// Account for `identifier`, a name the query chose.
+    pub(crate) fn note(&mut self, identifier: &str) {
+        self.depth = self.depth.max(leading_ats(identifier));
+    }
+
+    /// The type column of the flat relationship `variable`.
+    pub(crate) fn name(self, variable: &str) -> String {
+        format!(
+            "{}type__{}",
+            "@".repeat(self.depth + 1),
+            variable.to_lowercase()
+        )
+    }
+
+    /// Whether `column` is a type column, of any variable.
+    pub(crate) fn contains(self, column: &str) -> bool {
+        leading_ats(column) > self.depth
+    }
+}
 
 pub(crate) fn entity_kind(data_type: &DataType) -> Option<&str> {
     let DataType::Struct(fields) = data_type else {
@@ -350,6 +385,20 @@ pub(crate) fn needs_values(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn type_columns_outrank_every_identifier() {
+        let mut columns = TypeColumns::default();
+        assert_eq!(columns.name("R"), "@type__r");
+        for identifier in ["__lance_csr_type__r", "`x`", "@type__r", "@@a"] {
+            columns.note(identifier);
+        }
+        let name = columns.name("r");
+        assert_eq!(name, "@@@type__r");
+        assert!(columns.contains(&name));
+        assert!(!columns.contains("@@a__type__r"));
+        assert!(!columns.contains("__lance_csr_type__r"));
+    }
 
     #[test]
     fn branch_alignment_rejects_conflicting_entity_properties() {

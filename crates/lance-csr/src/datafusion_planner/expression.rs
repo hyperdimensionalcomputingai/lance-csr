@@ -35,16 +35,21 @@ impl super::DataFusionPlanner {
         &self,
         expr: &ValueExpression,
         schema: &datafusion::common::DFSchema,
+        types: crate::path_value::TypeColumns,
     ) -> crate::error::Result<Expr> {
-        self.resolve_expr(to_df_value_expr(&bind_value(expr, schema)), schema)
+        self.resolve_expr(to_df_value_expr(&bind_value(expr, schema, types)), schema)
     }
 
     pub(crate) fn boolean_expr(
         &self,
         expr: &BooleanExpression,
         schema: &datafusion::common::DFSchema,
+        types: crate::path_value::TypeColumns,
     ) -> crate::error::Result<Expr> {
-        self.resolve_expr(to_df_boolean_expr(&bind_boolean(expr, schema)), schema)
+        self.resolve_expr(
+            to_df_boolean_expr(&bind_boolean(expr, schema, types)),
+            schema,
+        )
     }
     pub(crate) fn unresolved_value_expr(&self, value: &ValueExpression) -> Expr {
         self.type_parameters(to_df_value_expr(value))
@@ -290,6 +295,7 @@ pub(crate) fn to_df_value_expr(expr: &ValueExpression) -> Expr {
                 | "keys"
                 | "__entity_keys"
                 | "labels"
+                | "type"
                 | "startnode"
                 | "endnode"
                 | "__predicate_all"
@@ -554,7 +560,18 @@ fn cast_to(expr: Expr, data_type: arrow_schema::DataType) -> Expr {
 pub(crate) fn bind_value(
     expr: &ValueExpression,
     schema: &datafusion::common::DFSchema,
+    types: crate::path_value::TypeColumns,
 ) -> ValueExpression {
+    bind_value_with_type_column(expr, schema, types).0
+}
+
+/// Also report whether binding introduced a private relationship-type column.
+/// An aggregate projection must keep the Cypher name of such an expression.
+pub(crate) fn bind_value_with_type_column(
+    expr: &ValueExpression,
+    schema: &datafusion::common::DFSchema,
+    types: crate::path_value::TypeColumns,
+) -> (ValueExpression, bool) {
     let has = |name: &str| schema.has_column_with_unqualified_name(name);
     let entity_properties = |var: &str| {
         let var = var.to_lowercase();
@@ -578,6 +595,7 @@ pub(crate) fn bind_value(
             .collect::<Vec<_>>()
     };
     let mut expr = expr.clone();
+    let mut used_type_column = false;
     crate::ast::transform_value(&mut expr, &mut |e| match e {
         ValueExpression::Property(p)
             if !has(&qualify_column(&p.variable, &p.property))
@@ -633,18 +651,83 @@ pub(crate) fn bind_value(
                 }
             }
         }
-        _ => {}
+        _ => used_type_column |= bind_relationship_type(e, schema, types),
     });
-    expr
+    (expr, used_type_column)
+}
+
+/// `type(r)` and `labels(r)` of a flat relationship `r` (no value column of that name)
+/// read its type column, which `schema` must hold. A relationship value (a path's
+/// typed record) is left to the `type`/`labels` functions, which read its identity.
+fn bind_relationship_type(
+    expr: &mut ValueExpression,
+    schema: &datafusion::common::DFSchema,
+    types: crate::path_value::TypeColumns,
+) -> bool {
+    let ValueExpression::ScalarFunction { name, args } = expr else {
+        return false;
+    };
+    let labels = match name.to_lowercase().as_str() {
+        "type" => false,
+        "labels" => true,
+        _ => return false,
+    };
+    let [ValueExpression::Variable(var)] = args.as_slice() else {
+        return false;
+    };
+    let column = types.name(var);
+    if schema.has_column_with_unqualified_name(&var.to_lowercase())
+        || !schema.has_column_with_unqualified_name(&column)
+    {
+        return false;
+    }
+    let kind = ValueExpression::Variable(column);
+    *expr = if labels {
+        ValueExpression::Case {
+            whens: vec![(
+                BooleanExpression::IsNull(kind.clone()),
+                ValueExpression::Literal(PropertyValue::Null),
+            )],
+            otherwise: Some(Box::new(ValueExpression::ScalarFunction {
+                name: "__list".to_string(),
+                args: vec![kind],
+            })),
+        }
+    } else {
+        kind
+    };
+    true
+}
+
+/// [`bind_value`]'s `type()`/`labels()` binding against the rows under a projection,
+/// for a sort that reads a relationship the projection dropped (`ORDER BY type(e)`
+/// after `RETURN e.x`); the sort restores the type column from those rows.
+pub(crate) fn bind_dropped_relationship_types(
+    expr: &mut ValueExpression,
+    projected: &datafusion::common::DFSchema,
+    input: &datafusion::common::DFSchema,
+    types: crate::path_value::TypeColumns,
+) {
+    crate::ast::transform_value(expr, &mut |e| {
+        if let ValueExpression::ScalarFunction { args, .. } = e {
+            if let [ValueExpression::Variable(var)] = args.as_slice() {
+                if projected.has_column_with_unqualified_name(&var.to_lowercase()) {
+                    return;
+                }
+            }
+        }
+        bind_relationship_type(e, input, types);
+    });
 }
 
 /// [`bind_value`] for every value in a predicate.
 pub(crate) fn bind_boolean(
     expr: &BooleanExpression,
     schema: &datafusion::common::DFSchema,
+    types: crate::path_value::TypeColumns,
 ) -> BooleanExpression {
     let mut expr = expr.clone();
-    crate::ast::transform_boolean_values(&mut expr, &mut |v| *v = bind_value(v, schema));
+    crate::ast::transform_boolean_values(&mut expr, &mut |v| *v = bind_value(v, schema, types));
     expr
 }
 

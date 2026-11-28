@@ -140,7 +140,7 @@ impl SemanticAnalyzer {
                     },
                     "tofloat" | "round" | "floor" | "ceil" | "sqrt" => Scalar(DataType::Float64),
                     "tolower" | "lower" | "toupper" | "upper" | "tostring" | "left" | "right"
-                    | "substring" | "trim" | "ltrim" | "rtrim" | "replace" => {
+                    | "substring" | "trim" | "ltrim" | "rtrim" | "replace" | "type" => {
                         Scalar(DataType::Utf8)
                     }
                     "date" => Scalar(DataType::Date32),
@@ -161,6 +161,10 @@ impl SemanticAnalyzer {
                     },
                     "range" => List(Box::new(Scalar(DataType::Int64))),
                     "nodes" => List(Box::new(Unknown)),
+                    "relationships" => List(Box::new(ExpressionType::Entity(
+                        VariableType::Relationship,
+                        vec![],
+                    ))),
                     "__list" => List(Box::new(common_type(
                         args.iter()
                             .map(|value| self.expression_type(value))

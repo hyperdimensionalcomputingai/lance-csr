@@ -9,6 +9,7 @@ use crate::ast::ValueExpression;
 use crate::case_insensitive::qualify_column;
 use crate::csr_expand::{only_hop_fetches, NodeLookupNode, NodeRows};
 use crate::datafusion_planner::analysis::PlanningContext;
+use crate::datafusion_planner::expression::{bind_value_with_type_column, to_cypher_column_name};
 use crate::datafusion_planner::DataFusionPlanner;
 use crate::error::Result;
 use crate::logical_plan::*;
@@ -214,19 +215,31 @@ impl DataFusionPlanner {
         let mut aggregates = Vec::new();
 
         let schema = input_plan.schema().clone();
+        let types = ctx.type_columns();
         let bound: Vec<ProjectionItem> = projections
             .iter()
-            .map(|p| ProjectionItem {
-                expression: super::super::expression::bind_value(&p.expression, &schema),
-                alias: p.alias.clone(),
+            .map(|p| {
+                let (expression, used_type_column) =
+                    bind_value_with_type_column(&p.expression, &schema, types);
+                let alias = p
+                    .alias
+                    .as_ref()
+                    .map(|a| a.to_lowercase())
+                    .or_else(|| used_type_column.then(|| to_cypher_column_name(&p.expression)));
+                ProjectionItem { expression, alias }
             })
             .collect();
         let projections = bound.as_slice();
+        let output_name = |p: &ProjectionItem| {
+            p.alias
+                .clone()
+                .unwrap_or_else(|| to_cypher_column_name(&p.expression))
+        };
         let late_properties = self.late_properties(ctx, &input_plan, projections);
         let mut late = Vec::new();
         for p in projections {
             // Grouping by a node groups by all its columns (`WITH b, count(*) AS n`).
-            if let Some(columns) = Self::entity_columns(&schema, &p.expression, None) {
+            if let Some(columns) = Self::entity_columns(&schema, &p.expression, None, types) {
                 let ValueExpression::Variable(var) = &p.expression else {
                     return Err(crate::error::GraphError::internal(
                         "entity_columns matched a variable",
@@ -253,18 +266,12 @@ impl DataFusionPlanner {
                 continue;
             }
             if super::super::expression::contains_aggregate(&p.expression) {
-                // Aliases are lowercase, like plain projections: the final projection refers
-                // to columns with `col`, which normalizes identifiers.
-                let alias = if let Some(alias) = &p.alias {
-                    alias.to_lowercase()
-                } else {
-                    super::super::expression::to_cypher_column_name(&p.expression)
-                };
+                let alias = output_name(p);
                 let mut rewritten = p.expression.clone();
                 let first = aggregates.len();
                 split_aggregates(&mut rewritten, &mut aggregates);
                 for (column, aggregate) in &aggregates[first..] {
-                    let mut aggregate = self.value_expr(aggregate, &schema)?;
+                    let mut aggregate = self.value_expr(aggregate, &schema, types)?;
                     if let datafusion::logical_expr::Expr::AggregateFunction(f) = &mut aggregate {
                         // collect() gathers in the order of a preceding `WITH ... ORDER BY`.
                         if f.func.name() == "array_agg" && !f.params.distinct {
@@ -290,7 +297,7 @@ impl DataFusionPlanner {
                     }
                 }
                 // Group expressions: use raw expression for grouping, no alias
-                group_exprs.push(self.value_expr(&p.expression, &schema)?);
+                group_exprs.push(self.value_expr(&p.expression, &schema, types)?);
             }
         }
         late.extend(late_properties);
@@ -299,7 +306,8 @@ impl DataFusionPlanner {
         let mut final_projection = Vec::new();
         let mut agg_idx = 0;
         for p in projections {
-            if let Some(columns) = Self::entity_columns(&schema, &p.expression, p.alias.as_deref())
+            if let Some(columns) =
+                Self::entity_columns(&schema, &p.expression, p.alias.as_deref(), types)
             {
                 // After grouping, the node's columns are plain group columns of the same names.
                 for c in columns {
@@ -319,14 +327,7 @@ impl DataFusionPlanner {
             } else if !super::super::expression::contains_aggregate(&p.expression) {
                 // Re-create the expression and apply alias
                 let expr = self.unresolved_value_expr(&p.expression);
-                let aliased = if let Some(alias) = &p.alias {
-                    expr.alias(alias.to_lowercase())
-                } else {
-                    let cypher_name =
-                        super::super::expression::to_cypher_column_name(&p.expression);
-                    expr.alias(cypher_name)
-                };
-                final_projection.push(aliased);
+                final_projection.push(expr.alias(output_name(p)));
             } else {
                 final_projection.push(outer[agg_idx].clone());
                 agg_idx += 1;

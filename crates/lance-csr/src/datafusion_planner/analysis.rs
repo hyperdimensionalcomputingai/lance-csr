@@ -23,6 +23,13 @@ pub struct QueryAnalysis {
     pub required_datasets: HashSet<String>,
 }
 
+#[derive(Default)]
+pub(crate) struct RelationshipTypes {
+    /// Fixed-length variables read by labels/type, including their WITH names.
+    pub(crate) requested: HashSet<String>,
+    pub(crate) columns: crate::path_value::TypeColumns,
+}
+
 /// Represents a single relationship expansion with a unique instance ID
 #[derive(Debug, Clone)]
 pub struct RelationshipInstance {
@@ -37,6 +44,7 @@ pub struct RelationshipInstance {
 /// Planning context that tracks state during plan building
 pub struct PlanningContext<'a> {
     pub analysis: &'a QueryAnalysis,
+    pub(crate) introspection: Option<&'a RelationshipTypes>,
     pub(crate) path_sources: crate::path_inventory::SourceBatches,
     pub(crate) relationship_instance_idx: HashMap<String, usize>,
     /// Element rows of the list comprehensions being built, innermost last.
@@ -47,10 +55,17 @@ impl<'a> PlanningContext<'a> {
     pub fn new(analysis: &'a QueryAnalysis) -> Self {
         Self {
             analysis,
+            introspection: None,
             path_sources: Default::default(),
             relationship_instance_idx: HashMap::new(),
             comprehension_elements: Vec::new(),
         }
+    }
+
+    pub(crate) fn type_columns(&self) -> crate::path_value::TypeColumns {
+        self.introspection
+            .map(|info| info.columns)
+            .unwrap_or_default()
     }
 
     /// Skip the relationship instances that `planned` would take beyond `built`, as when
@@ -120,11 +135,195 @@ pub(crate) fn variable_length_target_label(
 }
 
 pub fn analyze(logical_plan: &LogicalOperator) -> Result<QueryAnalysis> {
+    analyze_with_types(logical_plan, &mut RelationshipTypes::default())
+}
+
+pub(crate) fn analyze_with_types(
+    logical_plan: &LogicalOperator,
+    types: &mut RelationshipTypes,
+) -> Result<QueryAnalysis> {
     let mut analysis = QueryAnalysis::default();
     let mut rel_counter: HashMap<String, usize> = HashMap::new();
 
-    analyze_operator(logical_plan, &mut analysis, &mut rel_counter)?;
+    analyze_operator(logical_plan, &mut analysis, &mut rel_counter, types)?;
     Ok(analysis)
+}
+
+/// Record consumers before visiting their input, so each WITH rename can carry
+/// demand back to the original hop in the existing analysis walk. The same walk notes
+/// the names in expressions, which can start an unaliased column's name.
+fn note_relationship_types(op: &LogicalOperator, types: &mut RelationshipTypes) {
+    use crate::ast::{transform_boolean_values, transform_value, ValueExpression as V};
+    let requested = &mut types.requested;
+    let names = &mut types.columns;
+    let mut note = |value: &mut V| match value {
+        V::ScalarFunction { name, args } => {
+            names.note(name);
+            if name.eq_ignore_ascii_case("type") || name.eq_ignore_ascii_case("labels") {
+                if let [V::Variable(variable)] = args.as_slice() {
+                    requested.insert(variable.to_lowercase());
+                }
+            }
+        }
+        V::AggregateFunction { name, .. } | V::Variable(name) | V::LocalVariable(name) => {
+            names.note(name)
+        }
+        V::Property(property) => names.note(&property.variable),
+        _ => {}
+    };
+    match op {
+        LogicalOperator::Filter { predicate, .. } => {
+            transform_boolean_values(&mut predicate.clone(), &mut note)
+        }
+        LogicalOperator::Sort { sort_items, .. } => {
+            for item in sort_items {
+                transform_value(&mut item.expression.clone(), &mut note);
+            }
+        }
+        LogicalOperator::Project { projections, .. } => {
+            for item in projections {
+                transform_value(&mut item.expression.clone(), &mut note);
+            }
+            if !requested.is_empty() {
+                for item in projections {
+                    if let (V::Variable(from), Some(to)) = (&item.expression, &item.alias) {
+                        if requested.contains(&to.to_lowercase()) {
+                            requested.insert(from.to_lowercase());
+                        }
+                    }
+                }
+            }
+        }
+        LogicalOperator::Unwind { expression, .. } => {
+            transform_value(&mut expression.clone(), &mut note)
+        }
+        LogicalOperator::ListComprehension {
+            list, keep, map, ..
+        } => {
+            transform_value(&mut list.clone(), &mut note);
+            transform_value(&mut map.clone(), &mut note);
+            if let Some(predicate) = keep {
+                transform_boolean_values(&mut predicate.clone(), &mut note);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Note the names `op` binds, which start the names of its columns.
+fn note_identifiers(op: &LogicalOperator, names: &mut crate::path_value::TypeColumns) {
+    let mut note = |name: &str| names.note(name);
+    match op {
+        LogicalOperator::ScanByLabel {
+            variable, label, ..
+        } => {
+            note(variable);
+            note(label);
+        }
+        LogicalOperator::Unwind { alias, label, .. } => {
+            note(alias);
+            label.iter().for_each(|label| note(label));
+        }
+        LogicalOperator::Expand {
+            source_variable,
+            target_variable,
+            target_label,
+            relationship_types,
+            relationship_variable,
+            ..
+        }
+        | LogicalOperator::VariableLengthExpand {
+            source_variable,
+            target_variable,
+            target_label,
+            relationship_types,
+            relationship_variable,
+            ..
+        } => {
+            note(source_variable);
+            note(target_variable);
+            note(target_label);
+            relationship_types.iter().for_each(|kind| note(kind));
+            relationship_variable.iter().for_each(|r| note(r));
+        }
+        LogicalOperator::Project { projections, .. } => {
+            projections
+                .iter()
+                .filter_map(|p| p.alias.as_deref())
+                .for_each(&mut note);
+        }
+        LogicalOperator::PathMatch { path, .. } => {
+            path.variable.iter().for_each(|p| note(p));
+            let nodes =
+                std::iter::once(&path.start_node).chain(path.segments.iter().map(|s| &s.end_node));
+            for node in nodes {
+                node.variable
+                    .iter()
+                    .chain(&node.labels)
+                    .for_each(|n| note(n));
+            }
+            for segment in &path.segments {
+                let relationship = &segment.relationship;
+                relationship
+                    .variable
+                    .iter()
+                    .chain(&relationship.types)
+                    .for_each(|n| note(n));
+            }
+        }
+        LogicalOperator::ShortestPath {
+            source_variable,
+            target_variable,
+            relationship_type,
+            path_variable,
+            ..
+        } => {
+            for name in [
+                source_variable,
+                target_variable,
+                relationship_type,
+                path_variable,
+            ] {
+                note(name);
+            }
+        }
+        LogicalOperator::OptionalMatch { keys, .. } => keys.iter().for_each(|k| note(k)),
+        LogicalOperator::ListComprehension {
+            variable,
+            label,
+            output,
+            ..
+        } => {
+            note(variable);
+            note(output);
+            label.iter().for_each(|label| note(label));
+        }
+        LogicalOperator::PathExists {
+            start,
+            hops,
+            end,
+            mark,
+            ..
+        } => {
+            note(start);
+            note(mark);
+            end.iter().for_each(|end| note(end));
+            for (kind, _, label) in hops {
+                note(kind);
+                note(label);
+            }
+        }
+        LogicalOperator::SingleRow
+        | LogicalOperator::QueryUnion { .. }
+        | LogicalOperator::Filter { .. }
+        | LogicalOperator::Join { .. }
+        | LogicalOperator::Distinct { .. }
+        | LogicalOperator::Sort { .. }
+        | LogicalOperator::Offset { .. }
+        | LogicalOperator::Limit { .. }
+        | LogicalOperator::Union { .. }
+        | LogicalOperator::ComprehensionElement => {}
+    }
 }
 
 /// Recursively analyze operators to build QueryAnalysis
@@ -132,7 +331,10 @@ fn analyze_operator(
     op: &LogicalOperator,
     analysis: &mut QueryAnalysis,
     rel_counter: &mut HashMap<String, usize>,
+    types: &mut RelationshipTypes,
 ) -> Result<()> {
+    note_relationship_types(op, types);
+    note_identifiers(op, &mut types.columns);
     match op {
         LogicalOperator::ScanByLabel {
             variable, label, ..
@@ -153,7 +355,7 @@ fn analyze_operator(
             ..
         } => {
             // Recursively analyze input first
-            analyze_operator(input, analysis, rel_counter)?;
+            analyze_operator(input, analysis, rel_counter, types)?;
 
             // Register the target variable with its label from the logical plan
             analysis
@@ -197,7 +399,7 @@ fn analyze_operator(
             ..
         } => {
             // Recursively analyze input first
-            analyze_operator(input, analysis, rel_counter)?;
+            analyze_operator(input, analysis, rel_counter, types)?;
 
             let label = variable_length_target_label(
                 target_label,
@@ -232,12 +434,12 @@ fn analyze_operator(
         | LogicalOperator::Limit { input, .. }
         | LogicalOperator::Offset { input, .. }
         | LogicalOperator::Distinct { input } => {
-            analyze_operator(input, analysis, rel_counter)?;
+            analyze_operator(input, analysis, rel_counter, types)?;
         }
         LogicalOperator::Join { left, right, .. }
         | LogicalOperator::QueryUnion { left, right, .. } => {
-            analyze_operator(left, analysis, rel_counter)?;
-            analyze_operator(right, analysis, rel_counter)?;
+            analyze_operator(left, analysis, rel_counter, types)?;
+            analyze_operator(right, analysis, rel_counter, types)?;
         }
         LogicalOperator::Unwind {
             input,
@@ -246,7 +448,7 @@ fn analyze_operator(
             ..
         } => {
             if let Some(op) = input {
-                analyze_operator(op, analysis, rel_counter)?;
+                analyze_operator(op, analysis, rel_counter, types)?;
             }
             if let Some(label) = label {
                 analysis.var_to_label.insert(alias.clone(), label.clone());
@@ -254,7 +456,7 @@ fn analyze_operator(
             }
         }
         LogicalOperator::PathMatch { input, path, .. } => {
-            analyze_operator(input, analysis, rel_counter)?;
+            analyze_operator(input, analysis, rel_counter, types)?;
             for node in
                 std::iter::once(&path.start_node).chain(path.segments.iter().map(|s| &s.end_node))
             {
@@ -266,19 +468,19 @@ fn analyze_operator(
             }
         }
         LogicalOperator::ShortestPath { input, .. } => {
-            analyze_operator(input, analysis, rel_counter)?;
+            analyze_operator(input, analysis, rel_counter, types)?;
         }
         // Same order as `build_optional_match` builds them: input, then the optional side.
         LogicalOperator::OptionalMatch {
             input, optional, ..
         } => {
-            analyze_operator(input, analysis, rel_counter)?;
-            analyze_operator(optional, analysis, rel_counter)?;
+            analyze_operator(input, analysis, rel_counter, types)?;
+            analyze_operator(optional, analysis, rel_counter, types)?;
         }
         // Branch labels may differ; `build_union` re-derives them per branch.
         LogicalOperator::Union { inputs } => {
             for input in inputs {
-                analyze_operator(input, analysis, rel_counter)?;
+                analyze_operator(input, analysis, rel_counter, types)?;
             }
         }
         // Same order as `build_list_comprehension`: the rows, then the element plan.
@@ -289,19 +491,19 @@ fn analyze_operator(
             element,
             ..
         } => {
-            analyze_operator(input, analysis, rel_counter)?;
+            analyze_operator(input, analysis, rel_counter, types)?;
             if let Some(label) = label {
                 analysis
                     .var_to_label
                     .insert(variable.clone(), label.clone());
                 analysis.required_datasets.insert(label.clone());
             }
-            analyze_operator(element, analysis, rel_counter)?;
+            analyze_operator(element, analysis, rel_counter, types)?;
         }
         // The fallback holds the input; the builder keeps its relationship instances
         // in step whichever of the two it plans.
         LogicalOperator::PathExists { fallback, .. } => {
-            analyze_operator(fallback, analysis, rel_counter)?;
+            analyze_operator(fallback, analysis, rel_counter, types)?;
         }
         LogicalOperator::ComprehensionElement | LogicalOperator::SingleRow => {}
     }

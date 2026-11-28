@@ -140,6 +140,32 @@ def test_optional_match_needs_a_bound_variable():
         engine.execute("MATCH (a:Person) OPTIONAL MATCH (x:Person) RETURN a.id, x.id")
 
 
+@pytest.mark.parametrize("use_csr", [False, True])
+def test_filtered_optional_relationship_type(use_csr):
+    engine = CypherEngine(CONFIG, {"Person": PEOPLE, "KNOWS": KNOWS}, use_csr=use_csr)
+    match = "MATCH (a:Person) OPTIONAL MATCH (a)-[r:KNOWS]->(b:Person) "
+    result = " RETURN a.id, type(r) AS kind, labels(r) AS labels"
+    expected = [
+        (1, None, None),
+        (2, "KNOWS", ["KNOWS"]),
+        (3, "KNOWS", ["KNOWS"]),
+        (4, None, None),
+        (5, None, None),
+        (6, None, None),
+    ]
+    where = "WHERE r.since > 2002 AND b.age > 30"
+    assert rows(engine.execute(match + where + result)) == expected
+    if use_csr:
+        plan = engine.explain(match + where + result).split("physical_plan", 1)[1]
+        assert "outer" in plan and "Join" not in plan
+    for kind in ["type(r)", "head(labels(r))"]:
+        query = match + where + f" AND {kind} = $kind" + result
+        assert rows(engine.execute(query, {"kind": "KNOWS"})) == expected
+        assert rows(engine.execute(query, {"kind": "OTHER"})) == [
+            (i, None, None) for i in range(1, 7)
+        ]
+
+
 def test_continued_path_expands_from_the_cheaper_bound_end():
     # People create 4 posts each, forums hold 1: the optional path, written from
     # `friend`, should expand from `forum` and check the creator at the end.

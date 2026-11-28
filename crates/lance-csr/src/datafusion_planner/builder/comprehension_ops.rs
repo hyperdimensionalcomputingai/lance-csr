@@ -56,7 +56,8 @@ impl DataFusionPlanner {
             .map_err(error("Failed to number comprehension rows"))?
             .build()
             .map_err(error("Failed to number comprehension rows"))?;
-        let list = self.value_expr(list, numbered.schema())?;
+        let types = ctx.type_columns();
+        let list = self.value_expr(list, numbered.schema(), types)?;
         let list = if list
             .get_type(numbered.schema())
             .map_err(error("Failed to type comprehension list"))?
@@ -201,13 +202,13 @@ impl DataFusionPlanner {
         // Padding rows (position past the list's end) are never collected.
         let mut kept = col(&pos).lt_eq(length);
         if let Some(keep) = keep {
-            kept = kept.and(self.boolean_expr(keep, elements.schema())?);
+            kept = kept.and(self.boolean_expr(keep, elements.schema(), types)?);
         }
         let aggregate = if count_only {
             // Count rows, not the mapped value: null elements still occupy a slot.
             count(lit(1_i64)).filter(kept).build()
         } else {
-            let value = self.value_expr(map, elements.schema())?;
+            let value = self.value_expr(map, elements.schema(), types)?;
             array_agg(value)
                 .filter(kept)
                 .order_by(vec![col(&pos).sort(true, false)])
