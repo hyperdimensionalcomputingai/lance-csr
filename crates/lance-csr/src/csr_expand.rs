@@ -2634,10 +2634,21 @@ impl BatchExpansion {
     ) -> ExpandedRows {
         let mut chunk = ExpandedRows::default();
         loop {
-            let paused = if self.edge_rows {
-                self.fill_chunk::<true>(adjacency, target, batch_size, &mut chunk)
-            } else {
-                self.fill_chunk::<false>(adjacency, target, batch_size, &mut chunk)
+            // Closing edges get their own copy of the loop, so the common path compiles
+            // exactly as it did before they read the shorter end.
+            let paused = match (self.edge_rows, self.bound.is_some()) {
+                (true, true) => {
+                    self.fill_chunk::<true, true>(adjacency, target, batch_size, &mut chunk)
+                }
+                (true, false) => {
+                    self.fill_chunk::<true, false>(adjacency, target, batch_size, &mut chunk)
+                }
+                (false, true) => {
+                    self.fill_chunk::<false, true>(adjacency, target, batch_size, &mut chunk)
+                }
+                (false, false) => {
+                    self.fill_chunk::<false, false>(adjacency, target, batch_size, &mut chunk)
+                }
             };
             if paused {
                 cooperative_yield().await;
@@ -2649,7 +2660,7 @@ impl BatchExpansion {
     }
 
     /// Keep coroutine state outside the scan while counting deleted occurrences as work.
-    fn fill_chunk<const ROWS: bool>(
+    fn fill_chunk<const ROWS: bool, const CLOSING: bool>(
         &mut self,
         adjacency: &Neighbors,
         target: Option<&TargetLookup>,
@@ -2661,7 +2672,7 @@ impl BatchExpansion {
         let mut work = 0_usize;
         // A closing edge reads the shorter of its two ends' lists, so a hub at one end
         // costs no more than the other end's degree.
-        let back = self.bound.as_ref().and_then(|_| adjacency.flipped());
+        let back = if CLOSING { adjacency.flipped() } else { None };
         'rows: while row < self.keys.len() {
             let i = row;
             let previous_work = work;
@@ -2669,7 +2680,9 @@ impl BatchExpansion {
                 let key = self.keys.value(i);
                 let required = self.bound.as_ref().map(|b| b.value(i));
                 let (list, from, wanted) = match (&back, required) {
-                    (Some(back), Some(r)) if back.degree_bound(r) < adjacency.degree_bound(key) => {
+                    (Some(back), Some(r))
+                        if CLOSING && back.degree_bound(r) < adjacency.degree_bound(key) =>
+                    {
                         (back, r, Some(key))
                     }
                     _ => (adjacency, key, required),
@@ -2693,7 +2706,11 @@ impl BatchExpansion {
                     if wanted.is_some_and(|w| w != neighbor as i64) {
                         continue;
                     }
-                    let neighbor = required.unwrap_or(neighbor as i64);
+                    let neighbor = if CLOSING {
+                        required.unwrap_or(neighbor as i64)
+                    } else {
+                        neighbor as i64
+                    };
                     if let Some(target) = target {
                         let Some(target_row) = target.rows.position(neighbor) else {
                             continue;
