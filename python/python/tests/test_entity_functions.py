@@ -288,7 +288,7 @@ def test_relationship_label_groups_and_simultaneous_renames(interest_graph):
     rows = engine.execute(
         "MATCH (:Entity)-[r:Holds_WI|Owns_Minerals]->(:Entity) "
         "WITH r AS e, 42 AS __lance_csr_type__e "
-        "RETURN type(e) AS KiNd, count(*) AS n, __lance_csr_type__e AS marker "
+        "RETURN type(e) AS Kind, count(*) AS n, __lance_csr_type__e AS marker "
         "ORDER BY kind"
     ).to_pylist()
     assert rows == [
