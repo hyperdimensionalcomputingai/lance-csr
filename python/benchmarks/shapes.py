@@ -352,6 +352,42 @@ def groups(meta: dict) -> list[dict]:
     expand = "CsrExpandExec"  # a real expansion, not a scan of the edge table
     some = " WHERE a.rank < 2000"  # about 24,000 one-hop rows of notes
 
+    # T and S are the account graph's only types, both Account to Account, so an
+    # untyped hop between two Accounts matches exactly what [:T|S] does. One and two
+    # hops start from 200 accounts, three from 50: about 2,000, 21,000 and 56,000 rows
+    # on the small graph.
+    untyped_shapes = {
+        "hop": "MATCH (a:Account)-[{0}]->(b:Account) WHERE a.rank < 200",
+        "two_hop": (
+            "MATCH (a:Account)-[{0}]->(x:Account)-[{0}]->(b:Account) WHERE a.rank < 200"
+        ),
+        "three_hop": (
+            "MATCH (a:Account)-[{0}]->(x:Account)-[{0}]->(y:Account)"
+            "-[{0}]->(b:Account) WHERE a.rank < 50"
+        ),
+        # Separate clauses: an untyped pattern must not move a typed one off the CSR.
+        "mixed": (
+            "MATCH (a:Account)-[:T]->(x:Account) WHERE a.rank < 200 "
+            "MATCH (x)-[{0}]->(b:Account)"
+        ),
+    }
+    untyped = []
+    for shape, text in untyped_shapes.items():
+        # Untyped queries assert no operator yet, so the group runs on main.
+        forms = [("typed", ":T|S", expand), ("untyped", "", None)]
+        if shape == "hop":
+            forms = [("typed", "r:T|S", expand), ("untyped", "r", None)]
+            forms.append(("anonymous", "", None))  # no variable: also untyped
+        for form, rel, operator in forms:
+            untyped.append(
+                q(
+                    f"{shape}_{form}",
+                    text.format(rel) + " RETURN a.id, b.id",
+                    operator=operator,
+                    check=f"untyped_{shape}",
+                )
+            )
+
     result = [
         {
             "group": "phrasing",
@@ -521,6 +557,37 @@ def groups(meta: dict) -> list[dict]:
                 ),
                 q("hop_all_notes", f"{one_hop}{some} RETURN b.note", operator=expand),
             ],
+        },
+        {
+            "group": "untyped",
+            "catches": "Untyped relationships leaving the typed CSR route",
+            "headlines": [
+                (
+                    "one hop: slowest untyped / typed",
+                    ["hop_untyped", "hop_anonymous"],
+                    ["hop_typed"],
+                    "about 1",
+                ),
+                (
+                    "two hops: untyped / typed",
+                    ["two_hop_untyped"],
+                    ["two_hop_typed"],
+                    "about 1",
+                ),
+                (
+                    "three hops: untyped / typed",
+                    ["three_hop_untyped"],
+                    ["three_hop_typed"],
+                    "about 1",
+                ),
+                (
+                    "typed hop beside an untyped one: untyped / typed",
+                    ["mixed_untyped"],
+                    ["mixed_typed"],
+                    "about 1",
+                ),
+            ],
+            "queries": untyped,
         },
     ]
     names = [spec["name"] for group in result for spec in group["queries"]]
