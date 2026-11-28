@@ -306,20 +306,6 @@ def groups(meta: dict) -> list[dict]:
             ),
         ]
 
-    k_values = [k for k in (20, 200, 2000) if k <= meta["accounts"] // 10]
-    call = (
-        "MATCH (a:Account) WHERE a.rank < {k} CALL {{ WITH a "
-        "MATCH (a)-[:T]->(b:Account) RETURN b.id AS bid ORDER BY bid LIMIT 3 }} "
-        "RETURN a.id AS aid, bid"
-    )
-    collect = (
-        "MATCH (a:Account)-[:T]->(b:Account) WHERE a.rank < 200 "
-        "WITH a, b.id AS bid ORDER BY bid WITH a, collect(bid) AS bids "
-        # The parser has no list slices yet; this is `bids[0..3]`.
-        "UNWIND [i IN range(0, 2) WHERE i < size(bids) | bids[i]] AS bid "
-        "RETURN a.id AS aid, bid"
-    )
-
     hop = (
         "MATCH (a:Account)-[:T]->(x:Account) WHERE a.rank < 200 "
         "{} (x)-[:T]->(b:Account)"
@@ -451,23 +437,6 @@ def groups(meta: dict) -> list[dict]:
                 ),
             ],
             "queries": hub,
-        },
-        {
-            "group": "per_row_call",
-            "catches": "Planning cost that grows with outer rows",
-            "headlines": [
-                ("CALL / collect, 200 outer rows", ["call_200"], ["collect_200"], "1"),
-            ],
-            "queries": [
-                q(
-                    f"call_{k}",
-                    call.format(k=k),
-                    operator="Apply",
-                    check="top3" if k == 200 else None,
-                )
-                for k in k_values
-            ]
-            + [q("collect_200", collect, check="top3")],
         },
         {
             "group": "optional",

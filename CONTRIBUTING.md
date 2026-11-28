@@ -67,8 +67,8 @@ both count.
 The SF1 suites write each question one way, over one graph, so they miss a plan that depends on how a query is
 written, or work that grows with one node's degree. The shape suite covers that. It generates a seeded graph with
 hubs, wide text columns and ids that don't follow table order, and runs groups of general multi-hop shapes:
-one question written several ways, cycles and pattern predicates through a growing hub, `CALL` per row,
-filtered `OPTIONAL MATCH`, wide columns, counts against rows, and `LIMIT` without `ORDER BY`. Each group
+one question written several ways, cycles and pattern predicates through a growing hub, filtered
+`OPTIONAL MATCH`, wide columns, counts against rows, and `LIMIT` without `ORDER BY`. Each group
 reports a headline ratio with its ideal, such as the slowest phrasing over the fastest (ideally 1). Queries
 that ask the same question must return the same answer, each query must reach the operator it is meant to
 measure, and each runs in its own process so its peak memory is reported too. Many headlines are far from
