@@ -125,7 +125,7 @@ lookup, making multi-hop traversals fast.
 
 ### Broad openCypher coverage
 :   Supports enough read-only openCypher to run the [GDC Interactive complex queries](https://ldbcouncil.org/)
-    (formerly LDBC SNB): `OPTIONAL MATCH`, `EXISTS`, `CALL { ... }`, chained `WITH`, `UNWIND`, list and pattern
+    (formerly LDBC SNB): `OPTIONAL MATCH`, `EXISTS`, chained `WITH`, `UNWIND`, list and pattern
     comprehensions, `reduce`, relationship alternation, variable-length trails, named paths, `shortestPath` and
     `$parameters`.
 

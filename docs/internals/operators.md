@@ -9,8 +9,7 @@ hash joins (the `use_csr=False` plan below).
 Each operator also reports metrics for `explain(..., analyze=True)`. A shared wrapper (`exec_metrics.rs`) times the
 operator's input stream and its output stream, and records `output_rows` and `elapsed_compute`: the time spent in the
 operator's own polls minus the time spent polling its input, which is how DataFusion's operators count it. Work an
-operator hands to another task isn't counted, and the child plans `Apply` and `PathMatch` run themselves count as
-their own time.
+operator hands to another task isn't counted, and the child plans `PathMatch` runs itself count as its own time.
 
 The plans below come from a four-person graph: a `Person` table (`id`, `name`, `age`) and a `KNOWS` table (`src`,
 `dst`, `since`) with four edges, in memory, with `use_csr=True`. Plans of real graphs differ in their numbers and
@@ -329,13 +328,6 @@ already used by the first segment:
 - **Eligibility:** decided purely from the pattern and available indexes, with no data scan. Patterns with a
   relationship variable, unresolved boundary labels, or more than 64 join branches without a suitable CSR walk
   fall back to ordinary expansions (which track edge uniqueness within each variable-length segment only).
-
-## `Apply`: correlated CALL subqueries
-
-A read-only `CALL { ... }` body runs once per incoming row: its `LIMIT` and aggregates apply to each row, not to the
-whole input. DataFusion has no operator for that, so the body is kept as an unoptimized child template. For each
-outer row, `ApplyExec` binds the explicit imports to concrete values, plans the child, and streams its batches. It
-holds one outer batch and one child stream per partition, and dropping the result stream drops both.
 
 ## `KeyStatistics`: statistics on the scan
 

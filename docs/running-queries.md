@@ -231,7 +231,7 @@ binds its own parameter values before optimization and physical planning; rows a
 
     - Each engine snapshot keeps up to **128** templates (least recently used evicted first), keyed by the exact
       query text and parameter names/types (with nulls kept separate from non-null values).
-    - List and map parameters, parameterized `SKIP`/`LIMIT` counts, `CALL { ... }` subqueries and shapes that
+    - List and map parameters, parameterized `SKIP`/`LIMIT` counts and shapes that
       require literal values at planning time bypass the cache and plan normally.
     - `explain()` plans values directly; `explain(..., analyze=True)` uses the cache as `execute()` does.
     - A successful [`checkout_latest()`](lance.md#checkout-latest) starts the new snapshot with an empty cache,

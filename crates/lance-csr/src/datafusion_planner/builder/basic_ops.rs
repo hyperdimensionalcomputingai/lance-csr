@@ -56,7 +56,6 @@ impl DataFusionPlanner {
             Self::collect_labels(input, &mut analysis.var_to_label);
             let mut branch = PlanningContext::new(&analysis);
             branch.relationship_instance_idx = ctx.relationship_instance_idx.clone();
-            branch.call_input = ctx.call_input.clone();
             branch.path_sources = ctx.path_sources.clone();
             branch.comprehension_elements = ctx.comprehension_elements.clone();
             plans.push(self.build_operator(&mut branch, input)?);
@@ -129,7 +128,6 @@ impl DataFusionPlanner {
             Self::collect_labels(input, &mut analysis.var_to_label);
             let mut branch = PlanningContext::new(&analysis);
             branch.relationship_instance_idx = ctx.relationship_instance_idx.clone();
-            branch.call_input = ctx.call_input.clone();
             branch.path_sources = ctx.path_sources.clone();
             branch.comprehension_elements = ctx.comprehension_elements.clone();
             plans.push(self.build_operator(&mut branch, input)?);
@@ -167,7 +165,6 @@ impl DataFusionPlanner {
                 });
             }
         }
-        // A CALL must know its child's final schema before physical planning per row.
         // DataFusion's UNION builder deliberately leaves coercion until analysis;
         // perform its standard UNION coercion now, without optimizing parameter values.
         let union = datafusion::logical_expr::Union::try_new_with_loose_types(vec![

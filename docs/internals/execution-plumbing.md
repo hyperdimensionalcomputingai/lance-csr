@@ -16,7 +16,7 @@ Each [snapshot](../execution.md#snapshots-and-concurrency) keeps up to 128 unopt
 least recently used first out, keyed by the query text and the types of its parameters. Running a query again with
 new scalar `$parameters` skips parsing and graph planning, and only binds the new values. Some operators need literal
 values while planning; when a template can't be built, the query is planned in full as before. `checkout_latest()` starts the
-new snapshot with an empty cache. CALL queries skip the cache and are planned in full.
+new snapshot with an empty cache.
 
 ## Cooperative deadlines
 
