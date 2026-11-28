@@ -10,6 +10,9 @@ from pathlib import Path
 import pytest
 
 _path = Path(__file__).resolve().parents[2] / "benchmarks" / "shapes.py"
+if not _path.exists():
+    # The wheel tests run a copy of this folder outside the source tree.
+    pytest.skip("needs python/benchmarks/shapes.py", allow_module_level=True)
 _spec = importlib.util.spec_from_file_location("shapes", _path)
 assert _spec and _spec.loader
 shapes = importlib.util.module_from_spec(_spec)
