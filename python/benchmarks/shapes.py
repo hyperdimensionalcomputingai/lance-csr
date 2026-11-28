@@ -39,13 +39,21 @@ from pathlib import Path
 
 SIZES = {
     # tiny is for the test suite; small runs in minutes; large is for final numbers.
+    # About 12 T edges per account (see `generate`). The hub degrees in `levels` span
+    # four orders of magnitude, so work that grows with one node's degree shows up as a
+    # ratio between the first and last level; 100,000 is where such a cliff dominates.
     "tiny": {"accounts": 2_000, "levels": [10, 100]},
     "small": {"accounts": 20_000, "levels": [10, 1_000, 10_000, 100_000]},
     "large": {"accounts": 200_000, "levels": [10, 1_000, 10_000, 100_000]},
 }
+# Wide enough that copying three notes per row (1.5 KB) costs far more than copying ids.
 NOTE_BYTES = 500
-RING_PATHS = 200  # start nodes in each ring level
-TRIANGLES = 8  # of them close a triangle
+# Start nodes in each ring level: enough rows that a per-row cost which grows with the
+# hub's degree outweighs the query's fixed costs.
+RING_PATHS = 200
+# How many of them close a triangle: a small answer that stays the same at every level,
+# so the check across levels isn't vacuous.
+TRIANGLES = 8
 
 
 # --- Graph ------------------------------------------------------------------------
@@ -58,10 +66,12 @@ def generate(out: Path, size: str, seed: int) -> dict:
     rng = np.random.default_rng(seed)
     n = SIZES[size]["accounts"]
 
-    # Accounts: ids shuffled against table order; `rank` picks k outer rows.
+    # Accounts: ids shuffled against table order; `rank` picks k outer rows. Spaced by 3
+    # and offset by 1,000, so no id equals its row position and no code can rely on
+    # that.
     ids = rng.permutation(n).astype(np.int64) * 3 + 1_000
     rank = rng.permutation(n).astype(np.int64)
-    letters = rng.integers(97, 123, n * NOTE_BYTES, dtype=np.uint8)
+    letters = rng.integers(97, 123, n * NOTE_BYTES, dtype=np.uint8)  # ASCII a to z
     offsets = np.arange(0, (n + 1) * NOTE_BYTES, NOTE_BYTES, dtype=np.int32)
     notes = pa.StringArray.from_buffers(n, pa.py_buffer(offsets), pa.py_buffer(letters))
     accounts = pa.table(
@@ -69,6 +79,8 @@ def generate(out: Path, size: str, seed: int) -> dict:
             "id": ids,
             "name": pa.array([f"acct{r}" for r in rank]),
             "rank": rank,
+            # Filters of known selectivity: half, a tenth and a hundredth of the
+            # accounts.
             "active": rng.integers(0, 2, n),
             "region": rng.integers(0, 10, n),
             "flag": (rng.random(n) < 0.01).astype(np.int64),
@@ -78,6 +90,9 @@ def generate(out: Path, size: str, seed: int) -> dict:
 
     # T: heavy-tailed out-degree (Pareto, mean about 12) with a few out-hubs, and
     # 20% of edges aimed at ten in-hubs. S: one edge per account (low fan-out).
+    # Pareto shape 1.5 has a long tail; scaled by 4 its mean is 4 * 1.5 / 0.5 = 12. The
+    # cap of n / 20 keeps every random degree below the five explicit out-hubs (n / 10
+    # each). Each of the ten in-hubs receives about 2% of all edges.
     degree = np.minimum((rng.pareto(1.5, n) + 1) * 4, n // 20).astype(np.int64)
     out_hubs = rng.choice(n, 5, replace=False)
     degree[out_hubs] = n // 10
@@ -90,8 +105,8 @@ def generate(out: Path, size: str, seed: int) -> dict:
     )
     s_dst = rng.integers(0, n, n)
 
-    # The anchor: an ordinary account (out- and in-degree 8 to 15) with an edge into
-    # an in-hub, so walking the wrong way from it is costly.
+    # The anchor: an ordinary account (out- and in-degree 8 to 15, around the mean of
+    # 12) with an edge into an in-hub, so walking the wrong way from it is costly.
     out_deg = np.bincount(src, minlength=n)
     in_deg = np.bincount(dst, minlength=n)
     into_hub = np.zeros(n, dtype=bool)
@@ -108,7 +123,7 @@ def generate(out: Path, size: str, seed: int) -> dict:
         {
             "src": ids[src[order]],
             "dst": ids[dst[order]],
-            "day": rng.integers(0, 30, len(src)),
+            "day": rng.integers(0, 30, len(src)),  # a month of days, for edge filters
             "amount": np.round(rng.random(len(src)) * 1000, 2),
         }
     )
@@ -306,6 +321,7 @@ def groups(meta: dict) -> list[dict]:
             ),
         ]
 
+    # 200 outer accounts: about 2,400 first hops, enough to time the second hop.
     hop = (
         "MATCH (a:Account)-[:T]->(x:Account) WHERE a.rank < 200 "
         "{} (x)-[:T]->(b:Account)"
@@ -313,6 +329,8 @@ def groups(meta: dict) -> list[dict]:
     flagged = " WHERE b.flag = 1"
     returns = " RETURN a.id, x.id, b.id"
 
+    # Three hops from 50 accounts gives about 10^5 rows: enough to time, and small
+    # enough to hold three 500-byte notes per row in memory.
     chain = (
         "MATCH (a:Account)-[:T]->(b:Account)-[:T]->(c:Account)-[:T]->(d:Account) "
         "WHERE a.rank < 50"
@@ -332,7 +350,7 @@ def groups(meta: dict) -> list[dict]:
 
     one_hop = "MATCH (a:Account)-[:T]->(b:Account)"
     expand = "CsrExpandExec"  # a real expansion, not a scan of the edge table
-    some = " WHERE a.rank < 2000"
+    some = " WHERE a.rank < 2000"  # about 24,000 one-hop rows of notes
 
     result = [
         {
@@ -557,6 +575,8 @@ def child(data: Path, mode: str, name: str, timed: bool = True) -> dict:
     warm = time.perf_counter() - start
     times: list[float] = []
     # At least 5 runs; up to 50 or 2 s for fast queries; stop after 10 s for slow ones.
+    # Sub-millisecond queries then get enough samples for a stable median, and a cliff
+    # on `main` can't stretch a run past a few minutes.
     while timed and (len(times) < 5 or (sum(times) < 2 and len(times) < 50)):
         start = time.perf_counter()
         engine.execute(spec["cypher"])
@@ -817,6 +837,8 @@ def main() -> None:
     r.add_argument("--mode", choices=("memory", "lazy"), required=True)
     r.add_argument("--label", required=True, help="the build, such as main or branch")
     r.add_argument("--results", type=Path, required=True)
+    # Generous, because a cliff on `main` at the large size can take minutes; a timeout
+    # is reported as a slow result, not a failure.
     r.add_argument("--timeout", type=float, default=300, help="seconds per query")
     r.add_argument("--group", action="append", help="only these groups")
     rep = sub.add_parser("report", help="markdown tables from saved runs")
