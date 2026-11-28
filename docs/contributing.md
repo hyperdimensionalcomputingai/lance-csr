@@ -113,9 +113,16 @@ behaviour, update the guide, and the docstrings and TSDoc comments that generate
 - Describe the scope, list the test commands you ran, and note any impact on the Python or Node.js bindings,
   examples or docs.
 - Explain the problem the change solves and why it's needed. For a code change, include before-and-after
-  results from both [benchmark suites](benchmarks.md), measured against `main` with the harness described in
-  [`CONTRIBUTING.md`](https://github.com/hyperdimensionalcomputingai/lance-csr/blob/main/CONTRIBUTING.md#build-the-benchmark-harness).
-  Numbers from [`python/benchmarks/`](benchmarks.md#engine-micro-benchmarks) can support a claim but don't
-  replace the two suites.
+  results from all three benchmark suites, in both `memory` and `lazy` modes, measured against `main` with the
+  harness described in
+  [`CONTRIBUTING.md`](https://github.com/hyperdimensionalcomputingai/lance-csr/blob/main/CONTRIBUTING.md#the-benchmark-suites):
+    1. [graph-benchmark-ldbc](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc), 30 custom
+       queries over SNB SF1;
+    2. [graph-benchmark-ldbc-complex](https://github.com/hyperdimensionalcomputingai/graph-benchmark-ldbc-complex),
+       the 14 Interactive complex reads over SNB SF1;
+    3. the shape suite, `python/benchmarks/shapes.py`, general multi-hop shapes over a generated graph.
+
+    Other scripts in [`python/benchmarks/`](benchmarks.md#engine-micro-benchmarks) can support a claim but
+    don't replace the three suites.
 
 See [Project structure](project_structure.md) for a map of the code.
