@@ -6,8 +6,7 @@
 //! spent polling its input, as DataFusion's operators count it.
 //!
 //! shortcut: work done on other tasks (spawned or blocking) isn't counted, and child plans an
-//! operator runs itself (`ApplyExec`'s subquery, `PathMatchExec`'s side inputs) count as its own
-//! time. Time those separately if a profile needs to tell them apart.
+//! operator runs itself (`PathMatchExec`'s side inputs) count as its own time. Time those separately if a profile needs to tell them apart.
 
 use std::pin::Pin;
 use std::task::{Context, Poll};

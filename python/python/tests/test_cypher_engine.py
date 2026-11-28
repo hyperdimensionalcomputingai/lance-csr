@@ -166,3 +166,17 @@ def test_cypher_engine_config_access(graph_env):
 
     assert "person" in engine_config.node_labels()  # case-insensitive
     assert "company" in engine_config.node_labels()
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (p:Person) CALL { WITH p RETURN p.age AS age } RETURN age",
+        "CALL db.labels() YIELD label RETURN label",
+    ],
+)
+def test_call_is_unsupported(graph_env, query):
+    """CALL subqueries and procedures name the clause instead of a parse error."""
+    engine = CypherEngine(*graph_env)
+    with pytest.raises(NotImplementedError, match="CALL subqueries or procedures"):
+        engine.execute(query)

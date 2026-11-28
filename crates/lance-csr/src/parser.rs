@@ -37,7 +37,7 @@ pub fn parse_cypher_query(input: &str) -> Result<CypherQuery> {
         }
         Err(_) => input,
     };
-    Err(write_clause_error(input)
+    Err(unsupported_clause_error(input)
         .unwrap_or_else(|| syntax_error(input, input.len() - remaining.len(), progress)))
 }
 
@@ -178,24 +178,27 @@ const WRITE_CLAUSES: [&str; 8] = [
     "SET",
 ];
 
-/// Name the first write clause of a query that failed to parse, so callers can tell
-/// valid Cypher this read-only engine doesn't run apart from invalid Cypher.
-fn write_clause_error(input: &str) -> Option<GraphError> {
-    let (clause, offset) = find_write_clause(input)?;
+/// Name the first write or `CALL` clause of a query that failed to parse, so callers can tell
+/// valid Cypher this engine doesn't run apart from invalid Cypher.
+fn unsupported_clause_error(input: &str) -> Option<GraphError> {
+    let (clause, offset) = find_unsupported_clause(input)?;
     let before = &input[..offset];
     let line = before.matches('\n').count() + 1;
     let column = before.rsplit('\n').next().unwrap_or("").chars().count() + 1;
+    let reason = if clause == "CALL" {
+        "lance-csr doesn't run CALL subqueries or procedures."
+    } else {
+        "lance-csr runs read-only queries."
+    };
     Some(GraphError::UnsupportedFeature {
-        feature: format!(
-            "{clause} (line {line}, column {column}). lance-csr runs read-only queries."
-        ),
+        feature: format!("{clause} (line {line}, column {column}). {reason}"),
         location: snafu::Location::new(file!(), line!(), column!()),
     })
 }
 
-/// Find a write keyword outside strings, comments and backtick-quoted names. A word after
-/// `.`, `$` or `:`, or before `:`, is a property, parameter, label or map key instead.
-fn find_write_clause(input: &str) -> Option<(&'static str, usize)> {
+/// Find a write or `CALL` keyword outside strings, comments and backtick-quoted names. A word
+/// after `.`, `$` or `:`, or before `:`, is a property, parameter, label or map key instead.
+fn find_unsupported_clause(input: &str) -> Option<(&'static str, usize)> {
     let bytes = input.as_bytes();
     let is_word = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
     let mut i = 0;
@@ -222,7 +225,9 @@ fn find_write_clause(input: &str) -> Option<(&'static str, usize)> {
             if !matches!(prev, b'.' | b'$' | b':') && !followed_by_colon {
                 let found = WRITE_CLAUSES
                     .iter()
-                    .find(|clause| starts_with_clause(&input[start..], clause));
+                    .copied()
+                    .find(|clause| starts_with_clause(&input[start..], clause))
+                    .or_else(|| is_call_clause(&input[start..]).then_some("CALL"));
                 if let Some(clause) = found {
                     return Some((clause, start));
                 }
@@ -236,6 +241,19 @@ fn find_write_clause(input: &str) -> Option<(&'static str, usize)> {
         }
     }
     None
+}
+
+/// Whether `text` starts a `CALL { ... }` subquery or a `CALL name(...)` procedure call, so a
+/// variable named `call` stays a parse error.
+fn is_call_clause(text: &str) -> bool {
+    if !starts_with_clause(text, "CALL") {
+        return false;
+    }
+    let rest = text[4..].trim_start();
+    let name_end = rest
+        .find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '.'))
+        .unwrap_or(rest.len());
+    rest.starts_with('{') || rest[name_end..].trim_start().starts_with('(')
 }
 
 /// Whether `text` starts with the words of `clause`, case-insensitively, each a whole word.
@@ -272,7 +290,6 @@ fn normalize_inline_properties(query: &mut CypherQuery) {
     {
         match clause {
             ReadingClause::Match(m) => move_variable_properties_to_where(m, &mut anonymous),
-            ReadingClause::Call(inner) => normalize_inline_properties(inner),
             ReadingClause::Unwind(_) => {}
         }
     }
@@ -400,15 +417,7 @@ fn reading_clause(input: &str) -> IResult<&str, ReadingClause> {
     alt((
         map(match_clause, ReadingClause::Match),
         map(unwind_clause, ReadingClause::Unwind),
-        map(call_clause, |query| ReadingClause::Call(Box::new(query))),
     ))(input)
-}
-
-fn call_clause(input: &str) -> IResult<&str, CypherQuery> {
-    let (input, _) = multispace0(input)?;
-    let (input, _) = tag_no_case("CALL")(input)?;
-    let (input, _) = multispace0(input)?;
-    delimited(char('{'), cypher_query, preceded(multispace0, char('}')))(input)
 }
 
 // Parse a MATCH clause
@@ -1957,6 +1966,27 @@ mod tests {
     }
 
     #[test]
+    fn call_clauses_are_unsupported_features() {
+        for (query, clause) in [
+            (
+                "MATCH (p:Person) CALL { WITH p RETURN p.age AS age } RETURN age",
+                "CALL (line 1, column 18)",
+            ),
+            ("call {RETURN 1 AS x} RETURN x", "CALL (line 1, column 1)"),
+            (
+                "CALL db.labels() YIELD label RETURN label",
+                "CALL (line 1, column 1)",
+            ),
+        ] {
+            assert_eq!(
+                unsupported_feature(query).unwrap_or_default(),
+                format!("{clause}. lance-csr doesn't run CALL subqueries or procedures."),
+            );
+        }
+        assert_eq!(unsupported_feature("MATCH (call) RETURN call +"), None);
+    }
+
+    #[test]
     fn write_keywords_in_names_and_literals_stay_parse_errors() {
         for query in [
             "MATCH (p) RETURN 'CREATE' +",
@@ -3061,7 +3091,7 @@ mod tests {
             .iter()
             .map(|c| match c {
                 ReadingClause::Match(m) => m,
-                ReadingClause::Unwind(_) | ReadingClause::Call(_) => unreachable!(),
+                ReadingClause::Unwind(_) => unreachable!(),
             })
             .collect();
         assert_eq!(clauses.len(), 3);

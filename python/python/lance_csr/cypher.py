@@ -66,8 +66,8 @@ class CypherEngine:
     [`execute_batches`][lance_csr.CypherEngine.execute_batches] reuse up to 128
     unoptimized query templates per snapshot, keyed by the exact query text and the
     names and types of scalar parameters. Values are bound before optimization on every
-    call. Container parameters, rich path values, `CALL` subqueries, parameterized
-    `SKIP`/`LIMIT` and unsupported template shapes use ordinary planning.
+    call. Container parameters, rich path values, parameterized `SKIP`/`LIMIT` and
+    unsupported template shapes use ordinary planning.
     [`explain`][lance_csr.CypherEngine.explain] plans directly unless `analyze=True`,
     which plans as `execute` does, through the cache. A successful
     `checkout_latest` clears the cache. See [Repeated

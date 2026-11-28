@@ -13,7 +13,7 @@ the data structure those pieces read.
 
 | Page | What it covers |
 | --- | --- |
-| [Custom operators](operators.md) | `CsrExpand`, `NodeLookup`, `PathExists`, `ShortestPath`, `PathMatch`, `Apply` and `KeyStatistics`, with their plans |
+| [Custom operators](operators.md) | `CsrExpand`, `NodeLookup`, `PathExists`, `ShortestPath`, `PathMatch` and `KeyStatistics`, with their plans |
 | [Optimizer rules and rewrites](optimizer.md) | The three logical optimizer rules, graph rewrites before DataFusion sees the plan, and join statistics |
 | [Indexes and updates](indexes.md) | How the CSR adjacency and node indexes are laid out, and how `checkout_latest()` diffs Lance versions |
 | [Execution plumbing](execution-plumbing.md) | Partitioning, the plan template cache, deadlines and Cypher functions |
@@ -33,8 +33,8 @@ From [lance-graph](https://github.com/lance-format/lance-graph)
 Added in lance-csr
 :   Everything this section describes as a DataFusion extension: the extension nodes and their operators, the
     extension planner, the three optimizer rules, the deadline rule and the join statistics. Also the graph rewrites
-    (re-rooting, alternation and multi-label branching), the `OptionalMatch`, `ShortestPath`, `PathMatch`, `PathExists` and
-    `Apply` operators, the CSR adjacency and node indexes with incremental updates, engine snapshots, the plan template cache
+    (re-rooting, alternation and multi-label branching), the `OptionalMatch`, `ShortestPath`, `PathMatch` and `PathExists`
+    operators, the CSR adjacency and node indexes with incremental updates, engine snapshots, the plan template cache
     and the Cypher-specific functions.
 
 [lance-graph](https://github.com/lance-format/lance-graph) plans every hop as joins, and lance-csr keeps that planning
@@ -63,11 +63,11 @@ flowchart TD
     T["Cypher text"] --> P["Parse<br/><code>parser.rs</code>"]
     P --> S["Semantic analysis<br/><code>semantic.rs</code><br/>scopes, labels, $parameters"]
     S --> R["Graph rewrites<br/><code>pattern_order.rs</code><br/><code>pattern_alternatives.rs</code>"]
-    R --> G["Graph logical plan<br/><code>logical_plan.rs</code><br/>ScanByLabel, Expand, VariableLengthExpand,<br/>ShortestPath, PathMatch, PathExists,<br/>ListComprehension, OptionalMatch, Apply"]
+    R --> G["Graph logical plan<br/><code>logical_plan.rs</code><br/>ScanByLabel, Expand, VariableLengthExpand,<br/>ShortestPath, PathMatch, PathExists,<br/>ListComprehension, OptionalMatch"]
     G --> D["DataFusion logical plan<br/><code>datafusion_planner/</code><br/>scans + joins + extension nodes"]
     D --> O["DataFusion optimizer<br/>+ PushCsrTargetFilters<br/>+ CountCsrDegrees<br/>+ PruneCsrTargetColumns"]
     O --> X["Physical planning<br/>CsrQueryPlanner → CsrExtensionPlanner"]
-    X --> E["Execution<br/>CsrExpandExec, NodeLookupExec, PathExistsExec,<br/>ShortestPathExec, PathMatchExec, ApplyExec,<br/>KeyStatisticsExec"]
+    X --> E["Execution<br/>CsrExpandExec, NodeLookupExec, PathExistsExec,<br/>ShortestPathExec, PathMatchExec,<br/>KeyStatisticsExec"]
     E --> B["Arrow record batches"]
 ```
 
@@ -80,8 +80,8 @@ DataFusion logical plan and the physical plan, and every custom operator shows u
 
 | DataFusion trait | lance-csr implementation | Role |
 | --- | --- | --- |
-| `UserDefinedLogicalNodeCore` | `CsrExpandNode`, `NodeLookupNode`, `PathExistsNode`, `ShortestPathNode`, `PathMatchNode`, `ApplyNode`, `HopDegreesNode` | Graph operators as logical plan nodes |
-| `ExecutionPlan` | `CsrExpandExec`, `NodeLookupExec`, `PathExistsExec`, `ShortestPathExec`, `PathMatchExec`, `ApplyExec`, `KeyStatisticsExec` | Their physical operators |
+| `UserDefinedLogicalNodeCore` | `CsrExpandNode`, `NodeLookupNode`, `PathExistsNode`, `ShortestPathNode`, `PathMatchNode`, `HopDegreesNode` | Graph operators as logical plan nodes |
+| `ExecutionPlan` | `CsrExpandExec`, `NodeLookupExec`, `PathExistsExec`, `ShortestPathExec`, `PathMatchExec`, `KeyStatisticsExec` | Their physical operators |
 | `ExtensionPlanner` | `CsrExtensionPlanner` | Lowers each graph node to its `ExecutionPlan` |
 | `QueryPlanner` | `CsrQueryPlanner` | Installs the extension planner on the session |
 | `OptimizerRule` | `PushCsrTargetFilters`, `CountCsrDegrees`, `PruneCsrTargetColumns` | Filter pushdown into extension nodes, per-node counts on the CSR, and column pruning |
@@ -119,7 +119,6 @@ All paths are under
 | `csr_expand/trail_walk.rs`, `csr_traversal.rs` | Shared CSR trail cursor and its single-segment traversal adapter | lance-csr |
 | `shortest_path.rs` | `ShortestPathNode` and `ShortestPathExec`, bidirectional and batched forward breadth-first search | lance-csr |
 | `path_match.rs`, `path_inventory.rs`, `path_value.rs` | Named paths (the CSR walk and the edge inventory), Arrow path values | lance-csr |
-| `apply.rs` | `ApplyNode` and `ApplyExec` for CALL subqueries | lance-csr |
 | `cross_join_order.rs` | `CrossJoinBuildRows` | lance-csr |
 | `key_statistics.rs` | `KeyStatisticsProvider` and `KeyStatisticsExec` | lance-csr |
 | `pattern_order.rs`, `pattern_alternatives.rs` | Re-rooting, predicates implied by an `OR`, alternation and multi-label branching | lance-csr |

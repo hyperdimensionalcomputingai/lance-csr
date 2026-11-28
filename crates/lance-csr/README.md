@@ -186,15 +186,14 @@ records, so visitors must traverse its input and path pattern instead of treatin
 length. The public `nodes(path)` result remains a list of integer keys; the Cypher guide describes the
 separate Arrow record returned by a path value.
 
-Read-only subqueries add `ReadingClause::Call(Box<CypherQuery>)` and
-`LogicalOperator::{Apply, CallInput}`. Update exhaustive matches and visitors to recurse into the CALL
-query, including its UNION branches. A leading importing `WITH` declares the outer variables available
-in that query; each CALL body otherwise has its own scope.
+`CALL { ... }` subqueries, a Neo4j extension outside openCypher 9, were removed: drop match arms for
+`ReadingClause::Call` and `LogicalOperator::{Apply, CallInput}`. A query that uses `CALL` now fails
+with `GraphError::UnsupportedFeature`.
 
 List folds add `ValueExpression::{Reduce, ListPredicate, LocalVariable}`. Update exhaustive matches
 and visitors to traverse the input and body while respecting iterator and accumulator scope. Prefer
 parsing Cypher text to construct these expressions: the parser marks local variable references so they
-cannot accidentally bind to graph variables with the same name. These path, CALL and fold additions
+cannot accidentally bind to graph variables with the same name. These path and fold additions
 also require updates from Rust consumers that construct ASTs or exhaustively match public enums.
 
 ## Testing

@@ -2,7 +2,7 @@
 
 lance-csr implements a read-only subset of [openCypher](https://opencypher.org/) rich enough to run the
 [GDC SNB Interactive](https://ldbcouncil.org/benchmarks/snb/) complex queries (IC1–IC14), including
-`OPTIONAL MATCH`, `EXISTS`, `CALL { ... }`, variable-length trails, named path values, `shortestPath`,
+`OPTIONAL MATCH`, `EXISTS`, variable-length trails, named path values, `shortestPath`,
 comprehensions and `reduce`.
 
 This reference applies equally across [Python](running-queries.md), [Rust](rust.md) and
@@ -47,15 +47,15 @@ engine = CypherEngine(config, datasets, use_csr=True)
 | `WITH [DISTINCT]` | Supports `ORDER BY`, `LIMIT` and `WHERE`; chain as many as needed. `WITH SKIP` is unsupported. |
 | `UNWIND list AS x` | Expands a list into one row per element. |
 | `UNION`, `UNION ALL` | Combines independent queries with matching column names/order and compatible Arrow types. |
-| `CALL { ... RETURN ... }` | Read-only subquery evaluated per incoming row. See [Read-only subqueries](#read-only-subqueries). |
 | `RETURN [DISTINCT]` | Supports `AS` aliases. Without a `MATCH`, expressions run on one implicit row (a configured engine is still required). |
 | `ORDER BY`, `SKIP`, `LIMIT` | Nulls sort last ascending and first descending, as in openCypher. `SKIP` and `LIMIT` take non-negative integer literals or `$parameters`. |
 
 !!! failure "Not supported"
 
-    Write clauses (`CREATE`, `MERGE`, `SET`, `DELETE`, `DETACH DELETE`, `REMOVE`, `FOREACH`, `LOAD CSV`) and
-    procedure calls (`CALL name(...)` / `YIELD`). Write clauses raise `NotImplementedError` naming the clause
-    and its line and column.
+    Write clauses (`CREATE`, `MERGE`, `SET`, `DELETE`, `DETACH DELETE`, `REMOVE`, `FOREACH`, `LOAD CSV`),
+    `CALL { ... }` subqueries and procedure calls (`CALL name(...)` / `YIELD`). They raise
+    `NotImplementedError` naming the clause and its line and column. See [Per-row work without
+    `CALL`](#per-row-work-without-call) for the openCypher forms of common subqueries.
 
 ### Labels are required or inferred
 
@@ -86,45 +86,29 @@ exact IDs). Lists with a decimal point or exponent (`[0.1, 1e-3]`) form `float32
 also work in [vector functions](vector-search.md#vector-functions-in-cypher) and convert to `float32` inside the
 vector operation.
 
-## Read-only subqueries
+## Per-row work without `CALL`
 
-Use `CALL { ... }` when a match, aggregation or `LIMIT` must run independently for each incoming row, for
-example to find each person's oldest friend:
+`CALL { ... }` subqueries, which run a query once for each incoming row, are a Neo4j extension rather than part of
+openCypher 9, so lance-csr doesn't run them. The common per-row uses have openCypher forms:
+
+| For each incoming row | openCypher form |
+| --- | --- |
+| Count matches, keeping rows with none | `OPTIONAL MATCH (p)-[:KNOWS]->(f) RETURN p.name, count(f)` |
+| Join another pattern | A further `MATCH` that shares a variable with the earlier ones |
+| Keep the top match | Sort in a `WITH`, then take `collect(...)[0]` |
+
+For example, each person's oldest friend:
 
 ```python
 print(engine.execute("""
-    MATCH (p:Person)
-    CALL {
-        WITH p
-        MATCH (p)-[:KNOWS]->(f:Person)
-        RETURN f AS friend ORDER BY friend.age DESC LIMIT 1
-    }
-    RETURN p.name AS person, friend.name AS friend ORDER BY person
+    MATCH (p:Person)-[:KNOWS]->(f:Person)
+    WITH p, f ORDER BY f.age DESC
+    WITH p, collect(f.name)[0] AS friend
+    RETURN p.name AS person, friend ORDER BY person
 """).to_pylist())
 # [{'person': 'Alice', 'friend': 'Bob'}, {'person': 'Bob', 'friend': 'David'},
 #  {'person': 'Carol', 'friend': 'David'}]
 ```
-
-Key rules:
-
-- **Importing variables:** start the body with a plain `WITH a, b` naming existing outer variables (no aliases,
-  expressions, `DISTINCT`, `WHERE` or `LIMIT`; add a second `WITH` for those). A body without an importing `WITH`
-  has an independent scope.
-- **Scoping and `RETURN`:** every body ends with `RETURN`. Expressions need an `AS` alias; bare variables keep
-  their names. Returned names must be distinct and must not collide with outer variables; internal names stay
-  private. Returned nodes and relationships keep their properties for later clauses.
-- **Row semantics:** each child row pairs with its incoming row (preserving duplicates). An empty child drops
-  that incoming row, whereas an ungrouped aggregate like `count()` still returns a row with `0`. An empty outer
-  input skips the child. `ORDER BY` and `LIMIT` apply per incoming row.
-- **Nesting and `UNION`:** `CALL` blocks can nest, appear after `WITH`/`UNWIND`, and combine branches with
-  `UNION` or `UNION ALL` (each branch writes its own importing `WITH`, deduplication is per incoming row, and
-  exported nodes/node-lists must share the same labels across branches).
-
-!!! tip "Performance on large outer inputs"
-
-    `CALL` binds, optimizes and plans its child separately for each incoming row, and bypasses the
-    [plan template cache](running-queries.md#repeated-queries). Measure on representative data before using `CALL`
-    over large outer inputs.
 
 ## Patterns
 
@@ -247,7 +231,7 @@ print(paths.to_pylist())
       mixed-label value is unsupported.
     - Queries reading only shortest-path length, node keys, path null checks or homogeneous node-property
       comprehensions (including through `WITH` aliases) stay on the fast CSR shortest-path route within a single
-      label. Cross-label shortest paths (including inside `CALL`/`UNION` or when equal-label endpoints pass
+      label. Cross-label shortest paths (including inside `UNION` or when equal-label endpoints pass
       through another label) use typed identities so equal numeric keys from different labels never form a false
       zero-hop match.
     - Rich path queries can reuse cached plan templates, bind fresh parameters per execution, and honor snapshot
