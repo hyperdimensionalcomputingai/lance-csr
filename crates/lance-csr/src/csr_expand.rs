@@ -2555,7 +2555,27 @@ impl CsrExpandExec {
 
 /// A closing edge whose source has at most this many edges scans them rather than
 /// comparing its two ends' degrees.
+///
+/// Why 32: the comparison costs two degree lookups, each a hash probe (plus one more when
+/// edges were appended), while a scan reads 8-byte neighbour ids in order, so a few dozen
+/// entries cost about as much as the lookups. Below that the scan is the cheaper choice:
+/// graph-benchmark-ldbc q30, whose closing edges start at nodes with one edge, was 5%
+/// slower when every row did the lookups. The value is an order of magnitude, not tuned;
+/// it only has to sit well below the degrees where reading the other end pays off.
 const SCAN_CLOSING_UP_TO: usize = 32;
+
+/// A closing edge that would read a list longer than this indexes it the second time the
+/// same node comes up in a batch: with a hub at both ends, each row is then one lookup.
+///
+/// Why 256: building an index costs an allocation and a hash insert per edge, several
+/// times the cost of reading the entry in a scan, and holds about 40 bytes per neighbour
+/// until the batch ends. Waiting for the second sighting means only a node that repeats is
+/// indexed. Lists shorter than 256 are cheap enough to scan for every row that an index
+/// gains little. Like the scan cutoff, this is an order of magnitude, not a tuned value.
+const INDEX_CLOSING_FROM: usize = 256;
+
+/// A long list's neighbours to the edge rows that reach them, for closing edges.
+type HubIndex = Arc<FastMap<i64, Vec<u64>>>;
 
 /// One input batch and its current row/occurrence, independent of total fan-out.
 struct BatchExpansion {
@@ -2574,6 +2594,11 @@ struct BatchExpansion {
     degrees: Option<(Vec<i64>, Vec<i64>)>,
     /// Per input row, in outer mode: whether it has produced a row yet.
     matched: Option<Vec<bool>>,
+    /// Closing edges from long lists, keyed by (read from the other end, node): `None`
+    /// once seen, then an index of the node's neighbours to their edge rows.
+    // shortcut: kept per input batch, so a hub seen again in a later batch is indexed
+    // again; share it across batches if repeated hubs span many batches.
+    hubs: FastMap<(bool, i64), Option<HubIndex>>,
 }
 
 impl BatchExpansion {
@@ -2598,6 +2623,7 @@ impl BatchExpansion {
             edge_mask: None,
             degrees: None,
             matched: None,
+            hubs: FastMap::default(),
         })
     }
 
@@ -2707,56 +2733,117 @@ impl BatchExpansion {
             if self.keys.is_valid(i) && self.bound.as_ref().is_none_or(|b| b.is_valid(i)) {
                 let key = self.keys.value(i);
                 let required = self.bound.as_ref().map(|b| b.value(i));
-                let (list, from, wanted) = match (&back, required) {
-                    (Some(back), Some(r))
-                        if CLOSING && {
-                            // A short list is cheaper to scan than to look up the other end.
-                            let here = adjacency.degree_bound(key);
-                            here > SCAN_CLOSING_UP_TO && back.degree_bound(r) < here
-                        } =>
+                let (mut list, mut from, mut wanted) = (adjacency, key, required);
+                let mut hub = None;
+                if let (true, Some(back), Some(r)) = (CLOSING, &back, required) {
+                    // A short list is cheaper to scan than to look up the other end.
+                    let mut degree = adjacency.degree_bound(key);
+                    let mut flipped = false;
+                    if degree > SCAN_CLOSING_UP_TO {
+                        let there = back.degree_bound(r);
+                        if there < degree {
+                            (list, from, wanted, degree, flipped) =
+                                (back, r, Some(key), there, true);
+                        }
+                    }
+                    // Decided only where a row starts, so a paused row resumes as it began.
+                    let fresh = position.forward == 0 && position.reverse == 0;
+                    if degree > INDEX_CLOSING_FROM {
+                        hub = match self.hubs.get(&(flipped, from)) {
+                            Some(Some(index)) => Some(index.clone()),
+                            Some(None) if fresh => {
+                                let mut index: FastMap<i64, Vec<u64>> = FastMap::default();
+                                let mut at = NeighborPosition::default();
+                                for (n, e) in list.candidates_from::<ROWS>(from, &mut at).flatten()
+                                {
+                                    index.entry(n as i64).or_default().push(e);
+                                }
+                                let index = Arc::new(index);
+                                self.hubs.insert((flipped, from), Some(index.clone()));
+                                Some(index)
+                            }
+                            None if fresh => {
+                                self.hubs.insert((flipped, from), None);
+                                None
+                            }
+                            _ => None,
+                        };
+                    }
+                }
+                if let Some(index) = hub {
+                    // The row's edges in one lookup; `position.forward` is the offset into them.
+                    let neighbor = required.expect("a closing edge has a bound target");
+                    let wanted = wanted.expect("a closing edge has a bound target");
+                    let edges = index.get(&wanted).map_or(&[][..], Vec::as_slice);
+                    // Within the same work budget as a scan, so a long run of edges pauses too.
+                    while position.forward < edges.len() && work < 1024 {
+                        let edge_row = edges[position.forward];
+                        position.forward += 1;
+                        work += 1;
+                        if ROWS
+                            && self
+                                .edge_mask
+                                .as_ref()
+                                .is_some_and(|m| !m.contains(edge_row))
+                        {
+                            continue;
+                        }
+                        if let Some(target) = target {
+                            let Some(target_row) = target.rows.position(neighbor) else {
+                                continue;
+                            };
+                            chunk.target_positions.push(target_row);
+                        }
+                        chunk.rows.push(i as u32);
+                        chunk.key_values.push(key);
+                        chunk.neighbor_values.push(neighbor);
+                        if ROWS {
+                            chunk.edge_rows.push(edge_row);
+                        }
+                        if chunk.rows.len() == batch_size.max(1) {
+                            break 'rows;
+                        }
+                    }
+                } else {
+                    for candidate in list
+                        .candidates_from::<ROWS>(from, &mut position)
+                        .take(1024 - work)
                     {
-                        (back, r, Some(key))
-                    }
-                    _ => (adjacency, key, required),
-                };
-                for candidate in list
-                    .candidates_from::<ROWS>(from, &mut position)
-                    .take(1024 - work)
-                {
-                    work += 1;
-                    let Some((neighbor, edge_row)) = candidate else {
-                        continue;
-                    };
-                    if ROWS
-                        && self
-                            .edge_mask
-                            .as_ref()
-                            .is_some_and(|m| !m.contains(edge_row))
-                    {
-                        continue;
-                    }
-                    if wanted.is_some_and(|w| w != neighbor as i64) {
-                        continue;
-                    }
-                    let neighbor = if CLOSING {
-                        required.unwrap_or(neighbor as i64)
-                    } else {
-                        neighbor as i64
-                    };
-                    if let Some(target) = target {
-                        let Some(target_row) = target.rows.position(neighbor) else {
+                        work += 1;
+                        let Some((neighbor, edge_row)) = candidate else {
                             continue;
                         };
-                        chunk.target_positions.push(target_row);
-                    }
-                    chunk.rows.push(i as u32);
-                    chunk.key_values.push(key);
-                    chunk.neighbor_values.push(neighbor);
-                    if ROWS {
-                        chunk.edge_rows.push(edge_row);
-                    }
-                    if chunk.rows.len() == batch_size.max(1) {
-                        break 'rows;
+                        if ROWS
+                            && self
+                                .edge_mask
+                                .as_ref()
+                                .is_some_and(|m| !m.contains(edge_row))
+                        {
+                            continue;
+                        }
+                        if wanted.is_some_and(|w| w != neighbor as i64) {
+                            continue;
+                        }
+                        let neighbor = if CLOSING {
+                            required.unwrap_or(neighbor as i64)
+                        } else {
+                            neighbor as i64
+                        };
+                        if let Some(target) = target {
+                            let Some(target_row) = target.rows.position(neighbor) else {
+                                continue;
+                            };
+                            chunk.target_positions.push(target_row);
+                        }
+                        chunk.rows.push(i as u32);
+                        chunk.key_values.push(key);
+                        chunk.neighbor_values.push(neighbor);
+                        if ROWS {
+                            chunk.edge_rows.push(edge_row);
+                        }
+                        if chunk.rows.len() == batch_size.max(1) {
+                            break 'rows;
+                        }
                     }
                 }
                 if work == 1024 {
@@ -4636,6 +4723,68 @@ mod tests {
         let expected = vec![(0, 5), (0, 5), (1, 3), (2, 5), (4, 1), (4, 1)];
         assert_eq!(pairs(&both), expected);
         assert_eq!(both[..4], scanned[..]);
+    }
+
+    #[tokio::test]
+    async fn closing_edges_between_two_hubs_use_an_index_with_the_same_rows() {
+        // Hub 1 points at 2..=400 and a second time at 7; 600..=1000 also point at 7, so
+        // both ends of 1 -> 7 have long lists and neither is read from the other end.
+        let mut src: Vec<Option<i64>> = vec![Some(1); 400];
+        let mut dst: Vec<Option<i64>> = (2..=400).map(Some).chain([Some(7)]).collect();
+        src.extend((600..=1000).map(Some));
+        dst.extend(std::iter::repeat_n(Some(7), 401));
+        let out = Adjacency::build(edge_stream(src.clone(), dst.clone()), "src", "dst");
+        let out = Arc::new(out.await.unwrap());
+        let inc = Arc::new(
+            Adjacency::build(edge_stream(src, dst), "dst", "src")
+                .await
+                .unwrap(),
+        );
+        // The first row scans hub 1, the second indexes it, the rest look rows up.
+        let input = RecordBatch::try_from_iter([
+            (
+                "key",
+                Arc::new(Int64Array::from(vec![1, 1, 1, 1, 1])) as ArrayRef,
+            ),
+            (
+                "bound",
+                Arc::new(Int64Array::from(vec![7, 7, 7, 3, 9999])) as ArrayRef,
+            ),
+        ])
+        .unwrap();
+        let expand = |adjacency: Neighbors, batch_size: usize| {
+            let input = input.clone();
+            async move {
+                let mut expansion = BatchExpansion::try_new(input, 0, Some(1)).unwrap();
+                expansion.edge_rows = true;
+                let mut rows = Vec::new();
+                loop {
+                    let chunk = expansion.next_chunk(&adjacency, None, batch_size).await;
+                    if chunk.rows.is_empty() {
+                        break;
+                    }
+                    rows.extend(
+                        (0..chunk.rows.len())
+                            .map(|i| (chunk.rows[i], chunk.neighbor_values[i], chunk.edge_rows[i])),
+                    );
+                }
+                (rows, expansion.hubs.get(&(false, 1)).cloned())
+            }
+        };
+
+        let (scanned, unindexed) = expand(Neighbors::directed(out.clone()), 8192).await;
+        assert!(unindexed.is_none());
+        let pairs: Vec<_> = scanned.iter().map(|r| (r.0, r.1)).collect();
+        assert_eq!(
+            pairs,
+            [(0, 7), (0, 7), (1, 7), (1, 7), (2, 7), (2, 7), (3, 3)]
+        );
+        let hubs = || Neighbors::directed(out.clone()).with_back(Some(inc.clone()));
+        let (indexed, index) = expand(hubs(), 8192).await;
+        assert!(matches!(index, Some(Some(_))));
+        assert_eq!(indexed, scanned);
+        // One row at a time: a row's indexed edges resume where they paused.
+        assert_eq!(expand(hubs(), 1).await.0, scanned);
     }
 
     #[tokio::test]
