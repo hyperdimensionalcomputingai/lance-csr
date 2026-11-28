@@ -17,6 +17,22 @@ use super::*;
 pub struct Hop {
     pub neighbors: Neighbors,
     pub nodes: Arc<NodeRows>,
+    /// The same edges from their other end, when some source has a long list: a last hop
+    /// to a bound end then reads the shorter of its two ends' lists.
+    back: Option<Neighbors>,
+}
+
+impl Hop {
+    pub fn new(neighbors: Neighbors, nodes: Arc<NodeRows>) -> Self {
+        let back = (neighbors.max_degree_bound() > SCAN_CLOSING_UP_TO)
+            .then(|| neighbors.flipped())
+            .flatten();
+        Self {
+            neighbors,
+            nodes,
+            back,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -75,18 +91,46 @@ impl PathExistsNode {
     }
 }
 
-/// Whether a path over `hops` leads from `node` to `end` (or anywhere).
-// shortcut: no memo of visited nodes, so a long chain of high-degree hops with a bound end
-// costs the product of their degrees per row; add one if longer predicates appear.
-fn reaches(hops: &[Hop], node: i64, end: Option<i64>) -> bool {
+/// Whether a path over `hops` leads from `node` to `end` (or anywhere). `explored` holds
+/// the (hops left, node) pairs this row has already walked: any path from one ends the
+/// search, so walking it again can only fail again.
+fn reaches(
+    hops: &[Hop],
+    node: i64,
+    end: Option<i64>,
+    explored: &mut HashSet<(usize, i64), ahash::RandomState>,
+) -> bool {
     let Some((hop, rest)) = hops.split_first() else {
         return end.is_none_or(|end| end == node);
     };
+    if let (true, Some(end)) = (rest.is_empty(), end) {
+        // The last hop to a bound end closes the path: read the shorter of its two ends'
+        // lists, as a closing edge does.
+        if hop.nodes.position(end).is_none() {
+            return false;
+        }
+        let (list, from, to) = match &hop.back {
+            Some(back) if back.degree_bound(end) < hop.neighbors.degree_bound(node) => {
+                (back, end, node)
+            }
+            _ => (&hop.neighbors, node, end),
+        };
+        let mut position = NeighborPosition::default();
+        return list
+            .neighbors_from(from, &mut position)
+            .any(|next| next as i64 == to);
+    }
+    // A one-hop predicate never revisits a node, so it keeps no memo.
+    if !rest.is_empty() && !explored.insert((rest.len(), node)) {
+        return false;
+    }
     let mut position = NeighborPosition::default();
     let found = hop
         .neighbors
         .neighbors_from(node, &mut position)
-        .any(|next| hop.nodes.position(next as i64).is_some() && reaches(rest, next as i64, end));
+        .any(|next| {
+            hop.nodes.position(next as i64).is_some() && reaches(rest, next as i64, end, explored)
+        });
     found
 }
 
@@ -241,6 +285,7 @@ impl PathExistsExec {
             .map(|end| int64_column(&batch, end))
             .transpose()
             .map_err(external)?;
+        let mut explored = HashSet::default();
         let marks: arrow::array::BooleanArray = (0..batch.num_rows())
             .map(|i| {
                 let end = match &ends {
@@ -248,7 +293,9 @@ impl PathExistsExec {
                     Some(ends) => Some(ends.value(i)),
                     None => None,
                 };
-                (starts.is_valid(i) && reaches(hops, starts.value(i), end)).then_some(true)
+                explored.clear();
+                (starts.is_valid(i) && reaches(hops, starts.value(i), end, &mut explored))
+                    .then_some(true)
             })
             .collect();
         let mut columns = batch.columns().to_vec();
@@ -338,4 +385,76 @@ pub(super) fn plan_path_exists(
     physical_inputs: &[Arc<dyn ExecutionPlan>],
 ) -> Arc<dyn ExecutionPlan> {
     Arc::new(PathExistsExec::new(node, physical_inputs[0].clone()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::csr_expand::tests::edge_stream;
+
+    async fn adjacency(edges: &[(i64, i64)], from: &str, to: &str) -> Arc<Adjacency> {
+        let (src, dst) = edges.iter().map(|&(a, b)| (Some(a), Some(b))).unzip();
+        Arc::new(
+            Adjacency::build(edge_stream(src, dst), from, to)
+                .await
+                .unwrap(),
+        )
+    }
+
+    #[tokio::test]
+    async fn walks_agree_with_or_without_the_shorter_end_and_skip_explored_nodes() {
+        // Two R paths reach 4 (via 2 and 3), then 4 -R-> 5, whose P list holds 10..=300.
+        let r = [(1, 2), (1, 3), (2, 4), (3, 4), (4, 5)];
+        let p: Vec<_> = (10..=300).map(|x| (5, x)).collect();
+        let ids = Arc::new(Int64Array::from_iter_values(1..=400)) as ArrayRef;
+        let batch = RecordBatch::try_from_iter([("id", ids)]).unwrap();
+        let nodes = Arc::new(NodeRows::from_batch(batch, "id").unwrap().unwrap());
+        let hop = |edges: Arc<Adjacency>, back: Arc<Adjacency>| {
+            Hop::new(
+                Neighbors::directed(edges).with_back(Some(back)),
+                nodes.clone(),
+            )
+        };
+        let (r_out, r_in) = (
+            adjacency(&r, "src", "dst").await,
+            adjacency(&r, "dst", "src").await,
+        );
+        let (p_out, p_in) = (
+            adjacency(&p, "src", "dst").await,
+            adjacency(&p, "dst", "src").await,
+        );
+        let hops = vec![
+            hop(r_out.clone(), r_in.clone()),
+            hop(r_out.clone(), r_in.clone()),
+            hop(r_out, r_in),
+            hop(p_out, p_in),
+        ];
+        // Only P has a list long enough to be worth reading from the other end.
+        assert!(hops[3].back.is_some() && hops[0].back.is_none());
+        let scanned: Vec<Hop> = hops
+            .iter()
+            .map(|h| Hop {
+                back: None,
+                ..h.clone()
+            })
+            .collect();
+
+        let mut explored = HashSet::default();
+        for (end, expected) in [
+            (Some(150), true),
+            (Some(5), false),
+            (Some(999), false),
+            (None, true),
+        ] {
+            for walk in [&hops, &scanned] {
+                explored.clear();
+                assert_eq!(reaches(walk, 1, end, &mut explored), expected, "{end:?}");
+            }
+        }
+        // 4 is reached twice, both times with one hop after its own, and explored once.
+        explored.clear();
+        assert!(!reaches(&hops, 1, Some(5), &mut explored));
+        assert!(explored.contains(&(1, 4)));
+        assert_eq!(explored.len(), 4); // 1, 2, 3 and 4: the second visit to 4 adds nothing
+    }
 }

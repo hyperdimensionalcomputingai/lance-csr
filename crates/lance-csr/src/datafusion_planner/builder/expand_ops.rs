@@ -442,15 +442,16 @@ impl DataFusionPlanner {
         let neighbors: Option<Vec<Hop>> = self.adjacency.as_ref().and_then(|catalog| {
             hops.iter()
                 .map(|(rel_type, direction, label)| {
+                    // With the other direction too, for a last hop to a bound end.
+                    let directed = |outgoing: bool| {
+                        catalog.get(rel_type, outgoing).cloned().map(|a| {
+                            Neighbors::directed(a)
+                                .with_back(catalog.get(rel_type, !outgoing).cloned())
+                        })
+                    };
                     let neighbors = match direction {
-                        RelationshipDirection::Outgoing => catalog
-                            .get(rel_type, true)
-                            .cloned()
-                            .map(Neighbors::directed),
-                        RelationshipDirection::Incoming => catalog
-                            .get(rel_type, false)
-                            .cloned()
-                            .map(Neighbors::directed),
+                        RelationshipDirection::Outgoing => directed(true),
+                        RelationshipDirection::Incoming => directed(false),
                         RelationshipDirection::Undirected => catalog
                             .get(rel_type, true)
                             .zip(catalog.get(rel_type, false))
@@ -459,7 +460,7 @@ impl DataFusionPlanner {
                     let nodes = catalog.nodes(label).cloned();
                     neighbors
                         .zip(nodes)
-                        .map(|(neighbors, nodes)| Hop { neighbors, nodes })
+                        .map(|(neighbors, nodes)| Hop::new(neighbors, nodes))
                 })
                 .collect()
         });
