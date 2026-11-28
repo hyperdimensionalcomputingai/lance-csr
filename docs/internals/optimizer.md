@@ -125,7 +125,8 @@ When a query reads `labels(r)` or `type(r)` from a fixed-length relationship, ea
 projects its configured type beside the matched edge. The union keeps that value on the row,
 including through a `WITH` rename. A missing optional edge has a null type. Paths that already
 produce a relationship record read its identity label directly. A query that only reads edge
-properties keeps its existing projection.
+properties keeps its existing projection. When an aggregate groups by `type(r)` or `labels(r)`,
+it uses the type carried by the row and names the output column from the Cypher expression.
 
 A variable-length segment with several types, such as `-[:hasType|isSubclassOf*1..20]->`, runs as one typed
 [iterative traversal](../csr.md#variable-length-traversal) when every type and label is indexed. Otherwise it is

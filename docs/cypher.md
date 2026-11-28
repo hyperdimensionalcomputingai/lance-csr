@@ -310,6 +310,7 @@ For a fixed-length relationship, `labels(r)` returns a list containing its confi
 `type(r)` returns that same name as a string. A type list or an untyped `[r]` reports
 the actual type of each matched relationship. Both functions accept a relationship
 carried through `WITH r AS edge` and return null for an unmatched optional relationship.
+For example, `RETURN type(r), count(*) AS n` returns a `type(r)` column and a count for each type.
 
 ```python
 result = engine.execute("""

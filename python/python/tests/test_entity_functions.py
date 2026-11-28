@@ -262,13 +262,33 @@ def test_relationship_keys_and_with_scope(interest_graph):
         )
 
 
+@pytest.mark.parametrize(
+    ("expression", "expected"),
+    [("type(r)", "KNOWS"), ("labels(r)", ["KNOWS"])],
+)
+def test_unaliased_relationship_group_key(engine, expression, expected):
+    result = engine.execute(
+        f"MATCH (:Person)-[r:KNOWS]->(:Person) RETURN {expression}, count(*) AS n"
+    )
+    assert result.column_names == [expression, "n"]
+    assert result.to_pylist() == [{expression: expected, "n": 2}]
+
+
+def test_unaliased_aggregate_over_relationship_type(engine):
+    result = engine.execute(
+        "MATCH (:Person)-[r:KNOWS|VISITS]->() RETURN count(DISTINCT type(r))"
+    )
+    # Nested function arguments use "expr" in generated aggregate column names.
+    assert result.to_pylist() == [{"count(DISTINCT expr)": 2}]
+
+
 def test_relationship_label_groups_and_simultaneous_renames(interest_graph):
     config, sources = interest_graph
     engine = CypherEngine(config, sources)
     rows = engine.execute(
         "MATCH (:Entity)-[r:Holds_WI|Owns_Minerals]->(:Entity) "
         "WITH r AS e, 42 AS __lance_csr_type__e "
-        "RETURN type(e) AS kind, count(*) AS n, __lance_csr_type__e AS marker "
+        "RETURN type(e) AS KiNd, count(*) AS n, __lance_csr_type__e AS marker "
         "ORDER BY kind"
     ).to_pylist()
     assert rows == [

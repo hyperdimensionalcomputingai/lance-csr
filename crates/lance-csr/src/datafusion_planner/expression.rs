@@ -562,6 +562,16 @@ pub(crate) fn bind_value(
     schema: &datafusion::common::DFSchema,
     types: crate::path_value::TypeColumns,
 ) -> ValueExpression {
+    bind_value_with_type_column(expr, schema, types).0
+}
+
+/// Also report whether binding introduced a private relationship-type column.
+/// An aggregate projection must keep the Cypher name of such an expression.
+pub(crate) fn bind_value_with_type_column(
+    expr: &ValueExpression,
+    schema: &datafusion::common::DFSchema,
+    types: crate::path_value::TypeColumns,
+) -> (ValueExpression, bool) {
     let has = |name: &str| schema.has_column_with_unqualified_name(name);
     let entity_properties = |var: &str| {
         let var = var.to_lowercase();
@@ -585,6 +595,7 @@ pub(crate) fn bind_value(
             .collect::<Vec<_>>()
     };
     let mut expr = expr.clone();
+    let mut used_type_column = false;
     crate::ast::transform_value(&mut expr, &mut |e| match e {
         ValueExpression::Property(p)
             if !has(&qualify_column(&p.variable, &p.property))
@@ -640,9 +651,9 @@ pub(crate) fn bind_value(
                 }
             }
         }
-        _ => bind_relationship_type(e, schema, types),
+        _ => used_type_column |= bind_relationship_type(e, schema, types),
     });
-    expr
+    (expr, used_type_column)
 }
 
 /// `type(r)` and `labels(r)` of a flat relationship `r` (no value column of that name)
@@ -652,23 +663,23 @@ fn bind_relationship_type(
     expr: &mut ValueExpression,
     schema: &datafusion::common::DFSchema,
     types: crate::path_value::TypeColumns,
-) {
+) -> bool {
     let ValueExpression::ScalarFunction { name, args } = expr else {
-        return;
+        return false;
     };
     let labels = match name.to_lowercase().as_str() {
         "type" => false,
         "labels" => true,
-        _ => return,
+        _ => return false,
     };
     let [ValueExpression::Variable(var)] = args.as_slice() else {
-        return;
+        return false;
     };
     let column = types.name(var);
     if schema.has_column_with_unqualified_name(&var.to_lowercase())
         || !schema.has_column_with_unqualified_name(&column)
     {
-        return;
+        return false;
     }
     let kind = ValueExpression::Variable(column);
     *expr = if labels {
@@ -685,6 +696,7 @@ fn bind_relationship_type(
     } else {
         kind
     };
+    true
 }
 
 /// [`bind_value`]'s `type()`/`labels()` binding against the rows under a projection,
@@ -704,7 +716,7 @@ pub(crate) fn bind_dropped_relationship_types(
                 }
             }
         }
-        bind_relationship_type(e, input, types)
+        bind_relationship_type(e, input, types);
     });
 }
 

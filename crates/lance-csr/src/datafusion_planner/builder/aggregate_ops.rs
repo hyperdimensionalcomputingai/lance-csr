@@ -9,6 +9,7 @@ use crate::ast::ValueExpression;
 use crate::case_insensitive::qualify_column;
 use crate::csr_expand::{only_hop_fetches, NodeLookupNode, NodeRows};
 use crate::datafusion_planner::analysis::PlanningContext;
+use crate::datafusion_planner::expression::{bind_value_with_type_column, to_cypher_column_name};
 use crate::datafusion_planner::DataFusionPlanner;
 use crate::error::Result;
 use crate::logical_plan::*;
@@ -217,12 +218,23 @@ impl DataFusionPlanner {
         let types = ctx.type_columns();
         let bound: Vec<ProjectionItem> = projections
             .iter()
-            .map(|p| ProjectionItem {
-                expression: super::super::expression::bind_value(&p.expression, &schema, types),
-                alias: p.alias.clone(),
+            .map(|p| {
+                let (expression, used_type_column) =
+                    bind_value_with_type_column(&p.expression, &schema, types);
+                let alias = p
+                    .alias
+                    .as_ref()
+                    .map(|a| a.to_lowercase())
+                    .or_else(|| used_type_column.then(|| to_cypher_column_name(&p.expression)));
+                ProjectionItem { expression, alias }
             })
             .collect();
         let projections = bound.as_slice();
+        let output_name = |p: &ProjectionItem| {
+            p.alias
+                .clone()
+                .unwrap_or_else(|| to_cypher_column_name(&p.expression))
+        };
         let late_properties = self.late_properties(ctx, &input_plan, projections);
         let mut late = Vec::new();
         for p in projections {
@@ -254,13 +266,7 @@ impl DataFusionPlanner {
                 continue;
             }
             if super::super::expression::contains_aggregate(&p.expression) {
-                // Aliases are lowercase, like plain projections: the final projection refers
-                // to columns with `col`, which normalizes identifiers.
-                let alias = if let Some(alias) = &p.alias {
-                    alias.to_lowercase()
-                } else {
-                    super::super::expression::to_cypher_column_name(&p.expression)
-                };
+                let alias = output_name(p);
                 let mut rewritten = p.expression.clone();
                 let first = aggregates.len();
                 split_aggregates(&mut rewritten, &mut aggregates);
@@ -321,14 +327,7 @@ impl DataFusionPlanner {
             } else if !super::super::expression::contains_aggregate(&p.expression) {
                 // Re-create the expression and apply alias
                 let expr = self.unresolved_value_expr(&p.expression);
-                let aliased = if let Some(alias) = &p.alias {
-                    expr.alias(alias.to_lowercase())
-                } else {
-                    let cypher_name =
-                        super::super::expression::to_cypher_column_name(&p.expression);
-                    expr.alias(cypher_name)
-                };
-                final_projection.push(aliased);
+                final_projection.push(expr.alias(output_name(p)));
             } else {
                 final_projection.push(outer[agg_idx].clone());
                 agg_idx += 1;
