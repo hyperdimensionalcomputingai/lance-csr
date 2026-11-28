@@ -150,6 +150,8 @@ struct CsrBase {
     sources: Sources,
     neighbors: ScalarBuffer<u64>,
     edge_rows: PackedU64,
+    /// The most edges any source has.
+    max_degree: usize,
 }
 
 /// Source key -> its neighbours' positions in the base.
@@ -231,10 +233,12 @@ impl CsrBase {
                 }
             }
         };
+        let max_degree = offsets.windows(2).map(|w| w[1] - w[0]).max().unwrap_or(0) as usize;
         Some(Self {
             sources,
             neighbors: neighbors.clone(),
             edge_rows: edge_rows.clone(),
+            max_degree,
         })
     }
 
@@ -498,6 +502,15 @@ impl Adjacency {
     /// `key`'s edges, counting removed ones: an upper bound that costs two lookups.
     fn degree_bound(&self, key: i64) -> usize {
         self.base_range(key).len() + self.added.get(&key).map_or(0, Vec::len)
+    }
+
+    /// An upper bound on any source's edges, or `usize::MAX` once edges were appended.
+    fn max_degree_bound(&self) -> usize {
+        if self.added_count == 0 {
+            self.base.max_degree
+        } else {
+            usize::MAX
+        }
     }
 
     /// Resume at an occurrence offset, borrowing all neighbour and deletion storage.
@@ -1984,6 +1997,12 @@ impl Neighbors {
         self.forward.degree_bound(key) + reverse
     }
 
+    /// An upper bound on the edges a hop from any key visits.
+    fn max_degree_bound(&self) -> usize {
+        let reverse = self.reverse.as_ref().map_or(0, |r| r.max_degree_bound());
+        self.forward.max_degree_bound().saturating_add(reverse)
+    }
+
     /// Edges visited over all keys (self-loops count once per direction in this estimate).
     pub fn num_edges(&self) -> u64 {
         self.forward.num_edges() + self.reverse.as_ref().map_or(0, |r| r.num_edges())
@@ -2676,7 +2695,12 @@ impl BatchExpansion {
         let mut work = 0_usize;
         // A closing edge reads the shorter of its two ends' lists, so a hub at one end
         // costs no more than the other end's degree.
-        let back = if CLOSING { adjacency.flipped() } else { None };
+        // Decided once per hop: with no long list anywhere, every row just scans.
+        let back = if CLOSING && adjacency.max_degree_bound() > SCAN_CLOSING_UP_TO {
+            adjacency.flipped()
+        } else {
+            None
+        };
         'rows: while row < self.keys.len() {
             let i = row;
             let previous_work = work;
@@ -3933,6 +3957,7 @@ mod tests {
             },
             neighbors: neighbours.to_vec().into(),
             edge_rows: rows.clone(),
+            max_degree: 0,
         };
         let bitmaps = CsrBase::with_layout(keys, csr(), true).unwrap();
         let allowed =
@@ -4065,6 +4090,7 @@ mod tests {
             ),
             neighbors: Vec::new().into(),
             edge_rows: PackedU64::pack(&[]),
+            max_degree: 0,
         };
         assert_eq!(base.range(1), (end - 1) as usize..end as usize);
         assert_eq!(base.range(2), 0..end as usize);
@@ -4548,6 +4574,9 @@ mod tests {
         dst.extend([Some(5), Some(5)]);
         let out = Adjacency::build(edge_stream(src.clone(), dst.clone()), "src", "dst");
         let out = Arc::new(out.await.unwrap());
+        assert_eq!(out.max_degree_bound(), 300);
+        let appended = out.with_changes(&[(7, 9, 301)], &RemovedRows::default());
+        assert_eq!(appended.max_degree_bound(), usize::MAX);
         let inc = Arc::new(
             Adjacency::build(edge_stream(src, dst), "dst", "src")
                 .await
